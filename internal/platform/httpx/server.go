@@ -20,6 +20,11 @@ const (
 	maxHeaderBytes    = 64 << 10
 )
 
+// RequestTimeout bounds every request's context (Timeout middleware). It is
+// shorter than the server's write timeout so handlers can still write an
+// error before net/http closes the connection.
+const RequestTimeout = writeTimeout - 5*time.Second
+
 // ServerOptions configures the shutdown sequence.
 type ServerOptions struct {
 	// DrainDelay: time between readiness turning 503 and the listener

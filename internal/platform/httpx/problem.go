@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -53,6 +54,8 @@ func StatusOf(k apperr.Kind) int {
 		return http.StatusTooManyRequests
 	case apperr.KindUpstream:
 		return http.StatusBadGateway
+	case apperr.KindPayloadTooLarge:
+		return http.StatusRequestEntityTooLarge
 	case apperr.KindInternal:
 		return http.StatusInternalServerError
 	default:
@@ -74,7 +77,16 @@ func NewProblem(r *http.Request, status int, code apperr.Code) Problem {
 
 // WriteError renders err as a problem document. Server-side failures
 // (5xx) are logged with their cause; the cause never reaches the client.
+//
+// A *http.MaxBytesError (body over BodyLimit) that no *apperr.Error wraps
+// becomes 413 REQUEST_BODY_TOO_LARGE, so handlers can return the decode
+// error as is.
 func WriteError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
+	var ae *apperr.Error
+	var tooLarge *http.MaxBytesError
+	if !errors.As(err, &ae) && errors.As(err, &tooLarge) {
+		err = apperr.Wrap(err, apperr.KindPayloadTooLarge, CodeBodyTooLarge)
+	}
 	e := apperr.From(err)
 	kind, code := e.Kind, e.Code
 	if code == "" || kind == apperr.KindInternal {

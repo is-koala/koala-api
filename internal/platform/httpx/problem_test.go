@@ -64,6 +64,7 @@ func TestStatusOfEveryKind(t *testing.T) {
 		{apperr.KindConflict, http.StatusConflict},
 		{apperr.KindRateLimited, http.StatusTooManyRequests},
 		{apperr.KindUpstream, http.StatusBadGateway},
+		{apperr.KindPayloadTooLarge, http.StatusRequestEntityTooLarge},
 		{apperr.KindInternal, http.StatusInternalServerError},
 		{apperr.Kind(200), http.StatusInternalServerError},
 	}
@@ -132,6 +133,25 @@ func TestWriteErrorDoesNotLogClientErrors(t *testing.T) {
 	for _, r := range sink.records(t) {
 		if r["msg"] == "request failed" {
 			t.Fatalf("4xx logged as failure: %v", r)
+		}
+	}
+}
+
+func TestWriteErrorMapsMaxBytesErrorTo413(t *testing.T) {
+	t.Parallel()
+
+	err := fmt.Errorf("decode body: %w", &http.MaxBytesError{Limit: 1 << 20})
+	rec, sink := serveError(t, err)
+
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `"code":"REQUEST_BODY_TOO_LARGE"`) {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+	for _, r := range sink.records(t) {
+		if r["msg"] == "request failed" {
+			t.Fatalf("413 logged as a server failure: %v", r)
 		}
 	}
 }

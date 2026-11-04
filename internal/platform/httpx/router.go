@@ -20,18 +20,27 @@ const (
 const (
 	CodeRouteNotFound    = "ROUTE_NOT_FOUND"
 	CodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
+	CodeBodyTooLarge     = "REQUEST_BODY_TOO_LARGE"
 )
 
 // NewRouter returns the root router with the platform middleware chain
 // and health endpoints. Middleware order is outermost first:
 //
-//	RequestID → AccessLog → Recover → route
+//	RequestID → SecurityHeaders → AccessLog → Recover → Timeout → BodyLimit → route
 //
-// so the access log sees the request id and the 500 written by Recover.
-// Modules mount their routes on the returned router.
-func NewRouter(logger *slog.Logger, health *Health) chi.Router {
+// so the access log sees the request id and the 500 written by Recover,
+// and every response, including 404/405 problems, carries the security
+// headers. Modules mount their routes on the returned router.
+func NewRouter(logger *slog.Logger, health *Health) *chi.Mux {
 	r := chi.NewRouter()
-	r.Use(RequestID, AccessLog(logger), Recover(logger))
+	r.Use(
+		RequestID,
+		SecurityHeaders,
+		AccessLog(logger),
+		Recover(logger),
+		Timeout(RequestTimeout),
+		BodyLimit(DefaultBodyLimit),
+	)
 
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		WriteProblem(w, logger, req, NewProblem(req, http.StatusNotFound, CodeRouteNotFound))
@@ -44,7 +53,9 @@ func NewRouter(logger *slog.Logger, health *Health) chi.Router {
 	})
 
 	r.Get(PathLivez, health.Live)
+	r.Head(PathLivez, health.Live)
 	r.Get(PathReadyz, health.Ready)
+	r.Head(PathReadyz, health.Ready)
 	return r
 }
 
