@@ -1,0 +1,38 @@
+name: koala-api verify
+
+# The quality gate: `make verify` (CLAUDE.md, ADR-0004). Heavy work never
+# runs on the shared Mac; this workflow is the only place the gate runs.
+# push: main records the result for the SHA that squash merge creates.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A new push to a PR cancels its older run. main is never cancelled: every
+# merged commit's result is kept.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Reads the toolchain line of go.mod (go1.27.3).
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Verify
+        run: make verify

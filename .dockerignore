@@ -1,0 +1,9 @@
+# Only the Go sources are needed in the build context.
+.git
+bin
+dist
+docs
+.env
+.env.*
+.idea
+.vscode
