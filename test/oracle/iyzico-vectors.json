@@ -1,0 +1,98 @@
+{
+  "_aciklama": "Iyzico IYZWSv2 ve yanıt imzası altın vektörleri. 'java_test' bölümündeki değerler IyzicoProtocolTest'teki sabitlerdir (aynen). Anahtarlar test sabitidir ('sandbox-secret', 'sandbox-api-key'): gerçek API anahtarı ya da merchant id değildir. 'turetilmis' bölümü Java'da koşturulmadı; formülün Python ile uygulanmasından çıktı ve doğrulanmadı.",
+  "kaynak": "src/test/java/com/exskylab/koala/core/utilities/payment/IyzicoProtocolTest.java; src/main/java/com/exskylab/koala/core/utilities/payment/iyzico/IyzicoPaymentService.java:129, :158-159, :330-351, :379-411",
+  "test_anahtarlari": {
+    "secret_key": "sandbox-secret",
+    "api_key": "sandbox-api-key",
+    "base_url": "https://sandbox-api.iyzipay.com"
+  },
+  "yanit_imzasi": {
+    "algoritma": "hex_lower(HMAC-SHA256(secret_key, alanlar ':' ile birleştirilmiş)); karşılaştırma sabit zamanlı, sağlanan imza küçük harfe çevrilir",
+    "ondalik_normalizasyon": "ondalık alanlar new BigDecimal(s).stripTrailingZeros().toPlainString() ile yazılır",
+    "alan_sirasi": {
+      "checkoutform_initialize": ["conversationId", "token"],
+      "checkoutform_retrieve": ["paymentStatus", "paymentId", "currency", "basketId", "conversationId", "paidPrice", "price", "token"],
+      "checkoutform_retrieve_ondalik_alanlar": ["paidPrice", "price"],
+      "approve_disapprove_refund_submerchant": "yanıt imzası doğrulanmıyor (yalnız status == success)"
+    },
+    "java_test": [
+      {
+        "id": "IV-01",
+        "uc": "checkoutform_retrieve",
+        "yanit_alanlari": {"paymentStatus": "SUCCESS", "paymentId": "pay-1", "currency": "TRY", "basketId": "basket-1", "conversationId": "conv-1", "paidPrice": "1075.00", "price": "1075.00", "token": "tok-1"},
+        "imzalanan_metin": "SUCCESS:pay-1:TRY:basket-1:conv-1:1075:1075:tok-1",
+        "imza": "183f3da44502ffc7c4e80b737e68844f2153f83a62234df275e5fbc2e6b64a39",
+        "beklenen": "kabul",
+        "java_test": "IyzicoProtocolTest#theCheckoutFormResultIsRetrievedFromTheDocumentedEndpoint (successBody); #theThreeDSecureVerificationResultIsReadFromTheResponse (mdStatus imzaya girmez)",
+        "dogrulama": "test sabiti; imzalanan metin Python HMAC ile yeniden hesaplanıp eşleşti"
+      },
+      {
+        "id": "IV-02",
+        "uc": "checkoutform_retrieve",
+        "yanit_alanlari": {"paymentStatus": "FAILURE", "paymentId": "pay-1", "currency": "TRY", "basketId": "basket-1", "conversationId": "conv-1", "paidPrice": "1075.00", "price": "1075.00", "token": "tok-1"},
+        "imzalanan_metin": "FAILURE:pay-1:TRY:basket-1:conv-1:1075:1075:tok-1",
+        "imza": "74acb6c387c11a86fc25c9599498cb7276d0657b90e68470949bcb095e47801d",
+        "beklenen": "kabul (paymentStatus=FAILURE istisna değil, sonuç olarak döner)",
+        "java_test": "IyzicoProtocolTest#aDeclinedPaymentIsReturnedRatherThanThrown",
+        "dogrulama": "test sabiti; Python HMAC ile eşleşti"
+      },
+      {
+        "id": "IV-03",
+        "uc": "checkoutform_initialize",
+        "yanit_alanlari": {"conversationId": "conv-1", "token": "tok-1", "paymentPageUrl": "https://sandbox-cpp.iyzipay.com/checkoutform/example"},
+        "imzalanan_metin": "conv-1:tok-1",
+        "imza": "da244a6a48b4793ef8d0d6e0b5e46683c5a9bf0f6b4f73b60168667f4ae66a25",
+        "beklenen": "kabul; paymentPageUrl ana makinesi beyaz listede (sandbox-cpp.iyzipay.com / cpp.iyzipay.com)",
+        "java_test": "IyzicoProtocolTest#aValidSignedInitializeResponseReturnsTheTrustedHostedSession",
+        "dogrulama": "test sabiti; Python HMAC ile eşleşti"
+      },
+      {
+        "id": "IV-04",
+        "uc": "checkoutform_initialize",
+        "yanit_alanlari": {"conversationId": "conv-1", "token": "tok-1", "paymentPageUrl": "https://attacker.example/checkoutform/example"},
+        "imza": "da244a6a48b4793ef8d0d6e0b5e46683c5a9bf0f6b4f73b60168667f4ae66a25",
+        "beklenen": "ret (ExternalServiceException): imza geçerli ama ana makine güvenilmez",
+        "java_test": "IyzicoProtocolTest#aSignedInitializeResponseCannotRedirectToAnUntrustedHost",
+        "dogrulama": "test sabiti"
+      },
+      {
+        "id": "IV-05",
+        "uc": "checkoutform_initialize / checkoutform_retrieve",
+        "imza": "tampered",
+        "beklenen": "ret (ExternalServiceException {payment.provider.response.invalid})",
+        "java_test": "IyzicoProtocolTest#aRetrieveResponseWithAnInvalidOfficialSignatureIsRejected; #anInitializeResponseWithAnInvalidOfficialSignatureIsRejected",
+        "dogrulama": "test sabiti"
+      }
+    ],
+    "turetilmis_normalizasyon": [
+      {"girdi": "1075.00", "cikti": "1075", "dogrulama": "test (IV-01 üzerinden dolaylı)"},
+      {"girdi": "1.50", "cikti": "1.5", "dogrulama": "doğrulanmadı (BigDecimal semantiğinden)"},
+      {"girdi": "10000000.00", "cikti": "10000000", "dogrulama": "doğrulanmadı (stripTrailingZeros → 1E+7, toPlainString → 10000000)"},
+      {"girdi": "0.00", "cikti": "0", "dogrulama": "doğrulanmadı (Java 8+ stripTrailingZeros sıfırı 0 yapar)"},
+      {"girdi": "537.5", "cikti": "537.5", "dogrulama": "doğrulanmadı"}
+    ]
+  },
+  "istek_imzasi": {
+    "algoritma": "randomKey = currentTimeMillis + UUID hex (tiresiz); payload = uriPath + jsonBody (gövde boşsa yalnız uriPath; query yok); signature = hex_lower(HMAC-SHA256(secret_key, randomKey + payload)); Authorization = 'IYZWSv2 ' + base64('apiKey:' + api_key + '&randomKey:' + randomKey + '&signature:' + signature); x-iyzi-rnd = randomKey",
+    "java_test": "IyzicoProtocolTest#theSignatureIsBuiltFromTheRandomKeyThePathAndTheBody; #everyRequestCarriesTheRandomKeyInItsOwnHeader; #theForcedThreeDSecureFlagIsPartOfTheSignedBody (Java testinde randomKey rastgele; sabit vektör yok)",
+    "turetilmis": [
+      {
+        "id": "IR-01",
+        "random_key": "17300000000000123456789abcdef0123456789abcdef",
+        "uri_path": "/payment/iyzipos/checkoutform/auth/ecom/detail",
+        "json_body": "{\"locale\":\"tr\",\"conversationId\":\"conv-1\",\"token\":\"tok-1\"}",
+        "imza": "17386d73c8a12e3f939b707af3f7ca433eafd975d0e92244abdab20895efda1d",
+        "authorization": "IYZWSv2 YXBpS2V5OnNhbmRib3gtYXBpLWtleSZyYW5kb21LZXk6MTczMDAwMDAwMDAwMDAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVmJnNpZ25hdHVyZToxNzM4NmQ3M2M4YTEyZTNmOTM5YjcwN2FmM2Y3Y2E0MzNlYWZkOTc1ZDBlOTIyNDRhYmRhYjIwODk1ZWZkYTFk",
+        "dogrulama": "doğrulanmadı: formül Python ile uygulandı, Java'da koşturulmadı. Gövde bayt dizisi örnektir; Java'nın retrieve gövdesi HashMap'ten serileşir ve alan sırası bu örnekten farklı olabilir."
+      },
+      {
+        "id": "IR-02",
+        "random_key": "17300000000000123456789abcdef0123456789abcdef",
+        "uri_path": "/payment/iyzipos/item/approve",
+        "json_body": "",
+        "imza": "bfec3a98ff92171446868862050eedcad01505232af9a849f65f4aceb9c9a457",
+        "dogrulama": "doğrulanmadı: boş gövde dalı (payload = yalnız uriPath); approve gerçekte gövdeli gider, bu satır yalnız dalı sınar"
+      }
+    ]
+  }
+}

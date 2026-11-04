@@ -1,0 +1,1894 @@
+# TASLAK — test/authz/matrix.yaml
+#
+# Bu dosya Faz 0 başlangıç taslağıdır; Go değerlendiricisi ve OpenFGA uygunluk
+# koşucusu (§5.6-5) henüz yok. `expect` Java'nın BUGÜNKÜ davranışıdır (origin/main);
+# tek istisna `java_actual: allow` taşıyan satırlar: orada `expect: deny` hedef
+# davranıştır (kontrol eksik ya da model farkı), Java bugün izin veriyor.
+# `model_status` taşıyan satırlarda §5.4
+# modeli Java'dan farklı karar verir ya da karşılığı yoktur; bu satırlar ürün
+# kararı verilene kadar "karar bekliyor" sayılır (docs/faz0/authz-ciftleri.md).
+#
+# Üretim: docs/faz0/tarama/pairs.py (elle düzenlemeden önce betiği güncelleyin).
+#
+# Biçim (§5.6-3): özne fikstürü, eylem, nesne fikstürü -> beklenen sonuç ve temel.
+#   action  : <nesne_tipi>.<karar eylemi> (authz-envanteri.csv `eylem` kolonu)
+#   expect  : allow | deny
+#   basis   : allow için kararın dayanağı (Decision.Basis karşılığı)
+#   conceal : deny için ret biçimi (true = var olmayan kaynakla bayt bayt aynı 404)
+#   source  : bağlayan Java testi (dosya:satır#test); boşsa bulunamadı
+
+version: 0
+status: draft
+
+fixtures:
+  users:
+    anonymous:        "kimliksiz istek"
+    u_worker:         "işçi; asg_ind, asg_co, asg_orphan atamalarının işçisi; conv_ind katılımcısı; seat_w koltuğu"
+    u_creator:        "bireysel işveren; job_ind ve job_closed'ın creator'ı; tmpl_c sahibi"
+    u_co_admin:       "co_1 ADMIN"
+    u_co_staff:       "co_1 STAFF; job_co'nun creator'ı"
+    u_co_former:      "co_1'den çıkarılmış eski yetkili; job_co_orphan'ın creator'ı"
+    u_other_co_admin: "co_2 ADMIN; co_1 ile ilişkisi yok"
+    u_applicant:      "app_ind ve app_co başvurularının sahibi; cv_applicant sahibi"
+    u_invitee:        "inv_1 ile co_1'e davet edilmiş kullanıcı"
+    u_blocked:        "u_worker tarafından engellenmiş kullanıcı (conv_blocked'da katılımcı)"
+    u_stranger:       "hiçbir nesneyle ilişkisi yok; img_x'in yükleyeni"
+  objects:
+    co_1:              "onaylı şirket (ADMIN u_co_admin, STAFF u_co_staff)"
+    co_2:              "başka şirket"
+    job_ind:           "BİREYSEL, OPEN, creator u_creator; ulaşım planı var"
+    job_closed:        "BİREYSEL, CLOSED, creator u_creator"
+    job_co:            "ŞİRKET co_1, OPEN, creator u_co_staff, adres gizli"
+    job_co_public_addr: "ŞİRKET co_1, adres herkese açık"
+    job_co_orphan:     "ŞİRKET co_1, creator u_co_former (şirketten ayrılmış)"
+    app_ind:           "u_applicant'ın job_ind başvurusu (APPLIED)"
+    app_co:            "u_applicant'ın job_co başvurusu (APPLIED)"
+    app_orphan:        "u_applicant'ın job_co_orphan başvurusu"
+    asg_ind:           "job_ind, işçi u_worker, CONFIRMED, HELD_IN_ESCROW"
+    asg_pending:       "job_ind, işçi u_worker, PENDING_CONFIRMATION"
+    asg_done:          "job_ind, işçi u_worker, COMPLETED"
+    asg_co:            "job_co, işçi u_worker, HELD_IN_ESCROW"
+    asg_orphan:        "job_co_orphan, işçi u_worker, CONFIRMED, PENDING_COLLECTION"
+    dsp_ind:           "asg_ind üzerinde açık uyuşmazlık"
+    conv_ind:          "job_ind DIRECT sohbeti (u_creator, u_worker)"
+    conv_blocked:      "u_worker ile u_blocked arasında DIRECT sohbet"
+    msg_ind:           "conv_ind içinde u_creator'ın mesajı"
+    inv_1:             "co_1 daveti: inviter u_co_admin, invitee u_invitee, PENDING"
+    shuttle_ind:       "job_ind ulaşım planındaki servis"
+    seat_w:            "u_worker'ın shuttle_ind koltuğu"
+    cv_applicant:      "u_applicant'ın CV dosyası"
+    img_x:             "u_stranger'ın yüklediği görsel"
+    exp_w:             "u_worker'ın deneyim kaydı"
+    edu_w:             "u_worker'ın eğitim kaydı"
+    alert_w:           "u_worker'ın iş alarmı"
+    bank_w:            "u_worker'ın aktif banka hesabı"
+    dev_w:             "u_worker'ın cihazı"
+    avex_w:            "u_worker'ın müsaitlik istisnası"
+    ses_w:             "u_worker'ın aktif oturumu"
+    ver_w:             "u_worker'ın doğrulama kaydı (OTP)"
+    notif_w:           "u_worker'ın bildirimi"
+    addr_w:            "u_worker'ın adres arama oturumu (bellek içi)"
+    tmpl_c:            "u_creator'ın ilan şablonu"
+    pay_token:         "sağlayıcı ödeme token'ı"
+    topic_unknown:     "/topic/admin/secrets gibi bilinmeyen hedef"
+
+cases:
+  - id: AZM-001
+    pair: C01
+    subject: u_worker
+    action: job_assignment.read
+    object: asg_ind
+    expect: allow
+    basis: "worker"
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["AssignmentOperationsAuthorizationTest.java:423#aStrangerCannotReadTheTimesheet", "AssignmentReadIT.java:602#anOutsiderGetsTheConcealedNotFoundResponse", "ExistenceConcealmentIT.java:148#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:192#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:208#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "PaymentAccessRulesTest.java:91#aStrangerCannotSeeTheAttempts", "TransportPlanIT.java:339#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-002
+    pair: C01
+    subject: u_co_staff
+    action: job_assignment.read
+    object: asg_co
+    expect: allow
+    basis: "editor from job"
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["AssignmentOperationsAuthorizationTest.java:423#aStrangerCannotReadTheTimesheet", "AssignmentReadIT.java:602#anOutsiderGetsTheConcealedNotFoundResponse", "ExistenceConcealmentIT.java:148#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:192#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:208#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "PaymentAccessRulesTest.java:91#aStrangerCannotSeeTheAttempts", "TransportPlanIT.java:339#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-003
+    pair: C01
+    subject: u_stranger
+    action: job_assignment.read
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["AssignmentOperationsAuthorizationTest.java:423#aStrangerCannotReadTheTimesheet", "AssignmentReadIT.java:602#anOutsiderGetsTheConcealedNotFoundResponse", "ExistenceConcealmentIT.java:148#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:192#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:208#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "PaymentAccessRulesTest.java:91#aStrangerCannotSeeTheAttempts", "TransportPlanIT.java:339#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-004
+    pair: C01
+    subject: u_other_co_admin
+    action: job_assignment.read
+    object: asg_co
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["AssignmentOperationsAuthorizationTest.java:423#aStrangerCannotReadTheTimesheet", "AssignmentReadIT.java:602#anOutsiderGetsTheConcealedNotFoundResponse", "ExistenceConcealmentIT.java:148#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:192#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:208#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "PaymentAccessRulesTest.java:91#aStrangerCannotSeeTheAttempts", "TransportPlanIT.java:339#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-005
+    pair: C02
+    subject: u_worker
+    action: job_assignment.respond
+    object: asg_pending
+    expect: allow
+    basis: "worker"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-002]
+    source: ["ExistenceConcealmentIT.java:162#respondingToSomeoneElsesPendingAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist", "ExistenceConcealmentIT.java:170#respondingToSomeoneElsesTerminalAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist"]
+  - id: AZM-006
+    pair: C02
+    subject: u_creator
+    action: job_assignment.respond
+    object: asg_pending
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-002]
+    source: ["ExistenceConcealmentIT.java:162#respondingToSomeoneElsesPendingAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist", "ExistenceConcealmentIT.java:170#respondingToSomeoneElsesTerminalAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist"]
+  - id: AZM-007
+    pair: C02
+    subject: u_stranger
+    action: job_assignment.respond
+    object: asg_pending
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-002]
+    source: ["ExistenceConcealmentIT.java:162#respondingToSomeoneElsesPendingAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist", "ExistenceConcealmentIT.java:170#respondingToSomeoneElsesTerminalAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist"]
+  - id: AZM-008
+    pair: C03
+    subject: u_creator
+    action: job_assignment.complete
+    object: asg_ind
+    expect: allow
+    basis: "editor from job"
+    inventory: [AZ-003]
+    source: ["AssignmentCompletionIT.java:181#theWorkerCannotCompleteTheirOwnAssignment", "AssignmentOperationsAuthorizationTest.java:431#onlyTheEmployerCanMarkTheWorkComplete", "ExistenceConcealmentIT.java:222#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-009
+    pair: C03
+    subject: u_co_admin
+    action: job_assignment.complete
+    object: asg_co
+    expect: allow
+    basis: "editor from job"
+    inventory: [AZ-003]
+    source: ["AssignmentCompletionIT.java:181#theWorkerCannotCompleteTheirOwnAssignment", "AssignmentOperationsAuthorizationTest.java:431#onlyTheEmployerCanMarkTheWorkComplete", "ExistenceConcealmentIT.java:222#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-010
+    pair: C03
+    subject: u_worker
+    action: job_assignment.complete
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-003]
+    source: ["AssignmentCompletionIT.java:181#theWorkerCannotCompleteTheirOwnAssignment", "AssignmentOperationsAuthorizationTest.java:431#onlyTheEmployerCanMarkTheWorkComplete", "ExistenceConcealmentIT.java:222#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-011
+    pair: C03
+    subject: u_stranger
+    action: job_assignment.complete
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-003]
+    source: ["AssignmentCompletionIT.java:181#theWorkerCannotCompleteTheirOwnAssignment", "AssignmentOperationsAuthorizationTest.java:431#onlyTheEmployerCanMarkTheWorkComplete", "ExistenceConcealmentIT.java:222#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-012
+    pair: C04
+    subject: u_creator
+    action: job_assignment.pay
+    object: asg_ind
+    expect: allow
+    basis: "creator (INDIVIDUAL)"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-004, AZ-005]
+    source: ["PaymentSessionAuthorizationTest.java:104#aStrangerCannotInitiatePaymentForAnIndividualJob", "PaymentSessionAuthorizationTest.java:116#theWorkerCannotInitiatePaymentForTheirOwnAssignment", "PaymentSessionAuthorizationTest.java:143#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob"]
+  - id: AZM-013
+    pair: C04
+    subject: u_co_staff
+    action: job_assignment.pay
+    object: asg_co
+    expect: allow
+    basis: "member from owner_company"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-004, AZ-005]
+    source: ["PaymentSessionAuthorizationTest.java:104#aStrangerCannotInitiatePaymentForAnIndividualJob", "PaymentSessionAuthorizationTest.java:116#theWorkerCannotInitiatePaymentForTheirOwnAssignment", "PaymentSessionAuthorizationTest.java:143#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob"]
+  - id: AZM-014
+    pair: C04
+    subject: u_worker
+    action: job_assignment.pay
+    object: asg_ind
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-004, AZ-005]
+    source: ["PaymentSessionAuthorizationTest.java:104#aStrangerCannotInitiatePaymentForAnIndividualJob", "PaymentSessionAuthorizationTest.java:116#theWorkerCannotInitiatePaymentForTheirOwnAssignment", "PaymentSessionAuthorizationTest.java:143#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob"]
+  - id: AZM-015
+    pair: C04
+    subject: u_co_former
+    action: job_assignment.pay
+    object: asg_orphan
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-004, AZ-005]
+    source: ["PaymentSessionAuthorizationTest.java:104#aStrangerCannotInitiatePaymentForAnIndividualJob", "PaymentSessionAuthorizationTest.java:116#theWorkerCannotInitiatePaymentForTheirOwnAssignment", "PaymentSessionAuthorizationTest.java:143#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob"]
+  - id: AZM-016
+    pair: C04
+    subject: u_stranger
+    action: job_assignment.pay
+    object: asg_ind
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-004, AZ-005]
+    source: ["PaymentSessionAuthorizationTest.java:104#aStrangerCannotInitiatePaymentForAnIndividualJob", "PaymentSessionAuthorizationTest.java:116#theWorkerCannotInitiatePaymentForTheirOwnAssignment", "PaymentSessionAuthorizationTest.java:143#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob"]
+  - id: AZM-017
+    pair: C05
+    subject: u_worker
+    action: job_assignment.cancel
+    object: asg_ind
+    expect: allow
+    basis: "worker"
+    inventory: [AZ-007, AZ-008]
+    source: ["AssignmentOperationsAuthorizationTest.java:170#aStrangerCannotCancelSomeoneElsesAssignment", "CancellationPreviewTest.java:163#someoneWhoIsNotAPartyGetsNotFound", "ExistenceConcealmentIT.java:141#previewingSomeoneElsesCancellationLooksExactlyLikePreviewingOneThatDoesNotExist", "ExistenceConcealmentIT.java:199#cancellingSomeoneElsesAssignmentLooksExactlyLikeCancellingOneThatDoesNotExist"]
+  - id: AZM-018
+    pair: C05
+    subject: u_creator
+    action: job_assignment.cancel
+    object: asg_ind
+    expect: allow
+    basis: "editor from job"
+    inventory: [AZ-007, AZ-008]
+    source: ["AssignmentOperationsAuthorizationTest.java:170#aStrangerCannotCancelSomeoneElsesAssignment", "CancellationPreviewTest.java:163#someoneWhoIsNotAPartyGetsNotFound", "ExistenceConcealmentIT.java:141#previewingSomeoneElsesCancellationLooksExactlyLikePreviewingOneThatDoesNotExist", "ExistenceConcealmentIT.java:199#cancellingSomeoneElsesAssignmentLooksExactlyLikeCancellingOneThatDoesNotExist"]
+  - id: AZM-019
+    pair: C05
+    subject: u_stranger
+    action: job_assignment.cancel
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-007, AZ-008]
+    source: ["AssignmentOperationsAuthorizationTest.java:170#aStrangerCannotCancelSomeoneElsesAssignment", "CancellationPreviewTest.java:163#someoneWhoIsNotAPartyGetsNotFound", "ExistenceConcealmentIT.java:141#previewingSomeoneElsesCancellationLooksExactlyLikePreviewingOneThatDoesNotExist", "ExistenceConcealmentIT.java:199#cancellingSomeoneElsesAssignmentLooksExactlyLikeCancellingOneThatDoesNotExist"]
+  - id: AZM-020
+    pair: C06
+    subject: u_worker
+    action: job_assignment.record_work
+    object: asg_ind
+    expect: allow
+    basis: "worker"
+    inventory: [AZ-010, AZ-011]
+    source: ["AssignmentOperationsAuthorizationTest.java:343#onlyTheWorkerCanCheckIn", "ExistenceConcealmentIT.java:215#checkingIntoSomeoneElsesAssignmentLooksExactlyLikeCheckingIntoOneThatDoesNotExist"]
+  - id: AZM-021
+    pair: C06
+    subject: u_creator
+    action: job_assignment.record_work
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-010, AZ-011]
+    source: ["AssignmentOperationsAuthorizationTest.java:343#onlyTheWorkerCanCheckIn", "ExistenceConcealmentIT.java:215#checkingIntoSomeoneElsesAssignmentLooksExactlyLikeCheckingIntoOneThatDoesNotExist"]
+  - id: AZM-022
+    pair: C06
+    subject: u_stranger
+    action: job_assignment.record_work
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-010, AZ-011]
+    source: ["AssignmentOperationsAuthorizationTest.java:343#onlyTheWorkerCanCheckIn", "ExistenceConcealmentIT.java:215#checkingIntoSomeoneElsesAssignmentLooksExactlyLikeCheckingIntoOneThatDoesNotExist"]
+  - id: AZM-023
+    pair: C07
+    subject: u_worker
+    action: job_assignment.open_dispute
+    object: asg_ind
+    expect: allow
+    basis: "worker"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-013]
+    source: ["AssignmentOperationsAuthorizationTest.java:257#aStrangerCannotOpenADispute"]
+  - id: AZM-024
+    pair: C07
+    subject: u_co_admin
+    action: job_assignment.open_dispute
+    object: asg_co
+    expect: allow
+    basis: "editor from job"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-013]
+    source: ["AssignmentOperationsAuthorizationTest.java:257#aStrangerCannotOpenADispute"]
+  - id: AZM-025
+    pair: C07
+    subject: u_stranger
+    action: job_assignment.open_dispute
+    object: asg_ind
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-013]
+    source: ["AssignmentOperationsAuthorizationTest.java:257#aStrangerCannotOpenADispute"]
+  - id: AZM-026
+    pair: C08
+    subject: u_worker
+    action: job_assignment.review
+    object: asg_done
+    expect: allow
+    basis: "worker"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-015]
+    source: ["ExistenceConcealmentIT.java:229#reviewingSomeoneElsesAssignmentLooksExactlyLikeReviewingOneThatDoesNotExist", "ReviewRulesTest.java:109#aStrangerCannotReviewSomeoneElsesJob"]
+  - id: AZM-027
+    pair: C08
+    subject: u_creator
+    action: job_assignment.review
+    object: asg_done
+    expect: allow
+    basis: "editor from job"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-015]
+    source: ["ExistenceConcealmentIT.java:229#reviewingSomeoneElsesAssignmentLooksExactlyLikeReviewingOneThatDoesNotExist", "ReviewRulesTest.java:109#aStrangerCannotReviewSomeoneElsesJob"]
+  - id: AZM-028
+    pair: C08
+    subject: u_stranger
+    action: job_assignment.review
+    object: asg_done
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-015]
+    source: ["ExistenceConcealmentIT.java:229#reviewingSomeoneElsesAssignmentLooksExactlyLikeReviewingOneThatDoesNotExist", "ReviewRulesTest.java:109#aStrangerCannotReviewSomeoneElsesJob"]
+  - id: AZM-029
+    pair: C09
+    subject: u_creator
+    action: job_assignment.reveal_worker_identity
+    object: asg_ind
+    expect: allow
+    basis: "editor from job"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-016, AZ-017]
+    source: ["WorkerIdentityRevealIT.java:176#theWorkerCannotReadTheirOwnIdentityThroughTheEmployerEndpoint", "WorkerIdentityRevealIT.java:181#anOutsiderSeesTheAssignmentAsMissing", "WorkerIdentityRevealIT.java:199#aContactOfAnotherCompanySeesTheAssignmentAsMissing"]
+  - id: AZM-030
+    pair: C09
+    subject: u_worker
+    action: job_assignment.reveal_worker_identity
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-016, AZ-017]
+    source: ["WorkerIdentityRevealIT.java:176#theWorkerCannotReadTheirOwnIdentityThroughTheEmployerEndpoint", "WorkerIdentityRevealIT.java:181#anOutsiderSeesTheAssignmentAsMissing", "WorkerIdentityRevealIT.java:199#aContactOfAnotherCompanySeesTheAssignmentAsMissing"]
+  - id: AZM-031
+    pair: C09
+    subject: u_other_co_admin
+    action: job_assignment.reveal_worker_identity
+    object: asg_co
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-016, AZ-017]
+    source: ["WorkerIdentityRevealIT.java:176#theWorkerCannotReadTheirOwnIdentityThroughTheEmployerEndpoint", "WorkerIdentityRevealIT.java:181#anOutsiderSeesTheAssignmentAsMissing", "WorkerIdentityRevealIT.java:199#aContactOfAnotherCompanySeesTheAssignmentAsMissing"]
+  - id: AZM-032
+    pair: C09
+    subject: u_creator
+    action: job_assignment.reveal_worker_identity
+    object: asg_pending
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-016, AZ-017]
+    source: ["WorkerIdentityRevealIT.java:176#theWorkerCannotReadTheirOwnIdentityThroughTheEmployerEndpoint", "WorkerIdentityRevealIT.java:181#anOutsiderSeesTheAssignmentAsMissing", "WorkerIdentityRevealIT.java:199#aContactOfAnotherCompanySeesTheAssignmentAsMissing"]
+  - id: AZM-033
+    pair: C10
+    subject: u_worker
+    action: job_assignment.select_seat
+    object: asg_ind
+    expect: allow
+    basis: "worker"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-019, AZ-091, AZ-092]
+    source: ["TransportPlanIT.java:339#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed", "TransportPlanIT.java:367#theEmployerMayPickTheSeatOnBehalfOfTheWorkerAndCapacityCannotDropBelowSeats"]
+  - id: AZM-034
+    pair: C10
+    subject: u_creator
+    action: job_assignment.select_seat
+    object: asg_ind
+    expect: allow
+    basis: "editor from job"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-019, AZ-091, AZ-092]
+    source: ["TransportPlanIT.java:339#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed", "TransportPlanIT.java:367#theEmployerMayPickTheSeatOnBehalfOfTheWorkerAndCapacityCannotDropBelowSeats"]
+  - id: AZM-035
+    pair: C10
+    subject: u_stranger
+    action: job_assignment.select_seat
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-019, AZ-091, AZ-092]
+    source: ["TransportPlanIT.java:339#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed", "TransportPlanIT.java:367#theEmployerMayPickTheSeatOnBehalfOfTheWorkerAndCapacityCannotDropBelowSeats"]
+  - id: AZM-036
+    pair: C11
+    subject: u_worker
+    action: job_assignment.issue_boarding_qr
+    object: asg_ind
+    expect: allow
+    basis: "worker"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-020, AZ-021]
+    source: ["TransportBoardingIT.java:460#theEmployerScansTheWorkerQrOfEitherDirection"]
+  - id: AZM-037
+    pair: C11
+    subject: u_creator
+    action: job_assignment.issue_boarding_qr
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-020, AZ-021]
+    source: ["TransportBoardingIT.java:460#theEmployerScansTheWorkerQrOfEitherDirection"]
+  - id: AZM-038
+    pair: C11
+    subject: u_stranger
+    action: job_assignment.issue_boarding_qr
+    object: asg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-020, AZ-021]
+    source: ["TransportBoardingIT.java:460#theEmployerScansTheWorkerQrOfEitherDirection"]
+  - id: AZM-039
+    pair: C12
+    subject: u_creator
+    action: job_assignment.list
+    object: asg_ind
+    expect: allow
+    basis: "creator"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-117]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-040
+    pair: C12
+    subject: u_worker
+    action: job_assignment.list
+    object: asg_ind
+    expect: allow
+    basis: "worker"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-117]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-041
+    pair: C12
+    subject: u_co_admin
+    action: job_assignment.list
+    object: asg_co
+    expect: deny
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-117]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-042
+    pair: C13
+    subject: anonymous
+    action: job.read
+    object: job_ind
+    expect: allow
+    basis: "public"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-119, AZ-120]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-043
+    pair: C13
+    subject: anonymous
+    action: job.read
+    object: job_closed
+    expect: allow
+    basis: "public (Java)"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-119, AZ-120]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-044
+    pair: C13
+    subject: anonymous
+    action: job.read
+    object: job_closed
+    expect: deny
+    java_actual: allow   # hedef davranış (model ya da öneri); Java bugün izin veriyor
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-119, AZ-120]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-045
+    pair: C14
+    subject: u_co_admin
+    action: job.read_employer_view
+    object: job_co
+    expect: allow
+    basis: "editor (detay)"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-041, AZ-042]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-046
+    pair: C14
+    subject: u_creator
+    action: job.read_employer_view
+    object: job_ind
+    expect: allow
+    basis: "creator"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-041, AZ-042]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-047
+    pair: C14
+    subject: u_stranger
+    action: job.read_employer_view
+    object: job_ind
+    expect: deny
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-041, AZ-042]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-048
+    pair: C15
+    subject: u_creator
+    action: job.read_exact_address
+    object: job_ind
+    expect: allow
+    basis: "creator"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-043]
+    source: ["JobAddressVisibilityIT.java:163#anUnrelatedUserReceivesOnlyTheApproximateAddress", "JobAddressVisibilityTest.java:53#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "JobAddressVisibilityTest.java:96#anIndividualJobCannotRevealItsExactAddressToEveryone"]
+  - id: AZM-049
+    pair: C15
+    subject: u_worker
+    action: job.read_exact_address
+    object: job_ind
+    expect: allow
+    basis: "assigned worker"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-043]
+    source: ["JobAddressVisibilityIT.java:163#anUnrelatedUserReceivesOnlyTheApproximateAddress", "JobAddressVisibilityTest.java:53#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "JobAddressVisibilityTest.java:96#anIndividualJobCannotRevealItsExactAddressToEveryone"]
+  - id: AZM-050
+    pair: C15
+    subject: anonymous
+    action: job.read_exact_address
+    object: job_co_public_addr
+    expect: allow
+    basis: "public address"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-043]
+    source: ["JobAddressVisibilityIT.java:163#anUnrelatedUserReceivesOnlyTheApproximateAddress", "JobAddressVisibilityTest.java:53#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "JobAddressVisibilityTest.java:96#anIndividualJobCannotRevealItsExactAddressToEveryone"]
+  - id: AZM-051
+    pair: C15
+    subject: u_stranger
+    action: job.read_exact_address
+    object: job_ind
+    expect: deny
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-043]
+    source: ["JobAddressVisibilityIT.java:163#anUnrelatedUserReceivesOnlyTheApproximateAddress", "JobAddressVisibilityTest.java:53#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "JobAddressVisibilityTest.java:96#anIndividualJobCannotRevealItsExactAddressToEveryone"]
+  - id: AZM-052
+    pair: C15
+    subject: u_co_admin
+    action: job.read_exact_address
+    object: job_co
+    expect: deny
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-043]
+    source: ["JobAddressVisibilityIT.java:163#anUnrelatedUserReceivesOnlyTheApproximateAddress", "JobAddressVisibilityTest.java:53#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "JobAddressVisibilityTest.java:96#anIndividualJobCannotRevealItsExactAddressToEveryone"]
+  - id: AZM-053
+    pair: C16
+    subject: u_creator
+    action: job.edit
+    object: job_ind
+    expect: allow
+    basis: "creator"
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["TransportPlanIT.java:245#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-054
+    pair: C16
+    subject: u_co_admin
+    action: job.edit
+    object: job_co
+    expect: allow
+    basis: "member from owner_company"
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["TransportPlanIT.java:245#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-055
+    pair: C16
+    subject: u_worker
+    action: job.edit
+    object: job_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["TransportPlanIT.java:245#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-056
+    pair: C16
+    subject: u_stranger
+    action: job.edit
+    object: job_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["TransportPlanIT.java:245#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-057
+    pair: C17
+    subject: u_co_staff
+    action: job.read_private
+    object: job_co
+    expect: allow
+    basis: "member from owner_company"
+    inventory: [AZ-028, AZ-030]
+    source: ["AssignmentReadIT.java:265#theWorkerAndAnOutsiderGetTheConcealedNotFoundForTheJobsAssignments", "ExistenceConcealmentIT.java:155#listingSomeoneElsesJobAssignmentsLooksExactlyLikeListingOnesOfAJobThatDoesNotExist", "TransportPlanIT.java:245#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-058
+    pair: C17
+    subject: u_worker
+    action: job.read_private
+    object: job_co
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-028, AZ-030]
+    source: ["AssignmentReadIT.java:265#theWorkerAndAnOutsiderGetTheConcealedNotFoundForTheJobsAssignments", "ExistenceConcealmentIT.java:155#listingSomeoneElsesJobAssignmentsLooksExactlyLikeListingOnesOfAJobThatDoesNotExist", "TransportPlanIT.java:245#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-059
+    pair: C17
+    subject: u_stranger
+    action: job.read_private
+    object: job_co
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-028, AZ-030]
+    source: ["AssignmentReadIT.java:265#theWorkerAndAnOutsiderGetTheConcealedNotFoundForTheJobsAssignments", "ExistenceConcealmentIT.java:155#listingSomeoneElsesJobAssignmentsLooksExactlyLikeListingOnesOfAJobThatDoesNotExist", "TransportPlanIT.java:245#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-060
+    pair: C18
+    subject: u_creator
+    action: job.list_applications
+    object: job_ind
+    expect: allow
+    basis: "creator (INDIVIDUAL)"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-033, AZ-034]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-061
+    pair: C18
+    subject: u_co_admin
+    action: job.list_applications
+    object: job_co
+    expect: allow
+    basis: "member"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-033, AZ-034]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-062
+    pair: C18
+    subject: u_co_former
+    action: job.list_applications
+    object: job_co_orphan
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-033, AZ-034]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-063
+    pair: C18
+    subject: u_stranger
+    action: job.list_applications
+    object: job_ind
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-033, AZ-034]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-064
+    pair: C19
+    subject: u_creator
+    action: job.cancel
+    object: job_ind
+    expect: allow
+    basis: "creator"
+    inventory: [AZ-025]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-065
+    pair: C19
+    subject: u_worker
+    action: job.cancel
+    object: job_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-025]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-066
+    pair: C20
+    subject: u_co_staff
+    action: job.close
+    object: job_co
+    expect: allow
+    basis: "member"
+    inventory: [AZ-026]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-067
+    pair: C20
+    subject: u_stranger
+    action: job.close
+    object: job_co
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-026]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-068
+    pair: C21
+    subject: u_applicant
+    action: job.apply
+    object: job_ind
+    expect: allow
+    basis: "[user:*] but not editor"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-035, AZ-036]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-069
+    pair: C21
+    subject: u_creator
+    action: job.apply
+    object: job_ind
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-035, AZ-036]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-070
+    pair: C21
+    subject: u_co_staff
+    action: job.apply
+    object: job_co
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-035, AZ-036]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-071
+    pair: C22
+    subject: u_creator
+    action: job.open_conversation
+    object: job_ind
+    expect: allow
+    basis: "editor (asg_ind emanette)"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-037, AZ-038, AZ-039]
+    source: ["MessagingAuthorizationTest.java:448#aStrangerCannotOpenAConversationOnSomeoneElsesJob", "MessagingAuthorizationTest.java:526#aBlockedUserCannotSendAMessageInEitherDirection", "MessagingPaymentGateIT.java:145#nobodyCanOpenTheConversationBeforeTheEmployerPays", "MessagingPaymentGateIT.java:325#anOutsiderStillGetsTheSameNotFoundBeforeAndAfterPayment", "açma doğrulanmadı)"]
+  - id: AZM-072
+    pair: C22
+    subject: u_stranger
+    action: job.open_conversation
+    object: job_ind
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-037, AZ-038, AZ-039]
+    source: ["MessagingAuthorizationTest.java:448#aStrangerCannotOpenAConversationOnSomeoneElsesJob", "MessagingAuthorizationTest.java:526#aBlockedUserCannotSendAMessageInEitherDirection", "MessagingPaymentGateIT.java:145#nobodyCanOpenTheConversationBeforeTheEmployerPays", "MessagingPaymentGateIT.java:325#anOutsiderStillGetsTheSameNotFoundBeforeAndAfterPayment", "açma doğrulanmadı)"]
+  - id: AZM-073
+    pair: C22
+    subject: u_blocked
+    action: job.open_conversation
+    object: job_ind
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-037, AZ-038, AZ-039]
+    source: ["MessagingAuthorizationTest.java:448#aStrangerCannotOpenAConversationOnSomeoneElsesJob", "MessagingAuthorizationTest.java:526#aBlockedUserCannotSendAMessageInEitherDirection", "MessagingPaymentGateIT.java:145#nobodyCanOpenTheConversationBeforeTheEmployerPays", "MessagingPaymentGateIT.java:325#anOutsiderStillGetsTheSameNotFoundBeforeAndAfterPayment", "açma doğrulanmadı)"]
+  - id: AZM-074
+    pair: C23
+    subject: u_co_staff
+    action: job.copy_as_template
+    object: job_co
+    expect: allow
+    basis: "member"
+    inventory: [AZ-040]
+    source: ["WorkerToolsRulesTest.java:238#aTemplateCannotBeMadeFromSomeoneElsesJob"]
+  - id: AZM-075
+    pair: C23
+    subject: u_stranger
+    action: job.copy_as_template
+    object: job_co
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-040]
+    source: ["WorkerToolsRulesTest.java:238#aTemplateCannotBeMadeFromSomeoneElsesJob"]
+  - id: AZM-076
+    pair: C24
+    subject: u_stranger
+    action: company.read
+    object: co_1
+    expect: allow
+    basis: "public"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-121, AZ-122]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-077
+    pair: C24
+    subject: anonymous
+    action: company.read
+    object: co_1
+    expect: deny
+    note: "kimlik doğrulaması yok: 401"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-121, AZ-122]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-078
+    pair: C25
+    subject: u_co_staff
+    action: company.read_member_view
+    object: co_1
+    expect: allow
+    basis: "staff_member"
+    inventory: [AZ-057, AZ-058, AZ-060]
+    source: ["CompanyAdministrationRulesTest.java:139#anOutsiderCannotReadTheContactList", "CompanyAdministrationRulesTest.java:193#onlyTheCompanysOwnPeopleReadWhyItWasRejected", "CompanyJobListingIT.java:114#aUserWhoIsNotAContactOfTheCompanyIsForbidden"]
+  - id: AZM-079
+    pair: C25
+    subject: u_co_admin
+    action: company.read_member_view
+    object: co_1
+    expect: allow
+    basis: "admin"
+    inventory: [AZ-057, AZ-058, AZ-060]
+    source: ["CompanyAdministrationRulesTest.java:139#anOutsiderCannotReadTheContactList", "CompanyAdministrationRulesTest.java:193#onlyTheCompanysOwnPeopleReadWhyItWasRejected", "CompanyJobListingIT.java:114#aUserWhoIsNotAContactOfTheCompanyIsForbidden"]
+  - id: AZM-080
+    pair: C25
+    subject: u_stranger
+    action: company.read_member_view
+    object: co_1
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-057, AZ-058, AZ-060]
+    source: ["CompanyAdministrationRulesTest.java:139#anOutsiderCannotReadTheContactList", "CompanyAdministrationRulesTest.java:193#onlyTheCompanysOwnPeopleReadWhyItWasRejected", "CompanyJobListingIT.java:114#aUserWhoIsNotAContactOfTheCompanyIsForbidden"]
+  - id: AZM-081
+    pair: C25
+    subject: u_other_co_admin
+    action: company.read_member_view
+    object: co_1
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-057, AZ-058, AZ-060]
+    source: ["CompanyAdministrationRulesTest.java:139#anOutsiderCannotReadTheContactList", "CompanyAdministrationRulesTest.java:193#onlyTheCompanysOwnPeopleReadWhyItWasRejected", "CompanyJobListingIT.java:114#aUserWhoIsNotAContactOfTheCompanyIsForbidden"]
+  - id: AZM-082
+    pair: C26
+    subject: u_co_admin
+    action: company.manage
+    object: co_1
+    expect: allow
+    basis: "admin"
+    inventory: [AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061]
+    source: ["CompanyAddressUpdateIT.java:141#aStaffContactGetsTheSameNotFoundAsBeforeAndTheAddressStays", "CompanyAdministrationRulesTest.java:78#onlyACompanyAdminCanEditTheCompany", "CompanyContactInvitationAccessIT.java:92#aStaffContactCannotTellTheInvitationListFromAMissingCompany", "CompanyContactInvitationRulesTest.java:94#anOutsiderCannotListTheInvitations", "CompanyInvitationSendingRulesTest.java:157#aNonAdminCannotTellTheCompanyFromAMissingOne", "GalleryRulesTest.java:164#removingAnImageThatIsNotInTheGalleryIsNotFound"]
+  - id: AZM-083
+    pair: C26
+    subject: u_co_staff
+    action: company.manage
+    object: co_1
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061]
+    source: ["CompanyAddressUpdateIT.java:141#aStaffContactGetsTheSameNotFoundAsBeforeAndTheAddressStays", "CompanyAdministrationRulesTest.java:78#onlyACompanyAdminCanEditTheCompany", "CompanyContactInvitationAccessIT.java:92#aStaffContactCannotTellTheInvitationListFromAMissingCompany", "CompanyContactInvitationRulesTest.java:94#anOutsiderCannotListTheInvitations", "CompanyInvitationSendingRulesTest.java:157#aNonAdminCannotTellTheCompanyFromAMissingOne", "GalleryRulesTest.java:164#removingAnImageThatIsNotInTheGalleryIsNotFound"]
+  - id: AZM-084
+    pair: C26
+    subject: u_stranger
+    action: company.manage
+    object: co_1
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061]
+    source: ["CompanyAddressUpdateIT.java:141#aStaffContactGetsTheSameNotFoundAsBeforeAndTheAddressStays", "CompanyAdministrationRulesTest.java:78#onlyACompanyAdminCanEditTheCompany", "CompanyContactInvitationAccessIT.java:92#aStaffContactCannotTellTheInvitationListFromAMissingCompany", "CompanyContactInvitationRulesTest.java:94#anOutsiderCannotListTheInvitations", "CompanyInvitationSendingRulesTest.java:157#aNonAdminCannotTellTheCompanyFromAMissingOne", "GalleryRulesTest.java:164#removingAnImageThatIsNotInTheGalleryIsNotFound"]
+  - id: AZM-085
+    pair: C27
+    subject: u_co_staff
+    action: company.create_job
+    object: co_1
+    expect: allow
+    basis: "staff_member"
+    inventory: [AZ-059]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-086
+    pair: C27
+    subject: u_stranger
+    action: company.create_job
+    object: co_1
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-059]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-087
+    pair: C28
+    subject: u_co_admin
+    action: company.tag_talent_pool_entry
+    object: co_1
+    expect: allow
+    basis: "member (önerilen)"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-113]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-088
+    pair: C28
+    subject: u_stranger
+    action: company.tag_talent_pool_entry
+    object: co_1
+    expect: deny
+    java_actual: allow   # hedef davranış (model ya da öneri); Java bugün izin veriyor
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-113]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-089
+    pair: C29
+    subject: u_invitee
+    action: company_invitation.read
+    object: inv_1
+    expect: allow
+    basis: "invitee"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-063]
+    source: ["CompanyContactInvitationAccessIT.java:124#aStrangerCannotTellTheInvitationFromAMissingOne", "CompanyContactInvitationRulesTest.java:123#aStrangerHoldingTheIdCannotReadTheInvitation"]
+  - id: AZM-090
+    pair: C29
+    subject: u_co_admin
+    action: company_invitation.read
+    object: inv_1
+    expect: allow
+    basis: "admin from company"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-063]
+    source: ["CompanyContactInvitationAccessIT.java:124#aStrangerCannotTellTheInvitationFromAMissingOne", "CompanyContactInvitationRulesTest.java:123#aStrangerHoldingTheIdCannotReadTheInvitation"]
+  - id: AZM-091
+    pair: C29
+    subject: u_co_staff
+    action: company_invitation.read
+    object: inv_1
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-063]
+    source: ["CompanyContactInvitationAccessIT.java:124#aStrangerCannotTellTheInvitationFromAMissingOne", "CompanyContactInvitationRulesTest.java:123#aStrangerHoldingTheIdCannotReadTheInvitation"]
+  - id: AZM-092
+    pair: C29
+    subject: u_stranger
+    action: company_invitation.read
+    object: inv_1
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-063]
+    source: ["CompanyContactInvitationAccessIT.java:124#aStrangerCannotTellTheInvitationFromAMissingOne", "CompanyContactInvitationRulesTest.java:123#aStrangerHoldingTheIdCannotReadTheInvitation"]
+  - id: AZM-093
+    pair: C30
+    subject: u_invitee
+    action: company_invitation.answer
+    object: inv_1
+    expect: allow
+    basis: "invitee"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-062]
+    source: ["CompanyContactInvitationAccessIT.java:142#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
+  - id: AZM-094
+    pair: C30
+    subject: u_co_admin
+    action: company_invitation.answer
+    object: inv_1
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-062]
+    source: ["CompanyContactInvitationAccessIT.java:142#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
+  - id: AZM-095
+    pair: C30
+    subject: u_stranger
+    action: company_invitation.answer
+    object: inv_1
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-062]
+    source: ["CompanyContactInvitationAccessIT.java:142#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
+  - id: AZM-096
+    pair: C31
+    subject: u_creator
+    action: job_application.decide
+    object: app_ind
+    expect: allow
+    basis: "creator"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-045, AZ-046]
+    source: ["ApplicationDecisionIT.java:255#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne", "JobApplicationAuthorizationTest.java:114#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "JobApplicationAuthorizationTest.java:161#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "JobApplicationAuthorizationTest.java:73#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "JobApplicationAuthorizationTest.java:95#theApplicantCannotAcceptTheirOwnApplication"]
+  - id: AZM-097
+    pair: C31
+    subject: u_co_admin
+    action: job_application.decide
+    object: app_co
+    expect: allow
+    basis: "member"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-045, AZ-046]
+    source: ["ApplicationDecisionIT.java:255#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne", "JobApplicationAuthorizationTest.java:114#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "JobApplicationAuthorizationTest.java:161#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "JobApplicationAuthorizationTest.java:73#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "JobApplicationAuthorizationTest.java:95#theApplicantCannotAcceptTheirOwnApplication"]
+  - id: AZM-098
+    pair: C31
+    subject: u_applicant
+    action: job_application.decide
+    object: app_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-045, AZ-046]
+    source: ["ApplicationDecisionIT.java:255#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne", "JobApplicationAuthorizationTest.java:114#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "JobApplicationAuthorizationTest.java:161#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "JobApplicationAuthorizationTest.java:73#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "JobApplicationAuthorizationTest.java:95#theApplicantCannotAcceptTheirOwnApplication"]
+  - id: AZM-099
+    pair: C31
+    subject: u_co_former
+    action: job_application.decide
+    object: app_orphan
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-045, AZ-046]
+    source: ["ApplicationDecisionIT.java:255#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne", "JobApplicationAuthorizationTest.java:114#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "JobApplicationAuthorizationTest.java:161#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "JobApplicationAuthorizationTest.java:73#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "JobApplicationAuthorizationTest.java:95#theApplicantCannotAcceptTheirOwnApplication"]
+  - id: AZM-100
+    pair: C31
+    subject: u_stranger
+    action: job_application.decide
+    object: app_co
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-045, AZ-046]
+    source: ["ApplicationDecisionIT.java:255#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne", "JobApplicationAuthorizationTest.java:114#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "JobApplicationAuthorizationTest.java:161#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "JobApplicationAuthorizationTest.java:73#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "JobApplicationAuthorizationTest.java:95#theApplicantCannotAcceptTheirOwnApplication"]
+  - id: AZM-101
+    pair: C32
+    subject: u_applicant
+    action: job_application.withdraw
+    object: app_ind
+    expect: allow
+    basis: "applicant"
+    inventory: [AZ-047]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-102
+    pair: C32
+    subject: u_creator
+    action: job_application.withdraw
+    object: app_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-047]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-103
+    pair: C32
+    subject: u_stranger
+    action: job_application.withdraw
+    object: app_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-047]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-104
+    pair: C33
+    subject: u_creator
+    action: job_application.list
+    object: app_ind
+    expect: allow
+    basis: "creator (INDIVIDUAL)"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-116]
+    source: ["ReceivedApplicationsAuthorizationTest.java:112#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "ReceivedApplicationsAuthorizationTest.java:91#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "ReceivedApplicationsIT.java:173#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
+  - id: AZM-105
+    pair: C33
+    subject: u_co_admin
+    action: job_application.list
+    object: app_co
+    expect: allow
+    basis: "member"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-116]
+    source: ["ReceivedApplicationsAuthorizationTest.java:112#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "ReceivedApplicationsAuthorizationTest.java:91#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "ReceivedApplicationsIT.java:173#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
+  - id: AZM-106
+    pair: C33
+    subject: u_co_former
+    action: job_application.list
+    object: app_orphan
+    expect: deny
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-116]
+    source: ["ReceivedApplicationsAuthorizationTest.java:112#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "ReceivedApplicationsAuthorizationTest.java:91#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "ReceivedApplicationsIT.java:173#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
+  - id: AZM-107
+    pair: C33
+    subject: u_stranger
+    action: job_application.list
+    object: app_ind
+    expect: deny
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-116]
+    source: ["ReceivedApplicationsAuthorizationTest.java:112#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "ReceivedApplicationsAuthorizationTest.java:91#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "ReceivedApplicationsIT.java:173#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
+  - id: AZM-108
+    pair: C34
+    subject: u_worker
+    action: conversation.read
+    object: conv_ind
+    expect: allow
+    basis: "participant"
+    inventory: [AZ-064, AZ-065, AZ-066, AZ-067, AZ-069]
+    source: ["ConversationMessagingIT.java:241#anAfterFromAnotherConversationLooksExactlyLikeAnUnknownOne", "ConversationMessagingIT.java:436#anOutsiderMarkingReadGetsTheSameNotFoundAndLeavesNoStamp", "ExistenceConcealmentIT.java:123#readingSomeoneElsesConversationLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:129#readingSomeoneElsesSingleConversationLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:135#markingSomeoneElsesConversationReadLooksExactlyLikeMarkingOneThatDoesNotExist", "MessagingAuthorizationTest.java:456#aStrangerCannotReadOrWriteInAConversation"]
+  - id: AZM-109
+    pair: C34
+    subject: u_stranger
+    action: conversation.read
+    object: conv_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-064, AZ-065, AZ-066, AZ-067, AZ-069]
+    source: ["ConversationMessagingIT.java:241#anAfterFromAnotherConversationLooksExactlyLikeAnUnknownOne", "ConversationMessagingIT.java:436#anOutsiderMarkingReadGetsTheSameNotFoundAndLeavesNoStamp", "ExistenceConcealmentIT.java:123#readingSomeoneElsesConversationLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:129#readingSomeoneElsesSingleConversationLooksExactlyLikeReadingOneThatDoesNotExist", "ExistenceConcealmentIT.java:135#markingSomeoneElsesConversationReadLooksExactlyLikeMarkingOneThatDoesNotExist", "MessagingAuthorizationTest.java:456#aStrangerCannotReadOrWriteInAConversation"]
+  - id: AZM-110
+    pair: C35
+    subject: u_creator
+    action: conversation.post
+    object: conv_ind
+    expect: allow
+    basis: "participant"
+    inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
+    source: ["MessagingAuthorizationTest.java:360#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "MessagingAuthorizationTest.java:422#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "MessagingAuthorizationTest.java:436#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "MessagingAuthorizationTest.java:456#aStrangerCannotReadOrWriteInAConversation", "MessagingAuthorizationTest.java:526#aBlockedUserCannotSendAMessageInEitherDirection", "MessagingPaymentGateIT.java:398#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
+  - id: AZM-111
+    pair: C35
+    subject: u_stranger
+    action: conversation.post
+    object: conv_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
+    source: ["MessagingAuthorizationTest.java:360#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "MessagingAuthorizationTest.java:422#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "MessagingAuthorizationTest.java:436#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "MessagingAuthorizationTest.java:456#aStrangerCannotReadOrWriteInAConversation", "MessagingAuthorizationTest.java:526#aBlockedUserCannotSendAMessageInEitherDirection", "MessagingPaymentGateIT.java:398#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
+  - id: AZM-112
+    pair: C35
+    subject: u_blocked
+    action: conversation.post
+    object: conv_blocked
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
+    source: ["MessagingAuthorizationTest.java:360#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "MessagingAuthorizationTest.java:422#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "MessagingAuthorizationTest.java:436#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "MessagingAuthorizationTest.java:456#aStrangerCannotReadOrWriteInAConversation", "MessagingAuthorizationTest.java:526#aBlockedUserCannotSendAMessageInEitherDirection", "MessagingPaymentGateIT.java:398#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
+  - id: AZM-113
+    pair: C36
+    subject: u_worker
+    action: conversation.subscribe
+    object: conv_ind
+    expect: allow
+    basis: "participant"
+    inventory: [AZ-074]
+    source: ["StompSubscriptionSecurityTest.java:87#anOutsiderCannotSubscribeToSomeoneElsesConversation", "StompSubscriptionSecurityTest.java:93#subscribingToAConversationThatDoesNotExistIsRefused"]
+  - id: AZM-114
+    pair: C36
+    subject: u_stranger
+    action: conversation.subscribe
+    object: conv_ind
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-074]
+    source: ["StompSubscriptionSecurityTest.java:87#anOutsiderCannotSubscribeToSomeoneElsesConversation", "StompSubscriptionSecurityTest.java:93#subscribingToAConversationThatDoesNotExistIsRefused"]
+  - id: AZM-115
+    pair: C37
+    subject: u_worker
+    action: conversation.publish_to_topic
+    object: conv_ind
+    expect: allow
+    basis: "Java: SEND yalnız oran sınırından geçer (doğrulanmadı)"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-077]
+    source: ["StompSubscriptionSecurityTest.java:149#framesOtherThanConnectAndSubscribePassThroughUntouched"]
+  - id: AZM-116
+    pair: C37
+    subject: u_stranger
+    action: conversation.publish_to_topic
+    object: conv_ind
+    expect: deny
+    java_actual: allow   # hedef davranış (model ya da öneri); Java bugün izin veriyor
+    verified: false
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-077]
+    source: ["StompSubscriptionSecurityTest.java:149#framesOtherThanConnectAndSubscribePassThroughUntouched"]
+  - id: AZM-117
+    pair: C38
+    subject: u_worker
+    action: conversation.list
+    object: conv_ind
+    expect: allow
+    basis: "participant"
+    inventory: [AZ-118]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-118
+    pair: C38
+    subject: u_stranger
+    action: conversation.list
+    object: conv_ind
+    expect: deny
+    inventory: [AZ-118]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-119
+    pair: C39
+    subject: u_worker
+    action: message.report
+    object: msg_ind
+    expect: allow
+    basis: "participant from conversation"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-080]
+    source: ["MessageReportIT.java:121#aNonParticipantCannotReportAnExistingMessage", "MessageReportIT.java:337#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
+  - id: AZM-120
+    pair: C39
+    subject: u_stranger
+    action: message.report
+    object: msg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-080]
+    source: ["MessageReportIT.java:121#aNonParticipantCannotReportAnExistingMessage", "MessageReportIT.java:337#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
+  - id: AZM-121
+    pair: C39
+    subject: u_creator
+    action: message.report
+    object: msg_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-080]
+    source: ["MessageReportIT.java:121#aNonParticipantCannotReportAnExistingMessage", "MessageReportIT.java:337#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
+  - id: AZM-122
+    pair: C40
+    subject: u_worker
+    action: dispute.read
+    object: dsp_ind
+    expect: allow
+    basis: "party from assignment"
+    inventory: [AZ-082, AZ-083, AZ-084]
+    source: ["DisputeEvidenceRulesTest.java:159#aStrangerCannotListEvidence", "DisputeEvidenceRulesTest.java:169#aStrangerCannotDownloadEvidence", "ExistenceConcealmentIT.java:252#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist", "ExistenceConcealmentIT.java:258#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist"]
+  - id: AZM-123
+    pair: C40
+    subject: u_creator
+    action: dispute.read
+    object: dsp_ind
+    expect: allow
+    basis: "party from assignment"
+    inventory: [AZ-082, AZ-083, AZ-084]
+    source: ["DisputeEvidenceRulesTest.java:159#aStrangerCannotListEvidence", "DisputeEvidenceRulesTest.java:169#aStrangerCannotDownloadEvidence", "ExistenceConcealmentIT.java:252#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist", "ExistenceConcealmentIT.java:258#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist"]
+  - id: AZM-124
+    pair: C40
+    subject: u_stranger
+    action: dispute.read
+    object: dsp_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-082, AZ-083, AZ-084]
+    source: ["DisputeEvidenceRulesTest.java:159#aStrangerCannotListEvidence", "DisputeEvidenceRulesTest.java:169#aStrangerCannotDownloadEvidence", "ExistenceConcealmentIT.java:252#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist", "ExistenceConcealmentIT.java:258#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist"]
+  - id: AZM-125
+    pair: C41
+    subject: u_worker
+    action: dispute.add_evidence
+    object: dsp_ind
+    expect: allow
+    basis: "party from assignment"
+    inventory: [AZ-081]
+    source: ["DisputeEvidenceRulesTest.java:147#aStrangerCannotAttachEvidence", "ExistenceConcealmentIT.java:244#attachingEvidenceToSomeoneElsesDisputeLooksExactlyLikeAttachingToOneThatDoesNotExist"]
+  - id: AZM-126
+    pair: C41
+    subject: u_stranger
+    action: dispute.add_evidence
+    object: dsp_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-081]
+    source: ["DisputeEvidenceRulesTest.java:147#aStrangerCannotAttachEvidence", "ExistenceConcealmentIT.java:244#attachingEvidenceToSomeoneElsesDisputeLooksExactlyLikeAttachingToOneThatDoesNotExist"]
+  - id: AZM-127
+    pair: C42
+    subject: u_creator
+    action: shuttle.manage
+    object: shuttle_ind
+    expect: allow
+    basis: "editor from job"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-085, AZ-086, AZ-087]
+    source: ["TransportBoardingIT.java:508#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "TransportBoardingIT.java:688#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent", "TransportBoardingIT.java:756#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr"]
+  - id: AZM-128
+    pair: C42
+    subject: u_worker
+    action: shuttle.manage
+    object: shuttle_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-085, AZ-086, AZ-087]
+    source: ["TransportBoardingIT.java:508#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "TransportBoardingIT.java:688#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent", "TransportBoardingIT.java:756#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr"]
+  - id: AZM-129
+    pair: C42
+    subject: u_stranger
+    action: shuttle.manage
+    object: shuttle_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-085, AZ-086, AZ-087]
+    source: ["TransportBoardingIT.java:508#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "TransportBoardingIT.java:688#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent", "TransportBoardingIT.java:756#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr"]
+  - id: AZM-130
+    pair: C43
+    subject: u_worker
+    action: shuttle.board
+    object: shuttle_ind
+    expect: allow
+    basis: "seat_holder"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-088, AZ-089]
+    source: ["TransportBoardingIT.java:385#aSeatMovedOffTheScannedShuttleWhileTheScanWaitsForItsLockIsConcealed", "TransportBoardingIT.java:508#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard"]
+  - id: AZM-131
+    pair: C43
+    subject: u_stranger
+    action: shuttle.board
+    object: shuttle_ind
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-088, AZ-089]
+    source: ["TransportBoardingIT.java:385#aSeatMovedOffTheScannedShuttleWhileTheScanWaitsForItsLockIsConcealed", "TransportBoardingIT.java:508#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard"]
+  - id: AZM-132
+    pair: C44
+    subject: u_creator
+    action: seat_assignment.mark_boarding
+    object: seat_w
+    expect: allow
+    basis: "editor from job"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-090]
+    source: ["TransportBoardingIT.java:839#theMarkingRulesAreValidatedAtTheBoundary"]
+  - id: AZM-133
+    pair: C44
+    subject: u_stranger
+    action: seat_assignment.mark_boarding
+    object: seat_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-090]
+    source: ["TransportBoardingIT.java:839#theMarkingRulesAreValidatedAtTheBoundary"]
+  - id: AZM-134
+    pair: C44
+    subject: u_worker
+    action: seat_assignment.mark_boarding
+    object: seat_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-090]
+    source: ["TransportBoardingIT.java:839#theMarkingRulesAreValidatedAtTheBoundary"]
+  - id: AZM-135
+    pair: C45
+    subject: anonymous
+    action: user.read_public
+    object: u_worker
+    expect: allow
+    basis: "public (deneyim, müsaitlik, rozet, yorum, puan, istatistik)"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-123, AZ-124, AZ-125, AZ-126, AZ-127, AZ-128, AZ-129]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-136
+    pair: C45
+    subject: anonymous
+    action: user.read_public
+    object: u_worker
+    expect: deny
+    note: "GET /users/{userId} profil kimlik ister: 401"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-123, AZ-124, AZ-125, AZ-126, AZ-127, AZ-128, AZ-129]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-137
+    pair: C46
+    subject: u_applicant
+    action: user.read_cv_url
+    object: u_applicant
+    expect: allow
+    basis: "self"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-094]
+    source: ["EmployerSurfaceRulesTest.java:93#aStrangerDoesNotSeeTheCvLink"]
+  - id: AZM-138
+    pair: C46
+    subject: u_creator
+    action: user.read_cv_url
+    object: u_applicant
+    expect: allow
+    basis: "received application"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-094]
+    source: ["EmployerSurfaceRulesTest.java:93#aStrangerDoesNotSeeTheCvLink"]
+  - id: AZM-139
+    pair: C46
+    subject: u_stranger
+    action: user.read_cv_url
+    object: u_applicant
+    expect: deny
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-094]
+    source: ["EmployerSurfaceRulesTest.java:93#aStrangerDoesNotSeeTheCvLink"]
+  - id: AZM-140
+    pair: C47
+    subject: u_applicant
+    action: private_file.download
+    object: cv_applicant
+    expect: allow
+    basis: "owner"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-093]
+    source: ["CvAccessRulesTest.java:81#anEmployerWithNoApplicationFromThatWorkerCannot", "StorageDownloadRulesTest.java:75#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
+  - id: AZM-141
+    pair: C47
+    subject: u_creator
+    action: private_file.download
+    object: cv_applicant
+    expect: allow
+    basis: "received application"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-093]
+    source: ["CvAccessRulesTest.java:81#anEmployerWithNoApplicationFromThatWorkerCannot", "StorageDownloadRulesTest.java:75#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
+  - id: AZM-142
+    pair: C47
+    subject: u_stranger
+    action: private_file.download
+    object: cv_applicant
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-093]
+    source: ["CvAccessRulesTest.java:81#anEmployerWithNoApplicationFromThatWorkerCannot", "StorageDownloadRulesTest.java:75#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
+  - id: AZM-143
+    pair: C48
+    subject: u_stranger
+    action: user.read_presence
+    object: u_worker
+    expect: allow
+    basis: "Java: kontrol yok"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-078, AZ-079]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-144
+    pair: C48
+    subject: anonymous
+    action: user.read_presence
+    object: u_worker
+    expect: deny
+    note: "401"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-078, AZ-079]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-145
+    pair: C48
+    subject: u_stranger
+    action: user.read_presence
+    object: u_worker
+    expect: deny
+    java_actual: allow   # hedef davranış (model ya da öneri); Java bugün izin veriyor
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-078, AZ-079]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-146
+    pair: C49
+    subject: u_worker
+    action: user.watch_presence
+    object: u_worker
+    expect: allow
+    basis: "self"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-075]
+    source: ["StompSubscriptionSecurityTest.java:128#presenceOfSomeoneYouTalkToMayBeWatched", "StompSubscriptionSecurityTest.java:136#presenceOfAStrangerCannotBeWatched"]
+  - id: AZM-147
+    pair: C49
+    subject: u_creator
+    action: user.watch_presence
+    object: u_worker
+    expect: allow
+    basis: "contact"
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-075]
+    source: ["StompSubscriptionSecurityTest.java:128#presenceOfSomeoneYouTalkToMayBeWatched", "StompSubscriptionSecurityTest.java:136#presenceOfAStrangerCannotBeWatched"]
+  - id: AZM-148
+    pair: C49
+    subject: u_stranger
+    action: user.watch_presence
+    object: u_worker
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "modelde yok"  # authz-ciftleri.md
+    inventory: [AZ-075]
+    source: ["StompSubscriptionSecurityTest.java:128#presenceOfSomeoneYouTalkToMayBeWatched", "StompSubscriptionSecurityTest.java:136#presenceOfAStrangerCannotBeWatched"]
+  - id: AZM-149
+    pair: C50
+    subject: u_creator
+    action: user.create_individual_job
+    object: self
+    expect: allow
+    basis: "isEmployer"
+    inventory: [AZ-044]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-150
+    pair: C50
+    subject: u_worker
+    action: user.create_individual_job
+    object: self
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-044]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-151
+    pair: C51
+    subject: u_stranger
+    action: image.delete
+    object: img_x
+    expect: allow
+    basis: "owner"
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-095]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-152
+    pair: C51
+    subject: u_worker
+    action: image.delete
+    object: img_x
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    model_status: "model farklı karar verir"  # authz-ciftleri.md
+    inventory: [AZ-095]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-153
+    pair: C52
+    subject: u_worker
+    action: experience.write
+    object: exp_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-096, AZ-097]
+    source: ["WorkerToolsRulesTest.java:135#nobodyCanEditSomeoneElsesExperience"]
+  - id: AZM-154
+    pair: C52
+    subject: u_stranger
+    action: experience.write
+    object: exp_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-096, AZ-097]
+    source: ["WorkerToolsRulesTest.java:135#nobodyCanEditSomeoneElsesExperience"]
+  - id: AZM-155
+    pair: C53
+    subject: u_worker
+    action: education.write
+    object: edu_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-098, AZ-099]
+    source: ["ProfileEndpointRulesTest.java:134#nobodyCanEditSomeoneElsesEducation"]
+  - id: AZM-156
+    pair: C53
+    subject: u_stranger
+    action: education.write
+    object: edu_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-098, AZ-099]
+    source: ["ProfileEndpointRulesTest.java:134#nobodyCanEditSomeoneElsesEducation"]
+  - id: AZM-157
+    pair: C54
+    subject: u_worker
+    action: job_alert.write
+    object: alert_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-100, AZ-101]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-158
+    pair: C54
+    subject: u_stranger
+    action: job_alert.write
+    object: alert_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-100, AZ-101]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-159
+    pair: C55
+    subject: u_worker
+    action: bank_account.write
+    object: bank_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-102, AZ-103, AZ-104]
+    source: ["BankAccountIT.java:147#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"]
+  - id: AZM-160
+    pair: C55
+    subject: u_stranger
+    action: bank_account.write
+    object: bank_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-102, AZ-103, AZ-104]
+    source: ["BankAccountIT.java:147#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"]
+  - id: AZM-161
+    pair: C56
+    subject: u_worker
+    action: device.write
+    object: dev_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-107]
+    source: ["SessionDetailIT.java:300#renamingADeviceShowsUpInTheListAndTheDetailButNotForStrangers"]
+  - id: AZM-162
+    pair: C56
+    subject: u_stranger
+    action: device.write
+    object: dev_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-107]
+    source: ["SessionDetailIT.java:300#renamingADeviceShowsUpInTheListAndTheDetailButNotForStrangers"]
+  - id: AZM-163
+    pair: C57
+    subject: u_worker
+    action: availability_exception.write
+    object: avex_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-110]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-164
+    pair: C57
+    subject: u_stranger
+    action: availability_exception.write
+    object: avex_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-110]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-165
+    pair: C58
+    subject: u_creator
+    action: job_template.read
+    object: tmpl_c
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-105]
+    source: ["ExistenceConcealmentIT.java:238#readingSomeoneElsesJobTemplateLooksExactlyLikeReadingOneThatDoesNotExist"]
+  - id: AZM-166
+    pair: C58
+    subject: u_stranger
+    action: job_template.read
+    object: tmpl_c
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-105]
+    source: ["ExistenceConcealmentIT.java:238#readingSomeoneElsesJobTemplateLooksExactlyLikeReadingOneThatDoesNotExist"]
+  - id: AZM-167
+    pair: C59
+    subject: u_creator
+    action: job_template.write
+    object: tmpl_c
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-106]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-168
+    pair: C59
+    subject: u_stranger
+    action: job_template.write
+    object: tmpl_c
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-106]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-169
+    pair: C60
+    subject: u_worker
+    action: session.read
+    object: ses_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-108]
+    source: ["SessionDetailIT.java:226#someoneElsesSessionLooksExactlyLikeAMissingOne"]
+  - id: AZM-170
+    pair: C60
+    subject: u_stranger
+    action: session.read
+    object: ses_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-108]
+    source: ["SessionDetailIT.java:226#someoneElsesSessionLooksExactlyLikeAMissingOne"]
+  - id: AZM-171
+    pair: C61
+    subject: u_worker
+    action: session.write
+    object: ses_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-109]
+    source: ["MyWorkRulesTest.java:75#aSessionBelongingToSomeoneElseCannotBeRevoked"]
+  - id: AZM-172
+    pair: C61
+    subject: u_stranger
+    action: session.write
+    object: ses_w
+    expect: deny
+    conceal: true      # ret = kaynağın kendi 404 gövdesi
+    inventory: [AZ-109]
+    source: ["MyWorkRulesTest.java:75#aSessionBelongingToSomeoneElseCannotBeRevoked"]
+  - id: AZM-173
+    pair: C62
+    subject: u_worker
+    action: user_verification.confirm
+    object: ver_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-111]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-174
+    pair: C62
+    subject: u_stranger
+    action: user_verification.confirm
+    object: ver_w
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-111]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-175
+    pair: C63
+    subject: u_worker
+    action: notification.mark_read
+    object: notif_w
+    expect: allow
+    basis: "recipient"
+    inventory: [AZ-112]
+    source: ["NotificationFeedRulesTest.java:153#someoneElsesNotificationIsNotMarkedRead"]
+  - id: AZM-176
+    pair: C63
+    subject: u_stranger
+    action: notification.mark_read
+    object: notif_w
+    expect: deny
+    note: "200, değişiklik yok"
+    inventory: [AZ-112]
+    source: ["NotificationFeedRulesTest.java:153#someoneElsesNotificationIsNotMarkedRead"]
+  - id: AZM-177
+    pair: C64
+    subject: anonymous
+    action: notification.mark_opened
+    object: notif_w
+    expect: allow
+    basis: "capability url"
+    inventory: [AZ-130]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-178
+    pair: C64
+    subject: anonymous
+    action: notification.mark_opened
+    object: notif_missing
+    expect: deny
+    note: "404; yetki değil var olma"
+    inventory: [AZ-130]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-179
+    pair: C65
+    subject: u_worker
+    action: address_search_session.use
+    object: addr_w
+    expect: allow
+    basis: "owner"
+    inventory: [AZ-114, AZ-115]
+    source: ["AddressSearchManagerTest.java:144#providerProofCannotBeUsedByAnotherUser"]
+  - id: AZM-180
+    pair: C65
+    subject: u_stranger
+    action: address_search_session.use
+    object: addr_w
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-114, AZ-115]
+    source: ["AddressSearchManagerTest.java:144#providerProofCannotBeUsedByAnotherUser"]
+  - id: AZM-181
+    pair: C66
+    subject: anonymous
+    action: payment_attempt.complete_callback
+    object: pay_token
+    expect: allow
+    basis: "provider token"
+    inventory: [AZ-131]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-182
+    pair: C66
+    subject: anonymous
+    action: payment_attempt.complete_callback
+    object: pay_token_forged
+    expect: deny
+    note: "sunucu sorgusu reddeder; doğrulanmadı"
+    inventory: [AZ-131]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-183
+    pair: C67
+    subject: anonymous
+    action: payment_attempt.read_outcome
+    object: pay_token
+    expect: allow
+    basis: "provider token"
+    inventory: [AZ-132]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-184
+    pair: C67
+    subject: anonymous
+    action: payment_attempt.read_outcome
+    object: pay_token_unknown
+    expect: deny
+    note: "kayıt yok; doğrulanmadı"
+    inventory: [AZ-132]
+    source: []
+    # source boş: bu çifti bağlayan Java testi bulunamadı
+  - id: AZM-185
+    pair: C68
+    subject: u_worker
+    action: realtime_destination.subscribe
+    object: queue_own
+    expect: allow
+    basis: "user destination"
+    note: "/user/** broker kapsamı"
+    inventory: [AZ-076]
+    source: ["StompSubscriptionSecurityTest.java:102#anUnknownDestinationIsRefusedRatherThanSilentlyAllowed"]
+  - id: AZM-186
+    pair: C68
+    subject: u_worker
+    action: realtime_destination.subscribe
+    object: topic_unknown
+    expect: deny
+    conceal: false     # Java bugün ayırt edilebilir ret döndürüyor (403/400/farklı 404)
+    inventory: [AZ-076]
+    source: ["StompSubscriptionSecurityTest.java:102#anUnknownDestinationIsRefusedRatherThanSilentlyAllowed"]

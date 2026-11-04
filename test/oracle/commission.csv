@@ -1,0 +1,25 @@
+id,girdi_isci_payi,oran,oran_bps,sonuc_isci_payi,sonuc_komisyon,sonuc_toplam,isci_payi_kurus,komisyon_kurus,toplam_kurus,hata,kaynak,dogrulama
+CM-01,1000.00,0.075,750,1000.00,75.00,1075.00,100000,7500,107500,,CommissionCalculatorTest#theBreakdownAddsUpToTheChargedTotal,test
+CM-02,0.05,0.10,1000,0.05,0.01,0.06,5,1,6,,CommissionCalculatorTest#halfKurusRoundsUpNotDown,test
+CM-03,500,0.12,1200,500.00,60.00,560.00,50000,6000,56000,,CommissionCalculatorTest#aDifferentRateProducesADifferentCommission,test (yalnız komisyon 60.00 ve oran; pay/toplam koddan)
+CM-04,500,0.075,750,500.00,37.50,537.50,50000,3750,53750,,CommissionCalculatorTest#theAppliedRateIsReportedSoItCanBeStored,test (yalnız oran; tutarlar koddan)
+CM-05,0.30,0.075,750,0.30,0.02,0.32,30,2,32,,CommissionCalculatorTest#floatingPointDriftIsGone (0.10 + 0.20),test (yalnız pay 0.30; komisyon/toplam koddan)
+CM-06,0.01,0.075,750,0.01,0.00,0.01,1,0,1,,CommissionCalculatorTest#roundingNeverLosesOrInventsKurus,test (yalnız ölçek=2 ve toplam=pay+komisyon; değerler koddan)
+CM-07,3.33,0.075,750,3.33,0.25,3.58,333,25,358,,CommissionCalculatorTest#roundingNeverLosesOrInventsKurus,test (yalnız ölçek ve toplam; değerler koddan)
+CM-08,99.99,0.075,750,99.99,7.50,107.49,9999,750,10749,,CommissionCalculatorTest#roundingNeverLosesOrInventsKurus,test (yalnız ölçek ve toplam; değerler koddan)
+CM-09,1234.56,0.075,750,1234.56,92.59,1327.15,123456,9259,132715,,CommissionCalculatorTest#roundingNeverLosesOrInventsKurus,test (yalnız ölçek ve toplam; değerler koddan)
+CM-10,7777.77,0.075,750,7777.77,583.33,8361.10,777777,58333,836110,,CommissionCalculatorTest#roundingNeverLosesOrInventsKurus,test (yalnız ölçek ve toplam; değerler koddan)
+CM-11,100000.05,0.075,750,100000.05,7500.00,107500.05,10000005,750000,10750005,,CommissionCalculatorTest#roundingNeverLosesOrInventsKurus,test (yalnız ölçek ve toplam; değerler koddan)
+CM-12,1.00,0.125,1250,1.00,0.13,1.13,100,13,113,,CommissionCalculator.java:28-30,doğrulanmadı (koddan hesaplandı)
+CM-13,6.20,0.075,750,6.20,0.47,6.67,620,47,667,,CommissionCalculator.java:28-30,doğrulanmadı (koddan hesaplandı)
+CM-14,2.20,0.075,750,2.20,0.17,2.37,220,17,237,,CommissionCalculator.java:28-30,doğrulanmadı (koddan hesaplandı)
+CM-15,0.07,0.075,750,0.07,0.01,0.08,7,1,8,,CommissionCalculator.java:28-30,doğrulanmadı (koddan hesaplandı)
+CM-16,0.06,0.075,750,0.06,0.00,0.06,6,0,6,,CommissionCalculator.java:28-30,"doğrulanmadı (koddan hesaplandı; komisyon 0,00)"
+CM-17,0.01,0.10,1000,0.01,0.00,0.01,1,0,1,,CommissionCalculator.java:28-30,"doğrulanmadı (koddan hesaplandı; 0,001 → 0,00)"
+CM-18,100.005,0.075,750,100.01,7.50,107.51,10001,750,10751,,CommissionCalculator.java:28,doğrulanmadı (koddan hesaplandı; pay önce HALF_UP)
+CM-19,100.004,0.075,750,100.00,7.50,107.50,10000,750,10750,,CommissionCalculator.java:28,doğrulanmadı (koddan hesaplandı)
+CM-20,1075.00,0.0755,755,1075.00,81.16,1156.16,107500,8116,115616,,CommissionCalculator.java:28-30,doğrulanmadı (koddan hesaplandı; 4 basamaklı oran)
+CM-21,99999999.99,0.075,750,99999999.99,7500000.00,107499999.99,9999999999,750000000,10749999999,,CommissionCalculator.java:28-30,"doğrulanmadı (koddan hesaplandı; NUMERIC(19,2) içinde büyük tutar)"
+CM-22,0,0.075,750,,,,,,,ValidationException {job.salary.min.value} → JOB_SALARY_MIN_VALUE,CommissionCalculatorTest#nonPositiveAmountsAreRejected,test
+CM-23,-1,0.075,750,,,,,,,ValidationException {job.salary.min.value} → JOB_SALARY_MIN_VALUE,CommissionCalculatorTest#nonPositiveAmountsAreRejected,test
+CM-24,null,0.075,750,,,,,,,ValidationException {job.salary.min.value} → JOB_SALARY_MIN_VALUE,CommissionCalculatorTest#nonPositiveAmountsAreRejected,test
