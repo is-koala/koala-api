@@ -9,13 +9,16 @@ import (
 	"time"
 
 	"github.com/is-koala/koala-api/internal/platform/config"
+	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
 
 const healthcheckTimeout = 3 * time.Second
 
 // runHealthcheck lets the distroless image (no curl or wget) probe itself:
 // HEALTHCHECK CMD ["/koala", "healthcheck"]. It reads the same KOALA_*
-// environment as serve and asks /readyz on the loopback interface.
+// environment as serve and asks /livez on the loopback interface. Liveness,
+// not readiness: a database outage must not get the container marked
+// unhealthy and restarted by the orchestrator.
 func runHealthcheck(ctx context.Context, args []string, sio IO) int {
 	if rejectArgs("healthcheck", args, sio) {
 		return ExitUsage
@@ -25,7 +28,7 @@ func runHealthcheck(ctx context.Context, args []string, sio IO) int {
 		_, _ = fmt.Fprintf(sio.Stderr, "healthcheck: %v\n", err)
 		return ExitError
 	}
-	url, err := readyURL(cfg.HTTPAddr)
+	url, err := livezURL(cfg.HTTPAddr)
 	if err != nil {
 		_, _ = fmt.Fprintf(sio.Stderr, "healthcheck: %v\n", err)
 		return ExitError
@@ -46,15 +49,15 @@ func runHealthcheck(ctx context.Context, args []string, sio IO) int {
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		_, _ = fmt.Fprintf(sio.Stderr, "healthcheck: /readyz returned %d\n", resp.StatusCode)
+		_, _ = fmt.Fprintf(sio.Stderr, "healthcheck: /livez returned %d\n", resp.StatusCode)
 		return ExitError
 	}
 	return ExitOK
 }
 
-// readyURL maps the listen address to a URL on loopback when the server
+// livezURL maps the listen address to a URL on loopback when the server
 // listens on all interfaces.
-func readyURL(addr string) (string, error) {
+func livezURL(addr string) (string, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return "", fmt.Errorf("parse listen address: %w", err)
@@ -62,5 +65,5 @@ func readyURL(addr string) (string, error) {
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
 	}
-	return "http://" + net.JoinHostPort(host, port) + "/readyz", nil
+	return "http://" + net.JoinHostPort(host, port) + httpx.PathLivez, nil
 }

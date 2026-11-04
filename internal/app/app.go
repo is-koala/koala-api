@@ -21,7 +21,7 @@ const usage = `usage: koala <command>
 commands:
   serve        run the HTTP server
   migrate      apply database migrations (not implemented yet: Faz 1, goose)
-  healthcheck  probe the local server's /readyz (Docker HEALTHCHECK)
+  healthcheck  probe the local server's /livez (Docker HEALTHCHECK)
   version      print the build version
 `
 

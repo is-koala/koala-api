@@ -97,6 +97,7 @@ func TestServeAndHealthcheck(t *testing.T) {
 	logger := log.New(&logs, slog.LevelInfo)
 
 	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() { done <- serve(ctx, cfg, logger, "v0.0.0-test", ln) }()
 
@@ -123,20 +124,20 @@ func TestServeAndHealthcheck(t *testing.T) {
 	}
 }
 
-func TestReadyURL(t *testing.T) {
+func TestLivezURL(t *testing.T) {
 	t.Parallel()
 
 	tests := map[string]string{
-		":8080":          "http://127.0.0.1:8080/readyz",
-		"0.0.0.0:8080":   "http://127.0.0.1:8080/readyz",
-		"[::]:8080":      "http://127.0.0.1:8080/readyz",
-		"127.0.0.1:9000": "http://127.0.0.1:9000/readyz",
-		"[::1]:9000":     "http://[::1]:9000/readyz",
+		":8080":          "http://127.0.0.1:8080/livez",
+		"0.0.0.0:8080":   "http://127.0.0.1:8080/livez",
+		"[::]:8080":      "http://127.0.0.1:8080/livez",
+		"127.0.0.1:9000": "http://127.0.0.1:9000/livez",
+		"[::1]:9000":     "http://[::1]:9000/livez",
 	}
 	for addr, want := range tests {
-		got, err := readyURL(addr)
+		got, err := livezURL(addr)
 		if err != nil || got != want {
-			t.Errorf("readyURL(%q) = %q, %v; want %q", addr, got, err, want)
+			t.Errorf("livezURL(%q) = %q, %v; want %q", addr, got, err, want)
 		}
 	}
 }
