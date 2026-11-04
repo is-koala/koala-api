@@ -2,14 +2,14 @@
 
 Her ADR tek bir kararı kaydeder: **Bağlam / Karar / Sonuçlar**. "Neden" kısmı plan belgesinden gelir; ADR'ler o belgeye bölüm numarasıyla atıf yapar.
 
-**Plan belgesi:** `GO-GECIS-DEGERLENDIRME.md` (04.11.2026). Belgenin "0.0 Karar kaydı" bölümü bağlayıcıdır, §0.1 tablosu yalnız tarihseldir. İkisi çeliştiğinde karar kaydı geçerlidir. `K<n>` ve `S<n>` kısaltmaları o kayıttaki satırlardır. `N0x` ise plan belgesinin atıf yaptığı analiz notlarıdır.
+**Plan belgesi:** [`docs/plan/go-gecis-degerlendirme.md`](../plan/go-gecis-degerlendirme.md) (04.11.2026). Belgenin atıf yaptığı N01–N08 notları repo dışındadır. Belgenin "0.0 Karar kaydı" bölümü bağlayıcıdır, §0.1 tablosu yalnız tarihseldir. İkisi çeliştiğinde karar kaydı geçerlidir. `K<n>` ve `S<n>` kısaltmaları o kayıttaki satırlardır. `N0x` ise plan belgesinin atıf yaptığı analiz notlarıdır.
 
 | No | Başlık | Karar kaydı |
 |---|---|---|
 | [0001](0001-go-rewrite-and-repository.md) | Go'da baştan yazım ve yeni repo | K1, K16, K18 |
 | [0002](0002-package-layout-and-layers.md) | Paket düzeni ve katman kuralları | §3.1, §3.2 |
 | [0003](0003-dependency-policy.md) | Bağımlılık politikası | K19 |
-| [0004](0004-quality-gate-and-tool-pinning.md) | Kalite kapısı ve araç sabitleme | §6.1 Faz 0–1 |
+| [0004](0004-quality-gate-and-tool-pinning.md) | Kalite kapısı (CI), Go sürümü ve araç sabitleme | §6.1 Faz 0–1 |
 | [0005](0005-api-contract-principles.md) | API sözleşmesi ilkeleri | K10, K11 |
 | [0006](0006-router-and-code-generation.md) | Router ve sözleşmeden kod üretimi: chi + oapi-codegen | K8, K9 |
 | [0007](0007-error-model.md) | Hata modeli: `apperr` + RFC 9457 | §3.4 |
@@ -22,5 +22,9 @@ Her ADR tek bir kararı kaydeder: **Bağlam / Karar / Sonuçlar**. "Neden" kısm
 | [0014](0014-authorization.md) | Authz: uygulama içi, OpenFGA DSL alt kümesi | K17, §5 |
 | [0015](0015-sessions-and-staff-mfa.md) | Oturum modeli ve personel MFA | K12, K13 |
 | [0016](0016-nfc-chip-verification-in-go.md) | NFC çip doğrulaması Go'da | K15, K19 |
+
+**Not:** Plandaki ADR-0013, 0014, 0016 atıfları koala-backend'e aittir; bu dizindeki aynı numaralı ADR'lerle ilgisi yoktur.
+
+Bir ADR'de "bu PR'ın önerisi" diye işaretli kural plan belgesinde yoktur; iskelet PR'ında (#1) önerildi ve incelemeye açıktır. "(plan: doğrulanmadı)" işareti, planın kod okumasından çıkardığı ama doğrulamadığı bir bulguyu gösterir.
 
 Yeni ADR: sıradaki numarayı al, bu tabloya ekle. Kabul edilmiş bir ADR değiştirilmez. Kararı değiştirmek için yeni ADR yazılır, eskisinin durumu "Yerine geçildi: ADR-NNNN" olur.

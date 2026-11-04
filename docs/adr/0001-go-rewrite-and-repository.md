@@ -3,7 +3,7 @@
 - Durum: Kabul edildi
 - Tarih: 04.11.2026
 - Karar kaydı: K1, K16, K18
-- Kaynak: plan §0 (madde 2–3, 9), §0.0, §2, §7
+- Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §0 (madde 2–3, 9), §0.0, §2, §7
 
 ## Bağlam
 
@@ -23,8 +23,11 @@ Proje prodda olmadığı için bu bedel bugün en düşük seviyesinde.
 
 1. **Baştan yazım (K1).** Go uygulaması hazır olunca Java'nın yerine tek seferde konur. Koşullar kabul edildi: lansman 5–6 aydan uzak ve yazım süresince Java'da yeni özellik yok.
 2. **Java dondurulur (K16).**
-   - Karar içeren açık PR'lar (#341, #344, #350, #351, #352) `verify` yeşilse referans olarak merge edilir.
-   - v0.9.32 yayımlanmaz.
+   - Yeni özellik yok.
+   - Karar içeren açık PR'lar (#341, #344, #350, #351, #352) `verify` yeşilse merge edilir.
+   - **#352 merge olduktan sonra v0.9.32 yayımlanır** (Yusuf, 04.11 güncellemesi). #349 dahil olduğu için T2 konum sızıntısı riski kalkıyor; pre-prod, Go hazır olana kadar güncel kalır.
+   - Bu zinciri (merge'ler ve yayın) üst orkestrasyon oturumu yürütür; bu repo yürütmez.
+   - Plan §7-A'daki "v0.9.32 yayımlanmaz" ifadesi K16'nın bu güncellemesiyle geçersizdir.
 3. **Yeni repo (K18).** Go kodu `is-koala/koala-api`'de durur. Java repo, geçişten sonra salt-okunur arşiv olur.
 4. **Eşitlik hedefi iş kuralı eşitliğidir; API eşitliği hedeflenmez** (§0-3, §6.2). Java testleri senaryo kataloğuna çevrilir. Para kuralları için Java oracle'ından karar tabloları ve Iyzico altın vektörleri kullanılır.
 

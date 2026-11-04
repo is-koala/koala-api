@@ -3,7 +3,7 @@
 - Durum: Kabul edildi (`PAID`'in kanıt raporu sandbox'ta doğrulanacak)
 - Tarih: 04.11.2026
 - Karar kaydı: K2
-- Kaynak: plan §0.0 K2, §0.1 K2, §8 madde 12, §6.3; N03 §2.4
+- Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §0.0 K2, §0.1 K2, §8 madde 12, §6.3; N03 §2.4
 
 ## Bağlam
 
@@ -11,7 +11,7 @@ Java'da payout `COMPLETED` semantiğinde belge ile kod çelişiyor (§8 madde 12
 - Belge "tek yol banka ekstresi mutabakatı" diyor.
 - Kod ise Iyzico APPROVE yanıtında referans varsa doğrudan `COMPLETED` yazıyor (`SettlementManager`).
 
-APPROVE, talimatın kabul edildiğini söyler; paranın hesaba geçtiğini söylemez (N03 §2.4). Plan, bu karar verilmeden para yolunun eşitlik hedefinin tanımlanamayacağını söylüyor (§0-8).
+APPROVE, talimatın kabul edildiğini söyler; paranın hesaba geçtiğini söylemez (N03 §2.4). Plan bu kararı para yolunun eşitlik hedefinin ön koşulu sayıyordu (§0-8); karar 04.11'de K2 ile verildi. Plan §8 madde 12'deki "`PROVIDER_APPROVED` ve `SETTLED`" önerisi K2'den önce yazıldı.
 
 ## Karar
 

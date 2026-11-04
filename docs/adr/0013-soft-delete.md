@@ -3,7 +3,7 @@
 - Durum: Kabul edildi
 - Tarih: 04.11.2026
 - Karar kaydı: K14, K19 (muafiyetler), S4
-- Kaynak: plan §0.0 K14, K19; §3.6-3; §5.7; §6.1 Faz 1 ve 8; §9 R16 ve S4; N08 §B
+- Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §0.0 K14, K19; §3.6-3; §5.7; §6.1 Faz 1 ve 8; §9 R16 ve S4; N08 §B
 
 ## Bağlam
 

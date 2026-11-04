@@ -3,7 +3,7 @@
 - Durum: Kabul edildi
 - Tarih: 04.11.2026
 - Karar kaydı: K6, K7
-- Kaynak: plan §0.0 K6–K7, §0.1 K6–K7, §3.5, §3.6-1, §3.6-4; N02 §2, §5, §7; N05 A2, A5-5, A5-6
+- Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §0.0 K6–K7, §0.1 K6–K7, §3.5, §3.6-1, §3.6-4; N02 §2, §5, §7; N05 A2, A5-5, A5-6
 
 ## Bağlam
 

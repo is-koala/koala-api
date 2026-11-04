@@ -3,14 +3,14 @@
 - Durum: Kabul edildi
 - Tarih: 04.11.2026
 - Karar kaydı: K12, K13
-- Kaynak: plan §0.0 K12–K13, §0.1 K12–K13, §3.9, §8 madde 2 ve 16, §6.3; N01 §3.3, §3.5, §4.6
+- Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §0.0 K12–K13, §0.1 K12–K13, §3.9, §8 madde 2 ve 16, §6.3; N01 §3.3, §3.5, §4.6
 
 ## Bağlam
 
 Java'daki oturum modeli şöyle:
 - erişim token'ı 12 saat geçerli,
 - refresh rotasyonu yok,
-- JWT `iss` doğrulanmıyor (§8 madde 16).
+- JWT `iss` doğrulanmıyor (§8 madde 16; plan: doğrulanmadı, N01 kod okuması).
 
 OTP'de deneme sayacı yok, karşılaştırma `String.equals` ile yapılıyor ve 403/404 ayrımı kaydın var olup olmadığını sızdırıyor (§8 madde 2).
 

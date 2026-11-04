@@ -3,7 +3,7 @@
 - Durum: Kabul edildi
 - Tarih: 04.11.2026
 - Karar kaydı: K15, K19 (NFC bağımlılıkları)
-- Kaynak: plan §0.0 K15, K19; §3.3 (NFC tabloları); §6.1 Faz 2b; §9 R13–R15; N08 §A
+- Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §0.0 K15, K19; §3.3 (NFC tabloları); §6.1 Faz 2b; §9 R13–R15; N08 §A
 
 ## Bağlam
 

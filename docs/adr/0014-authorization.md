@@ -3,7 +3,7 @@
 - Durum: Kabul edildi
 - Tarih: 04.11.2026
 - Karar kaydı: K17 (ve plan §5, "karar 5")
-- Kaynak: plan §5.1–5.7, §0-5, §3.4; N05 B, N07 §1–8
+- Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §5.1–5.7, §0-5, §3.4; N05 B, N07 §1–8
 
 ## Bağlam
 

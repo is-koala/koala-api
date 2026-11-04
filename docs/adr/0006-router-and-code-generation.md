@@ -3,7 +3,7 @@
 - Durum: Kabul edildi (oapi-codegen kısmı Faz 0 spike'ına bağlı)
 - Tarih: 04.11.2026
 - Karar kaydı: K8, K9
-- Kaynak: plan §0.0 K8–K9, §3.3, §9 R4; N05 A5-7
+- Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §0.0 K8–K9, §3.3, §9 R4; N05 A5-7
 
 ## Bağlam
 
@@ -26,7 +26,7 @@ Sözleşme önce yazılacağı için (ADR-0005) handler imzaları spec'ten üret
 
 ## Sonuçlar
 
-- `internal/platform/httpx.NewRouter` bir `chi.Router` döner. Platform middleware zinciri ve sağlık uçları üzerinde kuruludur. Modüller route'larını buna bağlar.
+- `internal/platform/httpx.NewRouter` bir `*chi.Mux` döner (somut tip; arayüzü tüketen taraf tanımlar). Platform middleware zinciri ve sağlık uçları üzerinde kuruludur. Modüller route'larını buna bağlar. Gövde sınırını yükseltmesi gereken route `r.With(httpx.BodyLimit(n))` kullanır.
 - chi'nin özel 405 işleyicisi `Allow` başlığını yazmıyor. `httpx` bunu `Routes.Match` ile hesaplıyor.
 - Erişim log'unda `route` olarak chi'nin route şablonu (`/v1/jobs/{id}`) kullanılır. HTTP metriklerinin `http_route` etiketi de aynı değeri alacak (§3.10).
 - Spike sonucu bu ADR'ye "çalışıyor" ya da "alternatif seçildi: ADR-NNNN" notuyla işlenir (§6.1 Faz 0 çıkış kriteri).
