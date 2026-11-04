@@ -1,12 +1,12 @@
 # Multi-stage build (plan §3.11, ADR-0004). Both base images are pinned by
-# tag and digest; bump the golang tag together with the go directive in
-# go.mod. Build with:
+# tag and digest; the golang tag follows the toolchain line in go.mod.
+# Images are never built on the shared Mac. Build with:
 #   docker build --build-arg VERSION=$(git describe --tags --always) -t koala-api .
 
-FROM golang:1.25.5-trixie@sha256:1763926ff08117bdf4c76182c02fecbcfc3086771169b2a03574273dde17fcee AS build
+FROM golang:1.27.3-trixie@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS build
 
 WORKDIR /src
-ENV CGO_ENABLED=0 GOTOOLCHAIN=local
+ENV CGO_ENABLED=0
 
 COPY go.mod go.sum ./
 RUN go mod download && go mod verify
@@ -22,7 +22,9 @@ COPY --from=build /out/koala /koala
 USER nonroot:nonroot
 EXPOSE 8080
 
-# The binary probes itself; the image has no shell, curl or wget.
+# The binary probes its own /livez; the image has no shell, curl or wget.
+# Liveness, not readiness: a database outage must not get the container
+# restarted.
 HEALTHCHECK --interval=10s --timeout=5s --start-period=10s --retries=3 CMD ["/koala", "healthcheck"]
 
 ENTRYPOINT ["/koala"]

@@ -32,12 +32,14 @@ linters:
     - nilerr
     - noctx
     - nolintlint
+    - paralleltest
     - revive
     - rowserrcheck
     - sloglint
     - sqlclosecheck
     - staticcheck
     - thelper
+    - tparallel
     - unconvert
     - unparam
     - unused
@@ -49,23 +51,24 @@ linters:
       rules:
         # Dependency policy (ADR-0003): libraries the plan rejected (§3.3,
         # "Bilinçli olarak alınmayanlar") cannot be imported anywhere.
+        # Entries whose desc ends in "(PR #1 proposal)" are not in the plan.
         rejected:
           list-mode: lax
           deny:
             - pkg: log$
               desc: use log/slog through internal/platform/log
             - pkg: github.com/pkg/errors
-              desc: use the standard errors package and apperr
+              desc: use the standard errors package and apperr (PR #1 proposal)
             - pkg: github.com/stretchr/testify
-              desc: tests use the standard testing package
+              desc: tests use the standard testing package (PR #1 proposal)
             - pkg: gorm.io
               desc: rejected, ADR-0012 (pgx + sqlc)
             - pkg: entgo.io
               desc: rejected, ADR-0012 (pgx + sqlc)
             - pkg: github.com/jmoiron/sqlx
-              desc: rejected, ADR-0012 (pgx + sqlc)
+              desc: use pgx + sqlc, ADR-0012 (PR #1 proposal)
             - pkg: github.com/lib/pq
-              desc: use github.com/jackc/pgx/v5
+              desc: use github.com/jackc/pgx/v5 (PR #1 proposal)
             - pkg: github.com/gofiber
               desc: rejected, ADR-0006 (chi on net/http)
             - pkg: github.com/labstack/echo
@@ -77,7 +80,13 @@ linters:
             - pkg: github.com/rs/zerolog
               desc: rejected, use log/slog
             - pkg: github.com/sirupsen/logrus
-              desc: rejected, use log/slog
+              desc: use log/slog (PR #1 proposal)
+            - pkg: go.uber.org/fx
+              desc: wiring is explicit in internal/app, ADR-0002 (PR #1 proposal)
+            - pkg: go.uber.org/dig
+              desc: wiring is explicit in internal/app, ADR-0002 (PR #1 proposal)
+            - pkg: github.com/google/wire
+              desc: wiring is explicit in internal/app, ADR-0002 (PR #1 proposal)
             - pkg: github.com/casbin
               desc: rejected, ADR-0014 (authz)
             - pkg: github.com/shopspring/decimal
@@ -93,7 +102,7 @@ linters:
             - pkg: firebase.google.com/go
               desc: rejected, FCM HTTP v1 with x/oauth2
             - pkg: github.com/gorilla/websocket
-              desc: use github.com/coder/websocket (ADR-0011)
+              desc: use github.com/coder/websocket, ADR-0011 (PR #1 proposal)
             - pkg: go.mozilla.org/pkcs7
               desc: rejected for NFC, ADR-0016
             - pkg: github.com/smallstep/pkcs7
