@@ -1,0 +1,19 @@
+# Build outputs and pinned tools (make build, make tools)
+/bin/
+/dist/
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage.*
+
+# Local environment files; never commit values
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

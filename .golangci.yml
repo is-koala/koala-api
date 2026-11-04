@@ -1,0 +1,261 @@
+# golangci-lint v2 configuration (ADR-0004). Rules that CLAUDE.md states
+# are enforced here wherever a linter can do it.
+version: "2"
+
+run:
+  tests: true
+  relative-path-mode: gitroot
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - depguard
+    - durationcheck
+    - errcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - forbidigo
+    - gochecknoglobals
+    - gochecknoinits
+    - gocritic
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - nilerr
+    - noctx
+    - nolintlint
+    - revive
+    - rowserrcheck
+    - sloglint
+    - sqlclosecheck
+    - staticcheck
+    - thelper
+    - unconvert
+    - unparam
+    - unused
+    - usestdlibvars
+    - wrapcheck
+
+  settings:
+    depguard:
+      rules:
+        # Dependency policy (ADR-0003): libraries the plan rejected (§3.3,
+        # "Bilinçli olarak alınmayanlar") cannot be imported anywhere.
+        rejected:
+          list-mode: lax
+          deny:
+            - pkg: log$
+              desc: use log/slog through internal/platform/log
+            - pkg: github.com/pkg/errors
+              desc: use the standard errors package and apperr
+            - pkg: github.com/stretchr/testify
+              desc: tests use the standard testing package
+            - pkg: gorm.io
+              desc: rejected, ADR-0012 (pgx + sqlc)
+            - pkg: entgo.io
+              desc: rejected, ADR-0012 (pgx + sqlc)
+            - pkg: github.com/jmoiron/sqlx
+              desc: rejected, ADR-0012 (pgx + sqlc)
+            - pkg: github.com/lib/pq
+              desc: use github.com/jackc/pgx/v5
+            - pkg: github.com/gofiber
+              desc: rejected, ADR-0006 (chi on net/http)
+            - pkg: github.com/labstack/echo
+              desc: rejected, ADR-0006 (chi on net/http)
+            - pkg: github.com/spf13/viper
+              desc: rejected, configuration is internal/platform/config
+            - pkg: go.uber.org/zap
+              desc: rejected, use log/slog
+            - pkg: github.com/rs/zerolog
+              desc: rejected, use log/slog
+            - pkg: github.com/sirupsen/logrus
+              desc: rejected, use log/slog
+            - pkg: github.com/casbin
+              desc: rejected, ADR-0014 (authz)
+            - pkg: github.com/shopspring/decimal
+              desc: rejected, ADR-0008 (int64 minor units)
+            - pkg: github.com/go-playground/validator
+              desc: rejected, validation comes from the OpenAPI spec (ADR-0005)
+            - pkg: github.com/rabbitmq/amqp091-go
+              desc: rejected, ADR-0010 (River)
+            - pkg: github.com/streadway/amqp
+              desc: rejected, ADR-0010 (River)
+            - pkg: github.com/robfig/cron
+              desc: rejected, River periodic jobs (ADR-0010)
+            - pkg: firebase.google.com/go
+              desc: rejected, FCM HTTP v1 with x/oauth2
+            - pkg: github.com/gorilla/websocket
+              desc: use github.com/coder/websocket (ADR-0011)
+            - pkg: go.mozilla.org/pkcs7
+              desc: rejected for NFC, ADR-0016
+            - pkg: github.com/smallstep/pkcs7
+              desc: rejected for NFC, ADR-0016
+            - pkg: github.com/digitorus/pkcs7
+              desc: rejected for NFC, ADR-0016
+            - pkg: golang.org/x/crypto/ripemd160
+              desc: deprecated; forbidden by ICAO 9303 for AA (ADR-0016)
+        # Layer rule (ADR-0002, plan §3.2-1): domain.go holds types, rules
+        # and state machines only.
+        domain:
+          files:
+            - "**/internal/*/domain.go"
+            - "**/internal/*/*/domain.go"
+          deny:
+            - pkg: net/http
+              desc: domain.go must not depend on transport
+            - pkg: encoding/json
+              desc: domain.go must not carry wire formats
+            - pkg: github.com/jackc/pgx
+              desc: domain.go must not depend on storage
+            - pkg: github.com/go-chi/chi
+              desc: domain.go must not depend on transport
+        # internal/platform carries no domain knowledge (plan §3.1).
+        platform:
+          files:
+            - "**/internal/platform/**"
+          list-mode: lax
+          allow:
+            - github.com/is-koala/koala-api/internal/platform
+          deny:
+            - pkg: github.com/is-koala/koala-api/internal
+              desc: platform packages must not import domain packages
+
+    errcheck:
+      check-type-assertions: true
+
+    exhaustive:
+      default-signifies-exhaustive: false
+
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^(fmt\.Print.*|print|println)$
+          msg: write to an injected io.Writer or log with slog
+        - pattern: ^os\.(Getenv|LookupEnv|Environ|Setenv)$
+          msg: configuration is read only by internal/platform/config via cmd/koala
+        - pattern: ^time\.Now$
+          msg: domain code takes the time from a clock (plan §3.8)
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - whyNoLint # nolintlint covers this
+        - unnamedResult
+        - hugeParam # interface-mandated signatures (slog.Handler) and small DTOs
+
+    gosec:
+      excludes:
+        - G104 # duplicate of errcheck
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+
+    misspell:
+      locale: US
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: deep-exit
+        - name: dot-imports
+        - name: early-return
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: use-any
+        - name: var-declaration
+        - name: var-naming
+          arguments:
+            - []
+            - []
+            - - skip-package-name-collision-with-go-std: true
+
+    sloglint:
+      attr-only: true
+      no-global: all
+      context: scope
+      static-msg: true
+      key-naming-case: snake
+      forbidden-keys:
+        - time
+        - level
+        - msg
+        - source
+
+    wrapcheck:
+      ignore-sigs:
+        - .Errorf(
+        - errors.New(
+        - errors.Unwrap(
+        - errors.Join(
+        - apperr.New(
+        - apperr.Wrap(
+
+  exclusions:
+    generated: strict
+    presets:
+      - common-false-positives
+    rules:
+      - path: _test\.go
+        linters:
+          - gochecknoglobals
+          - wrapcheck
+          - gosec
+          - containedctx
+      # time.Now is fine in platform plumbing (timers, access log) and tests.
+      - path: (internal/platform/|_test\.go)
+        linters:
+          - forbidigo
+        text: time\.Now
+      # The composition root is the only reader of the process environment.
+      - path: cmd/koala/
+        linters:
+          - forbidigo
+        text: os\.Environ
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/is-koala/koala-api
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
