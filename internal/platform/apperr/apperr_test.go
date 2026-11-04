@@ -34,6 +34,19 @@ func TestFromTreatsUnknownErrorsAsInternal(t *testing.T) {
 	}
 }
 
+func TestFromTreatsTypedNilAsInternal(t *testing.T) {
+	t.Parallel()
+
+	var typedNil *apperr.Error
+	for _, err := range []error{typedNil, fmt.Errorf("wrapped: %w", typedNil)} {
+		got := apperr.From(err)
+		if got == nil || got.Kind != apperr.KindInternal || got.Code != apperr.CodeInternal {
+			t.Fatalf("From(%v) = %v, want internal INTERNAL", err, got)
+		}
+		_ = got.Error() // must not panic
+	}
+}
+
 func TestWrapKeepsCauseForErrorsIs(t *testing.T) {
 	t.Parallel()
 

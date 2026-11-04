@@ -26,6 +26,9 @@ const (
 	KindConflict
 	KindRateLimited
 	KindUpstream
+	// KindPayloadTooLarge: the request body exceeds the route's limit
+	// (proposal of this PR; not in plan §3.4's list).
+	KindPayloadTooLarge
 )
 
 // String returns a stable, lowercase name for logs.
@@ -47,6 +50,8 @@ func (k Kind) String() string {
 		return "rate_limited"
 	case KindUpstream:
 		return "upstream"
+	case KindPayloadTooLarge:
+		return "payload_too_large"
 	default:
 		return fmt.Sprintf("kind(%d)", uint8(k))
 	}
@@ -92,8 +97,11 @@ func (e *Error) WithFields(fields ...FieldError) *Error {
 	return &c
 }
 
-// Error implements error.
+// Error implements error. It is safe on a nil receiver.
 func (e *Error) Error() string {
+	if e == nil {
+		return "<nil *apperr.Error>"
+	}
 	if e.cause != nil {
 		return fmt.Sprintf("%s %s: %v", e.Kind, e.Code, e.cause)
 	}
@@ -101,13 +109,19 @@ func (e *Error) Error() string {
 }
 
 // Unwrap returns the cause.
-func (e *Error) Unwrap() error { return e.cause }
+func (e *Error) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.cause
+}
 
-// From returns the first *Error in err's chain. Errors that carry no *Error
-// are reported as internal so that unknown failures never become 4xx.
+// From returns the first *Error in err's chain. Errors that carry no *Error,
+// including a typed nil *Error, are reported as internal so that unknown
+// failures never become 4xx.
 func From(err error) *Error {
 	var e *Error
-	if errors.As(err, &e) {
+	if errors.As(err, &e) && e != nil {
 		return e
 	}
 	return &Error{Kind: KindInternal, Code: CodeInternal, cause: err}
