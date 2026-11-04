@@ -79,3 +79,31 @@ func TestDerivedLoggerKeepsContextAttributes(t *testing.T) {
 		t.Fatalf("derived logger lost attributes: %v", m)
 	}
 }
+
+func TestGroupedLoggerKeepsContextAttributesAtTopLevel(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	logger := log.New(&buf, slog.LevelInfo).
+		With(slog.String("component", "payment")).
+		WithGroup("iyzico").
+		With(slog.String("operation", "approve"))
+	ctx := log.WithAttrs(context.Background(), slog.String("request_id", "req-3"))
+
+	logger.InfoContext(ctx, "grouped", slog.Int("attempt", 2))
+
+	m := decode(t, &buf)
+	if m["request_id"] != "req-3" {
+		t.Fatalf("request_id not at top level: %v", m)
+	}
+	if m["component"] != "payment" {
+		t.Fatalf("pre-group attribute lost: %v", m)
+	}
+	group, ok := m["iyzico"].(map[string]any)
+	if !ok || group["operation"] != "approve" || group["attempt"] != float64(2) {
+		t.Fatalf("group attributes wrong: %v", m)
+	}
+	if _, ok := group["request_id"]; ok {
+		t.Fatalf("request_id duplicated inside the group: %v", m)
+	}
+}
