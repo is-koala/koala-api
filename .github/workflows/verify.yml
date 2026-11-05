@@ -10,8 +10,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# A new push to a PR cancels its older run. main is never cancelled: every
-# merged commit's result is kept.
+# A new push to a PR cancels its older run. main runs do not cancel a run in
+# progress, but GitHub keeps at most one pending run per group: when merges
+# land faster than verify finishes, a newer pending main run replaces the
+# older pending one, which ends "cancelled" and leaves that SHA without a
+# green push: main run. Re-run it if that SHA is to be released
+# (docs/runbook/yayin.md).
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -62,12 +66,12 @@ jobs:
           PGUSER: postgres
           PGSSLMODE: disable
 
-  # The image (ADR-0023): built on every PR and main push, never pushed
-  # anywhere but this job's own registry. The smoke test runs it against
-  # Postgres: nonroot, startup < 1 s (plan §6.1 Faz 1), release-db.sh,
-  # koala healthcheck, SIGTERM. The publish path the release uses (single
-  # manifest check, SBOM, provenance) runs against the job registry.
-  # Results and the image size are in the job summary.
+  # The image (ADR-0023): built on every PR and main push. It is not pushed
+  # to GHCR; only to this job's own throwaway registry, where the release's
+  # publish path runs unchanged. The smoke test runs it against Postgres:
+  # nonroot, startup < 1 s (plan §6.1 Faz 1), release-db.sh, koala
+  # healthcheck, the /readyz drain on SIGTERM. Results and the image size
+  # are in the job summary.
   image:
     name: image
     runs-on: ubuntu-latest
@@ -100,10 +104,16 @@ jobs:
         with:
           persist-credentials: false
 
-      # network=host lets the builder push to the job registry on localhost.
+      # BuildKit pinned like the base images; network=host lets the builder
+      # push to the job registry on localhost.
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
-          driver-opts: network=host
+          driver-opts: |
+            image=moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
+            network=host
+
+      - name: Release version rules
+        run: scripts/release.sh self-test
 
       - name: Version
         id: version
@@ -120,7 +130,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
 
       - name: Publish to the job registry (release path)
-        run: scripts/image.sh publish localhost:5000/koala-api "$VERSION" --latest
+        run: scripts/image.sh publish localhost:5000/koala-api "$VERSION" koala-api:ci
         env:
           VERSION: ${{ steps.version.outputs.version }}
           ATTEST_DIR: ${{ runner.temp }}/attest
