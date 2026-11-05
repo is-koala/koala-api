@@ -1,0 +1,190 @@
+# Koala authorization model (ADR-0014, ADR-0024; plan §5.4).
+# Source of truth for every ReBAC rule. Written in the OpenFGA DSL subset:
+# [type], X from Y, or, limited and / but not, with condition.
+# model.json is generated from this file; see internal/authz/doc.go.
+# Faz 0 decisions D1-D5 and C15: docs/faz0/authz-ciftleri.md.
+model
+  schema 1.1
+
+type user
+  relations
+    # Written for every user: user:X#self@user:X.
+    define self: [user]
+    # Written both ways when two users get a conversation.
+    define contact: [user]
+    # Profile and public data (C46, C47); deleted with the user.
+    define public_viewer: [user:*]
+    # REST and WS share the rule (C50, C51).
+    define can_see_presence: self or contact
+
+# staff_members; no FK to users (ADR-0014).
+type staff
+
+type staff_role
+  relations
+    # staff_role_includes DAG: staff_role:R#includer@staff_role:S means S includes R.
+    define includer: [staff_role]
+    define assignee: [staff] or assignee from includer
+
+# Single object platform:koala. One relation per staff permission (25);
+# the marketplace subject has no relation here (D5).
+type platform
+  relations
+    define audit_read: [staff_role#assignee]
+    define badge_manage: [staff_role#assignee]
+    define bank_account_verify: [staff_role#assignee]
+    define category_manage: [staff_role#assignee]
+    define company_approve: [staff_role#assignee]
+    define content_moderate: [staff_role#assignee]
+    define dispute_resolve: [staff_role#assignee]
+    define finance_read: [staff_role#assignee]
+    define flag_manage: [staff_role#assignee]
+    define identity_review: [staff_role#assignee]
+    define job_read: [staff_role#assignee]
+    define note_read: [staff_role#assignee]
+    define note_write: [staff_role#assignee]
+    define payment_read: [staff_role#assignee]
+    define payment_refund: [staff_role#assignee]
+    define payout_reconcile: [staff_role#assignee]
+    define payout_release: [staff_role#assignee]
+    define role_manage: [staff_role#assignee]
+    define settings_manage: [staff_role#assignee]
+    define staff_manage: [staff_role#assignee]
+    define staff_read: [staff_role#assignee]
+    define user_deletion_manage: [staff_role#assignee]
+    define user_read: [staff_role#assignee]
+    define user_read_pii: [staff_role#assignee]
+    define user_role_manage: [staff_role#assignee]
+
+type company
+  relations
+    # company_contacts.role = ADMIN
+    define admin: [user]
+    # company_contacts.role = STAFF
+    define staff_member: [user]
+    define member: admin or staff_member
+    # C24: every authenticated user.
+    define viewer: [user:*]
+    # Invitations, updates, logo, removing contacts (C26).
+    define can_manage: admin
+    # C27, C28
+    define can_manage_jobs: member
+    # Approval note, contact list, company jobs (C25).
+    define can_read_internal: member
+
+# C29, C30
+type company_invitation
+  relations
+    define company: [company]
+    define inviter: [user]
+    define invitee: [user]
+    define can_read: inviter or invitee or admin from company
+    define can_answer: invitee
+
+type job
+  relations
+    define owner_company: [company]
+    # Kept for audit; grants nothing (D1).
+    define creator: [user]
+    # Written only for an INDIVIDUAL job (D1).
+    define individual_owner: [user]
+    # Written in every status; deleted on soft-delete (D3).
+    define public_viewer: [user:*]
+    # Written only while the job is OPEN (D3).
+    define applicant_pool: [user:*]
+    # Worker of an assignment in a status that shows the address.
+    define active_worker: [user]
+    # Written when the company address is public.
+    define public_address_viewer: [user:*]
+    # D1: a company job belongs to the company.
+    define employer: individual_owner or member from owner_company
+    define editor: employer
+    define can_view: public_viewer or editor
+    define can_edit: editor
+    # Transport plan, the job's assignment list (C17).
+    define can_read_private: editor
+    # C18
+    define can_list_applications: editor
+    # C21
+    define can_apply: applicant_pool but not editor
+    # Worker side goes through the payment prefilter (C22).
+    define can_open_conversation: editor
+    # C15: the company address is workplace information.
+    define can_read_exact_address: individual_owner or can_manage_jobs from owner_company or active_worker or public_address_viewer
+
+type job_application
+  relations
+    define job: [job]
+    define applicant: [user]
+    define can_read: applicant or editor from job
+    define can_decide: editor from job
+    define can_withdraw: applicant
+
+type job_assignment
+  relations
+    define job: [job]
+    define worker: [user]
+    # AssignmentParticipants
+    define party: worker or editor from job
+    define can_read: party
+    define can_respond: worker
+    define can_cancel: party
+    # Open dispute: prefilter (D4).
+    define can_complete: editor from job
+    # Authorization before the status check.
+    define can_pay: editor from job
+    # Check-in and check-out.
+    define can_record_work: worker
+    define can_open_dispute: party
+    # COMPLETED: prefilter.
+    define can_review: party
+    # HIRED: prefilter; rate limit.
+    define can_reveal_worker_identity: editor from job
+    define can_select_seat: party
+    define can_board: worker
+
+type dispute
+  relations
+    define assignment: [job_assignment]
+    define can_read: party from assignment
+    define can_add_evidence: party from assignment
+
+type conversation
+  relations
+    define participant: [user]
+    define can_read: participant
+    # Blocking and payment: prefilters.
+    define can_post: participant
+
+# C39
+type message
+  relations
+    define conversation: [conversation]
+    define sender: [user]
+    define can_read: participant from conversation
+    define can_report: can_read but not sender
+
+# C42, C43, C44
+type shuttle
+  relations
+    define job: [job]
+    # Written when a seat is selected.
+    define seat_holder: [user]
+    define can_manage: editor from job
+    define can_board: seat_holder
+    # Plate and driver; assignment status: prefilter.
+    define can_read_details: can_manage or seat_holder
+
+# C45
+type seat_assignment
+  relations
+    define shuttle: [shuttle]
+    define can_mark_boarding: can_manage from shuttle
+
+# CV (C48, C49)
+type private_file
+  relations
+    define owner: [user]
+    # Written when an application is received.
+    define reviewer: [user, company#member]
+    define can_download: owner or reviewer

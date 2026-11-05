@@ -1,0 +1,1209 @@
+{
+  "schemaVersion": "1.1",
+  "typeDefinitions": [
+    {
+      "type": "user",
+      "relations": {
+        "self": {
+          "this": {}
+        },
+        "contact": {
+          "this": {}
+        },
+        "public_viewer": {
+          "this": {}
+        },
+        "can_see_presence": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "self"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "contact"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "self": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "contact": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "public_viewer": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user",
+                "wildcard": {}
+              }
+            ]
+          },
+          "can_see_presence": {}
+        }
+      }
+    },
+    {
+      "type": "staff"
+    },
+    {
+      "type": "staff_role",
+      "relations": {
+        "includer": {
+          "this": {}
+        },
+        "assignee": {
+          "union": {
+            "child": [
+              {
+                "this": {}
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "includer"
+                  },
+                  "computedUserset": {
+                    "relation": "assignee"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "includer": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role"
+              }
+            ]
+          },
+          "assignee": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "platform",
+      "relations": {
+        "audit_read": {
+          "this": {}
+        },
+        "badge_manage": {
+          "this": {}
+        },
+        "bank_account_verify": {
+          "this": {}
+        },
+        "category_manage": {
+          "this": {}
+        },
+        "company_approve": {
+          "this": {}
+        },
+        "content_moderate": {
+          "this": {}
+        },
+        "dispute_resolve": {
+          "this": {}
+        },
+        "finance_read": {
+          "this": {}
+        },
+        "flag_manage": {
+          "this": {}
+        },
+        "identity_review": {
+          "this": {}
+        },
+        "job_read": {
+          "this": {}
+        },
+        "note_read": {
+          "this": {}
+        },
+        "note_write": {
+          "this": {}
+        },
+        "payment_read": {
+          "this": {}
+        },
+        "payment_refund": {
+          "this": {}
+        },
+        "payout_reconcile": {
+          "this": {}
+        },
+        "payout_release": {
+          "this": {}
+        },
+        "role_manage": {
+          "this": {}
+        },
+        "settings_manage": {
+          "this": {}
+        },
+        "staff_manage": {
+          "this": {}
+        },
+        "staff_read": {
+          "this": {}
+        },
+        "user_deletion_manage": {
+          "this": {}
+        },
+        "user_read": {
+          "this": {}
+        },
+        "user_read_pii": {
+          "this": {}
+        },
+        "user_role_manage": {
+          "this": {}
+        }
+      },
+      "metadata": {
+        "relations": {
+          "audit_read": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "badge_manage": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "bank_account_verify": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "category_manage": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "company_approve": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "content_moderate": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "dispute_resolve": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "finance_read": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "flag_manage": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "identity_review": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "job_read": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "note_read": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "note_write": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "payment_read": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "payment_refund": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "payout_reconcile": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "payout_release": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "role_manage": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "settings_manage": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "staff_manage": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "staff_read": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "user_deletion_manage": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "user_read": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "user_read_pii": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          },
+          "user_role_manage": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "staff_role",
+                "relation": "assignee"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "company",
+      "relations": {
+        "admin": {
+          "this": {}
+        },
+        "staff_member": {
+          "this": {}
+        },
+        "member": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "admin"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "staff_member"
+                }
+              }
+            ]
+          }
+        },
+        "viewer": {
+          "this": {}
+        },
+        "can_manage": {
+          "computedUserset": {
+            "relation": "admin"
+          }
+        },
+        "can_manage_jobs": {
+          "computedUserset": {
+            "relation": "member"
+          }
+        },
+        "can_read_internal": {
+          "computedUserset": {
+            "relation": "member"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "admin": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "staff_member": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "member": {},
+          "viewer": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user",
+                "wildcard": {}
+              }
+            ]
+          },
+          "can_manage": {},
+          "can_manage_jobs": {},
+          "can_read_internal": {}
+        }
+      }
+    },
+    {
+      "type": "company_invitation",
+      "relations": {
+        "company": {
+          "this": {}
+        },
+        "inviter": {
+          "this": {}
+        },
+        "invitee": {
+          "this": {}
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "inviter"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "invitee"
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "company"
+                  },
+                  "computedUserset": {
+                    "relation": "admin"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "can_answer": {
+          "computedUserset": {
+            "relation": "invitee"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "company": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "company"
+              }
+            ]
+          },
+          "inviter": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "invitee": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "can_read": {},
+          "can_answer": {}
+        }
+      }
+    },
+    {
+      "type": "job",
+      "relations": {
+        "owner_company": {
+          "this": {}
+        },
+        "creator": {
+          "this": {}
+        },
+        "individual_owner": {
+          "this": {}
+        },
+        "public_viewer": {
+          "this": {}
+        },
+        "applicant_pool": {
+          "this": {}
+        },
+        "active_worker": {
+          "this": {}
+        },
+        "public_address_viewer": {
+          "this": {}
+        },
+        "employer": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "individual_owner"
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "owner_company"
+                  },
+                  "computedUserset": {
+                    "relation": "member"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "editor": {
+          "computedUserset": {
+            "relation": "employer"
+          }
+        },
+        "can_view": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "public_viewer"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "editor"
+                }
+              }
+            ]
+          }
+        },
+        "can_edit": {
+          "computedUserset": {
+            "relation": "editor"
+          }
+        },
+        "can_read_private": {
+          "computedUserset": {
+            "relation": "editor"
+          }
+        },
+        "can_list_applications": {
+          "computedUserset": {
+            "relation": "editor"
+          }
+        },
+        "can_apply": {
+          "difference": {
+            "base": {
+              "computedUserset": {
+                "relation": "applicant_pool"
+              }
+            },
+            "subtract": {
+              "computedUserset": {
+                "relation": "editor"
+              }
+            }
+          }
+        },
+        "can_open_conversation": {
+          "computedUserset": {
+            "relation": "editor"
+          }
+        },
+        "can_read_exact_address": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "individual_owner"
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "owner_company"
+                  },
+                  "computedUserset": {
+                    "relation": "can_manage_jobs"
+                  }
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "active_worker"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "public_address_viewer"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner_company": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "company"
+              }
+            ]
+          },
+          "creator": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "individual_owner": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "public_viewer": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user",
+                "wildcard": {}
+              }
+            ]
+          },
+          "applicant_pool": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user",
+                "wildcard": {}
+              }
+            ]
+          },
+          "active_worker": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "public_address_viewer": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user",
+                "wildcard": {}
+              }
+            ]
+          },
+          "employer": {},
+          "editor": {},
+          "can_view": {},
+          "can_edit": {},
+          "can_read_private": {},
+          "can_list_applications": {},
+          "can_apply": {},
+          "can_open_conversation": {},
+          "can_read_exact_address": {}
+        }
+      }
+    },
+    {
+      "type": "job_application",
+      "relations": {
+        "job": {
+          "this": {}
+        },
+        "applicant": {
+          "this": {}
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "applicant"
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "job"
+                  },
+                  "computedUserset": {
+                    "relation": "editor"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "can_decide": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "job"
+            },
+            "computedUserset": {
+              "relation": "editor"
+            }
+          }
+        },
+        "can_withdraw": {
+          "computedUserset": {
+            "relation": "applicant"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "job": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "job"
+              }
+            ]
+          },
+          "applicant": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "can_read": {},
+          "can_decide": {},
+          "can_withdraw": {}
+        }
+      }
+    },
+    {
+      "type": "job_assignment",
+      "relations": {
+        "job": {
+          "this": {}
+        },
+        "worker": {
+          "this": {}
+        },
+        "party": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "worker"
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": {
+                    "relation": "job"
+                  },
+                  "computedUserset": {
+                    "relation": "editor"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "can_read": {
+          "computedUserset": {
+            "relation": "party"
+          }
+        },
+        "can_respond": {
+          "computedUserset": {
+            "relation": "worker"
+          }
+        },
+        "can_cancel": {
+          "computedUserset": {
+            "relation": "party"
+          }
+        },
+        "can_complete": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "job"
+            },
+            "computedUserset": {
+              "relation": "editor"
+            }
+          }
+        },
+        "can_pay": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "job"
+            },
+            "computedUserset": {
+              "relation": "editor"
+            }
+          }
+        },
+        "can_record_work": {
+          "computedUserset": {
+            "relation": "worker"
+          }
+        },
+        "can_open_dispute": {
+          "computedUserset": {
+            "relation": "party"
+          }
+        },
+        "can_review": {
+          "computedUserset": {
+            "relation": "party"
+          }
+        },
+        "can_reveal_worker_identity": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "job"
+            },
+            "computedUserset": {
+              "relation": "editor"
+            }
+          }
+        },
+        "can_select_seat": {
+          "computedUserset": {
+            "relation": "party"
+          }
+        },
+        "can_board": {
+          "computedUserset": {
+            "relation": "worker"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "job": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "job"
+              }
+            ]
+          },
+          "worker": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "party": {},
+          "can_read": {},
+          "can_respond": {},
+          "can_cancel": {},
+          "can_complete": {},
+          "can_pay": {},
+          "can_record_work": {},
+          "can_open_dispute": {},
+          "can_review": {},
+          "can_reveal_worker_identity": {},
+          "can_select_seat": {},
+          "can_board": {}
+        }
+      }
+    },
+    {
+      "type": "dispute",
+      "relations": {
+        "assignment": {
+          "this": {}
+        },
+        "can_read": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "assignment"
+            },
+            "computedUserset": {
+              "relation": "party"
+            }
+          }
+        },
+        "can_add_evidence": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "assignment"
+            },
+            "computedUserset": {
+              "relation": "party"
+            }
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "assignment": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "job_assignment"
+              }
+            ]
+          },
+          "can_read": {},
+          "can_add_evidence": {}
+        }
+      }
+    },
+    {
+      "type": "conversation",
+      "relations": {
+        "participant": {
+          "this": {}
+        },
+        "can_read": {
+          "computedUserset": {
+            "relation": "participant"
+          }
+        },
+        "can_post": {
+          "computedUserset": {
+            "relation": "participant"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "participant": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "can_read": {},
+          "can_post": {}
+        }
+      }
+    },
+    {
+      "type": "message",
+      "relations": {
+        "conversation": {
+          "this": {}
+        },
+        "sender": {
+          "this": {}
+        },
+        "can_read": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "conversation"
+            },
+            "computedUserset": {
+              "relation": "participant"
+            }
+          }
+        },
+        "can_report": {
+          "difference": {
+            "base": {
+              "computedUserset": {
+                "relation": "can_read"
+              }
+            },
+            "subtract": {
+              "computedUserset": {
+                "relation": "sender"
+              }
+            }
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "conversation": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "conversation"
+              }
+            ]
+          },
+          "sender": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "can_read": {},
+          "can_report": {}
+        }
+      }
+    },
+    {
+      "type": "shuttle",
+      "relations": {
+        "job": {
+          "this": {}
+        },
+        "seat_holder": {
+          "this": {}
+        },
+        "can_manage": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "job"
+            },
+            "computedUserset": {
+              "relation": "editor"
+            }
+          }
+        },
+        "can_board": {
+          "computedUserset": {
+            "relation": "seat_holder"
+          }
+        },
+        "can_read_details": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "can_manage"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "seat_holder"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "job": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "job"
+              }
+            ]
+          },
+          "seat_holder": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "can_manage": {},
+          "can_board": {},
+          "can_read_details": {}
+        }
+      }
+    },
+    {
+      "type": "seat_assignment",
+      "relations": {
+        "shuttle": {
+          "this": {}
+        },
+        "can_mark_boarding": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "shuttle"
+            },
+            "computedUserset": {
+              "relation": "can_manage"
+            }
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "shuttle": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "shuttle"
+              }
+            ]
+          },
+          "can_mark_boarding": {}
+        }
+      }
+    },
+    {
+      "type": "private_file",
+      "relations": {
+        "owner": {
+          "this": {}
+        },
+        "reviewer": {
+          "this": {}
+        },
+        "can_download": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "owner"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "reviewer"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "owner": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "reviewer": {
+            "directlyRelatedUserTypes": [
+              {
+                "type": "user"
+              },
+              {
+                "type": "company",
+                "relation": "member"
+              }
+            ]
+          },
+          "can_download": {}
+        }
+      }
+    }
+  ]
+}
