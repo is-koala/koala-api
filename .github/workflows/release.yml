@@ -190,7 +190,7 @@ jobs:
           [ "$(jq -r .digest image.json)" = "$DIGEST" ] || fail "image.json does not match the published digest"
 
           # The image must be there before the tag exists.
-          got="$(docker buildx imagetools inspect "$IMAGE:$VERSION" | awk '/^Digest:/ { print $2; exit }')"
+          got="$(docker buildx imagetools inspect "$IMAGE:$VERSION" | awk '/^Digest:/ && !d { d = $2 } END { print d }')"
           [ "$got" = "$DIGEST" ] || fail "$IMAGE:$VERSION is $got, want $DIGEST; not tagging"
 
           # Annotated tag on this run's commit, through the API (no push

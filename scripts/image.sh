@@ -217,7 +217,7 @@ cmd_smoke() {
 		smoke_logs_and_fail "container still running 50 s after SIGTERM"
 	stop_ms=$(($(now_ms) - t_term))
 	[ "$exit_code" = 0 ] || smoke_logs_and_fail "exit code after SIGTERM is $exit_code, want 0"
-	docker logs "$smoke_container" 2>&1 | grep -q '"msg":"stopped"' ||
+	grep -q '"msg":"stopped"' <<<"$(docker logs "$smoke_container" 2>&1)" ||
 		smoke_logs_and_fail "no 'stopped' log line after SIGTERM"
 
 	# Size: uncompressed (as unpacked on the host) and gzip (about what the
@@ -256,7 +256,7 @@ publish_cleanup() {
 }
 
 digest_of() {
-	docker buildx imagetools inspect "$1" | awk '/^Digest:/ { print $2; exit }'
+	docker buildx imagetools inspect "$1" | awk '/^Digest:/ && !d { d = $2 } END { print d }'
 }
 
 # The fields of an image config that make the image what it is, in the
@@ -348,7 +348,8 @@ cmd_publish() {
 	jq -c '.materials // .buildDefinition.resolvedDependencies // empty' "$out/provenance.json"
 	local base
 	while IFS= read -r base; do
-		jq -r '.. | strings' "$out/provenance.json" | grep -qF "${base##*sha256:}" ||
+		# No pipe into grep -q: its early exit fails the pipeline (pipefail).
+		jq -e --arg h "${base##*sha256:}" '[.. | strings] | any(contains($h))' "$out/provenance.json" >/dev/null ||
 			fail "provenance does not name base image $base"
 	done < <(from_images)
 
