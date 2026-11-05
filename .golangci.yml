@@ -4,6 +4,9 @@ version: "2"
 
 run:
   tests: true
+  # Lint the integration tests too (make test-integration).
+  build-tags:
+    - integration
   relative-path-mode: gitroot
 
 linters:

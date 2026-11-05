@@ -31,7 +31,14 @@ func TestRunUsage(t *testing.T) {
 		{"unknown command", []string{"launch"}, ExitUsage},
 		{"serve with args", []string{"serve", "--port=1"}, ExitUsage},
 		{"help", []string{"help"}, ExitOK},
-		{"migrate placeholder", []string{"migrate"}, ExitError},
+		{"migrate without command", []string{"migrate"}, ExitUsage},
+		{"migrate unknown command", []string{"migrate", "sideways"}, ExitUsage},
+		{"migrate extra args", []string{"migrate", "up", "now"}, ExitUsage},
+		{"migrate help", []string{"migrate", "help"}, ExitOK},
+		{"maint without command", []string{"maint"}, ExitUsage},
+		{"maint unknown command", []string{"maint", "vacuum"}, ExitUsage},
+		{"maint help", []string{"maint", "help"}, ExitOK},
+		{"bootstrap with args", []string{"bootstrap", "now"}, ExitUsage},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -61,6 +68,47 @@ func TestServeRefusesInvalidConfig(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "KOALA_ENV") || !strings.Contains(stderr, `"level":"ERROR"`) {
 		t.Fatalf("stderr = %q, want a JSON error naming KOALA_ENV", stderr)
+	}
+}
+
+// TestCommandsRequireTheirDatabaseURL: each command fails closed, naming
+// the variable it needs, before it touches a database.
+func TestCommandsRequireTheirDatabaseURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		args    []string
+		wantVar string
+	}{
+		{[]string{"serve"}, "KOALA_DATABASE_URL"},
+		{[]string{"migrate", "up"}, "KOALA_OWNER_DATABASE_URL"},
+		{[]string{"migrate", "status"}, "KOALA_OWNER_DATABASE_URL"},
+		{[]string{"maint", "reindex"}, "KOALA_OWNER_DATABASE_URL"},
+		{[]string{"bootstrap"}, "KOALA_BOOTSTRAP_DATABASE_URL"},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			t.Parallel()
+			code, stdout, _ := run(tt.args, "KOALA_ENV=test")
+			if code != ExitError {
+				t.Fatalf("exit = %d, want %d", code, ExitError)
+			}
+			if !strings.Contains(stdout, tt.wantVar+": required") {
+				t.Fatalf("stdout = %q, want an error naming %s", stdout, tt.wantVar)
+			}
+		})
+	}
+}
+
+// TestMigrateDownRefusedInProduction: the refusal comes before any
+// connection, so the unreachable URL is never dialed.
+func TestMigrateDownRefusedInProduction(t *testing.T) {
+	t.Parallel()
+
+	code, stdout, _ := run([]string{"migrate", "down"},
+		"KOALA_ENV=production", "KOALA_OWNER_DATABASE_URL=postgres://migrator@db.invalid/koala?sslmode=verify-full")
+	if code != ExitError || !strings.Contains(stdout, "down is refused in production") {
+		t.Fatalf("exit %d, stdout %q", code, stdout)
 	}
 }
 

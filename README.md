@@ -13,7 +13,14 @@ Durum: **Faz 0**. Repo iskeleti, CI'daki kalite kapısı ve ADR'ler hazır. Sunu
 - sıralı graceful shutdown,
 - Dockerfile.
 
-Faz 1'de kalanlar: pgx/`InTx`, goose ve sqlc, metrik, sürüm kapısı (`400 APP_VERSION_UNSUPPORTED`, ADR-0019), rate limit, path normalizasyonu, River, authn/authz ve soft-delete korumaları.
+Faz 0'daki River + goose spike'ıyla gelenler (ADR-0017):
+- pgx havuzu ve `InTx`,
+- goose migration'ları ve `koala migrate`,
+- River şeması ve client'ı,
+- `koala_owner`/`koala_app`/`koala_maint` rol modeli,
+- test başına template DB.
+
+Faz 1'de kalanlar: sqlc, metrik, sürüm kapısı (`400 APP_VERSION_UNSUPPORTED`, ADR-0019), rate limit, path normalizasyonu, River worker'larının sunucuya bağlanması, authn/authz ve soft-delete korumalarının geri kalanı.
 
 Plan belgesi: [`docs/plan/go-gecis-degerlendirme.md`](docs/plan/go-gecis-degerlendirme.md). Kararlar: [`docs/adr/`](docs/adr/README.md). Kodlama kuralları: [`CLAUDE.md`](CLAUDE.md).
 
@@ -24,7 +31,9 @@ Plan belgesi: [`docs/plan/go-gecis-degerlendirme.md`](docs/plan/go-gecis-degerle
 
 ## Kalite kapısı: CI'da
 
-`make verify` GitHub Actions'ta her PR'da ve `main`'e her push'ta koşar (`.github/workflows/verify.yml`). Sırası:
+Kapı iki adımdır ve GitHub Actions'ta her PR'da ve `main`'e her push'ta koşar (`.github/workflows/verify.yml`, ADR-0004, ADR-0017). İki adım da tek `verify` işindedir.
+
+**1. `make verify`:** DB'siz kontroller ve birim testleri. Sırası:
 1. `gofmt` kontrolü,
 2. `go mod tidy -diff`,
 3. `go vet`,
@@ -35,13 +44,17 @@ Plan belgesi: [`docs/plan/go-gecis-degerlendirme.md`](docs/plan/go-gecis-degerle
 8. spec lint (`make api-lint`): vacuum ile `api/` ve her kuralın tetiklendiğini kanıtlayan prob,
 9. `make gen-check`: `internal/apiv1` spec'ten yeniden üretilenle aynı mı.
 
+**2. `make test-integration`:** iş için başlatılan Postgres 17 service container'ına karşı yalnız `//go:build integration` etiketli testleri koşar (`scripts/test-integration.sh`).
+- Önce etiket korumaları çalışır: yanlış yazılmış ya da eksik build tag'i olan test dosyası kırmızıdır.
+- Her test, template DB'den kendi DB'sini klonlar (`internal/platform/dbtest`).
+
 Araçlar (`golangci-lint`, `govulncheck`, `vacuum`) `Makefile`'daki sabit sürümlerle `./bin`'e kaynaktan derlenir (ADR-0004).
 
 **Paylaşılan geliştirme Mac'inde ağır iş yapılmaz.** Yerelde yalnız `make fmt-check`, `make mod-check`, `gofmt` ve `go mod tidy` çalıştırılır. Test, vet, lint ve build CI'da koşar.
 
 ## Çalıştırma
 
-Sunucu bir CI ya da sunucu ortamında şöyle çalışır:
+Sunucu bir CI ya da sunucu ortamında şöyle çalışır. `make run` bir Postgres ister: `KOALA_DATABASE_URL` tanımlı olmalı, giriş yalnız `koala_app`'e üye olmalı, roller ve migration'lar önceden kurulmuş olmalı (`koala bootstrap`, `koala migrate up`; runbook: [`docs/runbook/veritabani.md`](docs/runbook/veritabani.md)). DB'ye ulaşılamazsa sunucu açılır ama `/readyz` 503 döner.
 
 ```sh
 make run                                   # KOALA_ENV=local ile :8080'de başlar
@@ -53,9 +66,11 @@ curl -i localhost:8080/readyz              # 200 ok; kapanırken 503
 
 | Komut | Ne yapar |
 |---|---|
-| `koala serve` | HTTP sunucusunu başlatır. SIGTERM'de sıralı kapanır: `/readyz` 503 döner → drain beklemesi → istekler boşaltılır → çıkış. |
+| `koala serve` | HTTP sunucusunu başlatır. SIGTERM'de sıralı kapanır: `/readyz` 503 döner → drain beklemesi → istekler boşaltılır → çıkış. `KOALA_DATABASE_URL` ister. Giriş `koala_app`'ten fazlasını yapabiliyorsa açılışta DB'ye ulaşınca çıkar (ADR-0017). |
 | `koala healthcheck` | `/livez`'i loopback üzerinden yoklar; Docker `HEALTHCHECK` için. DB kesintisi konteyneri yeniden başlatmasın diye readiness değil liveness kullanılır. |
-| `koala migrate` | Yer tutucu; Faz 1'de goose ile gelecek. |
+| `koala bootstrap` | `koala_owner`, `koala_app` ve `koala_maint` grup rollerini yoksa kurar; `LOGIN`'i olanı `NOLOGIN`'e çeker. İdempotenttir, her yayında `migrate`'ten önce koşar (`scripts/release-db.sh`). `KOALA_BOOTSTRAP_DATABASE_URL` ile `postgres` DB'sine bağlanır; giriş `CREATEROLE` yetkili olmalı, süper kullanıcı olamaz. |
+| `koala migrate up\|down\|status` | Gömülü goose migration'larını (`db/migrations`) `koala_owner` olarak uygular, tek adım geri alır ya da durumu listeler. `KOALA_OWNER_DATABASE_URL` kullanır. `down` yalnız geliştirme içindir, production'da reddedilir. |
+| `koala maint reindex` | River'ın iş tablosu indekslerini `REINDEX CONCURRENTLY` ile yeniden kurar. Önce yarıda kalmış kurulumların geçersiz artıklarını düşürür. Haftalık zamanlanmış ops işi olarak koşar, `KOALA_OWNER_DATABASE_URL` kullanır. |
 | `koala version` | Derleme sürümünü yazar. |
 
 ## Yapılandırma
@@ -74,6 +89,11 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_LOG_LEVEL` | hayır | `info` | `debug`, `info`, `warn`, `error` |
 | `KOALA_SHUTDOWN_DRAIN_DELAY` | hayır | `5s` | Kapanışta `/readyz` 503 döndükten sonra dinleyicinin kapanmasına kadar geçen süre |
 | `KOALA_SHUTDOWN_TIMEOUT` | hayır | `35s` | Süren isteklerin bitmesi için verilen süre; aşılırsa bağlantılar zorla kapatılır. En az `35s`: başlık okuma (5 sn) + istek süre sınırı (25 sn) + yazma payı (5 sn). Daha kısası açılışı durdurur |
+| `KOALA_DATABASE_URL` | `serve` için | — | Sunucu girişi; yalnız `koala_app` üyesi. `postgres://` URL |
+| `KOALA_OWNER_DATABASE_URL` | `migrate`, `maint` için | — | `koala_owner` üyesi giriş; süper kullanıcı olamaz |
+| `KOALA_BOOTSTRAP_DATABASE_URL` | `bootstrap` için | — | `CREATEROLE` yetkili giriş, `postgres` DB'sine; süper kullanıcı olamaz |
+
+Üç DB URL'si de sırdır; değerleri log'a ve hata mesajına yazılmaz. Production'da `sslmode=require`, `verify-ca` ya da `verify-full` zorunludur. Bir bağlantı parametresi URL'de iki kez geçemez. Havuz ayarları (`pool_max_conns`, `statement_timeout` ve diğerleri) URL'de verilirse varsayılanların yerine geçer (ADR-0017 §6).
 
 Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace_period`) şu toplamdan uzun olmalı: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT`. Varsayılanlarla bu toplam 5 + 35 = 40 sn'dir; `stop_grace_period` en az 45 sn verilmeli. Docker'ın varsayılanı 10 sn; bu süre aşılırsa süreç SIGKILL ile kesilir.
 
@@ -100,11 +120,12 @@ docker build --build-arg VERSION=$(git describe --tags --always) -t koala-api .
 cmd/koala/            ince main: sinyal + app.Run
 internal/app/         elle wiring ve alt komutlar
 internal/apiv1/       spec'ten üretilmiş sunucu arayüzü (make generate; elle düzenlenmez)
-internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr
+internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr, db, jobs (River), dbtest
 internal/archtest/    lint'in ifade edemediği mimari testler
-db/                   migration ve sorgular (Faz 1)
+db/                   goose migration'ları (db/migrations), grup rolleri (db/bootstrap); sorgular Faz 1'de
 api/                  OpenAPI 3.1 sözleşmesi, ortak bileşenler ve spec lint kuralları
 docs/adr/             mimari karar kayıtları
 docs/plan/            Go geçiş planı
-scripts/              CI yardımcıları (lint probları)
+docs/runbook/         işletim notları
+scripts/              CI ve yayın yardımcıları: lint probları, entegrasyon testleri, release-db
 ```

@@ -20,7 +20,9 @@ const usage = `usage: koala <command>
 
 commands:
   serve        run the HTTP server
-  migrate      apply database migrations (not implemented yet: Faz 1, goose)
+  bootstrap    create the database group roles (idempotent; before migrate)
+  migrate      apply database migrations: up, down, status (goose)
+  maint        maintenance tasks for scheduled ops jobs: reindex
   healthcheck  probe the local server's /livez (Docker HEALTHCHECK)
   version      print the build version
 `
@@ -45,9 +47,12 @@ func Run(ctx context.Context, args []string, sio IO) int {
 		return runServe(ctx, rest, sio)
 	case "healthcheck":
 		return runHealthcheck(ctx, rest, sio)
+	case "bootstrap":
+		return runBootstrap(ctx, rest, sio)
 	case "migrate":
-		_, _ = fmt.Fprintln(sio.Stderr, "koala migrate: not implemented yet (Faz 1: goose, ADR-0012)")
-		return ExitError
+		return runMigrate(ctx, rest, sio)
+	case "maint":
+		return runMaint(ctx, rest, sio)
 	case "version":
 		_, _ = fmt.Fprintln(sio.Stdout, sio.Version)
 		return ExitOK
