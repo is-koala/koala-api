@@ -5,6 +5,7 @@ package authn_test
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -400,25 +401,30 @@ func TestRefreshRotation(t *testing.T) {
 		results := make([]authn.TokenPair, 2)
 		errs := make([]error, 2)
 		var wg sync.WaitGroup
+		// Backends of this database waiting for a lock, read through the
+		// maint pool: pid and datname of every session are visible to any
+		// role, and pg_locks shows the waits (as the soft-delete tests do).
 		waiting := func() (int, error) {
 			var n int
-			err := e.db.Pool().QueryRow(ctx, `
-				SELECT count(*) FROM pg_stat_activity
-				WHERE datname = current_database() AND wait_event_type = 'Lock'
-				  AND query LIKE '%FROM user_refresh_tokens rt%'`).Scan(&n)
+			err := e.maint.Pool().QueryRow(ctx, `
+				SELECT count(DISTINCT l.pid) FROM pg_locks l
+				JOIN pg_stat_activity a ON a.pid = l.pid
+				WHERE NOT l.granted AND a.datname = current_database()`).Scan(&n)
 			return n, err
 		}
 		for i := range results {
+			done := make(chan struct{})
 			wg.Go(func() {
+				defer close(done)
 				results[i], errs[i] = e.users.Refresh(ctx, pair.RefreshToken, deviceW1)
 			})
-			last := -1
 			dbtest.Eventually(t, 10*time.Second, "refresh waiting on the token's lock", func() (bool, error) {
-				n, err := waiting()
-				if err == nil && n != last {
-					t.Logf("%d refreshes waiting, want %d", n, i+1)
-					last = n
+				select {
+				case <-done:
+					return false, fmt.Errorf("refresh %d finished without waiting: %w", i, errs[i])
+				default:
 				}
+				n, err := waiting()
 				return n == i+1, err
 			})
 		}
