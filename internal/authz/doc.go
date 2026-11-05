@@ -7,13 +7,12 @@
 // The rules live in model.fga, written in a subset of the OpenFGA DSL
 // (schema 1.1): direct type restrictions ([type], [type:*],
 // [type#relation]), "X from Y", "or", and a limited "and" / "but not"
-// (only at the top of a relation, only over plain operands). "with
-// condition" belongs to the subset but the local evaluator does not
-// evaluate conditions yet; a model that uses one fails to load. Attribute
-// and status rules (job status, open dispute, blocking) are not part of the
-// model: they are named prefilters outside ReBAC (plan §5.2-3) or become the
-// presence of a tuple (for example job#applicant_pool is written only while
-// the job is OPEN).
+// (only at the top of a relation, only over plain operands). Conditions
+// ("with condition", CEL) are outside the subset (ADR-0024): a model that
+// uses one fails to load. Attribute and status rules (job status, open
+// dispute, blocking) are not part of the model: they are named prefilters
+// outside ReBAC (plan §5.2-3) or become the presence of a tuple (for
+// example job#applicant_pool is written only while the job is OPEN).
 //
 // model.json is model.fga in OpenFGA's JSON form, produced by the official
 // parser (github.com/openfga/language, a test-only dependency). The service
@@ -23,14 +22,19 @@
 //
 //	go test ./internal/authz -run TestModelJSONMatchesDSL -update
 //
-// and commit both files.
+// and commit both files; the same run rewrites actions_gen.go, the typed
+// constants (TypeJob, ActionJobCanEdit) that catch a misspelt relation at
+// compile time.
 //
 // # Evaluation
 //
 // Evaluator interprets the model over a TupleReader, the way OpenFGA and
 // SpiceDB interpret theirs: direct tuples, computed usersets,
 // tuple-to-userset, union, intersection and exclusion, with OpenFGA's
-// resolution depth limit. The tuple source is an interface on purpose:
+// resolution depth limit and cycle rule (a cycle denies, also under "but
+// not"). It visits rewrites in model order and tuples in sorted order, so
+// a decision and its Basis are deterministic, and it resolves each
+// object#relation once per check. The tuple source is an interface on purpose:
 // tests use an in-memory source (authztest), and domain tables get typed
 // SQL sources per relation in Faz 2-3. The authz_tuples view is never read
 // on the hot path (plan §5.2-1).

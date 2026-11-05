@@ -2,6 +2,7 @@ package authz
 
 import (
 	"context"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
@@ -42,9 +43,9 @@ func Staff(id uuid.UUID) Subject { return Subject{Kind: SubjectStaff, ID: id} }
 func (s Subject) ModelType() string {
 	switch s.Kind {
 	case SubjectUser:
-		return "user"
+		return TypeUser
 	case SubjectStaff:
-		return "staff"
+		return TypeStaff
 	case SubjectInvalid, SubjectSystem:
 		return ""
 	}
@@ -61,6 +62,21 @@ func (s Subject) String() string {
 	return t + ":" + s.ID.String()
 }
 
+// OpenFGA's identifier rules (openfga/language validation rules), so that
+// an id or name accepted here is accepted by OpenFGA too.
+var (
+	typeNamePattern     = regexp.MustCompile(`^[^:#@*\s]{1,254}$`)
+	relationNamePattern = regexp.MustCompile(`^[^:#@*\s]{1,50}$`)
+	objectIDPattern     = regexp.MustCompile(`^[^#:\s*][a-zA-Z0-9_|*@.+/\-]*$`)
+	objectPattern       = regexp.MustCompile(`^\S{2,256}$`)
+)
+
+// ValidTypeName reports whether s is a valid OpenFGA type name.
+func ValidTypeName(s string) bool { return typeNamePattern.MatchString(s) }
+
+// ValidRelationName reports whether s is a valid OpenFGA relation name.
+func ValidRelationName(s string) bool { return relationNamePattern.MatchString(s) }
+
 // Object is a model object in OpenFGA form: Type "job_assignment", ID the
 // row's id as a string.
 type Object struct {
@@ -71,17 +87,28 @@ type Object struct {
 // String is the object in OpenFGA form, "job_assignment:<id>".
 func (o Object) String() string { return o.Type + ":" + o.ID }
 
-// ParseObject parses "type:id". It reports false when either part is empty.
+// Valid reports whether o is a valid OpenFGA object: a valid type name, an
+// id that follows OpenFGA's id rule (no wildcard), at most 256 characters.
+func (o Object) Valid() bool {
+	return ValidTypeName(o.Type) && objectIDPattern.MatchString(o.ID) &&
+		o.ID != Wildcard && objectPattern.MatchString(o.String())
+}
+
+// ParseObject parses "type:id". It reports false when the result is not a
+// valid object.
 func ParseObject(s string) (Object, bool) {
 	t, id, ok := strings.Cut(s, ":")
-	if !ok || t == "" || id == "" {
+	o := Object{Type: t, ID: id}
+	if !ok || !o.Valid() {
 		return Object{}, false
 	}
-	return Object{Type: t, ID: id}, true
+	return o, true
 }
 
 // Action is the name of a relation in model.fga, for example
-// "can_complete". The object's type selects the type definition.
+// "can_complete". The object's type selects the type definition; the
+// generated constants (Action<Type><Relation>, actions_gen.go) name every
+// relation of the model.
 type Action string
 
 // ConsistencyToken is an opaque freshness token (a Zanzibar zookie,
@@ -107,12 +134,9 @@ func AtLeastAsFresh(token ConsistencyToken) CheckOption {
 type Decision struct {
 	// Allowed reports whether the subject may perform the action.
 	Allowed bool
-	// Basis says why an allowed decision was allowed, for the audit log:
-	// the chain of relations from the asked relation to the tuple that
-	// granted it, for example
-	// "job_assignment#can_read > job_assignment#party > job_assignment#worker".
-	// A wildcard grant ends in " [user:*]". Empty when denied.
-	Basis string
+	// Basis says why an allowed decision was allowed, for the audit log;
+	// empty when denied. Basis.String is its audit form.
+	Basis Basis
 	// Conceal reports, for a denied decision, that the caller must answer
 	// exactly as if the object did not exist: the resource's own 404,
 	// byte for byte (ADR-0007, ADR-0014). False when allowed.
@@ -123,38 +147,6 @@ type Decision struct {
 type Checker interface {
 	Check(ctx context.Context, s Subject, a Action, o Object, opts ...CheckOption) (Decision, error)
 	CheckBatch(ctx context.Context, s Subject, a Action, objs []Object, opts ...CheckOption) (map[Object]Decision, error)
-}
-
-// ScopeKind is the state of a Scope.
-type ScopeKind uint8
-
-// Scope kinds. The zero value is ScopeNever, so a forgotten Scope lists
-// nothing.
-const (
-	// ScopeNever: the subject can see no object of the type; the store
-	// does not run the query.
-	ScopeNever ScopeKind = iota
-	// ScopeAlways: every object of the type.
-	ScopeAlways
-	// ScopeConditional: the objects matching Predicate, or the objects
-	// whose ids are in IDs.
-	ScopeConditional
-)
-
-// Predicate is a typed filter a store turns into its own WHERE clause; no
-// SQL fragment is ever produced here (plan §5.5, ADR-0014).
-type Predicate struct {
-	SelfUserID *uuid.UUID
-	CompanyIDs []uuid.UUID
-}
-
-// Scope is the three-state answer of a list filter (Cerbos query plan,
-// plan §5.2-4). A Conditional scope carries either a Predicate (local SQL)
-// or IDs (an external ListObjects result) so both fit one type.
-type Scope struct {
-	Kind      ScopeKind
-	Predicate *Predicate
-	IDs       []string
 }
 
 // Scoper computes the list filter for a subject, action and object type.

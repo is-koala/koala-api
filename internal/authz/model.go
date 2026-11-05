@@ -77,11 +77,12 @@ type rewrite struct {
 func DefaultModel() (*Model, error) { return LoadModel(modelJSON) }
 
 // LoadModel loads an authorization model in OpenFGA JSON form and checks
-// it the way OpenFGA does when the model is written (types and relations
+// it the way OpenFGA does when the model is written (names follow
+// OpenFGA's rules, "self" and "this" are reserved, types and relations
 // exist, type restrictions are valid, tuple-to-userset parents are
 // directly assignable objects), plus the subset rules of ADR-0024:
-// schema 1.1, no modules, no conditions yet, "and" and "but not" only at
-// the top of a relation over plain operands. Unknown JSON fields are
+// schema 1.1, no modules, no conditions, "and" and "but not" only at the
+// top of a relation over plain operands. Unknown JSON fields are
 // rejected, so a construct the evaluator does not know cannot slip in.
 func LoadModel(data []byte) (*Model, error) {
 	var w wireModel
@@ -94,7 +95,7 @@ func LoadModel(data []byte) (*Model, error) {
 		return nil, fmt.Errorf("%w: schema version %q, want %q", ErrModel, w.SchemaVersion, SchemaVersion)
 	}
 	if len(w.Conditions) > 0 {
-		return nil, fmt.Errorf("%w: conditions are not supported by the local evaluator yet", ErrModel)
+		return nil, fmt.Errorf("%w: conditions are outside the subset (ADR-0024)", ErrModel)
 	}
 	m := &Model{types: make(map[string]*typeDef, len(w.TypeDefinitions))}
 	for i := range w.TypeDefinitions {
@@ -192,8 +193,8 @@ func (r typeRef) allows(u TupleUser) bool {
 }
 
 func buildType(w *wireType) (*typeDef, error) {
-	if w.Type == "" {
-		return nil, fmt.Errorf("%w: type without a name", ErrModel)
+	if !ValidTypeName(w.Type) {
+		return nil, fmt.Errorf("%w: invalid type name %q", ErrModel, w.Type)
 	}
 	td := &typeDef{name: w.Type, relations: make(map[string]*relationDef, len(w.Relations))}
 	var meta map[string]wireRelationMetadata
@@ -209,6 +210,9 @@ func buildType(w *wireType) (*typeDef, error) {
 		}
 	}
 	for name, us := range w.Relations {
+		if !ValidRelationName(name) || name == "self" || name == "this" {
+			return nil, fmt.Errorf("%w: %s: invalid or reserved relation name %q", ErrModel, w.Type, name)
+		}
 		rw, err := buildRewrite(&us, true)
 		if err != nil {
 			return nil, fmt.Errorf("%s#%s: %w", w.Type, name, err)
@@ -220,7 +224,7 @@ func buildType(w *wireType) (*typeDef, error) {
 		}
 		for _, ref := range md.DirectlyRelatedUserTypes {
 			if ref.Condition != "" {
-				return nil, fmt.Errorf("%w: %s#%s: conditions are not supported by the local evaluator yet", ErrModel, w.Type, name)
+				return nil, fmt.Errorf("%w: %s#%s: conditions are outside the subset (ADR-0024)", ErrModel, w.Type, name)
 			}
 			if ref.Wildcard != nil && ref.Relation != "" {
 				return nil, fmt.Errorf("%w: %s#%s: a restriction cannot be both wildcard and userset", ErrModel, w.Type, name)

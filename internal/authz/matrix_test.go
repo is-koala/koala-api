@@ -2,19 +2,12 @@ package authz_test
 
 import (
 	"context"
-	"strings"
+	"slices"
 	"testing"
 
 	"github.com/is-koala/koala-api/internal/authz"
 	"github.com/is-koala/koala-api/internal/authz/internal/matrix"
 )
-
-// basisExceptions are allow rows whose matrix basis is one valid ground
-// while the evaluator reports another, equally valid one first.
-var basisExceptions = map[string]string{
-	"AZM-106": "u_co_admin is both the inviter and a company admin; the union lists inviter first",
-	"AZM-160": "the matrix names user#itself; the model grants the CV through private_file#owner",
-}
 
 // concealExceptions are deny rows whose caller does not reject, so
 // Decision.Conceal does not apply.
@@ -65,12 +58,12 @@ func TestMatrixGoEvaluator(t *testing.T) {
 				if d.Conceal {
 					t.Errorf("allowed decision with Conceal")
 				}
-				if _, skip := basisExceptions[c.ID]; !skip && !basisHolds(mx, c.Basis, d.Basis) {
+				if !basisHolds(mx, c.Basis, d.Basis) {
 					t.Errorf("basis %q does not show the matrix basis %q (%s)", d.Basis, c.Basis, mx.Basis[c.Basis])
 				}
 				return
 			}
-			if d.Basis != "" {
+			if len(d.Basis) != 0 {
 				t.Errorf("denied decision with basis %q", d.Basis)
 			}
 			if _, skip := concealExceptions[c.ID]; !skip && d.Conceal != *c.Conceal {
@@ -81,35 +74,28 @@ func TestMatrixGoEvaluator(t *testing.T) {
 	if ran == 0 {
 		t.Fatal("no [go, openfga] row ran")
 	}
-	for _, ids := range []map[string]string{basisExceptions, concealExceptions} {
-		for id := range ids {
-			if !hasDualCase(mx, id) {
-				t.Errorf("exception %s is not a [go, openfga] row of the matrix", id)
-			}
+	for id := range concealExceptions {
+		if !hasDualCase(mx, id) {
+			t.Errorf("exception %s is not a [go, openfga] row of the matrix", id)
 		}
 	}
 }
 
 // basisHolds reports whether the evaluator's basis shows the matrix's
-// basis key: the relation the key's description names, a wildcard grant
-// for "public", or a relation named like the key ("owner").
-func basisHolds(mx *matrix.Matrix, key, basis string) bool {
-	hops := strings.Split(basis, " > ")
-	if rel, ok := mx.BasisRelation(key); ok {
-		for _, h := range hops {
-			if hop, _, _ := strings.Cut(h, " "); hop == rel {
-				return true
-			}
-		}
+// basis key: a step on the relation the key's description names, or a
+// wildcard grant for "public".
+func basisHolds(mx *matrix.Matrix, key string, basis authz.Basis) bool {
+	if len(basis) == 0 {
 		return false
 	}
-	if key == "public" {
-		return strings.HasSuffix(hops[len(hops)-1], ":*]")
+	if rel, ok := mx.BasisRelation(key); ok {
+		return slices.Contains(basis.Relations(), rel)
 	}
-	for _, h := range hops {
-		hop, _, _ := strings.Cut(h, " ")
-		if _, rel, _ := strings.Cut(hop, "#"); rel == key {
-			return true
+	if key == "public" {
+		for _, p := range basis {
+			if p.Grant.IsWildcard() {
+				return true
+			}
 		}
 	}
 	return false

@@ -257,8 +257,7 @@ func (c *openfgaClient) check(ctx context.Context, t *testing.T, user, relation,
 	}
 	c.post(ctx, t, "/stores/"+c.storeID+"/check", mustJSON(t, body), &resp)
 	if resp.Allowed == nil {
-		// protojson omits false; an absent field is a denial.
-		return false
+		t.Fatalf("Check %s#%s@%s: the response has no allowed field", object, relation, user)
 	}
 	return *resp.Allowed
 }

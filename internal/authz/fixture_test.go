@@ -58,8 +58,8 @@ func fixtureObject(t *testing.T, s string) authz.Object {
 // fixtureTuples parses the matrix tuples with user ids mapped.
 func fixtureTuples(t *testing.T, m *matrix.Matrix) []authz.Tuple {
 	t.Helper()
-	out := make([]authz.Tuple, 0, len(m.Tuples))
-	for _, s := range m.Tuples {
+	out := make([]authz.Tuple, 0, len(m.Tuples()))
+	for _, s := range m.Tuples() {
 		obj, rest, _ := strings.Cut(s, "#")
 		rel, user, _ := strings.Cut(rest, "@")
 		userRef, userRel, hasRel := strings.Cut(user, "#")
@@ -113,6 +113,8 @@ func notRunReason(m *matrix.Matrix, c *matrix.Case) string {
 		return ""
 	case matrix.EngineSkip:
 		return "skip: " + m.Actions[c.Action]
+	case matrix.EngineGoOnly:
+		// The reason depends on the rule; see below.
 	}
 	target := m.Actions[c.Action]
 	switch {

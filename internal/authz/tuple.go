@@ -56,8 +56,8 @@ func ParseTuple(s string) (Tuple, error) {
 		return Tuple{}, fmt.Errorf("authz: tuple %q: missing @user", s)
 	}
 	obj, rel, ok := strings.Cut(objRel, "#")
-	if !ok || rel == "" {
-		return Tuple{}, fmt.Errorf("authz: tuple %q: missing #relation", s)
+	if !ok || !ValidRelationName(rel) {
+		return Tuple{}, fmt.Errorf("authz: tuple %q: missing or invalid #relation", s)
 	}
 	o, ok := ParseObject(obj)
 	if !ok {
@@ -70,14 +70,25 @@ func ParseTuple(s string) (Tuple, error) {
 	return Tuple{Object: o, Relation: rel, User: u}, nil
 }
 
-// ParseTupleUser parses "type:id", "type:*" or "type:id#relation".
+// ParseTupleUser parses "type:id", "type:*" or "type:id#relation", with
+// OpenFGA's identifier rules.
 func ParseTupleUser(s string) (TupleUser, error) {
+	bad := fmt.Errorf("authz: tuple user %q: want type:id, type:* or type:id#relation", s)
 	ref, rel, hasRel := strings.Cut(s, "#")
-	o, ok := ParseObject(ref)
-	if !ok || (hasRel && (rel == "" || o.ID == Wildcard)) {
-		return TupleUser{}, fmt.Errorf("authz: tuple user %q: want type:id, type:* or type:id#relation", s)
+	t, id, ok := strings.Cut(ref, ":")
+	if !ok {
+		return TupleUser{}, bad
 	}
-	return TupleUser{Type: o.Type, ID: o.ID, Relation: rel}, nil
+	if id == Wildcard {
+		if hasRel || !ValidTypeName(t) {
+			return TupleUser{}, bad
+		}
+		return TupleUser{Type: t, ID: Wildcard}, nil
+	}
+	if !(Object{Type: t, ID: id}).Valid() || (hasRel && !ValidRelationName(rel)) {
+		return TupleUser{}, bad
+	}
+	return TupleUser{Type: t, ID: id, Relation: rel}, nil
 }
 
 // TupleReader is where the evaluator reads relationship tuples. Its two

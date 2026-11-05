@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 )
 
 // MismatchCounter counts decisions on which the primary and the shadow
@@ -18,8 +19,13 @@ type MismatchCounter interface {
 // ShadowChecker is the dark mode of plan §5.7 (Slack's loopback and
 // parallel comparison, core-backend's AUTHZ_ROLE_MODE=both): every check
 // is answered by the primary checker; the shadow checker is asked the
-// same question and a different answer, or a shadow error, is counted and
-// logged. The shadow never changes a decision.
+// same question and a different answer (Allowed or Conceal), or a shadow
+// error, is counted and logged. The shadow never changes a decision.
+//
+// The shadow runs on its own context: detached from the request's
+// cancellation and bounded by its own timeout, so a slow or failing
+// shadow neither cancels with the request half way nor holds it longer
+// than the timeout.
 //
 // Light mode is the same type with the two checkers swapped.
 type ShadowChecker struct {
@@ -27,25 +33,26 @@ type ShadowChecker struct {
 	shadow  Checker
 	counter MismatchCounter
 	log     *slog.Logger
+	timeout time.Duration
 }
 
 // NewShadowChecker returns a checker that answers from primary and
-// compares with shadow.
-func NewShadowChecker(primary, shadow Checker, counter MismatchCounter, log *slog.Logger) *ShadowChecker {
-	return &ShadowChecker{primary: primary, shadow: shadow, counter: counter, log: log}
+// compares with shadow, giving each shadow call at most timeout.
+func NewShadowChecker(primary, shadow Checker, counter MismatchCounter, log *slog.Logger, timeout time.Duration) *ShadowChecker {
+	return &ShadowChecker{primary: primary, shadow: shadow, counter: counter, log: log, timeout: timeout}
 }
 
 var _ Checker = (*ShadowChecker)(nil)
 
 // Check answers from the primary checker and compares with the shadow.
-// The shadow runs after the primary, in the same request; a production
-// version would bound its latency or run it asynchronously.
 func (c *ShadowChecker) Check(ctx context.Context, s Subject, a Action, o Object, opts ...CheckOption) (Decision, error) {
 	d, err := c.primary.Check(ctx, s, a, o, opts...)
 	if err != nil {
 		return d, fmt.Errorf("authz primary: %w", err)
 	}
-	sd, serr := c.shadow.Check(ctx, s, a, o, opts...)
+	sctx, cancel := c.shadowContext(ctx)
+	defer cancel()
+	sd, serr := c.shadow.Check(sctx, s, a, o, opts...)
 	c.compare(ctx, a, o, d, sd, serr)
 	return d, nil
 }
@@ -57,15 +64,21 @@ func (c *ShadowChecker) CheckBatch(ctx context.Context, s Subject, a Action, obj
 	if err != nil {
 		return ds, fmt.Errorf("authz primary: %w", err)
 	}
-	sds, serr := c.shadow.CheckBatch(ctx, s, a, objs, opts...)
+	sctx, cancel := c.shadowContext(ctx)
+	defer cancel()
+	sds, serr := c.shadow.CheckBatch(sctx, s, a, objs, opts...)
 	for _, o := range objs {
 		c.compare(ctx, a, o, ds[o], sds[o], serr)
 	}
 	return ds, nil
 }
 
+func (c *ShadowChecker) shadowContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), c.timeout)
+}
+
 func (c *ShadowChecker) compare(ctx context.Context, a Action, o Object, primary, shadow Decision, shadowErr error) {
-	if shadowErr == nil && primary.Allowed == shadow.Allowed {
+	if shadowErr == nil && primary.Allowed == shadow.Allowed && primary.Conceal == shadow.Conceal {
 		return
 	}
 	c.counter.AuthzMismatch(o.Type, a, primary.Allowed)
@@ -75,6 +88,8 @@ func (c *ShadowChecker) compare(ctx context.Context, a Action, o Object, primary
 		slog.String("action", string(a)),
 		slog.Bool("primary_allowed", primary.Allowed),
 		slog.Bool("shadow_allowed", shadow.Allowed),
+		slog.Bool("primary_conceal", primary.Conceal),
+		slog.Bool("shadow_conceal", shadow.Conceal),
 	}
 	if shadowErr != nil {
 		attrs = append(attrs, slog.String("shadow_error", shadowErr.Error()))

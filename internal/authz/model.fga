@@ -1,6 +1,6 @@
 # Koala authorization model (ADR-0014, ADR-0024; plan §5.4).
 # Source of truth for every ReBAC rule. Written in the OpenFGA DSL subset:
-# [type], X from Y, or, limited and / but not, with condition.
+# [type], X from Y, or, limited and / but not (no conditions; ADR-0024).
 # model.json is generated from this file; see internal/authz/doc.go.
 # Faz 0 decisions D1-D5 and C15: docs/faz0/authz-ciftleri.md.
 model
