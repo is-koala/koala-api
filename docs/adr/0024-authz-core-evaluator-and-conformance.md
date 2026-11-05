@@ -6,7 +6,9 @@
   - Atıf notu: plan §5'in başlığındaki "karar 5" hiçbir karar kaydı satırına karşılık gelmiyor. K5 para kararıdır (ADR-0008); §0.1 tablosunda da 5. satır para tipidir.
   - Authz tasarımının dayanağı ADR-0014 ve plan §5.1'deki koşuldur ("sektörle tam uyumlu, geçiş zor olmasın").
 - Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §5.2–5.7, §6.1 Faz 1; [ADR-0014](0014-authorization.md); [Faz 0 çiftleri](../faz0/authz-ciftleri.md); sektör araştırması N07 §6–8
-- Yerine geçtiği: ADR-0014 Karar 2'deki alt kümeden `with condition` (Karar 3)
+- Yerine geçtiği:
+  - ADR-0014 Karar 2'deki alt kümeden `with condition` (Karar 3).
+  - ADR-0017'deki "Kapı iki adımlıdır … `verify` işinin adımıdır ve PR'ın tek gerekli kontrolü olarak kalır" kalemi. Kapı artık dört job'dur ve hepsi gerekli kontroldür (Sonuçlar).
 
 ## Bağlam
 
@@ -43,7 +45,8 @@ Scope'un SQL'e çevrilmesi (N07'nin (b) kalemi) ayrı bir sorudur; domain tablol
 - `internal/authz/model.fga` tek doğruluk kaynağıdır.
 - `internal/authz/model.json`, `openfga/language`'in (`transformer.TransformDSLToJSON`) `model.fga`'dan ürettiği JSON'dur. Alan adları `openfga/api`'nin protobuf JSON adlarıdır: `computedUserset` ve `tupleToUserset` dışında snake_case. OpenFGA'nın HTTP API'si de bu adları okur; dosya olduğu gibi yüklenir.
 - Servis dosyayı `//go:embed` ile gömer ve stdlib `encoding/json` ile okur. `openfga/language` servis ikilisine girmez; yalnız testler onu import eder.
-- `TestModelJSONMatchesDSL` iki dosyanın aynı modeli taşıdığını doğrular. Güncelleme: `go test ./internal/authz -run 'TestModelJSONMatchesDSL|TestGeneratedConstants' -update`.
+- `TestModelJSONMatchesDSL` iki dosyanın aynı modeli taşıdığını doğrular.
+- Güncelleme tek koşudur: `go test ./internal/authz -run 'TestModelJSONMatchesDSL|TestGeneratedConstants' -update`. Bu koşu `model.json`'ı ve `actions_gen.go`'yu birlikte yazar. `-update`'te `TestGeneratedConstants`, gömülü (eski) kopyayı değil, `model.fga`'nın resmi ayrıştırmasını okur.
 - Resmi Go ayrıştırıcısı yalnız sözdizimini denetler. Anlamsal denetimi OpenFGA sunucusu model yazımında yapar: ilk koşuda `self` adını ayrılmış sözcük diye reddetti. Uygunluk job'u bu denetimi her PR'da koşar. `LoadModel` de aynı ayrılmış sözcükleri reddeder.
 - Kendi DSL ayrıştırıcımız yazılmadı.
 
@@ -54,7 +57,8 @@ ADR-0014 Karar 2'deki alt küme şöyle daraltılır: `[type]`, `[type:*]`, `[ty
 - O güne kadar öznitelik ve durum koşulları ön süzgeçte kalır (plan §5.2-3) ya da tuple varlığına çevrilir (`job#applicant_pool` yalnız OPEN iken yazılır).
 
 `LoadModel`, OpenFGA'nın model yazımındaki denetimleri ve alt küme kurallarını uygular. Model yüklenemezse servis açılmaz.
-- Adlar OpenFGA'nın kurallarına uyar; `self` ve `this` ayrılmıştır.
+- Adlar OpenFGA'nın kurallarına uyar; `self` ve `this` hem tip hem ilişki adı olarak ayrılmıştır.
+- Her ilişkinin bir giriş noktası olmalıdır (OpenFGA'nın "no entrypoint" kuralı): bir rewrite yolu doğrudan atamaya varmalıdır. Yalnız birbirine işaret eden computed ilişkiler (`a: b`, `b: a`) ya da tabansız özyineleme reddedilir.
 - Şema 1.1 zorunludur. Modül, koşul ve bilinmeyen JSON alanı reddedilir.
 - `and` ve `but not` yalnız ilişkinin en üstünde, yalın işlenenlerle (doğrudan, computed, `from`) kullanılır. İç içe küme işlemi reddedilir.
 - Bunları kullanan ilişkiler `model_test.go`'daki açık listededir: bugün `job#can_apply` ve `message#can_report`. Yeni bir kullanım, listenin incelemeden geçen değişikliğidir. Gerekçe: dış motorda liste sorgularını pahalılaştırırlar (N07 §6.2-2).
@@ -62,12 +66,23 @@ ADR-0014 Karar 2'deki alt küme şöyle daraltılır: `[type]`, `[type:*]`, `[ty
 
 ### 4. Değerlendirme kuralları
 
-- **Derinlik.** OpenFGA'nın varsayılan sınırı 25'tir. Sorulan ilişkinin altındaki her yeni `object#relation` araması bir seviyedir: 24 seviye çözülür, 25. seviye `ErrResolutionTooComplex` ile reddedilir. Sınırın tam değeri testle sabittir.
-  - OpenFGA da her dispatch'te bir seviye düşer. Ama özyinelemeli `from` için yeni sürümlerinde seviye düşmeyen hızlı yollar var. Bu yüzden sınır sunucuya karşı ayrıca koşturulmadı; yerel sınır OpenFGA'dan erken ya da aynı yerde durur, geç durmaz.
-- **Döngü.** Kendi yolunda tekrar karşılaşılan bir ilişki izin vermez (OpenFGA'nın CycleDetected'ı). Döngü, sonuçta ayrı bir işaretle taşınır.
-  - `but not`'un çıkarılan tarafında döngü varsa dışlama kanıtlanamaz; karar **ret**tir.
+- **Derinlik.** Sorulan ilişkinin altındaki her yeni `object#relation` araması bir seviyedir. 24 seviye çözülür, 25. seviye `ErrResolutionTooComplex` ile reddedilir. Sınırın değeri OpenFGA'nın varsayılanından (25) alındı ve yerelde testle sabittir.
+  - **Bu sınır OpenFGA'nınkiyle tam eşdeğer değildir.** OpenFGA her dispatch'te bir seviye düşer, ama özyinelemeli `from` için seviye düşürmeyen hızlı yolları var.
+  - Önbellekten (aşağıda) gelen bir sonuç için derinlik yeniden denetlenmez: aynı `object#relation`'a daha derinden ulaşan ikinci yol, sınırı aşsa da saklı sonucu alır. Bu kararı değiştirmez. Önbelleğe yalnız hatasız sonuç girer ve aynı Check içindeki ilk çözüm zaten sınırın içindedir; sınır aşımı her iki tarafta da ret verir.
+  - Sınır vakaları gerçek OpenFGA'ya karşı da koşar (aşağıda, "Sunucuya karşı").
+- **Döngü.** Kendi yolunda tekrar karşılaşılan bir ilişki izin vermez. Döngü, sonuçta ayrı bir işaretle taşınır.
+  - `but not`'un çıkarılan tarafında döngü varsa dışlama kanıtlanamaz; yerel karar **ret**tir. OpenFGA'nın CycleDetected kuralı da budur.
   - `or`'da başka bir dal izin veriyorsa döngü önemsizdir.
-- **Tekrar çözüm yok.** Bir Check boyunca her `object#relation` en fazla bir kez çözülür; döngüsüz sonuçlar saklanır. Elmas biçimli rol grafiği (iki rolün içerdiği bir rol) üstel değil doğrusal okuma yapar. Bu da testle sabittir.
+- **Sunucuya karşı.** Döngü ve derinlik vakaları (klasör modeli: yalın döngü, tabanda döngü, `but not` altında döngü, en derin zincir, bir seviye fazlası) `TestConformanceFolderModel`'de gerçek OpenFGA'ya karşı da koşar.
+  - Davranışı belgelenmiş vakalarda iki motorun aynı sonucu vermesi beklenir.
+  - Sunucunun davranışı belirsiz olan vakalarda (`but not` altında döngü, zincir sınırı) Go'nun sonucu doğrulanır; OpenFGA'nın sonucu log'a yazılır ve aşağıdaki tabloda tutulur. Bu vakalar için "OpenFGA gibi" iddiası yoktur.
+
+  | Vaka | Go | OpenFGA v1.22.0 |
+  |---|---|---|
+  | `but not` altında döngü | ret | (gözlem) |
+  | 24 seviyelik zincir | izin | (gözlem) |
+  | 25 seviyelik zincir | `resolution_too_complex` | (gözlem) |
+- **Tekrar çözüm yok.** Bir Check boyunca her `object#relation` en fazla bir kez çözülür; döngüsüz ve hatasız sonuçlar saklanır. Elmas biçimli rol grafiği (iki rolün içerdiği bir rol) üstel değil doğrusal okuma yapar. Bu da testle sabittir.
 - **Tip kısıtları.** Değerlendirici, ilişkinin tip kısıtına uymayan tuple'ı yok sayar (OpenFGA gibi). Eski bir modelden kalan tuple yetki vermez.
 - **Kimlikler.** Nesne kimlikleri, tip ve ilişki adları OpenFGA'nın desenlerine uyar (`openfga/language` doğrulama kuralları). Uymayan nesneyle Check reddedilir; uymayan tuple ayrıştırılmaz.
 
@@ -78,7 +93,7 @@ ADR-0014 Karar 2'deki alt küme şöyle daraltılır: `[type]`, `[type:*]`, `[ty
 - Denetim kaydına `Basis.String()` yazılır: adımlar `>` ile, yollar `&` ile birleşir.
 - **Belirleyicilik.** Değerlendirici rewrite'ları model sırasıyla, okunan tuple'ları dize sırasıyla gezer. Sıralama değerlendiricinin içindedir; kaynağın döndürdüğü sıra önemli değildir. Aynı veri aynı `Basis`'i verir.
 - `or` ilk izin veren dalı raporlar. `and` her işlenenin yolunu raporlar (hepsi geçerlidir). `but not` tabanın yolunu raporlar.
-- Matriste AZM-106 ve AZM-160'ın `basis`'i modele göre düzeltildi (sırasıyla `inviter`, `owner`); test istisnası kalmadı.
+- Matriste AZM-106 ve AZM-161'in (önceki AZM-160) `basis`'i modele göre düzeltildi (sırasıyla `inviter`, `owner`); test istisnası kalmadı. `admin from company` dalı AZM-107'yle ayrıca kanıtlanır.
 
 ### 6. `TupleReader`
 
@@ -159,7 +174,8 @@ Politika matrisin `conceal` kolonuna karşı test edilir. Dört satır istisnad�
 Matris (`pairs.py` üzerinden yeniden üretildi):
 - `company:co_{1,2}#viewer@user:*` eklendi. Eksik olduğu için AZM-092 (C24) hiçbir motorda geçemiyordu.
 - `self` → `itself` oldu.
-- AZM-106'nın `basis`'i `inviter`, AZM-160'ınki `owner` oldu; `basis` sözlüğüne `inviter` eklendi.
+- AZM-106'nın `basis`'i `inviter`, AZM-161'inki (önceki AZM-160) `owner` oldu; `basis` sözlüğüne `inviter` eklendi.
+- `company_invitation#can_read`'in `admin from company` dalı için ayrı bir izin satırı eklendi (AZM-107): daveti göndermemiş ikinci co_1 ADMIN'i (`u_co_admin2`). Sonraki satırların numaraları bir kaydı.
 
 ## Ertelenenler
 
@@ -169,6 +185,6 @@ Matris (`pairs.py` üzerinden yeniden üretildi):
 
 ## Sonuçlar
 
-- Çıkış kriteri "≥1 tip yeşil"; sonuç bütün `[go, openfga]` satırları: 152 satır, 12 tip. 55 `go_only` ve 6 `skip` satır koşmaz; gerekçeleri raporda satır satır yazılır.
+- Çıkış kriteri "≥1 tip yeşil"; sonuç bütün `[go, openfga]` satırları: 153 satır, 12 tip. 55 `go_only` ve 6 `skip` satır koşmaz; gerekçeleri raporda satır satır yazılır.
 - Yeni bağımlılıklar: `openfga/language` v0.3.2 (yalnız testte import edilir) ve `go.yaml.in/yaml/v3` v3.0.6 (yalnız matris okuyucusunda).
-- Kapı dört job'dur: `verify`, `integration`, `image`, `authz-conformance`. Merge için hepsi yeşil olmalıdır (CLAUDE.md).
+- Kapı dört job'dur: `verify`, `integration`, `image`, `authz-conformance`. Merge için hepsi yeşil olmalıdır (CLAUDE.md). Branch protection açıldığında dördü de zorunlu kontroldür (`docs/runbook/yayin.md`). Yayın, `main` koşusunun bütün job'larının yeşilini ister.

@@ -4,7 +4,8 @@ name: koala-api release
 # version; the git tag comes last, so no v* tag exists without its image:
 #   gate     on main; the version is SemVer, new and greater than every
 #            release; verify.yml has a green push: main run for this SHA
-#            (make verify, integration tests, image smoke).
+#            (all four jobs: verify, integration, image, authz-conformance;
+#            a run is green only when every job is).
 #   publish  build, smoke test against Postgres, push untagged by digest,
 #            check (single image manifest, same layers/config/binary as the
 #            smoke-tested image, SBOM, provenance), then tag

@@ -6,9 +6,11 @@ Bu sayfa açıklamadır. Kararlar ve gerekçeleri ADR-0023'te; DB adımı ADR-00
 
 ## Akış
 
-1. PR açılır. `koala-api verify` iki job koşar:
-   - `verify`: `make verify` ve entegrasyon testleri;
-   - `image`: build, smoke ve yayın yolunun job'a özel geçici registry'de provası. Bu job GHCR'ye basmaz. İmaj boyutu ve açılış süresi job özetindedir.
+1. PR açılır. `koala-api verify` dört job koşar; merge için dördü de yeşil olmalı (CLAUDE.md):
+   - `verify`: `make verify`;
+   - `integration`: Postgres'e karşı entegrasyon testleri (`make test-integration`);
+   - `image`: build, smoke ve yayın yolunun job'a özel geçici registry'de provası. Bu job GHCR'ye basmaz. İmaj boyutu ve açılış süresi job özetindedir;
+   - `authz-conformance`: authz matrisi Go değerlendiricisinde ve gerçek OpenFGA'da (`make test-conformance`, ADR-0024).
 2. PR squash merge edilir. `main` push'u aynı workflow'u yeni SHA için koşar; yayının kanıtı bu koşudur. Bitmesini bekle.
 3. Yayın `main`'den dispatch edilir:
 
@@ -114,7 +116,7 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
   - İlk basma 403 ile düşerse: organizasyonun **Settings → Packages → Package creation** ayarında private paket oluşturma açık olmalı.
   - Dokploy için registry ayarında yalnız `read:packages` yetkili bir token gerekir. Token sahibinin yeni pakete erişimi doğrulanmalı.
 - [ ] **Branch protection.** Free planda private repo için yok (API 403). Team planı ya da public repo gerekir. Açılınca:
-  - `main`: PR zorunlu, `verify` ve `image` kontrollerinin yeşili zorunlu, force-push ve silme yasak;
+  - `main`: PR zorunlu, `verify`, `integration`, `image` ve `authz-conformance` kontrollerinin yeşili zorunlu, force-push ve silme yasak;
   - `v*` tag'leri için ruleset: oluşturma yalnız GitHub Actions'a ve yayınlayanlara açık, silme ve güncelleme yasak;
   - `production` environment'ı ve sırların oraya taşınması.
 - [ ] **Production ortam değişkenleri.** Dokploy'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` tanımlanır (yukarıdaki tablo); ikisi yoksa `serve` açılmaz. Prometheus `KOALA_METRICS_ADDR` portunu iç ağdan kazır; port proxy'ye açılmaz.
