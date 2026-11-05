@@ -56,6 +56,10 @@ vuln: $(GOVULNCHECK) ## govulncheck against the Go vulnerability database
 test: ## Race-enabled tests in random order, no cache
 	$(GO) test -race -shuffle=on -count=1 ./...
 
+.PHONY: test-integration
+test-integration: ## Integration tests only (build tag integration, tag guards first) against PGHOST/PGPORT/PGUSER; CI only
+	scripts/test-integration.sh
+
 .PHONY: fmt
 fmt: $(GOLANGCI_LINT) ## Rewrite files with gofmt and goimports
 	$(GOLANGCI_LINT) fmt

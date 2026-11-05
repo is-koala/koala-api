@@ -13,7 +13,9 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 ## Kapı: CI'da koşar, yerelde ağır iş yok
 
-- Kapı `make verify`'dır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004). Sırası: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`).
+- Kapı iki adımdır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004, ADR-0017):
+  1. `make verify`: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`). Bu adımdaki testler DB'siz birim testleridir.
+  2. `make test-integration`: service container'daki Postgres'e karşı yalnız `integration` etiketli testler. Önce etiket korumaları koşar.
 - **Bu Mac'te yerelde ağır iş yapılmaz** (Yusuf, 04.11). `go test`, `go vet`, `go build`, golangci-lint, `make verify` ve docker çalıştırılmaz. Serbest olanlar: `gofmt`, `go mod tidy`, `make fmt-check`, `make mod-check`. İş bitince `go clean -cache`.
 - PR, CI'daki `verify` yeşil olmadan merge edilmez. Kırmızı kapıyla "sonra düzeltirim" yok.
 - `//nolint` yalnız linter adı ve gerekçeyle yazılır: `//nolint:wrapcheck // neden` **[lint: nolintlint]**. Gerekçesiz susturma yerine kodu düzelt.
@@ -53,7 +55,10 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 ## Veri erişimi ve soft-delete (ADR-0012, ADR-0013)
 
-- Uygulama sorguları yalnız `active_<t>` view'larından okur ve yazar; temel tabloya dokunmaz. Faz 1'de `koala_app` rolünün temel tablolarda yetkisi olmayacak ve `sqlc vet` bunu zorlayacak.
+- Uygulama sorguları yalnız `active_<t>` view'larından okur ve yazar; temel tabloya dokunmaz. `koala_app` rolünün temel tablolarda yetkisi yok **[test: TestRoleGrants]**. `sqlc vet` kuralı Faz 1'de gelecek.
+- Sunucu girişi izin listesiyle denetlenir: üyelikleri tam olarak `{koala_app}`, güçlü özniteliği yok, kendi tablo yetkisi yok. Uymayan girişle havuz bağlantı vermez **[test]**. Sahip, bakım ve bootstrap girişleri süper kullanıcı olamaz **[test]**. `SET ROLE` güvenlik sınırı değildir (ADR-0017).
+- **Oturum düzeyinde `SET` yasaktır; yalnız `InTx` içinde `SET LOCAL` kullanılır.** Havuz her edinimde `current_user`'ı denetler, değişmişse bağlantıyı atar **[test]**. Bu yüzden PgBouncer transaction modu kullanılmaz.
+- Yeni tablo, view, dizi ya da fonksiyon kendi GRANT'iyle gelir. Fonksiyonlarda `PUBLIC` `EXECUTE` yoktur. KVKK verisi süzen view `WITH (security_barrier)` ile kurulur (ADR-0017).
 - `softdelete.yaml`'da `detach` politikalı FK kenarında yalnız `LEFT JOIN active_*` kullanılır; INNER JOIN yasak. Faz 1'de lint'le zorlanacak.
 - Temel tablolara yalnız `koala_maint` rolü erişir: geri alma, temizlik, anonimleştirme. M1 tabloları (defter, kanıt) silinmez.
 
@@ -77,7 +82,8 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 ## Transaction (ADR-0012, plan §3.5)
 
-- Tx servis metodu sınırında `db.InTx(ctx, func(q Querier) error)` ile açılır. Store `Querier` alır, kendi tx'ini açmaz.
+- Tx servis metodu sınırında `db.InTx(ctx, func(ctx context.Context, q db.Querier) error)` ile açılır. Store `Querier` alır, kendi tx'ini açmaz. İç içe `InTx` `ErrNestedTx` döner **[test]**.
+- Commit hatası belirsizdir: tx işlenmiş olabilir. Tekrarı güvenli olmayan yazım idempotent yapılır (ADR-0017).
 - **Dış çağrı (Iyzico, FCM, SMTP, S3) sırasında tx açık kalmaz.** Akış şöyledir: rezerve et ve commit et → dış çağrıyı yap → sonucu kısa bir tx'te yaz.
 - Garantili yan etki iş verisiyle aynı tx'te River `InsertTx` ile kuyruğa girer. Best-effort işler commit sonrası hook'ta çalışır.
 - Kilit açık yazılır (`SELECT … FOR UPDATE`). Para yolunda kilit sırası "önce atama, sonra detay"dır.
@@ -98,7 +104,8 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - Testler sıraya bağımlı olmaz. Bir testin geçmesi kardeş testin ısıttığı duruma dayanamaz. CI testleri `-shuffle=on` ile rastgele sırada koşar.
 - Tablo güdümlü test tercih edilir.
 - Kablo biçimleri (problem+json, para JSON'u, Iyzico gövdeleri) altın testle bayt bayt sabitlenir.
-- Servis testleri gerçek PG'de koşar, test başına ayrı DB kullanılır (Faz 1). **Bellek içi store yazılmaz.** Sahte implementasyon yalnız dış entegrasyonlar için yazılır.
+- Servis testleri gerçek PG'de koşar, test başına ayrı DB kullanılır. **Bellek içi store yazılmaz.** Sahte implementasyon yalnız dış entegrasyonlar için yazılır.
+  - DB'li test `//go:build integration` etiketi taşır ve DB'yi `dbtest.New(t)` ile alır: template'ten klonlanmış, rol başına girişli. CI'da `make test-integration` koşar (ADR-0017).
 - Zamana bağlı testler sahte saat kullanır. `time.Sleep` ile yarış beklenmez; koşul döngüyle ve süre sınırıyla beklenir. Sunucu ya da goroutine başlatan test kendini `t.Cleanup` ile kapatır.
 - Para, authz ve KVKK kuralları için senaryo kataloğundaki (`test/scenarios/`) P0 satırının bir Go testi olur (plan §6.2).
 
@@ -106,6 +113,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 - Yalnız plan §3.3'teki onaylı listeden alınır ve yalnız onu gerçekten kullanan PR'da eklenir **[make verify: go mod tidy -diff]**.
 - Liste dışı her bağımlılık ayrı onay ister. PR gövdesine lisans, gerekçe ve alternatif yazılır.
+- Eklenen ya da yükseltilen sürüm, yayımlanalı en az 14 gün olmuş en yeni sürümdür; istisna govulncheck bulgusunu kapatan yamadır (ADR-0017).
 - Reddedilen kütüphaneler depguard'ın `rejected` listesindedir **[lint]**.
 
 ## Git ve PR

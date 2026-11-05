@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,17 +24,21 @@ const Prefix = "KOALA_"
 
 // Variable names.
 const (
-	VarEnv                = "KOALA_ENV"
-	VarHTTPAddr           = "KOALA_HTTP_ADDR"
-	VarLogLevel           = "KOALA_LOG_LEVEL"
-	VarShutdownDrainDelay = "KOALA_SHUTDOWN_DRAIN_DELAY"
-	VarShutdownTimeout    = "KOALA_SHUTDOWN_TIMEOUT"
+	VarEnv                  = "KOALA_ENV"
+	VarHTTPAddr             = "KOALA_HTTP_ADDR"
+	VarLogLevel             = "KOALA_LOG_LEVEL"
+	VarShutdownDrainDelay   = "KOALA_SHUTDOWN_DRAIN_DELAY"
+	VarShutdownTimeout      = "KOALA_SHUTDOWN_TIMEOUT"
+	VarDatabaseURL          = "KOALA_DATABASE_URL"
+	VarOwnerDatabaseURL     = "KOALA_OWNER_DATABASE_URL"
+	VarBootstrapDatabaseURL = "KOALA_BOOTSTRAP_DATABASE_URL"
 )
 
 // known lists every variable Load understands. A KOALA_* variable outside
 // this list is a typo or a leftover and fails startup.
 var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarEnv, VarHTTPAddr, VarLogLevel, VarShutdownDrainDelay, VarShutdownTimeout,
+	VarDatabaseURL, VarOwnerDatabaseURL, VarBootstrapDatabaseURL,
 }
 
 // Env is the deployment environment.
@@ -59,7 +64,42 @@ type Config struct {
 	// ShutdownTimeout bounds how long in-flight requests may finish. It is
 	// at least MinShutdownTimeout.
 	ShutdownTimeout time.Duration
+	// The database logins (ADR-0017). Each is optional here; the command
+	// that needs one requires it. In production each must use TLS
+	// (sslmode=require, verify-ca or verify-full).
+	//
+	// DatabaseURL is the server's login, a member of koala_app only (serve).
+	DatabaseURL Secret
+	// OwnerDatabaseURL is a member of koala_owner (migrate, maint).
+	OwnerDatabaseURL Secret
+	// BootstrapDatabaseURL has CREATEROLE; it creates the group roles
+	// (bootstrap).
+	BootstrapDatabaseURL Secret
 }
+
+// Secret is a configuration value that must not reach logs or error
+// messages, such as a database URL with its password. Formatting it with
+// fmt or slog prints a placeholder; Reveal returns the value.
+type Secret string
+
+const redacted = "[redacted]"
+
+// Reveal returns the secret value. Pass it only to the library that needs it.
+func (s Secret) Reveal() string { return string(s) }
+
+// String implements fmt.Stringer without the value.
+func (s Secret) String() string {
+	if s == "" {
+		return ""
+	}
+	return redacted
+}
+
+// GoString implements fmt.GoStringer without the value.
+func (s Secret) GoString() string { return s.String() }
+
+// LogValue implements slog.LogValuer without the value.
+func (s Secret) LogValue() slog.Value { return slog.StringValue(s.String()) }
 
 // Defaults for optional variables.
 const (
@@ -142,6 +182,20 @@ func Load(environ []string) (Config, error) {
 		}
 	}
 
+	for name, dst := range map[string]*Secret{
+		VarDatabaseURL:          &cfg.DatabaseURL,
+		VarOwnerDatabaseURL:     &cfg.OwnerDatabaseURL,
+		VarBootstrapDatabaseURL: &cfg.BootstrapDatabaseURL,
+	} {
+		if v, ok := vars[name]; ok {
+			if err := validateDatabaseURL(v, cfg.Env == EnvProduction); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			} else {
+				*dst = Secret(v)
+			}
+		}
+	}
+
 	if len(errs) > 0 {
 		slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
 		return Config{}, fmt.Errorf("invalid configuration: %w", errors.Join(errs...))
@@ -194,6 +248,35 @@ func validateAddr(v string) error {
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
 		return fmt.Errorf("%w: port must be 1-65535", errInvalidValue)
+	}
+	return nil
+}
+
+// validateDatabaseURL checks the form; pgx parses the rest when the pool
+// opens. A repeated connection parameter is rejected. Production requires
+// TLS: without sslmode, or with disable, allow
+// or prefer, a connection can fall back to plain text. The value is never
+// echoed: it holds a password.
+func validateDatabaseURL(v string, production bool) error {
+	u, err := url.Parse(v)
+	if err != nil || (u.Scheme != "postgres" && u.Scheme != "postgresql") {
+		return fmt.Errorf("%w: want a postgres:// URL", errInvalidValue)
+	}
+	query := u.Query()
+	for key, values := range query {
+		// libpq and pgx disagree on which repeated value wins; a URL like
+		// ?sslmode=disable&sslmode=require must not pass the check below
+		// with one value and connect with the other.
+		if len(values) > 1 {
+			return fmt.Errorf("%w: connection parameter %q is repeated", errInvalidValue, key)
+		}
+	}
+	if production {
+		switch query.Get("sslmode") {
+		case "require", "verify-ca", "verify-full":
+		default:
+			return fmt.Errorf("%w: production requires sslmode=require, verify-ca or verify-full", errInvalidValue)
+		}
 	}
 	return nil
 }

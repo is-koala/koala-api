@@ -24,6 +24,23 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Postgres for the integration tests (ADR-0017). The
+    # runner starts it and waits for the health check before the first
+    # step. Same major version as the Java backend (17). trust auth: no password
+    # value exists anywhere; the port is bound to the runner's loopback only.
+    # Tests create their own databases and logins (ADR-0017).
+    services:
+      postgres:
+        image: postgres:17.11@sha256:3b0cda93be7c8dba2ed484d19393d93845dc3dafb88973e248ba8e6d99d784e1
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,3 +53,11 @@ jobs:
 
       - name: Verify
         run: make verify
+
+      - name: Integration tests
+        run: make test-integration
+        env:
+          PGHOST: 127.0.0.1
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGSSLMODE: disable
