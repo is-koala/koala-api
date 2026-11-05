@@ -64,28 +64,28 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	return &authApp{router: router, clock: clk, q: authndb.New(database.Pool()), passwords: passwords}
 }
 
-func (a *authApp) addUser(t *testing.T, email, password string) {
+func (a *authApp) addUser(t *testing.T) {
 	t.Helper()
-	hash, err := a.passwords.Hash(t.Context(), password)
+	hash, err := a.passwords.Hash(t.Context(), userPw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = a.q.InsertUser(t.Context(), authndb.InsertUserParams{
-		ID: uuid.Must(uuid.NewV7()), Email: email, PasswordHash: &hash, Status: authn.UserActive, CreatedAt: a.clock.Now(),
+		ID: uuid.Must(uuid.NewV7()), Email: userEmail, PasswordHash: &hash, Status: authn.UserActive, CreatedAt: a.clock.Now(),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
-func (a *authApp) addStaff(t *testing.T, email, password string, mustChange bool) {
+func (a *authApp) addStaff(t *testing.T, mustChange bool) {
 	t.Helper()
-	hash, err := a.passwords.Hash(t.Context(), password)
+	hash, err := a.passwords.Hash(t.Context(), staffPw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = a.q.InsertStaffMember(t.Context(), authndb.InsertStaffMemberParams{
-		ID: uuid.Must(uuid.NewV7()), Email: email, PasswordHash: hash, Status: authn.StaffActive,
+		ID: uuid.Must(uuid.NewV7()), Email: staffEmail, PasswordHash: hash, Status: authn.StaffActive,
 		MustChangePassword: mustChange, CreatedAt: a.clock.Now(),
 	})
 	if err != nil {
@@ -164,7 +164,7 @@ func (a *authApp) loginStaff(t *testing.T, password string) tokens {
 func TestLoginFailureBodiesAreIdentical(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
-	a.addUser(t, userEmail, userPw)
+	a.addUser(t)
 
 	known := a.call(t, http.MethodPost, "/v1/auth/login", "", `{"email":"`+userEmail+`","password":"yanlış ama uzun parola"}`)
 	unknown := a.call(t, http.MethodPost, "/v1/auth/login", "", `{"email":"kimse@example.com","password":"yanlış ama uzun parola"}`)
@@ -185,8 +185,8 @@ func TestLoginFailureBodiesAreIdentical(t *testing.T) {
 func TestTokenClassesOverHTTP(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
-	a.addUser(t, userEmail, userPw)
-	a.addStaff(t, staffEmail, staffPw, false)
+	a.addUser(t)
+	a.addStaff(t, false)
 	user, staff := a.loginUser(t), a.loginStaff(t, staffPw)
 
 	wantStatus(t, a.call(t, http.MethodGet, "/v1/me", user.AccessToken, ""), http.StatusOK, "")
@@ -227,7 +227,7 @@ func TestTokenClassesOverHTTP(t *testing.T) {
 func TestStaffMustChangePassword(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
-	a.addStaff(t, staffEmail, staffPw, true)
+	a.addStaff(t, true)
 
 	first := a.loginStaff(t, staffPw)
 	if !first.MustChangePassword {
@@ -255,7 +255,7 @@ func TestStaffMustChangePassword(t *testing.T) {
 func TestRealtimeTicketsOverHTTP(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
-	a.addUser(t, userEmail, userPw)
+	a.addUser(t)
 	srv := httptest.NewServer(a.router)
 	t.Cleanup(srv.Close)
 
@@ -332,7 +332,7 @@ func TestRealtimeTicketsOverHTTP(t *testing.T) {
 func TestAuthRateLimits(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, rateLimitGroups())
-	a.addUser(t, userEmail, userPw)
+	a.addUser(t)
 
 	burst := rateLimitGroups()[groupAuth].PerCustom.Burst
 	var last *httptest.ResponseRecorder

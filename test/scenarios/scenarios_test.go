@@ -76,9 +76,10 @@ func (s scenario) goTests() ([]string, error) {
 			return nil, fmt.Errorf("go_test: %w", err)
 		}
 		return out, nil
-	default:
+	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
 		return nil, errors.New("go_test: want null, a test name or a list of test names")
 	}
+	return nil, errors.New("go_test: unknown YAML node")
 }
 
 func loadCatalogs(t *testing.T) map[string]catalog {
@@ -107,7 +108,7 @@ func loadCatalogs(t *testing.T) map[string]catalog {
 	return out
 }
 
-var idPattern = regexp.MustCompile(`^([A-Z]+)-[0-9]{3}$`)
+var idPattern = regexp.MustCompile(`^([A-Z]+)-\d{3}$`)
 
 // Rules 1 and 2: ids are unique and carry the file's prefix; every
 // scenario has a priority and a source.
@@ -121,7 +122,7 @@ func TestCatalogsAreWellFormed(t *testing.T) {
 		}
 		for _, s := range c.Scenarios {
 			m := idPattern.FindStringSubmatch(s.ID)
-			if m == nil || m[1] != c.IDPrefix {
+			if len(m) != 2 || m[1] != c.IDPrefix {
 				t.Errorf("%s: id %q is not %s-nnn", file, s.ID, c.IDPrefix)
 			}
 			if prev, ok := seen[s.ID]; ok {

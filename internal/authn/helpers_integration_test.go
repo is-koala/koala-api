@@ -95,10 +95,10 @@ func (e *env) addUser(t *testing.T, email, password string) uuid.UUID {
 	return id
 }
 
-// addStaff creates a staff member.
-func (e *env) addStaff(t *testing.T, email, password, status string, mustChange bool) uuid.UUID {
+// addStaff creates a staff member with the password opsPw.
+func (e *env) addStaff(t *testing.T, email, status string, mustChange bool) uuid.UUID {
 	t.Helper()
-	hash, err := e.passwords.inner.Hash(t.Context(), password)
+	hash, err := e.passwords.inner.Hash(t.Context(), opsPw)
 	if err != nil {
 		t.Fatal(err)
 	}

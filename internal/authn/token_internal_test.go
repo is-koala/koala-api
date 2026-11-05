@@ -107,8 +107,12 @@ func TestAccessTokenRoundTrip(t *testing.T) {
 	if parsed.Header["alg"] != "EdDSA" || parsed.Header["typ"] != "at+jwt" || parsed.Header["kid"] != "mp-ephemeral" {
 		t.Errorf("header = %v", parsed.Header)
 	}
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		t.Fatalf("claims = %T", parsed.Claims)
+	}
 	for _, c := range []string{"iss", "aud", "exp", "nbf", "iat", "jti", "sub", "sid"} {
-		if _, ok := parsed.Claims.(jwt.MapClaims)[c]; !ok {
+		if _, ok := claims[c]; !ok {
 			t.Errorf("claim %s missing", c)
 		}
 	}
@@ -208,7 +212,7 @@ func TestAccessTokenExpiry(t *testing.T) {
 	if _, err := f.marketplace.verify(raw); err != nil {
 		t.Fatalf("one second before expiry: %v", err)
 	}
-	f.clock.Advance(time.Second)
+	f.clock.Advance(time.Second) // at exp the token is expired (valid while now < exp)
 	_, err = f.marketplace.verify(raw)
 	wantCode(t, err, CodeTokenExpired)
 

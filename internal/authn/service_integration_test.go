@@ -79,7 +79,6 @@ func TestLoginReplacesTheDeviceSession(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	e.addUser(t, alice, alicePw)
-	ctx := t.Context()
 
 	s1 := e.login(t, alice, alicePw, deviceW1)
 	s2 := e.login(t, alice, alicePw, deviceW1)
@@ -87,6 +86,7 @@ func TestLoginReplacesTheDeviceSession(t *testing.T) {
 
 	t.Run("AUTH-002/same device replaces", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		_, err := e.users.Authenticate(ctx, s1.AccessToken, deviceW1)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeSessionInactive)
 		if !e.revoked.has(s1.SessionID) {
@@ -98,6 +98,7 @@ func TestLoginReplacesTheDeviceSession(t *testing.T) {
 	})
 	t.Run("AUTH-002/other device independent", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		if _, err := e.users.Authenticate(ctx, s3.AccessToken, deviceW2); err != nil {
 			t.Errorf("W2 session: %v", err)
 		}
@@ -107,6 +108,7 @@ func TestLoginReplacesTheDeviceSession(t *testing.T) {
 	})
 	t.Run("AUTH-002/no device id, no lookup", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		for _, device := range []string{"", "short", "has space in it"} {
 			before := e.passwords.verifies.Load()
 			_, err := e.users.Login(ctx, authn.LoginInput{Email: bob, Password: bobPw, DeviceKey: device})
@@ -144,11 +146,13 @@ func TestRefreshNeedsNoAccessToken(t *testing.T) {
 	e.clock.Advance(3 * 24 * time.Hour)
 	t.Run("AUTH-003/strict check refuses the expired access token", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		_, err := e.users.Authenticate(ctx, pair.AccessToken, deviceW1)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeTokenExpired)
 	})
 	t.Run("AUTH-003/forged and foreign credentials are refused", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		for name, v := range map[string]string{
 			"forged":          flip(pair.RefreshToken),
 			"malformed":       "not-a-token",
@@ -163,6 +167,7 @@ func TestRefreshNeedsNoAccessToken(t *testing.T) {
 	})
 	t.Run("AUTH-003/refresh three days after expiry", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		next, err := e.users.Refresh(ctx, pair.RefreshToken, deviceW1)
 		if err != nil {
 			t.Fatal(err)
@@ -179,10 +184,10 @@ func TestAnotherDeviceRevokesTheSession(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	e.addUser(t, alice, alicePw)
-	ctx := t.Context()
 
 	t.Run("AUTH-004/refresh", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		pair := e.login(t, alice, alicePw, deviceW1)
 		_, err := e.users.Refresh(ctx, pair.RefreshToken, deviceW2)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeSessionDeviceMismatch)
@@ -194,6 +199,7 @@ func TestAnotherDeviceRevokesTheSession(t *testing.T) {
 	})
 	t.Run("AUTH-004/request", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		pair := e.login(t, alice, alicePw, devicePhone)
 		_, err := e.users.Authenticate(ctx, pair.AccessToken, deviceW2)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeSessionDeviceMismatch)
@@ -208,10 +214,10 @@ func TestAnotherDeviceRevokesTheSession(t *testing.T) {
 // slides, the absolute one does not.
 func TestRefreshRotation(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
 
 	t.Run("AUTH-005/rotation and reuse detection", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		e := newEnv(t)
 		e.addUser(t, alice, alicePw)
 		first := e.login(t, alice, alicePw, deviceW1)
@@ -234,6 +240,7 @@ func TestRefreshRotation(t *testing.T) {
 	})
 	t.Run("AUTH-005/unknown token leaves the session open", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		e := newEnv(t)
 		e.addUser(t, alice, alicePw)
 		pair := e.login(t, alice, alicePw, deviceW1)
@@ -245,6 +252,7 @@ func TestRefreshRotation(t *testing.T) {
 	})
 	t.Run("AUTH-005/closed session", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		e := newEnv(t)
 		e.addUser(t, alice, alicePw)
 		pair := e.login(t, alice, alicePw, deviceW1)
@@ -260,6 +268,7 @@ func TestRefreshRotation(t *testing.T) {
 	})
 	t.Run("AUTH-005/idle limit", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		e := newEnv(t)
 		e.addUser(t, alice, alicePw)
 		pair := e.login(t, alice, alicePw, deviceW1)
@@ -276,6 +285,7 @@ func TestRefreshRotation(t *testing.T) {
 	})
 	t.Run("AUTH-005/sliding window and absolute limit", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		e := newEnv(t)
 		e.addUser(t, alice, alicePw)
 		pair := e.login(t, alice, alicePw, deviceW1)
@@ -300,6 +310,7 @@ func TestRefreshRotation(t *testing.T) {
 	})
 	t.Run("AUTH-005/concurrent refreshes of one token", func(t *testing.T) {
 		t.Parallel()
+		ctx := t.Context()
 		e := newEnv(t)
 		e.addUser(t, alice, alicePw)
 		pair := e.login(t, alice, alicePw, deviceW1)

@@ -14,7 +14,7 @@ import (
 
 const (
 	opsEmail   = "ops@iskoala.com"
-	opsPw      = "personel uzun parolası"
+	opsPw      = "ekip üyesinin uzun parolası"
 	newStaffPw = "yepyeni uzun bir parola"
 )
 
@@ -46,8 +46,8 @@ func (e *env) lockState(t *testing.T, id uuid.UUID) (int32, *time.Time) {
 func TestStaffLoginConcealment(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.addStaff(t, opsEmail, opsPw, authn.StaffActive, false)
-	e.addStaff(t, "gone@iskoala.com", opsPw, authn.StaffDisabled, false)
+	e.addStaff(t, opsEmail, authn.StaffActive, false)
+	e.addStaff(t, "gone@iskoala.com", authn.StaffDisabled, false)
 	ctx := t.Context()
 
 	var msgs []string
@@ -80,7 +80,7 @@ func TestStaffLoginConcealment(t *testing.T) {
 func TestStaffLockout(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	id := e.addStaff(t, opsEmail, opsPw, authn.StaffActive, false)
+	id := e.addStaff(t, opsEmail, authn.StaffActive, false)
 	ctx := t.Context()
 
 	for i := 1; i <= authn.StaffLockThreshold; i++ {
@@ -112,7 +112,7 @@ func TestStaffLockout(t *testing.T) {
 	}
 
 	// Another member: two failures, then a success clears the counter.
-	other := e.addStaff(t, "finance@iskoala.com", opsPw, authn.StaffActive, false)
+	other := e.addStaff(t, "finance@iskoala.com", authn.StaffActive, false)
 	for range 2 {
 		if _, err := e.staff.Login(ctx, "finance@iskoala.com", wrongPw); err == nil {
 			t.Fatal("wrong password accepted")
@@ -131,7 +131,7 @@ func TestStaffLockout(t *testing.T) {
 func TestStaffTokens(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.addStaff(t, opsEmail, opsPw, authn.StaffActive, false)
+	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	e.addUser(t, alice, alicePw)
 	ctx := t.Context()
 	pair := e.staffLogin(t, opsEmail, opsPw)
@@ -147,7 +147,7 @@ func TestStaffTokens(t *testing.T) {
 	_, err = e.users.Authenticate(ctx, pair.AccessToken, deviceW1)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeTokenInvalid)
 
-	e.clock.Advance(authn.AccessTokenTTL)
+	e.clock.Advance(authn.AccessTokenTTL + time.Second)
 	_, err = e.staff.Authenticate(ctx, pair.AccessToken)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeTokenExpired)
 	next, err := e.staff.Refresh(ctx, pair.RefreshToken)
@@ -165,7 +165,7 @@ func TestStaffTokens(t *testing.T) {
 func TestStaffLogoutAndPasswordChange(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.addStaff(t, opsEmail, opsPw, authn.StaffActive, false)
+	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	ctx := t.Context()
 
 	laptop := e.staffLogin(t, opsEmail, opsPw)
@@ -219,7 +219,7 @@ func TestStaffLogoutAndPasswordChange(t *testing.T) {
 func TestStaffMustChangeFlag(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.addStaff(t, opsEmail, opsPw, authn.StaffActive, true)
+	e.addStaff(t, opsEmail, authn.StaffActive, true)
 	ctx := t.Context()
 
 	first := e.staffLogin(t, opsEmail, opsPw)
@@ -242,7 +242,7 @@ func TestStaffMustChangeFlag(t *testing.T) {
 func TestStaffRefreshReuse(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	e.addStaff(t, opsEmail, opsPw, authn.StaffActive, false)
+	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	ctx := t.Context()
 
 	first := e.staffLogin(t, opsEmail, opsPw)

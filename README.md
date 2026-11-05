@@ -100,6 +100,9 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_MIN_APP_VERSION` | production'da `serve` için | `0.0.0` | En düşük desteklenen mobil sürüm (semver). `IOS`/`ANDROID` istemcisinin daha eski `X-App-Version`'ı `400 APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` alır (ADR-0021) |
 | `KOALA_TRUSTED_PROXIES` | production'da `serve` için | — | `X-Forwarded-For`'u okunacak proxy'ler: virgülle ayrılmış IP ya da CIDR (`10.0.0.0/8`). Yoksa TCP eşi istemcidir |
 | `KOALA_METRICS_ADDR` | hayır | `:9090` | `/metrics`'in iç dinleyicisi; API portuyla aynı olamaz. Proxy'ye açılmaz |
+| `KOALA_JWT_MARKETPLACE_KEYS` | staging ve production'da `serve` için | süreç başına geçici anahtar | Marketplace erişim token'larının Ed25519 anahtar halkası: `kid:tohum[,kid:tohum…]`, tohum 32 bayt unpadded base64url; ilk anahtar imzalar, hepsi doğrular (ADR-0025). Sırdır |
+| `KOALA_JWT_STAFF_KEYS` | staging ve production'da `serve` için | süreç başına geçici anahtar | Personel token'larının halkası; biçim aynı, marketplace halkasıyla anahtar paylaşamaz. Sırdır |
+| `KOALA_REALTIME_ORIGINS` | hayır | — | WebSocket'e tarayıcıdan bağlanabilen origin'ler, virgülle (`https://host[:port]`; ADR-0018 §4) |
 
 Üç DB URL'si de sırdır; değerleri log'a ve hata mesajına yazılmaz. Production'da `sslmode=require`, `verify-ca` ya da `verify-full` zorunludur. Bir bağlantı parametresi URL'de iki kez geçemez. Havuz ayarları (`pool_max_conns`, `statement_timeout` ve diğerleri) URL'de verilirse varsayılanların yerine geçer (ADR-0017 §6).
 
@@ -154,6 +157,7 @@ Konteynerin durdurma süresi (`stop_grace_period`) `KOALA_SHUTDOWN_DRAIN_DELAY +
 - [ ] Branch protection, `v*` tag ruleset'i ve `production` environment'ı. Free planda private repo için yok; Team planı ya da public repo gerekir.
 - [ ] Dokploy `stop_grace_period` ≥ 45 sn.
 - [ ] Production'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` (ikisi yoksa `serve` açılmaz) ve Prometheus'un `KOALA_METRICS_ADDR`'i iç ağdan kazıması.
+- [ ] Staging ve production'da `KOALA_JWT_MARKETPLACE_KEYS` ve `KOALA_JWT_STAFF_KEYS` (ikisi yoksa `serve` açılmaz; üretimi ve rotasyonu runbook'ta).
 - [ ] Faz 9'da `DOKPLOY_DEPLOY_WEBHOOK` sırrı (HTTPS alan adı) ve `DOKPLOY_DEPLOY_ENABLED` değişkeni.
 
 Elle build gerekirse (CI ya da sunucu ortamında):

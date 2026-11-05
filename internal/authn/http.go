@@ -238,7 +238,7 @@ func StrictMiddleware(limiter TargetLimiter, group string) apiv1.StrictMiddlewar
 			}
 			if key != "" {
 				if ok, wait := limiter.Allow(group, httpx.KeyCustom, key); !ok {
-					return nil, httpx.RateLimitedError(w, wait) //nolint:wrapcheck // the problem error itself, as httpx made it
+					return nil, httpx.RateLimitedError(w, wait)
 				}
 			}
 			return f(ctx, w, r, request)

@@ -91,6 +91,8 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
 | `KOALA_MIN_APP_VERSION` | **zorunlu (`serve`)** | En düşük desteklenen mobil sürüm (semver). Yoksa `serve` açılmaz: ayarsız kapı her derlemeyi geçirirdi (ADR-0021). Mobil zorunlu güncelleme bu değeri yükselterek yapılır. |
 | `KOALA_TRUSTED_PROXIES` | **zorunlu (`serve`)** | Traefik'in (ve önünde CDN varsa onun) adresleri ya da CIDR'ları, virgülle; IPv4'te en geniş /8, IPv6'da /32. Yoksa `serve` açılmaz: bütün istemciler proxy'nin tek oran sınırı kovasını paylaşırdı (ADR-0021). **Staging:** kod zorunlu tutmaz ama staging de Traefik arkasındaysa aynı değer verilir; verilmezse staging'deki oran sınırı ölçümleri anlamsızdır. |
 | `KOALA_METRICS_ADDR` | isteğe bağlı (`:9090`) | `/metrics`'in iç portu; aşağıdaki ağ ayarına bakın. |
+| `KOALA_JWT_MARKETPLACE_KEYS`, `KOALA_JWT_STAFF_KEYS` | **zorunlu (`serve`, staging dahil)** | sır. Erişim token'larının Ed25519 halkaları (ADR-0025): `kid:tohum[,kid:tohum…]`, tohum 32 rastgele baytın unpadded base64url'i (ör. `openssl rand 32 \| basenc --base64url \| tr -d =`). İki halka aynı tohumu taşıyamaz. **Rotasyon:** yeni anahtarı ikinci sıraya ekle ve yayımla → birinci sıraya al ve yayımla → 15 dk sonra eskisini çıkar. Refresh token'lar opak olduğu için kimse çıkış yapmaz. |
+| `KOALA_REALTIME_ORIGINS` | isteğe bağlı | Web istemcisinin origin'leri, virgülle (`https://iskoala.com`). |
 | `KOALA_SHUTDOWN_DRAIN_DELAY` | isteğe bağlı (`5s`) | `/readyz` 503'ten dinleyicinin kapanmasına kadar geçen süre. |
 | `KOALA_SHUTDOWN_TIMEOUT` | isteğe bağlı (`35s`, en az `35s`) | Süren isteklere ve WebSocket'lere verilen süre; stream'lerin zorla kapatma payı (5 sn) bunun içindedir (ADR-0022). `stop_grace_period` bu ikisinin toplamından uzun olmalı (aşağıda). |
 | `KOALA_HTTP_ADDR`, `KOALA_LOG_LEVEL` | isteğe bağlı (`:8080`, `info`) | |
@@ -119,7 +121,7 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
   - `main`: PR zorunlu, `verify`, `integration`, `image` ve `authz-conformance` kontrollerinin yeşili zorunlu, force-push ve silme yasak;
   - `v*` tag'leri için ruleset: oluşturma yalnız GitHub Actions'a ve yayınlayanlara açık, silme ve güncelleme yasak;
   - `production` environment'ı ve sırların oraya taşınması.
-- [ ] **Production ortam değişkenleri.** Dokploy'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` tanımlanır (yukarıdaki tablo); ikisi yoksa `serve` açılmaz. Prometheus `KOALA_METRICS_ADDR` portunu iç ağdan kazır; port proxy'ye açılmaz.
+- [ ] **Production ortam değişkenleri.** Dokploy'da `KOALA_MIN_APP_VERSION`, `KOALA_TRUSTED_PROXIES`, `KOALA_JWT_MARKETPLACE_KEYS` ve `KOALA_JWT_STAFF_KEYS` tanımlanır (yukarıdaki tablo); biri yoksa `serve` açılmaz. JWT halkaları staging'de de zorunludur. Prometheus `KOALA_METRICS_ADDR` portunu iç ağdan kazır; port proxy'ye açılmaz.
 - [ ] **Dokploy `stop_grace_period` ≥ 45 sn.** Formül: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT` toplamından uzun; varsayılanlarla 5 + 35 = 40 sn.
 - [ ] **Webhook sırrı ve anahtarı (Faz 9).**
   - Repo **Settings → Secrets and variables → Actions** altında `DOKPLOY_DEPLOY_WEBHOOK` sırrı tanımlanır. Değeri Dokploy'daki uygulamanın HTTPS deploy webhook URL'sidir.

@@ -23,18 +23,18 @@ const (
 	// CodeEmailOrPasswordMismatch: unknown address, wrong password or an
 	// account without a password; the three are indistinguishable
 	// (AUTH-001).
-	CodeEmailOrPasswordMismatch apperr.Code = "AUTH_EMAIL_OR_PASSWORD_MISMATCH"
+	CodeEmailOrPasswordMismatch apperr.Code = "AUTH_EMAIL_OR_PASSWORD_MISMATCH" //nolint:gosec // G101: an error code, not a credential
 	// CodeAccountSuspended: the password was right but the account is
 	// suspended. Only someone who knows the password learns it.
 	CodeAccountSuspended apperr.Code = "AUTH_ACCOUNT_SUSPENDED"
 	// CodeTokenMissing: a protected operation without a bearer token.
-	CodeTokenMissing apperr.Code = "AUTH_TOKEN_MISSING"
+	CodeTokenMissing apperr.Code = "AUTH_TOKEN_MISSING" //nolint:gosec // G101: an error code, not a credential
 	// CodeTokenInvalid: a malformed, forged, foreign-class or not yet valid
 	// access token.
-	CodeTokenInvalid apperr.Code = "AUTH_TOKEN_INVALID"
+	CodeTokenInvalid apperr.Code = "AUTH_TOKEN_INVALID" //nolint:gosec // G101: an error code, not a credential
 	// CodeTokenExpired: a genuine access token past its expiry; the client
 	// refreshes.
-	CodeTokenExpired apperr.Code = "AUTH_TOKEN_EXPIRED"
+	CodeTokenExpired apperr.Code = "AUTH_TOKEN_EXPIRED" //nolint:gosec // G101: an error code, not a credential
 	// CodeSessionInactive: the session does not exist, was revoked or
 	// expired, or its user or device was deleted.
 	CodeSessionInactive apperr.Code = "AUTH_SESSION_NOT_FOUND_OR_INACTIVE"
@@ -42,13 +42,13 @@ const (
 	// the session's; the session is revoked (AUTH-004).
 	CodeSessionDeviceMismatch apperr.Code = "AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE"
 	// CodeRefreshTokenInvalid: an unknown or malformed refresh token.
-	CodeRefreshTokenInvalid apperr.Code = "AUTH_REFRESH_TOKEN_INVALID"
+	CodeRefreshTokenInvalid apperr.Code = "AUTH_REFRESH_TOKEN_INVALID" //nolint:gosec // G101: an error code, not a credential
 	// CodeRefreshTokenExpired: the refresh token passed its idle limit or
 	// the session its absolute limit; the session is closed.
-	CodeRefreshTokenExpired apperr.Code = "AUTH_REFRESH_TOKEN_EXPIRED"
+	CodeRefreshTokenExpired apperr.Code = "AUTH_REFRESH_TOKEN_EXPIRED" //nolint:gosec // G101: an error code, not a credential
 	// CodeRefreshTokenReused: a rotated refresh token came back; the whole
 	// session (token family) is revoked (K12).
-	CodeRefreshTokenReused apperr.Code = "AUTH_REFRESH_TOKEN_REUSED"
+	CodeRefreshTokenReused apperr.Code = "AUTH_REFRESH_TOKEN_REUSED" //nolint:gosec // G101: an error code, not a credential
 	// CodeSessionNotFound: the caller's own session list has no such
 	// session; another user's session looks the same (AUTH-016).
 	CodeSessionNotFound apperr.Code = "AUTH_SESSION_NOT_FOUND"
