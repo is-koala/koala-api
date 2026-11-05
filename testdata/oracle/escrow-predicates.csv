@@ -1,0 +1,12 @@
+id,yuklem,atama_durumu,odeme_durumu,sonuc,kaynak_kod,kaynak_test,test_kolonlari,dogrulama,not
+EP-01,acceptsPayment,CONFIRMED,PENDING_COLLECTION|FAILED,evet,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,src/test/java/com/exskylab/koala/core/helpers/PaymentStateMachineTest.java#onlyAConfirmedAssignmentAwaitingCollectionCanStartAPayment,sonuc,test,
+EP-02,acceptsPayment,PENDING_CONFIRMATION|REJECTED,PENDING_COLLECTION,hayir,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,src/test/java/com/exskylab/koala/core/helpers/PaymentStateMachineTest.java#anUnconfirmedAssignmentCannotStartAPayment,sonuc,test,
+EP-03,acceptsPayment,CONFIRMED,HELD_IN_ESCROW,hayir,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,src/test/java/com/exskylab/koala/core/helpers/PaymentStateMachineTest.java#anAlreadyPaidAssignmentCannotBeChargedAgain,sonuc,test,
+EP-04,acceptsPayment,IN_PROGRESS|COMPLETED,*,hayir,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,,,kod,
+EP-05,acceptsPayment,CANCELLED,*,hayir,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,,,kod,
+EP-06,canRelease,COMPLETED,HELD_IN_ESCROW,evet,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aCompletedAssignmentInEscrowCanBeReleased,sonuc,test,
+EP-07,canRelease,CONFIRMED|IN_PROGRESS,HELD_IN_ESCROW,hayir,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#moneyIsNotReleasedBeforeTheWorkIsCompleted,sonuc,test,
+EP-08,canRelease,COMPLETED,PENDING_COLLECTION|FAILED|RELEASED_TO_WORKER|REFUNDED,hayir,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,,,kod,
+EP-09,canRefund,*,HELD_IN_ESCROW,evet,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#escrowedMoneyCanBeRefundedToTheEmployer,sonuc,test,
+EP-10,canRefund,*,RELEASED_TO_WORKER,hayir,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#alreadyReleasedMoneyCannotBeRefunded,sonuc,test,
+EP-11,canRefund,*,PENDING_COLLECTION|FAILED|REFUNDED,hayir,src/main/java/com/exskylab/koala/core/helpers/PaymentStateMachine.java:22-35,,,kod,

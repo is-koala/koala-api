@@ -4,6 +4,7 @@
 # Java'dan bilinçli ayrılık; ilgili senaryolarda `target` alanında.
 
 domain: auth
+id_prefix: AUTH
 version: 0
 scenarios:
 
@@ -25,11 +26,11 @@ scenarios:
       - "İki deneme de giriş denemesi tablosuna başarısız olarak yazılır"
     error: AUTH_EMAIL_OR_PASSWORD_MISMATCH
     source:
-      - "com/exskylab/koala/webAPI/LoginEnumerationIT.java#anUnregisteredEmailLooksExactlyLikeARegisteredOneWithAWrongPassword"
-      - "com/exskylab/koala/webAPI/LoginEnumerationIT.java#bothBranchesAnswerTheStatusAndCodeTheIssueAsksFor"
-      - "com/exskylab/koala/webAPI/LoginEnumerationIT.java#anUnregisteredEmailIsStillRecordedAsAFailedLoginAttempt"
-      - "com/exskylab/koala/business/concretes/LoginConcealmentTest.java#anUnregisteredEmailStillPaysForAPasswordVerification"
-      - "com/exskylab/koala/business/concretes/LoginConcealmentTest.java#anUnregisteredEmailStillPaysForTheDeviceLookupTheRegisteredOnePays"
+      - "src/test/java/com/exskylab/koala/webAPI/LoginEnumerationIT.java#anUnregisteredEmailLooksExactlyLikeARegisteredOneWithAWrongPassword"
+      - "src/test/java/com/exskylab/koala/webAPI/LoginEnumerationIT.java#bothBranchesAnswerTheStatusAndCodeTheIssueAsksFor"
+      - "src/test/java/com/exskylab/koala/webAPI/LoginEnumerationIT.java#anUnregisteredEmailIsStillRecordedAsAFailedLoginAttempt"
+      - "src/test/java/com/exskylab/koala/business/concretes/LoginConcealmentTest.java#anUnregisteredEmailStillPaysForAPasswordVerification"
+      - "src/test/java/com/exskylab/koala/business/concretes/LoginConcealmentTest.java#anUnregisteredEmailStillPaysForTheDeviceLookupTheRegisteredOnePays"
     go_test: null
 
   - id: AUTH-002
@@ -51,9 +52,9 @@ scenarios:
       - "W2 oturumu ayrı açılır; W1 oturumu açık kalır"
       - "Cihaz kimliği olmayan web girişi reddedilir; kimlik bilgisi sorgulanmaz"
     source:
-      - "com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#aSecondLoginForTheSameWebProfileReplacesItsPreviousSession"
-      - "com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#twoWebProfileIdsKeepTwoIndependentSessionsActive"
-      - "com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#webLoginWithoutADeviceIdIsRejectedBeforeCredentialLookup"
+      - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#aSecondLoginForTheSameWebProfileReplacesItsPreviousSession"
+      - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#twoWebProfileIdsKeepTwoIndependentSessionsActive"
+      - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#webLoginWithoutADeviceIdIsRejectedBeforeCredentialLookup"
       - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java:236-241"
     go_test: null
 
@@ -75,12 +76,18 @@ scenarios:
       - "İlki yeni erişim token'ı alır"
       - "İkinci ve üçüncü reddedilir (kimlik doğrulama hatası)"
       - "Sıkı (normal) token çözücü süresi dolmuş token'ı her yerde reddetmeye devam eder"
+    decision: K12
+    target: >
+      K12: oturum kimliği yenileme isteğine erişim token'ından değil refresh token'ın kendisinden gelir;
+      süresi dolmuş erişim token'ı yenileme için gerekmez. Kural mekanizmadan bağımsız olarak korunur:
+      sahte ya da bozuk kimlik bilgisiyle yenileme reddedilir; gerçek zamanlı kimlik bilgisi yenileme
+      için kullanılamaz.
     source:
-      - "com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#aTokenExpiredForDaysStillWorks"
-      - "com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#aForgedSignatureIsRejectedEvenWhenExpiryIsTolerated"
-      - "com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#theStrictExtractorStillRejectsAnExpiredToken"
-      - "com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#aRealtimeCredentialCannotEnterTheRefreshFlow"
-      - "com/exskylab/koala/webAPI/ErrorContractIT.java#refreshGetsPastAnExpiredAccessTokenAndFailsOnTheSessionInstead"
+      - "src/test/java/com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#aTokenExpiredForDaysStillWorks"
+      - "src/test/java/com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#aForgedSignatureIsRejectedEvenWhenExpiryIsTolerated"
+      - "src/test/java/com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#theStrictExtractorStillRejectsAnExpiredToken"
+      - "src/test/java/com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#aRealtimeCredentialCannotEnterTheRefreshFlow"
+      - "src/test/java/com/exskylab/koala/webAPI/ErrorContractIT.java#refreshGetsPastAnExpiredAccessTokenAndFailsOnTheSessionInstead"
     go_test: null
 
   - id: AUTH-004
@@ -98,8 +105,8 @@ scenarios:
       - "Ardından W1'den gelen yenileme de reddedilir (oturum kapalı)"
     error: AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE
     source:
-      - "com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#changingTheWebDeviceIdDeactivatesTheSessionAndReturnsUnauthorized"
-      - "com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#webRefreshWithoutOrWithAMalformedDeviceIdIsRejected"
+      - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#changingTheWebDeviceIdDeactivatesTheSessionAndReturnsUnauthorized"
+      - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#webRefreshWithoutOrWithAMalformedDeviceIdIsRejected"
       - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java:283-291"
     go_test: null
 
@@ -128,7 +135,7 @@ scenarios:
       (rotasyon). Eski refresh token tekrar kullanılırsa token ailesinin tamamı iptal edilir
       (yeniden kullanım tespiti). Yanlış token'ın oturumu açık bırakması K12'de yeniden ele alınır.
     source:
-      - "com/exskylab/koala/webAPI/ErrorContractIT.java#refreshForAClosedSessionIsUnauthorized"
+      - "src/test/java/com/exskylab/koala/webAPI/ErrorContractIT.java#refreshForAClosedSessionIsUnauthorized"
       - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java:258-313"
     go_test: null
 
@@ -154,11 +161,11 @@ scenarios:
       - "Parola değişiminden sonra L4 reddedilir"
       - "Başarılı sıfırlamanın güvenlik e-postası işlem commit edildikten sonra kuyruğa girer"
     source:
-      - "com/exskylab/koala/webAPI/PasswordResetIT.java#aPasswordResetLinkCanOnlyBeUsedOnce"
-      - "com/exskylab/koala/webAPI/PasswordResetIT.java#requestingANewLinkInvalidatesThePreviousLink"
-      - "com/exskylab/koala/webAPI/PasswordResetIT.java#anExpiredLinkCannotResetThePassword"
-      - "com/exskylab/koala/webAPI/PasswordResetIT.java#changingThePasswordWhileLoggedInInvalidatesAnExistingResetLink"
-      - "com/exskylab/koala/webAPI/PasswordResetIT.java#successfulResetQueuesTheSecurityNoticeOnlyAfterCommit"
+      - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#aPasswordResetLinkCanOnlyBeUsedOnce"
+      - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#requestingANewLinkInvalidatesThePreviousLink"
+      - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#anExpiredLinkCannotResetThePassword"
+      - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#changingThePasswordWhileLoggedInInvalidatesAnExistingResetLink"
+      - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#successfulResetQueuesTheSecurityNoticeOnlyAfterCommit"
     go_test: null
 
   - id: AUTH-007
@@ -179,10 +186,10 @@ scenarios:
       - "a@örnek: bağlantı gönderilir; sıfırlama sonrası hash değişir, iki oturum da kapanır"
       - "Uydurma token: reddedilir, hiçbir kayıt değişmez"
     source:
-      - "com/exskylab/koala/business/concretes/PasswordResetTest.java#anUnknownAddressGetsTheSameResponseAndNoMailIsSent"
-      - "com/exskylab/koala/business/concretes/PasswordResetTest.java#aKnownAddressReceivesAResetLink"
-      - "com/exskylab/koala/business/concretes/PasswordResetTest.java#resettingReplacesTheHashAndClosesEverySession"
-      - "com/exskylab/koala/business/concretes/PasswordResetTest.java#anInvalidTokenIsRejectedBeforeAnythingChanges"
+      - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#anUnknownAddressGetsTheSameResponseAndNoMailIsSent"
+      - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#aKnownAddressReceivesAResetLink"
+      - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#resettingReplacesTheHashAndClosesEverySession"
+      - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#anInvalidTokenIsRejectedBeforeAnythingChanges"
     go_test: null
 
   - id: AUTH-008
@@ -201,9 +208,9 @@ scenarios:
       - "c@örnek: eski bekleyen kayıt silinir, yenisi oluşur, e-posta gider"
       - "d@örnek: bekleyen kayıt oluşur, e-posta gider"
     source:
-      - "com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#anAlreadyRegisteredAddressDoesNotProduceADistinguishableError"
-      - "com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aNewAddressStartsRegistration"
-      - "com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aSecondAttemptResendsInsteadOfFailing"
+      - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#anAlreadyRegisteredAddressDoesNotProduceADistinguishableError"
+      - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aNewAddressStartsRegistration"
+      - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aSecondAttemptResendsInsteadOfFailing"
     go_test: null
 
   - id: AUTH-009
@@ -223,11 +230,11 @@ scenarios:
       - "Rakamsız ve büyük harfsiz uzun parola kabul edilir"
       - "8 karakterlik mevcut parolayla giriş kurala takılmaz"
     source:
-      - "com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#theRuleIsTwelveCharactersAndSeventyTwoBytesUntilSomeoneDecidesOtherwise"
-      - "com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#aPasswordJustUnderTheMinimumIsRefusedByEveryPasswordSurface"
-      - "com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#aPasswordThatBcryptWouldSilentlyRefuseIsRefusedByEveryPasswordSurface"
-      - "com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#aLongPassphraseWithoutDigitsOrCapitalsIsAcceptedByEveryPasswordSurface"
-      - "com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#theLoginSurfaceKeepsAcceptingWhateverTheUserAlreadyHas"
+      - "src/test/java/com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#theRuleIsTwelveCharactersAndSeventyTwoBytesUntilSomeoneDecidesOtherwise"
+      - "src/test/java/com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#aPasswordJustUnderTheMinimumIsRefusedByEveryPasswordSurface"
+      - "src/test/java/com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#aPasswordThatBcryptWouldSilentlyRefuseIsRefusedByEveryPasswordSurface"
+      - "src/test/java/com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#aLongPassphraseWithoutDigitsOrCapitalsIsAcceptedByEveryPasswordSurface"
+      - "src/test/java/com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#theLoginSurfaceKeepsAcceptingWhateverTheUserAlreadyHas"
     go_test: null
 
   - id: AUTH-010
@@ -244,9 +251,9 @@ scenarios:
       - "Üçü de aynı yanıtı alır"
     error: STAFF_LOGIN_FAILED
     source:
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#aWrongPasswordIsIndistinguishableFromAnAccountThatDoesNotExist"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#bothBranchesCarryTheSameErrorCode"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#aDisabledAccountIsIndistinguishableTooAndItsPasswordStillDoesNotWork"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aWrongPasswordIsIndistinguishableFromAnAccountThatDoesNotExist"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#bothBranchesCarryTheSameErrorCode"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aDisabledAccountIsIndistinguishableTooAndItsPasswordStillDoesNotWork"
     go_test: null
 
   - id: AUTH-011
@@ -273,10 +280,10 @@ scenarios:
     decision: K13
     target: "K13: personel için TOTP v1'de zorunlu. Parola doğrulamasından sonra ikinci faktör istenir."
     source:
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#fiveWrongPasswordsLockTheAccountAndTheRightPasswordStopsWorking"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#aCorrectPasswordWhileLockedDoesNotExtendTheLock"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#theLockLeavesNoTraceInTheResponseEither"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#aSuccessfulSignInClearsTheFailureCounter"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#fiveWrongPasswordsLockTheAccountAndTheRightPasswordStopsWorking"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aCorrectPasswordWhileLockedDoesNotExtendTheLock"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#theLockLeavesNoTraceInTheResponseEither"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aSuccessfulSignInClearsTheFailureCounter"
     go_test: null
 
   - id: AUTH-012
@@ -294,14 +301,14 @@ scenarios:
       - "P süresi dolmuş token'la, sonra refresh token'la istek atar"
     then:
       - "İlk istek geçer"
-      - "Rol kaldırıldıktan hemen sonraki istek izin yok (403) alır; T hâlâ imza olarak geçerlidir"
+      - "Rol kaldırıldıktan hemen sonraki istek izin yok hatası alır; T hâlâ imza olarak geçerlidir"
       - "Süresi dolmuş token ve refresh token kimlik doğrulama hatası alır"
     source:
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aStaffTokenCarryingTheRequiredPermissionPassesTheAdminGate"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#permissionsComeFromKoalaNotFromTheToken"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#revokingTheMembershipTakesEffectOnTheVeryNextRequest"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anExpiredStaffTokenIsRejected"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aRefreshTokenIsNotAnAccessToken"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aStaffTokenCarryingTheRequiredPermissionPassesTheAdminGate"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#permissionsComeFromKoalaNotFromTheToken"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#revokingTheMembershipTakesEffectOnTheVeryNextRequest"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anExpiredStaffTokenIsRejected"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aRefreshTokenIsNotAnAccessToken"
     go_test: null
 
   - id: AUTH-013
@@ -321,11 +328,11 @@ scenarios:
       - "Parola değişiminden sonra değişikliği yapan token da reddedilir"
       - "Yanlış mevcut parolayla değişim reddedilir"
     source:
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#loggingOutInvalidatesTheTokenThatAskedForIt"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#aRefreshTokenBuysANewAccessTokenAndTheOldRefreshTokenDiesWithLogout"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#changingThePasswordInvalidatesEveryTokenIncludingTheOneThatChangedIt"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#theChangePasswordEndpointStillChecksTheCurrentPassword"
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#anAnonymousCallerCannotLogSomeoneElseOut"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#loggingOutInvalidatesTheTokenThatAskedForIt"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aRefreshTokenBuysANewAccessTokenAndTheOldRefreshTokenDiesWithLogout"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#changingThePasswordInvalidatesEveryTokenIncludingTheOneThatChangedIt"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#theChangePasswordEndpointStillChecksTheCurrentPassword"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#anAnonymousCallerCannotLogSomeoneElseOut"
     go_test: null
 
   - id: AUTH-014
@@ -340,11 +347,11 @@ scenarios:
       - "P giriş yapar ve bir okuma ucuna istek atar"
       - "P parolasını değiştirir ve aynı uca tekrar istek atar"
     then:
-      - "İlk istek reddedilir (403)"
+      - "İlk istek izin yok hatasıyla reddedilir"
       - "Parola değişiminden sonra (yeni token'la) istek geçer"
     source:
-      - "com/exskylab/koala/webAPI/StaffLoginIT.java#aFreshAccountMustChangeItsPasswordBeforeReachingAnythingElse"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aStaffMemberWhoMustChangeTheirPasswordReachesNothingElse"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aFreshAccountMustChangeItsPasswordBeforeReachingAnythingElse"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aStaffMemberWhoMustChangeTheirPasswordReachesNothingElse"
     go_test: null
 
   - id: AUTH-015
@@ -352,7 +359,7 @@ scenarios:
     title: Pazaryeri ve personel kimlikleri birbirine geçmez
     rule: >
       Pazaryeri kullanıcı token'ı hiçbir zaman personel kimliği üretmez. Pazaryerindeki ROLE_ADMIN
-      personel yüzeyini açmaz, çünkü köprü kapalıdır. Personel token'ı pazaryeri uçlarında işe
+      personel yüzeyini açmaz, çünkü köprü kapalıdır. Personel token'ı pazaryeri işlemlerinde işe
       yaramaz. Kimliksiz istek personel yüzeyine ulaşamaz. Eşlenmemiş bir personel yolu tahmin
       edilmez, reddedilir.
     given:
@@ -360,18 +367,22 @@ scenarios:
     when:
       - "U kendi token'ıyla personel ucuna istek atar"
       - "P kendi token'ıyla pazaryeri ucuna istek atar"
-      - "Kimliksiz istek ve eşlenmemiş /admin yolu denenir"
+      - "Kimliksiz istek ve tanımlı olmayan bir personel işlemi denenir"
     then:
       - "U reddedilir (ROLE_ADMIN olsa bile)"
       - "P pazaryeri ucunda kimliksiz sayılır"
-      - "Kimliksiz istek ve eşlenmemiş yol reddedilir"
+      - "Kimliksiz istek ve tanımlı olmayan personel işlemi reddedilir"
+    decision: D5
+    target: >
+      D5: pazaryeri ROLE_ADMIN rolü Go'da yetki vermez; köprü yoktur. Pazaryeri ve personel kimlikleri
+      ayrı imzalayıcı ve kitleyle (audience) üretilir; personel kimliği zorunlu TOTP ister (K13).
     source:
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aMarketplaceUserTokenCanNeverProduceAStaffPrincipal"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aStaffTokenIsUselessOnTheMarketplaceChain"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#theMarketplaceAdminBridgeIsClosed"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anAnonymousRequestNeverReachesTheAdminSurface"
-      - "com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anUnmappedAdminPathIsDeniedRatherThanGuessedAt"
-      - "com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#theMarketplaceAdminRoleNoLongerOpensTheAdminSurface"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aMarketplaceUserTokenCanNeverProduceAStaffPrincipal"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aStaffTokenIsUselessOnTheMarketplaceChain"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#theMarketplaceAdminBridgeIsClosed"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anAnonymousRequestNeverReachesTheAdminSurface"
+      - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anUnmappedAdminPathIsDeniedRatherThanGuessedAt"
+      - "src/test/java/com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#theMarketplaceAdminRoleNoLongerOpensTheAdminSurface"
     go_test: null
 
   - id: AUTH-016
@@ -389,11 +400,11 @@ scenarios:
       - "S2 kapanır; S1 açık kalır"
       - "S3 için yanıt var olmayan oturumla aynıdır; S3 açık kalır"
     source:
-      - "com/exskylab/koala/business/concretes/MyWorkRulesTest.java#revokingEverythingElseSparesTheSessionMakingTheRequest"
-      - "com/exskylab/koala/business/concretes/MyWorkRulesTest.java#revokingMyOwnSessionDeactivatesIt"
-      - "com/exskylab/koala/business/concretes/MyWorkRulesTest.java#aSessionBelongingToSomeoneElseCannotBeRevoked"
-      - "com/exskylab/koala/webAPI/SessionDetailIT.java#someoneElsesSessionLooksExactlyLikeAMissingOne"
-      - "com/exskylab/koala/webAPI/SessionDetailIT.java#aClosedSessionHasNoDetailEither"
+      - "src/test/java/com/exskylab/koala/business/concretes/MyWorkRulesTest.java#revokingEverythingElseSparesTheSessionMakingTheRequest"
+      - "src/test/java/com/exskylab/koala/business/concretes/MyWorkRulesTest.java#revokingMyOwnSessionDeactivatesIt"
+      - "src/test/java/com/exskylab/koala/business/concretes/MyWorkRulesTest.java#aSessionBelongingToSomeoneElseCannotBeRevoked"
+      - "src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#someoneElsesSessionLooksExactlyLikeAMissingOne"
+      - "src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#aClosedSessionHasNoDetailEither"
     go_test: null
 
   - id: AUTH-017
@@ -401,36 +412,36 @@ scenarios:
     title: Gerçek zamanlı bağlantı kimlik bilgisi yalnız WS bağlantısında ve oturum açıkken geçerli
     rule: >
       Açık bir oturum, önbelleğe alınmayan kısa ömürlü bir gerçek zamanlı kimlik bilgisi alabilir. Bu
-      bilgi HTTP isteğinde kimlik doğrulamaz. Başka bir kitle (audience) için verilmiş bilgi bağlanamaz.
+      bilgi gerçek zamanlı bağlantı dışındaki isteklerde kimlik doğrulamaz. Başka bir kitle (audience) için verilmiş bilgi bağlanamaz.
       Bilgi, oturumdaki kullanıcıdan başkasını iddia edemez. Süresi dolmuş bilgi ya da iptal edilmiş
       oturumun bilgisi bağlanamaz.
     given:
       - "U'nun açık oturumu S"
     when:
-      - "U kimlik bilgisi C alır; C ile bir HTTP ucu çağrılır; C ile WS bağlantısı kurulur"
+      - "U kimlik bilgisi C alır; C ile sıradan bir istek yapılır; C ile gerçek zamanlı bağlantı kurulur"
       - "S kapatıldıktan sonra C ile bağlanılır"
     then:
       - "C alınır; yanıt önbelleğe alınamaz"
-      - "HTTP isteği kimliksiz sayılır"
-      - "WS bağlantısı kurulur"
+      - "Sıradan istek kimliksiz sayılır"
+      - "Gerçek zamanlı bağlantı kurulur"
       - "S kapandıktan sonra bağlantı reddedilir; süresi dolmuş ya da başka kitleli bilgi de reddedilir"
     decision: K4
     target: "K4: düz WebSocket + JSON olay protokolü. Kural aynı kalır, taşıyıcı değişir (WS bileti Faz 0 spike'ı)."
     source:
-      - "com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#anAuthenticatedSessionCanIssueANonCacheableRealtimeCredential"
-      - "com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aRealtimeCredentialCannotAuthenticateAnHttpRequest"
-      - "com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aCredentialWithAnotherAudienceCannotConnect"
-      - "com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aCredentialCannotClaimAnotherUserInItsSession"
-      - "com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#anExpiredRealtimeCredentialCannotConnect"
-      - "com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aCredentialForARevokedSessionCannotConnect"
+      - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#anAuthenticatedSessionCanIssueANonCacheableRealtimeCredential"
+      - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aRealtimeCredentialCannotAuthenticateAnHttpRequest"
+      - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aCredentialWithAnotherAudienceCannotConnect"
+      - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aCredentialCannotClaimAnotherUserInItsSession"
+      - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#anExpiredRealtimeCredentialCannotConnect"
+      - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aCredentialForARevokedSessionCannotConnect"
     go_test: null
 
   - id: AUTH-018
     priority: P1
-    title: Kimlik doğrulama uçlarının oran sınırı hedef başınadır
+    title: Kimlik doğrulama işlemlerinin oran sınırı hedef başınadır
     rule: >
       Giriş, kendi yol bütçesini kullanır. Aynı IP arkasındaki farklı hedef hesaplar birbirini
-      kilitlemez. Personel girişi, yenileme ve parola uçları kimlik doğrulama bütçesini paylaşır; genel
+      kilitlemez. Personel girişi, yenileme ve parola işlemleri kimlik doğrulama bütçesini paylaşır; genel
       yazma bütçesini kullanmaz. Aşırı büyük kimlik doğrulama gövdesi tamponlanmadan reddedilir.
     given:
       - "Aynı IP arkasında iki kullanıcı (ofis NAT'ı)"
@@ -439,12 +450,12 @@ scenarios:
       - "Kullanıcı B aynı IP'den giriş yapar"
     then:
       - "A sınırlanır; B sınırlanmaz"
-      - "Personel giriş, yenileme ve parola uçları aynı kimlik doğrulama bütçesindedir"
+      - "Personel giriş, yenileme ve parola işlemleri aynı kimlik doğrulama bütçesindedir"
       - "Büyük parçalı (chunked) gövde istek tamponlanmadan reddedilir"
     source:
-      - "com/exskylab/koala/core/configs/RateLimitBucketTest.java#loginKeepsItsOwnPerPathAllowance"
-      - "com/exskylab/koala/core/configs/RateLimitBucketTest.java#loginTargetsBehindOneIpDoNotLockEachOtherOut"
-      - "com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffLoginEndpointSharesTheAuthBudget"
-      - "com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffRefreshAndPasswordEndpointsAreAuthToo"
-      - "com/exskylab/koala/core/configs/RateLimitBucketTest.java#oversizedChunkedAuthBodiesAreRejectedBeforeTheRequestIsBuffered"
+      - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#loginKeepsItsOwnPerPathAllowance"
+      - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#loginTargetsBehindOneIpDoNotLockEachOtherOut"
+      - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffLoginEndpointSharesTheAuthBudget"
+      - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffRefreshAndPasswordEndpointsAreAuthToo"
+      - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#oversizedChunkedAuthBodiesAreRejectedBeforeTheRequestIsBuffered"
     go_test: null

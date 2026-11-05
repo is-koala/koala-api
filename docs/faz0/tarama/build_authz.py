@@ -8,7 +8,7 @@
    (uç + red statüsü ya da manager + istisna eşleşmesi) önerir.
 
 Kullanım:
-  python3 -I build_authz.py <backend-src> <eps.json> <tests.json> <çıktı dizini>
+  python3 -I docs/faz0/tarama/build_authz.py <backend-src> <eps.json> <tests.json>   (depo kökünden; çıktı docs/faz0/)
 
 Guard listesi (ROWS) betikle taranan aday satırların (grep desenleri README'de)
 elle okunup sınıflandırılmış halidir. Satır numaraları origin/main anlık
@@ -23,7 +23,8 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import resolve  # noqa: E402
 
-ROOT, EPS, TESTS, OUT = sys.argv[1:5]
+ROOT, EPS, TESTS = sys.argv[1:4]
+OUT = "docs/faz0"
 JAVA_PREFIX = "src/main/java/com/exskylab/koala/"
 TEST_PREFIX = "src/test/java/"
 
@@ -50,10 +51,10 @@ ROWS = [
      "404 JobAssignmentMessages.NOT_FOUND", ["completeAssignment"], ""),
     (C + "JobAssignmentManager.java:261", "doğrudan getId().equals (ilan sahibi, INDIVIDUAL)", "job_assignment", "pay", "hayır",
      "403 JobAssignmentMessages.NOT_CREATOR_OF_JOB", ["initiatePaymentSession"],
-     "Durum kontrolü (409 ASSIGNMENT_NOT_READY_FOR_PAYMENT, :249) yetkiden ÖNCE: taraf olmayan atamanın ödeme durumunu öğrenebilir."),
+     "Java hatası: durum kontrolü (409 ASSIGNMENT_NOT_READY_FOR_PAYMENT, :249) yetkiden ÖNCE; taraf olmayan atamanın ödeme durumunu öğrenebilir. Go (karar): yetki önce."),
     (C + "JobAssignmentManager.java:274", "isUserAContactOfCompany (COMPANY)", "job_assignment", "pay", "hayır",
      "403 JobAssignmentMessages.USER_IS_NOT_A_CONTACT_OF_COMPANY", ["initiatePaymentSession"],
-     "Şirket ilanında ilan sahibi (creator) şirketten ayrıldıysa ödeyemez; JobEditors'tan farklı (creator dahil değil)."),
+     "Şirket ilanında creator şirketten ayrıldıysa ödeyemez (D1 ile uyumlu). Java hatası: durum kontrolü yetkiden önce; Go (karar): yetki önce."),
     (C + "PaymentManager.java:368", "AssignmentParticipants.isParticipant", "job_assignment", "read_payments", "evet-yardımcısız",
      "404 PaymentMessages.ASSIGNMENT_NOT_FOUND", ["getAttemptsForAssignment"], ""),
     (C + "CancellationManager.java:85", "AssignmentParticipants.partyOf", "job_assignment", "cancel", "evet",
@@ -211,7 +212,7 @@ ROWS = [
      "STOMP ERROR (403 SUBSCRIPTION_NOT_ALLOWED)", ["!STOMP SUBSCRIBE /topic/**"], "/user/** kuyrukları broker'ın kullanıcı kapsamına bırakılıyor (:127)."),
     ("core/realtime/StompAuthChannelInterceptor.java:78", "YOK (yalnız oran sınırı)", "conversation", "publish_to_topic", "yok",
      "—", ["!STOMP SEND /topic/conversations/{conversationId}"],
-     "DOĞRULANMADI: simple broker '/topic' SEND'i aboneye iletebilir; katılımcı kontrolü yok. Test yok (StompSubscriptionSecurityTest SEND'i yalnız 'dokunulmadan geçer' diye bağlıyor)."),
+     "ÖNCELİK: yüksek (sahte olay enjeksiyonu). DOĞRULANMADI: simple broker '/topic' SEND'i aboneye iletebilir; katılımcı kontrolü yok. Test yok (StompSubscriptionSecurityTest SEND'i yalnız 'dokunulmadan geçer' diye bağlıyor). Go'da K4 sunucu-itmeli protokolle kapanır: istemci konu yayını yapamaz."),
     ("webAPI/RealtimeController.java:82", "YOK", "user", "read_presence", "yok",
      "—", ["!GET /users/{userId}/presence"], "STOMP'taki 'kendisi ya da ortak sohbet' kuralı REST'te yok: herkesin çevrimiçi/son görülme bilgisi okunabiliyor."),
     ("webAPI/RealtimeController.java:95", "YOK", "user", "read_presence", "yok",
@@ -248,29 +249,29 @@ ROWS = [
     # ---------------- dosya / görsel ----------------
     (C + "CvManager.java:63", "sahip || ROLE_ADMIN || başvuru almış işveren (hasApplicationForEmployer)", "private_file", "download", "evet-yardımcısız",
      "404 StorageMessages.FILE_NOT_FOUND", ["assertCanDownload"],
-     "Başvuru ilişkisi kalıcı: herhangi bir zamanda herhangi bir ilanına başvurmuş işçinin CV'sini indirir. Marketplace ROLE_ADMIN baypası personel modeline taşınmamış."),
+     "Başvuru ilişkisi kalıcı: herhangi bir zamanda herhangi bir ilanına başvurmuş işçinin CV'sini indirir. Marketplace ROLE_ADMIN baypası personel modeline taşınmamış; D5 ile Go'da kalkar."),
     (C + "PublicProfileManager.java:81", "kendisi || hasApplicationForEmployer (projeksiyon)", "user", "read_cv_url", "yok",
      "— (alan düzeyi)", ["getPublicProfile"], "CvManager kuralının ikinci kopyası (ROLE_ADMIN yok)."),
     (C + "ImageManager.java:107", "doğrudan getId().equals || ROLE_ADMIN", "image", "delete", "hayır",
-     "400 ImageMessages.IMAGE_PERMISSION_ERROR", ["deleteImage"], "Var olmayan görsel 400 IMAGE_NOT_FOUND_ERROR, yetkisiz 400 farklı mesaj: var olma sızar. ROLE_ADMIN baypası."),
+     "400 ImageMessages.IMAGE_PERMISSION_ERROR", ["deleteImage"], "Var olmayan görsel 400 IMAGE_NOT_FOUND_ERROR, yetkisiz 400 farklı mesaj: var olma sızar. ROLE_ADMIN baypası; D5 ile Go'da kalkar."),
     # ---------------- sahip (owner) ----------------
-    (C + "ExperienceManager.java:59", "requireOwned", "experience", "update", "evet",
+    (C + "ExperienceManager.java:79", "requireOwned (çağrı :59)", "experience", "update", "evet",
      "404 ExperienceMessages.NOT_FOUND", ["updateExperience"], ""),
-    (C + "ExperienceManager.java:70", "requireOwned", "experience", "delete", "evet",
+    (C + "ExperienceManager.java:79", "requireOwned (çağrı :70)", "experience", "delete", "evet",
      "404 ExperienceMessages.NOT_FOUND", ["deleteExperience"], ""),
-    (C + "EducationManager.java:57", "requireOwned", "education", "update", "evet",
+    (C + "EducationManager.java:95", "requireOwned (çağrı :57)", "education", "update", "evet",
      "404 EducationMessages.NOT_FOUND", ["updateEducation"], ""),
-    (C + "EducationManager.java:68", "requireOwned", "education", "delete", "evet",
+    (C + "EducationManager.java:95", "requireOwned (çağrı :68)", "education", "delete", "evet",
      "404 EducationMessages.NOT_FOUND", ["deleteEducation"], ""),
-    (C + "JobAlertManager.java:72", "requireOwned", "job_alert", "update", "evet-yardımcısız",
+    (C + "JobAlertManager.java:163", "requireOwned (çağrı :72)", "job_alert", "update", "evet-yardımcısız",
      "404 JobAlertMessages.NOT_FOUND", ["updateAlert"], ""),
-    (C + "JobAlertManager.java:83", "requireOwned", "job_alert", "delete", "evet-yardımcısız",
+    (C + "JobAlertManager.java:163", "requireOwned (çağrı :83)", "job_alert", "delete", "evet-yardımcısız",
      "404 JobAlertMessages.NOT_FOUND", ["deleteAlert"], ""),
-    (C + "BankAccountManager.java:100", "requireOwned (DAO WHERE findByIdAndUserIdAndActiveTrue)", "bank_account", "select_primary", "evet-yardımcısız",
+    (C + "BankAccountManager.java:305", "requireOwned (DAO WHERE findByIdAndUserIdAndActiveTrue; çağrı :100)", "bank_account", "select_primary", "evet-yardımcısız",
      "404 BankAccountMessages.NOT_FOUND", ["selectMyPrimaryAccount"], ""),
-    (C + "BankAccountManager.java:112", "requireOwned (DAO WHERE)", "bank_account", "delete", "evet-yardımcısız",
+    (C + "BankAccountManager.java:305", "requireOwned (DAO WHERE; çağrı :112)", "bank_account", "delete", "evet-yardımcısız",
      "404 BankAccountMessages.NOT_FOUND", ["deleteMyAccount"], ""),
-    (C + "BankAccountManager.java:174", "requireOwned (DAO WHERE)", "bank_account", "start_verification", "evet-yardımcısız",
+    (C + "BankAccountManager.java:305", "requireOwned (DAO WHERE; çağrı :174)", "bank_account", "start_verification", "evet-yardımcısız",
      "404 BankAccountMessages.NOT_FOUND", ["startMyVerification"], ""),
     (C + "JobTemplateManager.java:84", "doğrudan getId().equals (getMyTemplate)", "job_template", "read", "evet",
      "404 JobTemplateMessages.NOT_FOUND", ["getMyTemplate"], ""),
@@ -295,6 +296,12 @@ ROWS = [
      "400 AddressMessages.SEARCH_SESSION_INVALID", ["search"], "Başkasının oturumu, süresi dolmuş ve tamamlanmış oturum aynı 400."),
     (C + "AddressSearchManager.java:258", "bellek içi oturum sahibi (requireSession)", "address_search_session", "use", "hayır",
      "400 AddressMessages.SEARCH_SESSION_INVALID", ["resolve"], ""),
+    (C + "TransportManager.java:1265", "doğrudan getId().equals (projeksiyon: assignmentView)", "shuttle", "read_details", "yok",
+     "— (alan düzeyi: plaka, şoför, tam durak adresi)", ["getAssignmentTransport"],
+     "İşveren tarafı her servisi tam görür. İşçi yalnız koltuğu olan servislerin plaka/şoför bilgisini ve tam adresleri görür; o da atama PENDING_CONFIRMATION|CONFIRMED|IN_PROGRESS|COMPLETED iken (VIEW_STATUSES, :117)."),
+    ("core/configs/SecurityConfig.java:253", "hasRole(ADMIN) (URL kuralı)", "platform", "read_actuator", "hayır",
+     "403", ["!GET /actuator/**"],
+     "Pazaryeri ROLE_ADMIN /actuator/** okur; /actuator/health/** herkese açık (:252). D5: pazaryeri ROLE_ADMIN baypası kalkar; Go'da operasyon uçları dış yüzeyde yok."),
     # ---------------- kapsam (liste) — ilişki taşıyan, "kendi" dışı ----------------
     (C + "JobApplicationManager.java:365", "kapsam: creator = viewer VEYA şirket ∈ üyelikler (DAO RECEIVED_SCOPE)", "job_application", "list_received", "yok",
      "— (liste süzgeci)", ["getReceivedApplications"], "Scope karşılığı: job_application#can_read (işveren dalı)."),
@@ -330,7 +337,7 @@ ROWS = [
      "404 NotificationMessages.NOTIFICATION_NOT_FOUND_WITH_ID", ["!GET /notification-tracking/{id}.png"],
      "Uygun olmayan bildirim sessizce geçilir; var olmayan 404 (var olma sızar, UUID tahmin edilemez varsayımı)."),
     (C + "PaymentManager.java:288", "sağlayıcı token'ı (kimliksiz; gövdeye güvenilmez, sunucudan sorgu)", "payment_attempt", "complete_callback", "yok",
-     "—", ["!POST /payments/callback"], "Yetki yerine sağlayıcı doğrulaması: reconcile karar zinciri (test/oracle)."),
+     "—", ["!POST /payments/callback"], "Yetki yerine sağlayıcı doğrulaması: reconcile karar zinciri (testdata/oracle/reconcile.csv)."),
     (C + "PaymentManager.java:211", "sağlayıcı token'ı (tüketmeyen GET karşılığı)", "payment_attempt", "read_outcome", "yok",
      "—", ["!GET /payments/callback"], "#252: kaydedilmiş sonucu okur, durum değiştirmez."),
 ]
@@ -386,10 +393,10 @@ OVERRIDES = {
     ("DisputeManager.java:284", "getEvidenceForDownload"): [],
     ("CvManager.java:63", "assertCanDownload"): ["CvAccessRulesTest.java:81#anEmployerWithNoApplicationFromThatWorkerCannot", "StorageDownloadRulesTest.java:75#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"],
     ("PublicProfileManager.java:81", "getPublicProfile"): ["EmployerSurfaceRulesTest.java:93#aStrangerDoesNotSeeTheCvLink"],
-    ("ExperienceManager.java:70", "deleteExperience"): ["WorkerToolsRulesTest.java:135#nobodyCanEditSomeoneElsesExperience (silmeyi deniyor)"],
-    ("ExperienceManager.java:59", "updateExperience"): [],  # WorkerToolsRulesTest:135 yalnız silmeyi deniyor
-    ("EducationManager.java:57", "updateEducation"): ["ProfileEndpointRulesTest.java:134#nobodyCanEditSomeoneElsesEducation"],
-    ("EducationManager.java:68", "deleteEducation"): ["ProfileEndpointRulesTest.java:134#nobodyCanEditSomeoneElsesEducation"],
+    ("ExperienceManager.java:79", "deleteExperience"): ["WorkerToolsRulesTest.java:135#nobodyCanEditSomeoneElsesExperience (silmeyi deniyor)"],
+    ("ExperienceManager.java:79", "updateExperience"): [],  # WorkerToolsRulesTest:135 yalnız silmeyi deniyor
+    ("EducationManager.java:95", "updateEducation"): ["ProfileEndpointRulesTest.java:134#nobodyCanEditSomeoneElsesEducation"],
+    ("EducationManager.java:95", "deleteEducation"): ["ProfileEndpointRulesTest.java:134#nobodyCanEditSomeoneElsesEducation"],
     ("JobTemplateManager.java:84", "getMyTemplate"): [f"{EC}:238#readingSomeoneElsesJobTemplateLooksExactlyLikeReadingOneThatDoesNotExist"],
     ("JobTemplateManager.java:103", "createFromJob"): ["WorkerToolsRulesTest.java:238#aTemplateCannotBeMadeFromSomeoneElsesJob"],
     ("DeviceManager.java:122", "renameMyDevice"): ["SessionDetailIT.java:300#renamingADeviceShowsUpInTheListAndTheDetailButNotForStrangers"],
@@ -429,8 +436,10 @@ OVERRIDES = {
     ("TransportManager.java:579", "boardOnShuttle"): ["TransportBoardingIT.java:508#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard (yabancı 404, koltuksuz taraf 409)"],
     ("TransportManager.java:584", "boardOnShuttle"): ["TransportBoardingIT.java:385#aSeatMovedOffTheScannedShuttleWhileTheScanWaitsForItsLockIsConcealed"],
     ("TransportManager.java:606", "markSeatBoarding"): ["TransportBoardingIT.java:839#theMarkingRulesAreValidatedAtTheBoundary (yabancı mark → 404)"],
-    ("BankAccountManager.java:100", "selectMyPrimaryAccount"): [],
-    ("BankAccountManager.java:112", "deleteMyAccount"): ["BankAccountIT.java:147#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"],
+    ("BankAccountManager.java:305", "selectMyPrimaryAccount"): [],
+    ("TransportManager.java:1265", "getAssignmentTransport"): ["TransportPlanIT.java:290#theWorkerPicksASeatAndSeesTheDriverOnlyOnThatShuttle", "TransportPlanIT.java:467#thePlateAndDriverShowOnlyOnTheShuttleTheWorkerPicked", "TransportPlanIT.java:564#aPendingAssignmentCannotPickASeatAndACancelledWorkerSeesOnlyDistrictLevelStops"],
+    ("core/configs/SecurityConfig.java:253", "!GET /actuator/**"): [],
+    ("BankAccountManager.java:305", "deleteMyAccount"): ["BankAccountIT.java:147#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"],
 }
 
 # Tekilleştirme: (nesne, alt eylem) -> karar eylemi. Aynı nesnede AYNI kuralla
@@ -471,6 +480,15 @@ NORMALIZE = {
 }
 
 REFUSAL_NAME = re.compile(r'(?i)stranger|outsider|cannot|conceal|someone|foreign|nobody|another|notapart|nonadmin|notthe|looksexactly|tell|refus|forbidden|only|missing|notfound|isnot|unknown')
+
+
+def full_label(label, tests):
+    """'Dosya.java:satır#test (not)' -> 'src/test/java/<yol>/Dosya.java#test (not)'."""
+    paths = {t["file"].split("/")[-1]: t["file"] for t in tests}
+    m = re.match(r"^(\w+\.java)(?::\d+)?#(\w+)(.*)$", label.strip())
+    if not m or m.group(1) not in paths:
+        return label.strip()
+    return f"src/test/java/{paths[m.group(1)]}#{m.group(2)}{m.group(3)}"
 
 
 def norm_segments(path):
@@ -557,7 +575,7 @@ def main():
             hits = [h for h in find_tests(tests, eps, cls, method_roots, err) if REFUSAL_NAME.search(h["test"])]
             tlist = [f'{h["file"].split("/")[-1]}:{h["line"]}#{h["test"]}' for h in hits[:3]]
             tsrc = "otomatik (doğrulanmadı)" if tlist else "bulunamadı"
-        tlabel = "; ".join(tlist)
+        tlabel = "; ".join(full_label(t, tests) for t in tlist)
         rows.append({
             "id": f"AZ-{idx:03d}",
             "konum": JAVA_PREFIX + site,
@@ -649,9 +667,9 @@ def staff(tests):
             if any(r.split(" ", 1)[0] == e["http"] and path_match(e["path"], r.split(" ", 1)[1]) for r in t["requests"]) \
                     and {"isOk", "isCreated", "isNoContent", "isFound"} & set(t["statuses"]):
                 ok.append(t)
-        lab = lambda ts: "; ".join(f'{h["file"].split("/")[-1]}:{h["line"]}#{h["test"]}' for h in ts[:2])
+        lab = lambda ts: "; ".join(f'src/test/java/{h["file"]}#{h["test"]}' for h in ts[:2])
         rows.append({
-            "id": f"ST-{n:03d}",
+            "id": f"PI-{n:03d}",
             "tur": kind,
             "konum": f"{JAVA_PREFIX}webAPI/{e['controller']}:{e['line']}",
             "uc": f"{e['http']} {e['path']}",
@@ -666,7 +684,7 @@ def staff(tests):
     for site, guard, perm, err, roots, note in STAFF_DYNAMIC:
         n += 1
         rows.append({
-            "id": f"ST-{n:03d}",
+            "id": f"PI-{n:03d}",
             "tur": "servis içi dinamik kontrol",
             "konum": JAVA_PREFIX + site,
             "uc": " | ".join(r[1:] for r in roots),

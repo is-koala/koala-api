@@ -3,6 +3,7 @@
 # Kaynak yolları src/test/java'ya göreli; kod kaynakları src/main/java/... ile yazılır.
 
 domain: payment
+id_prefix: PAY
 version: 0
 scenarios:
 
@@ -15,20 +16,24 @@ scenarios:
       atamaya yazılır.
     given:
       - "Atama CONFIRMED, ödeme durumu PENDING_COLLECTION"
-      - "Ödeme denemesi INITIATED; işçi payı 1.000,00 TL, komisyon oranı %7,5, toplam 1.075,00 TL"
+      - "Ödeme denemesi INITIATED; işçi payı 1.000,00 TL, komisyon oranı 750 bps (%7,5), toplam 1.075,00 TL"
       - "Sağlayıcı sonucu: paymentStatus=SUCCESS, mdStatus=1, fraudStatus=1, fiyatlar 1.075,00 TL, alt üye payı 1.000,00 TL, tek kalem"
     when:
       - "Sağlayıcı geri dönüşü (callback) gelir; sistem sonucu sağlayıcıdan kendisi sorgular"
     then:
       - "Deneme SUCCEEDED; tamamlanma zamanı yazılır, sonraki doğrulama zamanı boşalır"
       - "Atamanın ödeme durumu HELD_IN_ESCROW"
-      - "Atamaya işçi payı 1.000,00 TL, komisyon 75,00 TL, oran 0.075, toplam 1.075,00 TL yazılır"
+      - "Atamaya işçi payı 1.000,00 TL, komisyon 75,00 TL, oran 750 bps, toplam 1.075,00 TL yazılır"
       - "Ödendi olayı, ödeme kaydı yazıldıktan SONRA yayımlanır (ekip sohbeti ve doğrudan sohbet açılır)"
-    oracle: test/oracle/reconcile.csv
+    decision: K5
+    target: >
+      K5: tutarlar int64 kuruş (işçi payı 100000, komisyon 7500, toplam 107500), oran baz puan (750).
+      Java oranı ondalık (0.075) saklar; eşitlik testi bps karşılığıyla yapılır.
+    oracle: testdata/oracle/reconcile.csv
     source:
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulCallbackMovesTheAssignmentIntoEscrowAndRecordsTheBreakdown"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#thePaidEventIsPublishedOnlyAfterThePaymentRowIsSaved"
-      - "com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#settlingThePaymentBuildsTheCrewAndOpensTheDirectConversation"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulCallbackMovesTheAssignmentIntoEscrowAndRecordsTheBreakdown"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#thePaidEventIsPublishedOnlyAfterThePaymentRowIsSaved"
+      - "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#settlingThePaymentBuildsTheCrewAndOpensTheDirectConversation"
     go_test: null
 
   - id: PAY-002
@@ -41,16 +46,16 @@ scenarios:
       - "Deneme SUCCEEDED, atama HELD_IN_ESCROW"
     when:
       - "Aynı token'la ikinci geri dönüş gelir"
-      - "Aynı token'la tüketmeyen sonuç okuması (GET karşılığı) yapılır"
+      - "Aynı token'la sonucu yalnız okuyan (durumu değiştirmeyen) bir sorgu yapılır"
     then:
       - "Sağlayıcıya sorgu yapılmaz"
       - "Deneme ve atama değişmez; ikinci ödendi olayı yayımlanmaz"
       - "Sonuç okuması kayıtlı sonucu döndürür, bekleyen denemeyi mutabakata sokmaz"
     source:
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#theSameCallbackArrivingTwiceIsProcessedOnlyOnce"
-      - "com/exskylab/koala/webAPI/PaymentCallbackIT.java#aSecondPostAfterSuccessRedirectsToTheSameResultWithoutAskingTheProvider"
-      - "com/exskylab/koala/webAPI/PaymentCallbackIT.java#theGetReplayIsPublicAndReflectsTheRecordedOutcomeWithoutConsumingTheToken"
-      - "com/exskylab/koala/webAPI/PaymentCallbackIT.java#aPendingAttemptReplayedOverGetIsNotReconciledAndDoesNotReachTheProvider"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#theSameCallbackArrivingTwiceIsProcessedOnlyOnce"
+      - "src/test/java/com/exskylab/koala/webAPI/PaymentCallbackIT.java#aSecondPostAfterSuccessRedirectsToTheSameResultWithoutAskingTheProvider"
+      - "src/test/java/com/exskylab/koala/webAPI/PaymentCallbackIT.java#theGetReplayIsPublicAndReflectsTheRecordedOutcomeWithoutConsumingTheToken"
+      - "src/test/java/com/exskylab/koala/webAPI/PaymentCallbackIT.java#aPendingAttemptReplayedOverGetIsNotReconciledAndDoesNotReachTheProvider"
     go_test: null
 
   - id: PAY-003
@@ -70,13 +75,13 @@ scenarios:
       - "Atama PENDING_COLLECTION kalır; ödendi olayı yok"
       - "fraudStatus=0 da gelse IN_REVIEW'a değil VERIFY_PENDING'e düşer"
       - "Kritik geri dönüş metriği artar"
-    oracle: test/oracle/reconcile.csv
+    oracle: testdata/oracle/reconcile.csv
     source:
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentWhoseThreeDSecureVerificationFailedNeverOpensEscrow"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#everyMdStatusOtherThanOneRemainsPendingVerification"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAbsentMdStatusRemainsPendingRatherThanBeingAssumedVerified"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aFailedVerificationOutranksTheFraudReviewHold"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSecondCallbackOnAVerificationFailureStillDoesNotOpenEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentWhoseThreeDSecureVerificationFailedNeverOpensEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#everyMdStatusOtherThanOneRemainsPendingVerification"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAbsentMdStatusRemainsPendingRatherThanBeingAssumedVerified"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aFailedVerificationOutranksTheFraudReviewHold"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSecondCallbackOnAVerificationFailureStillDoesNotOpenEscrow"
     go_test: null
 
   - id: PAY-004
@@ -95,13 +100,13 @@ scenarios:
       - "0 → deneme IN_REVIEW, paymentId ve paymentTransactionId kaydedilir, atama PENDING_COLLECTION"
       - "yok / 7 → deneme VERIFY_PENDING (payment.verification.pending)"
       - "IN_REVIEW'dan sonraki sorguda sağlayıcı kimlikleri değişmişse emanet açılmaz"
-    oracle: test/oracle/reconcile.csv
+    oracle: testdata/oracle/reconcile.csv
     source:
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentRejectedByFraudFiltersFails"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentUnderFraudReviewDoesNotOpenEscrowYet"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAbsentFraudDecisionRemainsPendingInsteadOfOpeningEscrow"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anUnknownFraudDecisionRemainsPendingInsteadOfOpeningEscrow"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#providerIdentifiersCannotChangeAfterFraudReview"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentRejectedByFraudFiltersFails"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentUnderFraudReviewDoesNotOpenEscrowYet"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAbsentFraudDecisionRemainsPendingInsteadOfOpeningEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anUnknownFraudDecisionRemainsPendingInsteadOfOpeningEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#providerIdentifiersCannotChangeAfterFraudReview"
     go_test: null
 
   - id: PAY-005
@@ -110,21 +115,21 @@ scenarios:
     rule: >
       Başarılı sonuçta şu alanlardan biri anlık görüntüden farklıysa deneme VERIFY_PENDING'de bloke
       kalır: fiyat, ödenen fiyat, kalem sayısı (1), kalem kimliği (ilan), kalem fiyatları, alt üye payı,
-      alt üye anahtarı, işlem kimliği. Ödeme FAILED da sayılmaz.
+      alt üye anahtarı, işlem kimliği. Ödeme FAILED da sayılmaz. (Para birimi bu adımda değil, kimlik
+      adımında kontrol edilir: PAY-006.)
     given:
       - "Toplam 1.075,00 TL, işçi payı 1.000,00 TL, alt üye anahtarı K1"
     when:
-      - "Sağlayıcı SUCCESS döner ama ödenen fiyat 1.074,99 TL, ya da para birimi USD, ya da alt üye anahtarı K2"
+      - "Sağlayıcı SUCCESS döner ama ödenen fiyat 1.074,99 TL ya da alt üye anahtarı K2"
     then:
       - "Deneme VERIFY_PENDING, sebep payment.verification.pending; emanet açılmaz"
       - "Atama PENDING_COLLECTION kalır; tutar uyuşmazlığı metriği artar"
       - "İstemciye sağlayıcı ayrıntısı değil yalnız mesaj anahtarı döner"
-    oracle: test/oracle/reconcile.csv
+    oracle: testdata/oracle/reconcile.csv
     source:
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aShortPaymentIsRefusedInsteadOfSettled"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentInAnotherCurrencyIsRefused"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulPaymentForAnotherSubmerchantNeverOpensEscrow"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#theRejectionReasonIsAMessageKeySoNoProviderDetailReachesTheClient"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aShortPaymentIsRefusedInsteadOfSettled"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulPaymentForAnotherSubmerchantNeverOpensEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#theRejectionReasonIsAMessageKeySoNoProviderDetailReachesTheClient"
     go_test: null
 
   - id: PAY-006
@@ -132,19 +137,21 @@ scenarios:
     title: Başka denemeye ait sonuç bu denemeyi sonlandıramaz
     rule: >
       Sonucun conversationId, token, basketId (atama), para birimi ya da paymentId değeri denemeyle
-      eşleşmiyorsa sonuç, sonuç FAILURE olsa bile denemeyi FAILED yapamaz. Deneme VERIFY_PENDING'de
+      eşleşmiyorsa (kimlik adımı, fiyat ve 3DS kontrollerinden önce) sonuç, sonuç FAILURE olsa bile denemeyi FAILED yapamaz. Deneme VERIFY_PENDING'de
       bloke kalır.
     given:
       - "Deneme INITIATED, conversationId=C1"
     when:
       - "Sağlayıcı conversationId=C2 ile FAILURE ya da SUCCESS döner"
+      - "Sağlayıcı SUCCESS döner ama para birimi USD"
     then:
       - "Deneme VERIFY_PENDING; atama değişmez"
-    oracle: test/oracle/reconcile.csv
+    oracle: testdata/oracle/reconcile.csv
     source:
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aMismatchedProviderConversationStaysBlockedForReconciliation"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aDeclineForAnotherConversationCannotTerminallyFailThisAttempt"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#everyAttemptGetsItsOwnConversationId"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aMismatchedProviderConversationStaysBlockedForReconciliation"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aDeclineForAnotherConversationCannotTerminallyFailThisAttempt"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#everyAttemptGetsItsOwnConversationId"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentInAnotherCurrencyIsRefused"
     go_test: null
 
   - id: PAY-007
@@ -166,13 +173,13 @@ scenarios:
       - "Yeni ödeme oturumu reddedilir: aktif deneme var"
       - "Bekleyen bir deneme sonraki sorguda SUCCESS dönerse normal yoldan emanet açılır"
     error: PAYMENT_ATTEMPT_IN_PROGRESS
-    oracle: test/oracle/reconcile.csv
+    oracle: testdata/oracle/reconcile.csv
     source:
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aProviderVerificationErrorRemainsActiveUntilReconciled"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#automaticReconciliationStopsAfterTheConfiguredBoundButRemainsActiveForManualReview"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAmbiguousProviderErrorCannotBeRetriedAsANewPayment"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aDueAmbiguousAttemptCanBeReconciledToSuccess"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPendingThreeDsResultCanLaterBeReconciledToSuccess"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aProviderVerificationErrorRemainsActiveUntilReconciled"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#automaticReconciliationStopsAfterTheConfiguredBoundButRemainsActiveForManualReview"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAmbiguousProviderErrorCannotBeRetriedAsANewPayment"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aDueAmbiguousAttemptCanBeReconciledToSuccess"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPendingThreeDsResultCanLaterBeReconciledToSuccess"
     go_test: null
 
   - id: PAY-008
@@ -189,10 +196,10 @@ scenarios:
     then:
       - "Deneme VERIFY_PENDING, sebep payment.verification.pending, sonraki doğrulama zamanı boş"
       - "Atama değişmez; emanet açılmaz"
-    oracle: test/oracle/reconcile.csv
+    oracle: testdata/oracle/reconcile.csv
     source:
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulProviderResultForACancelledAssignmentRequiresManualReview"
-      - "com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aTerminallyFailedAttemptCannotLaterOpenEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulProviderResultForACancelledAssignmentRequiresManualReview"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aTerminallyFailedAttemptCannotLaterOpenEscrow"
     go_test: null
 
   - id: PAY-009
@@ -213,34 +220,39 @@ scenarios:
       - "FAILED'dan sonraki yeni deneme kabul edilir"
     error: PAYMENT_ATTEMPT_IN_PROGRESS
     source:
-      - "com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#databaseAllowsOnlyOneActiveAttemptPerAssignment"
-      - "com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#twoConcurrentReservationsProduceOneAttemptAndOneConflict"
-      - "com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#theIndexRejectsASecondActiveRowWhenTwoInsertsSkipTheAssignmentLock"
-      - "com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#aFailedAttemptDoesNotBlockTheEmployerFromTryingAgain"
-      - "com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#theIndexGuardsExactlyTheStatusSetJavaTreatsAsActive"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#databaseAllowsOnlyOneActiveAttemptPerAssignment"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#twoConcurrentReservationsProduceOneAttemptAndOneConflict"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#theIndexRejectsASecondActiveRowWhenTwoInsertsSkipTheAssignmentLock"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#aFailedAttemptDoesNotBlockTheEmployerFromTryingAgain"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#theIndexGuardsExactlyTheStatusSetJavaTreatsAsActive"
     go_test: null
 
   - id: PAY-010
     priority: P0
-    title: Deneme sağlayıcıdan önce rezerve edilir
+    title: Deneme sağlayıcıdan önce rezerve edilir; alt üye oluşturmadaki her hata denemeyi başarısız yapar
     rule: >
-      Ödeme oturumunda deneme, sağlayıcıya (alt üye oluşturma ya da ödeme formu) gidilmeden önce ayrı bir
-      işlemde kaydedilir ve commit edilir. Sağlayıcı kesin ret verirse deneme FAILED olur. Ağ ya da
-      5xx belirsizliği olursa deneme VERIFY_PENDING olur.
+      Ödeme oturumunda deneme, sağlayıcıya gidilmeden önce ayrı bir işlemde kaydedilir ve commit edilir.
+      İşçinin alt üye kaydı yoksa önce alt üye oluşturulur; bu adımdaki HER hata (kesin ret, ağ ya da 5xx
+      belirsizliği dahil) denemeyi FAILED yapar, çünkü henüz ödeme formu açılmamıştır.
     given:
       - "Atama CONFIRMED / PENDING_COLLECTION; işçinin alt üye kaydı yok"
     when:
       - "İşveren ödeme oturumu başlatır"
+      - "Alt üye oluşturma sağlayıcıda hata verir (kesin ret ya da zaman aşımı)"
     then:
       - "Önce deneme INITIATED olarak kaydedilir, sonra sağlayıcı çağrılır"
-      - "Kesin sağlayıcı reddi → deneme FAILED (belirsiz bırakılmaz)"
+      - "Alt üye hatasında deneme FAILED olur; ödeme formu açılmaz"
       - "Bekleyen bir deneme varken yeni sağlayıcı oturumu ya da alt üye oluşturulmaz"
       - "İşçinin IBAN'ı doğrulanmamış olsa da alt üye oluşturulur"
+    decision: Java hatası (yetki sırası)
+    target: >
+      Karar: ödeme oturumunda yetki kontrolü durum kontrolünden önce yapılır. Java önce atamanın ödeme
+      kabul edip etmediğine bakıyor; taraf olmayan biri bu sırayla ödeme durumunu öğrenebiliyor.
     source:
-      - "com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theAttemptIsReservedBeforeAnyExternalSubmerchantOrCheckoutCall"
-      - "com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#anExplicitProviderRejectionFailsTheReservedAttemptInsteadOfLeavingItAmbiguous"
-      - "com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aPendingAttemptStopsBeforeAnotherProviderSessionOrSubmerchantIsCreated"
-      - "com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#anUnverifiedWorkerIbanStillCreatesTheSubmerchant"
+      - "src/main/java/com/exskylab/koala/business/concretes/JobAssignmentManager.java:305-319"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theAttemptIsReservedBeforeAnyExternalSubmerchantOrCheckoutCall"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aPendingAttemptStopsBeforeAnotherProviderSessionOrSubmerchantIsCreated"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#anUnverifiedWorkerIbanStillCreatesTheSubmerchant"
     go_test: null
 
   - id: PAY-011
@@ -261,13 +273,13 @@ scenarios:
       - "0,05 → komisyon 0,01 (0,005 yukarı), toplam 0,06"
       - "Yeni oran yeniden başlatmadan uygulanır; eski atamaların oranı değişmez"
       - "0 ya da negatif pay reddedilir"
-    oracle: test/oracle/commission.csv
+    oracle: testdata/oracle/commission.csv
     source:
-      - "com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#theBreakdownAddsUpToTheChargedTotal"
-      - "com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#halfKurusRoundsUpNotDown"
-      - "com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#roundingNeverLosesOrInventsKurus"
-      - "com/exskylab/koala/core/helpers/CommissionRateRuntimeIT.java#aStoredRateAppliesWithoutARestart"
-      - "com/exskylab/koala/core/helpers/CommissionRateRuntimeIT.java#rowsPricedBeforeTheChangeKeepTheRateTheyWereChargedWith"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#theBreakdownAddsUpToTheChargedTotal"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#halfKurusRoundsUpNotDown"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#roundingNeverLosesOrInventsKurus"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionRateRuntimeIT.java#aStoredRateAppliesWithoutARestart"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionRateRuntimeIT.java#rowsPricedBeforeTheChangeKeepTheRateTheyWereChargedWith"
     go_test: null
 
   - id: PAY-012
@@ -292,12 +304,12 @@ scenarios:
       - "Birincil IBAN yoksa tamamlama reddedilir ve hiçbir şey değişmez"
     error: PAYOUT_WORKER_IBAN_NOT_VERIFIED
     source:
-      - "com/exskylab/koala/webAPI/AssignmentCompletionIT.java#theEmployerCompletingTheWorkReleasesTheEscrowToTheWorker"
-      - "com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aCompanyAdminCompletingTheWorkReleasesTheEscrowToo"
-      - "com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aWorkerWithoutAPrimaryIbanBlocksTheCompletionLoudly"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#moneyIsReleasedToThePrimaryIbanEvenWhenOwnershipIsUnproven"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#releasingTheEscrowQueuesTheProviderApprovalInsteadOfCallingItInline"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#releaseIsNotReportedWhenItCannotBeQueued"
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#theEmployerCompletingTheWorkReleasesTheEscrowToTheWorker"
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aCompanyAdminCompletingTheWorkReleasesTheEscrowToo"
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aWorkerWithoutAPrimaryIbanBlocksTheCompletionLoudly"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#moneyIsReleasedToThePrimaryIbanEvenWhenOwnershipIsUnproven"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#releasingTheEscrowQueuesTheProviderApprovalInsteadOfCallingItInline"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#releaseIsNotReportedWhenItCannotBeQueued"
     go_test: null
 
   - id: PAY-013
@@ -315,9 +327,9 @@ scenarios:
       - "APPROVE görevi tekrar kuyruğa girmez"
       - "İkinci tamamlama reddedilir ve payout'a dokunmaz"
     source:
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#theSameAssignmentIsNeverPaidOutTwice"
-      - "com/exskylab/koala/business/concretes/SettlementRetryTest.java#queueingTwiceForTheSamePaymentReusesTheTask"
-      - "com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aSecondCompletionIsRefusedAndDoesNotTouchThePayout"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#theSameAssignmentIsNeverPaidOutTwice"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#queueingTwiceForTheSamePaymentReusesTheTask"
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aSecondCompletionIsRefusedAndDoesNotTouchThePayout"
     go_test: null
 
   - id: PAY-014
@@ -335,11 +347,16 @@ scenarios:
       - "Atama COMPLETED; ödeme durumu HELD_IN_ESCROW kalır; payout oluşmaz"
       - "İade reddedilir"
     error: DISPUTE_BLOCKS_RELEASE
+    decision: D4
+    target: >
+      D4: açık uyuşmazlık varken atama elle de otomatik de tamamlanamaz. Go'da işveren tamamlaması
+      reddedilir ve atama durumu değişmez (Java işi COMPLETED yapıp parayı emanette bırakıyor).
+    oracle: testdata/oracle/assignment-transitions.csv
     source:
-      - "com/exskylab/koala/webAPI/AssignmentCompletionIT.java#anOpenDisputeLeavesTheMoneyInEscrowButStillCompletesTheWork"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#anOpenDisputeFreezesTheEscrow"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#anActiveDisputeFreezesAnEmployerRefund"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#theDisputeGatedReleaseSkipsQuietlyWhileADisputeIsOpen"
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#anOpenDisputeLeavesTheMoneyInEscrowButStillCompletesTheWork"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#anOpenDisputeFreezesTheEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#anActiveDisputeFreezesAnEmployerRefund"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#theDisputeGatedReleaseSkipsQuietlyWhileADisputeIsOpen"
     go_test: null
 
   - id: PAY-015
@@ -362,13 +379,13 @@ scenarios:
       K2 (Stripe Connect modeli): sağlayıcı onayı payout'u COMPLETED değil IN_TRANSIT yapar. PAID
       yalnız banka ekstresi mutabakatıyla yazılır. PAID'den sonra iade gelirse RETURNED olur.
       FAILED ve CANCELED de durum olarak vardır. Go bu senaryoda Java'dan bilinçli olarak ayrılır.
-    oracle: test/oracle/payout-transitions.csv
+    oracle: testdata/oracle/payout-transitions.csv
     source:
-      - "com/exskylab/koala/business/concretes/SettlementRetryTest.java#aSuccessfulRunClosesTheTaskAndSettlesThePayoutFromTheProviderApproval"
-      - "com/exskylab/koala/business/concretes/SettlementRetryTest.java#anApprovalWithoutAResponseIdStillSettlesFromTheQueuedTransaction"
-      - "com/exskylab/koala/business/concretes/SettlementRetryTest.java#aFailedRunStaysPendingAndBacksOff"
-      - "com/exskylab/koala/business/concretes/SettlementRetryTest.java#theTaskGivesUpAfterTheAttemptLimit"
-      - "com/exskylab/koala/business/concretes/SettlementRetryTest.java#givingUpOnAnApprovalMarksThePayoutFailed"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#aSuccessfulRunClosesTheTaskAndSettlesThePayoutFromTheProviderApproval"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#anApprovalWithoutAResponseIdStillSettlesFromTheQueuedTransaction"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#aFailedRunStaysPendingAndBacksOff"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#theTaskGivesUpAfterTheAttemptLimit"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#givingUpOnAnApprovalMarksThePayoutFailed"
       - "src/main/java/com/exskylab/koala/business/concretes/SettlementManager.java:199-219"
     go_test: null
 
@@ -394,13 +411,13 @@ scenarios:
       - "REFUND görevi çalışmadan önce iade PROCESSING olur; başarılıysa COMPLETED; DISAPPROVE payout'a ve iadeye dokunmaz"
     error: PAYOUT_INVALID_REFUND_AMOUNT
     source:
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aRefundCannotExceedWhatWasCharged"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#omittingTheAmountRefundsTheFullCharge"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aFullRefundNeedsNoDisapprovalBecauseTheLineIsReversed"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aPartialRefundAlsoBlocksTheWorkerShareOnWhatIsKept"
-      - "com/exskylab/koala/business/concretes/PayoutReleaseTest.java#alreadyReleasedMoneyCannotBeRefunded"
-      - "com/exskylab/koala/business/concretes/SettlementRetryTest.java#aRefundBecomesProcessingBeforeTheProviderCall"
-      - "com/exskylab/koala/business/concretes/SettlementRetryTest.java#aDisapprovalNeverTouchesThePayoutOrTheRefund"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aRefundCannotExceedWhatWasCharged"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#omittingTheAmountRefundsTheFullCharge"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aFullRefundNeedsNoDisapprovalBecauseTheLineIsReversed"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aPartialRefundAlsoBlocksTheWorkerShareOnWhatIsKept"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#alreadyReleasedMoneyCannotBeRefunded"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#aRefundBecomesProcessingBeforeTheProviderCall"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#aDisapprovalNeverTouchesThePayoutOrTheRefund"
     go_test: null
 
   - id: PAY-017
@@ -423,14 +440,19 @@ scenarios:
       - "-10 dk → ceza 1.075,00, iade 0,00 (iade kaydı oluşmaz)"
       - "İşçi iptali → ceza 0,00, iade 1.075,00"
       - "Ceza + iade her zaman tahsilata eşittir"
-    oracle: test/oracle/cancellation-fee.csv
+      - "Java'da -10 dk iptalinde iade 0 olduğundan iade kaydı oluşmaz ve para emanette kalır"
+    decision: Java hatası (ceza alıcısı)
+    target: >
+      Karar: işveren iş başladıktan sonra iptal ederse ceza işçiye geçer, para emanette kalmaz.
+      Komisyon payının dağılımı Faz 6'da belirlenir. Pencere içi geç iptal cezasının alıcısı karar bekliyor.
+    oracle: testdata/oracle/cancellation-fee.csv
     source:
-      - "com/exskylab/koala/core/helpers/CancellationPolicyTest.java#anEmployerCancellingInsideTheWindowPaysHalf"
-      - "com/exskylab/koala/core/helpers/CancellationPolicyTest.java#exactlyAtTheWindowBoundaryTheCancellationIsStillFree"
-      - "com/exskylab/koala/core/helpers/CancellationPolicyTest.java#anEmployerCancellingAfterTheStartForfeitsEverything"
-      - "com/exskylab/koala/core/helpers/CancellationPolicyTest.java#aWorkerCancellingNeverCostsTheEmployerAnything"
-      - "com/exskylab/koala/core/helpers/CancellationPolicyTest.java#theNoticeIsMeasuredAgainstTheJobsWallClockZone"
-      - "com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aLateEmployerCancellationRefundsOnlyThePartLeftAfterTheFee"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#anEmployerCancellingInsideTheWindowPaysHalf"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#exactlyAtTheWindowBoundaryTheCancellationIsStillFree"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#anEmployerCancellingAfterTheStartForfeitsEverything"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#aWorkerCancellingNeverCostsTheEmployerAnything"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#theNoticeIsMeasuredAgainstTheJobsWallClockZone"
+      - "src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aLateEmployerCancellationRefundsOnlyThePartLeftAfterTheFee"
     go_test: null
 
   - id: PAY-018
@@ -452,10 +474,10 @@ scenarios:
       - "İkinci ve üçüncü denemeye dokunulmaz"
       - "Atama için yeni ödeme oturumu hâlâ reddedilir"
     source:
-      - "com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationAbandonedBeforeTheProviderCallIsSweptIntoManualReconciliation"
-      - "com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationStillInsideTheCheckoutWindowIsLeftAlone"
-      - "com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationThatReachedTheProviderIsNeverSwept"
-      - "com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#anAbandonedInitiationKeepsBlockingPaymentAndTheSweepOnlyMakesItVisible"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationAbandonedBeforeTheProviderCallIsSweptIntoManualReconciliation"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationStillInsideTheCheckoutWindowIsLeftAlone"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationThatReachedTheProviderIsNeverSwept"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#anAbandonedInitiationKeepsBlockingPaymentAndTheSweepOnlyMakesItVisible"
     go_test: null
 
   - id: PAY-019
@@ -475,12 +497,12 @@ scenarios:
       - "İki taraf bilgilendirilir"
       - "Aktif deneme varsa atama değişmez; HELD_IN_ESCROW ya da PENDING_CONFIRMATION atamaya dokunulmaz"
     source:
-      - "com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anUnpaidAssignmentIsCancelledWhenTheJobIsAboutToStart"
-      - "com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anAssignmentWithAnOpenPaymentAttemptIsNeverBlamedOnTheEmployerWithZeroRefund"
-      - "com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#aSweptInitiationStillCountsAsAnOpenAttemptForTheExpiryJob"
-      - "com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anAssignmentWithMoneyInEscrowIsLeftAlone"
-      - "com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#theExpiryIsRecordedAgainstTheEmployerWithNoMoneyMoving"
-      - "com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#aSecondRunOverTheSameAssignmentDoesNothing"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anUnpaidAssignmentIsCancelledWhenTheJobIsAboutToStart"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anAssignmentWithAnOpenPaymentAttemptIsNeverBlamedOnTheEmployerWithZeroRefund"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#aSweptInitiationStillCountsAsAnOpenAttemptForTheExpiryJob"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anAssignmentWithMoneyInEscrowIsLeftAlone"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#theExpiryIsRecordedAgainstTheEmployerWithNoMoneyMoving"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#aSecondRunOverTheSameAssignmentDoesNothing"
     go_test: null
 
   - id: PAY-020
@@ -505,12 +527,36 @@ scenarios:
       - "Tutar ya da referans uyuşmazlığında payout PROCESSING kalır"
     decision: K2
     target: "K2'de bu adım payout'u IN_TRANSIT'ten PAID'e geçirir. Hangi Iyzico raporunun PAID'i kanıtladığı sandbox'ta doğrulanacak."
-    oracle: test/oracle/payout-transitions.csv
+    oracle: testdata/oracle/payout-transitions.csv
     source:
-      - "com/exskylab/koala/webAPI/PayoutReconciliationIT.java#theWorkerSeesTheirPayoutAsCompletedOnceTheStatementLineIsReported"
-      - "com/exskylab/koala/webAPI/PayoutReconciliationIT.java#reportingTheSameStatementLineTwiceStillLeavesOneCompletedPayout"
-      - "com/exskylab/koala/webAPI/PayoutReconciliationIT.java#aSecondStatementLineOnACompletedPayoutIsRefused"
-      - "com/exskylab/koala/webAPI/PayoutReconciliationIT.java#evidenceThatDoesNotMatchTheSnapshotLeavesThePayoutProcessing"
-      - "com/exskylab/koala/dataAccess/PayoutSettlementReconciliationIT.java#oneStatementLineCannotSettleTwoPayoutsEvenWhenTheWritesTrulyOverlap"
-      - "com/exskylab/koala/dataAccess/PayoutSettlementReconciliationIT.java#aPayoutWithoutAProviderReferenceIsEscalatedRatherThanSettled"
+      - "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#theWorkerSeesTheirPayoutAsCompletedOnceTheStatementLineIsReported"
+      - "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#reportingTheSameStatementLineTwiceStillLeavesOneCompletedPayout"
+      - "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#aSecondStatementLineOnACompletedPayoutIsRefused"
+      - "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#evidenceThatDoesNotMatchTheSnapshotLeavesThePayoutProcessing"
+      - "src/test/java/com/exskylab/koala/dataAccess/PayoutSettlementReconciliationIT.java#oneStatementLineCannotSettleTwoPayoutsEvenWhenTheWritesTrulyOverlap"
+      - "src/test/java/com/exskylab/koala/dataAccess/PayoutSettlementReconciliationIT.java#aPayoutWithoutAProviderReferenceIsEscalatedRatherThanSettled"
+    go_test: null
+
+  - id: PAY-021
+    priority: P0
+    title: Ödeme formu başlatılamazsa kesin ret başarısız, belirsizlik bekleyen olur
+    rule: >
+      Alt üye hazır olduktan sonra ödeme formu başlatılırken sağlayıcı kesin ret verirse deneme FAILED
+      olur. Ağ hatası, 5xx/408/429 ya da token kaydedilememesi gibi belirsiz durumlarda deneme
+      VERIFY_PENDING olur ve mutabakata bırakılır; para çekilmiş olabilir, deneme başarısız sayılmaz.
+    given:
+      - "Deneme INITIATED; işçinin alt üye kaydı var"
+    when:
+      - "Ödeme formu başlatma isteği sağlayıcıdan kesin retle döner"
+      - "Ödeme formu başlatma isteği zaman aşımına uğrar ya da sağlayıcı 5xx döner"
+      - "Form açılır ama token kaydı yazılamaz"
+    then:
+      - "Kesin ret → deneme FAILED"
+      - "Belirsiz yanıt → deneme VERIFY_PENDING; yeni ödeme oturumu aktif deneme yüzünden reddedilir"
+      - "Token kaydı yazılamazsa → deneme VERIFY_PENDING"
+    oracle: testdata/oracle/reconcile.csv
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/JobAssignmentManager.java:340-362"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#anExplicitProviderRejectionFailsTheReservedAttemptInsteadOfLeavingItAmbiguous"
+      - "src/test/java/com/exskylab/koala/core/utilities/payment/IyzicoProtocolTest.java#aFiveHundredResponseRemainsAmbiguousInsteadOfBecomingAProviderRejection"
     go_test: null

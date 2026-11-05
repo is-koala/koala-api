@@ -1,5 +1,5 @@
 {
-  "_aciklama": "Iyzico IYZWSv2 ve yanıt imzası altın vektörleri. 'java_test' bölümündeki değerler IyzicoProtocolTest'teki sabitlerdir (aynen). Anahtarlar test sabitidir ('sandbox-secret', 'sandbox-api-key'): gerçek API anahtarı ya da merchant id değildir. 'turetilmis' bölümü Java'da koşturulmadı; formülün Python ile uygulanmasından çıktı ve doğrulanmadı.",
+  "_aciklama": "testdata/iyzico/vectors.json (plan §6.2-3). Iyzico IYZWSv2 ve yanıt imzası altın vektörleri. 'java_test' bölümündeki değerler IyzicoProtocolTest'teki sabitlerdir (aynen). Anahtarlar test sabitidir ('sandbox-secret', 'sandbox-api-key'): gerçek API anahtarı ya da merchant id değildir. 'turetilmis' bölümü Java'da koşturulmadı; formülün Python ile uygulanmasından çıktı ve doğrulanmadı.",
   "kaynak": "src/test/java/com/exskylab/koala/core/utilities/payment/IyzicoProtocolTest.java; src/main/java/com/exskylab/koala/core/utilities/payment/iyzico/IyzicoPaymentService.java:129, :158-159, :330-351, :379-411",
   "test_anahtarlari": {
     "secret_key": "sandbox-secret",

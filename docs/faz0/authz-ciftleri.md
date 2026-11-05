@@ -1,151 +1,201 @@
-# Authz çiftleri: envanter → §5.4 modeli
+# Authz çiftleri: envanter → §5.4 modeli → karar
 
-Kaynak: [`authz-envanteri.csv`](authz-envanteri.csv) (132 satır). Plan: `GO-GECIS-DEGERLENDIRME.md` §5.4 (OpenFGA modeli) ve §5.6-2 (tekilleştirme).
+Kaynak: [`authz-envanteri.csv`](authz-envanteri.csv) (134 satır). Plan: `docs/plan/go-gecis-degerlendirme.md` §5.4 (OpenFGA modeli), §5.6-2 (tekilleştirme); ADR-0014.
+
+## Ürün kararları (05.11.2026)
+
+Sektör standardına göre verildi. Hedef (`expect`) bu kararlarla hesaplanır; Java'nın davranışı matriste ayrıca (`java`) tutulur.
+
+| # | Karar | Etki |
+|---|---|---|
+| D1 | **Şirket ilanı şirketindir.** Şirket ilanında erişim yalnız şirket üyeliğinden gelir; ilanı açan kişi şirketten ayrılırsa erişimini kaybeder. Bireysel ilanda erişim sahibindedir. | `editor` = `employer` = `individual_owner or member from owner_company`. `creator` yetki vermez. Java'nın başvuru/ödeme yolu (C04, C18, C31, C33) zaten böyle; JobEditors/partyOf yolu eski creator'a izin veriyor, Go'da kapanır. |
+| D2 | **Liste ile detay tutarlıdır.** | C12: şirket yetkilisi tek tek görebildiği atamayı listede de görür. C14: aramada ve detayda aynı kural (editor). |
+| D3 | **Kapanmış ya da iptal edilmiş ilan herkese görünür kalır** ("süresi doldu" durumuyla) **ama başvuruya kapalıdır.** | `public_viewer` her durumda yazılır (soft-delete'te silinir); başvuru `applicant_pool` ile, o da yalnız OPEN iken. |
+| D4 | **Açık uyuşmazlık varken atama, elle de otomatik de tamamlanamaz.** | Durum kuralı (ön süzgeç), relation değil: `testdata/oracle/assignment-transitions.csv` AT-09, AT-14. |
+| D5 | **Pazaryeri ROLE_ADMIN baypası kalkar** (görsel silme, CV indirme, `/actuator`). | C47, C48 (CV), C52 (görsel), C53 (`/actuator`). |
+
+Java hataları (oracle'da Java davranışı kalır, Go hedefi ayrı kolonda):
+- İşveren iş başladıktan sonra iptal ederse ceza işçiye geçer, para emanette kalmaz (`cancellation-fee.csv` `go_saglayici_islemi`, AT-15b).
+- Ödeme oturumunda yetki kontrolü durum kontrolünden önce yapılır (C04, AZ-004/005).
 
 ## Özet
 
 | Ölçü | Değer |
 |---|---|
-| Envanter satırı | 132 |
-| Tekil `(nesne tipi, karar eylemi)` çifti | **68** |
-| Modelde aynen karşılığı olan (✓) | 19 |
-| Modelde var ama Java'dan farklı karar veren (≈) | 8 |
-| Modelde karşılığı olmayan (✗) | 23 |
-| Bilinçli olarak model dışı (dış: kendi verin, öznitelik, kimliksiz yetenek URL'si) | 18 |
-| Matris taslağı ([`test/authz/matrix.yaml`](../../test/authz/matrix.yaml)) | 186 satır, 68 çiftin hepsinde ≥1 izin + ≥1 ret |
+| Envanter satırı | 134 |
+| Tekil `(nesne tipi, karar eylemi)` çifti | **70** |
+| §5.4 hedefi aynen ifade ediyor (✓) | 21 |
+| §5.4 ifade ediyor ama farklı karar veriyor (≈) | 5 |
+| §5.4'te karşılığı yok (✗) | 23 |
+| Bilinçli olarak model dışı (dış) | 21 |
+| Önerilen DSL'de karşılığı olmayan çift | 0 (model dışı olanlar `go:<kural>`) |
+| Matris ([`internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml)) | 210 satır; 21'inde Java hedeften farklı. `skip` olmayan her çiftte ≥1 izin ve ≥1 ret; istisna C53 (hedefte izinli pazaryeri öznesi yok). C37 `skip`. |
 
-Plan 40–60 çift tahmin etmişti. 68 çıktı. Fark iki yerden geliyor: §5.4'te tipi olmayan nesneler (ulaşım, davet, mesaj, CV, kullanıcı profili) ve kimliksiz ya da tasarım gereği açık uçların da satır olarak sayılması.
+"Uyum" kolonu §5.4'ün **mevcut** modelini hedefe göre değerlendirir. Önerilen DSL (aşağıda) bütün ReBAC çiftlerini karşılar.
 
 ## Tekilleştirme kuralı
 
-- Satırın `alt_eylem`'i uca özgüdür, örneğin `read_work_sessions`. `eylem` ise karar eylemidir, örneğin `read`.
-- Aynı nesne tipinde aynı kuralla karar verilen alt eylemler tek karar eylemine iner. Kuralı aynı olan altı okuma ucu bu yüzden `job_assignment.read` olarak tek çifttir.
-- Kural farklıysa çift ayrı kalır, uç benzer olsa bile. Örneğin `job.list_applications` "işveren" kavramını kullanır, `job.read_private` ise "editor" kavramını kullanır. Bu ikisi ayrı çifttir.
-- Eşleme betikte durur: `tarama/build_authz.py` → `NORMALIZE`.
+- Satırın `alt_eylem`'i uca özgüdür (`read_work_sessions`); `eylem` karar eylemidir (`read`).
+- Aynı nesne tipinde aynı kuralla karar verilen alt eylemler tek karar eylemine iner; kural farklıysa çift ayrı kalır.
+- Eşleme: `tarama/build_authz.py` → `NORMALIZE`.
 
 ## Tablo
 
-Uyum: ✓ aynen · ≈ model farklı karar verir · ✗ modelde yok · dış = model dışı (bilinçli)
+Uyum: ✓ aynen · ≈ §5.4 farklı karar verir · ✗ §5.4'te yok · dış = model dışı (bilinçli). Motor: `go + openfga` iki değerlendiricide koşar; `go_only` ön süzgeç/öznitelik/sahiplik/Scope; `skip` koşmaz.
 
-| # | Nesne | Eylem | Satırlar | Java kuralı | §5.4 relation | Uyum | Not |
-|---|---|---|---|---|---|---|---|
-| C01 | `job_assignment` | `read` | AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018 | işçi VEYA ilan sahibi VEYA şirket yetkilisi (partyOf) | job_assignment#can_read | ✓ |  |
-| C02 | `job_assignment` | `respond` | AZ-002 | yalnız işçi | — | ✗ | Modelde yok. Öneri: `define can_respond: worker`. |
-| C03 | `job_assignment` | `complete` | AZ-003 | işveren tarafı (partyOf == EMPLOYER: creator ∪ şirket yetkilisi) | job_assignment#can_complete | ✓ |  |
-| C04 | `job_assignment` | `pay` | AZ-004, AZ-005 | BİREYSEL: yalnız creator; ŞİRKET: yalnız güncel yetkili (creator dahil değil) | job_assignment#can_pay | ≈ | Model `editor from job` diyor; editor creator'ı her zaman içerir. Java şirket ilanında şirketten ayrılmış creator'ı reddeder. Ayrıca durum (409) yetkiden önce bakılıyor. |
-| C05 | `job_assignment` | `cancel` | AZ-007, AZ-008 | taraf (partyOf); taraf ceza politikasını seçer | job_assignment#can_cancel | ✓ |  |
-| C06 | `job_assignment` | `record_work` | AZ-010, AZ-011 | yalnız işçi (check-in ve check-out) | job_assignment#can_check_in | ✓ | check-out da aynı kural; öneri: relation adını `can_record_work` yap. Emanet (HELD_IN_ESCROW) ön süzgeç. |
-| C07 | `job_assignment` | `open_dispute` | AZ-013 | taraf; emanet şartı ön süzgeç | — | ✗ | Modelde yok (dispute yalnız var olan uyuşmazlık için). Öneri: `define can_open_dispute: party`. Ret mesajı NOT_A_PARTICIPANT (var olmayandan farklı). |
-| C08 | `job_assignment` | `review` | AZ-015 | taraf; COMPLETED ön süzgeç | — | ✗ | Öneri: `define can_review: party`. |
-| C09 | `job_assignment` | `reveal_worker_identity` | AZ-016, AZ-017 | işveren tarafı + atama HIRED (ön süzgeç) + saatlik oran sınırı | — | ✗ | Öneri: `define can_reveal_worker_identity: editor from job`; HIRED koşulu prefilter, oran sınırı ayrı. İşçinin kendisi bu uçtan okuyamaz. |
-| C10 | `job_assignment` | `select_seat` | AZ-019, AZ-091, AZ-092 | taraf (işveren işçi adına seçebilir); servis/durak aynı planda olmalı | — | ✗ | Öneri: `define can_select_seat: party`. Kapsama (servis ilan planında) ayrı kontrol. |
-| C11 | `job_assignment` | `issue_boarding_qr` | AZ-020, AZ-021 | taraf VE işçi (iki kat) | — | ✗ | Öneri: `define can_board: worker`. |
-| C12 | `job_assignment` | `list` | AZ-117 | kapsam: işçi → worker_id; işveren → yalnız creator | Scope(job_assignment#can_read) | ≈ | Tekil okuma (can_read) şirket yetkilisine açık ama 'işveren olarak atamalarım' listesi yalnız creator'ı süzüyor. Scope ve Check aynı relation'dan türetilirse liste genişler. |
-| C13 | `job` | `read` | AZ-119, AZ-120 | herkes, her durumda (permitAll) | job#can_view | ≈ | Model `public_viewer` tuple'ını yalnız OPEN iken yazar; Java CLOSED/CANCELLED ilanı da kimliksiz gösterir. Ürün kararı gerekir. |
-| C14 | `job` | `read_employer_view` | AZ-041, AZ-042 | detayda editor, aramada yalnız creator | job#editor | ≈ | Java'nın iki yolu tutarsız; model tek kural (editor) verir. |
-| C15 | `job` | `read_exact_address` | AZ-043 | creator VEYA atanmış işçi (ADDRESS_VISIBLE durumları) VEYA şirket adresi açık | — | ✗ | Modelde yok. Şirket yetkilisi (creator değilse) tam adresi GÖRMEZ: editor'dan dar. Öneri: alan düzeyi kural, `can_read_exact_address: creator or worker from <aktif atama>` + öznitelik (addressPublic). PII/konum maskesi (#349) ile birlikte. |
-| C16 | `job` | `edit` | AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032 | editor (JobEditors): galeri, ulaşım planı yazımı | job#can_edit | ✓ |  |
-| C17 | `job` | `read_private` | AZ-028, AZ-030 | editor: ulaşım planı okuma, ilanın atama listesi | job#editor | ✓ | Öneri: açık relation `can_read_private: editor`. |
-| C18 | `job` | `list_applications` | AZ-033, AZ-034 | BİREYSEL: creator (404); ŞİRKET: yalnız güncel yetkili (400) | job_application#can_read (editor from job) | ≈ | Şirket dalında creator dahil değil ve hata 400 (ValidationException). Bireysel dal 404 ama farklı mesaj. |
-| C19 | `job` | `cancel` | AZ-025 | editor | job#can_edit | ✓ | Öneri: denetim için ayrı `can_cancel: editor`. |
-| C20 | `job` | `close` | AZ-026 | editor | job#can_edit | ✓ |  |
-| C21 | `job` | `apply` | AZ-035, AZ-036 | editor OLMAYAN herkes (creator ve şirket yetkilisi başvuramaz) + OPEN + hazır olma | — | ✗ | Negatif ilişki. Öneri: `define can_apply: [user:*] but not editor` (+ OPEN prefilter). Ret 400. |
-| C22 | `job` | `open_conversation` | AZ-037, AZ-038, AZ-039 | işveren tarafı (creator ∪ yetkili) herhangi bir işçiyle; işçi yalnız kendisi için; ödeme ön süzgeci ve engelleme | — | ✗ | conversation tipi var ama açma kuralı yok. Öneri: `can_open_conversation: editor` (+ işçi için atama/ödeme prefilter'ı). Yabancı 404 NOT_A_PARTICIPANT. |
-| C23 | `job` | `copy_as_template` | AZ-040 | editor (JobEditors'un ayrı kopyası) | job#can_edit | ✓ | Kural kopyası birleştirilmeli. |
-| C24 | `company` | `read` | AZ-121, AZ-122 | kimlikli her kullanıcı; galeri herkese | — | ✗ | Öneri: `define viewer: [user:*]`. |
-| C25 | `company` | `read_member_view` | AZ-057, AZ-058, AZ-060 | üye (ADMIN\|STAFF): onay notu, kişi listesi, şirket ilanları | company#member | ✓ | Kişi listesi 404, ilan listesi 403, onay notu alan düzeyi: aynı kural, üç farklı ret biçimi. |
-| C26 | `company` | `manage` | AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061 | yalnız ADMIN: güncelleme, logo, galeri, davet, kişi çıkarma, davet listesi | company#can_manage | ✓ | Ret 404 USER_NOT_ASSOCIATED_WITH_COMPANY: var olmayan şirketten farklı mesaj (ayırt edilebilir). |
-| C27 | `company` | `create_job` | AZ-059 | üye | company#can_manage_jobs | ✓ | Ret 400 (ValidationException). |
-| C28 | `company` | `tag_talent_pool_entry` | AZ-113 | KONTROL YOK | company#member (önerilen) | ✗ | Java açığı; Go'da `member` şartı önerilir. |
-| C29 | `company_invitation` | `read` | AZ-063 | davet eden VEYA davet edilen VEYA şirket ADMIN'i | — | ✗ | Tip yok. Öneri: `type company_invitation { company: [company]; inviter: [user]; invitee: [user]; can_read: inviter or invitee or admin from company; can_answer: invitee }`. |
-| C30 | `company_invitation` | `answer` | AZ-062 | yalnız davet edilen | — | ✗ | Bkz. üst satır. |
-| C31 | `job_application` | `decide` | AZ-045, AZ-046 | BİREYSEL: creator; ŞİRKET: yalnız güncel yetkili | job_application#can_decide | ≈ | Model `editor from job` (creator dahil). Java şirket ilanında creator'ı dışarıda bırakır (job.pay ve list_applications ile aynı 'işveren' kavramı). |
-| C32 | `job_application` | `withdraw` | AZ-047 | yalnız başvuran | job_application#can_withdraw | ✓ |  |
-| C33 | `job_application` | `list` | AZ-116 | kapsam: creator → yalnız BİREYSEL ilanları; yetkili → şirket ilanları | Scope(job_application#can_read) | ≈ | Java'nın 'işveren' kavramı (creator yalnız bireysel ilanda) burada da geçerli; model editor'ı kullanırsa liste genişler. |
-| C34 | `conversation` | `read` | AZ-064, AZ-065, AZ-066, AZ-067, AZ-069 | katılımcı (okuma, mesajlar, okundu işareti) | conversation#can_read | ✓ |  |
-| C35 | `conversation` | `post` | AZ-068, AZ-070, AZ-071, AZ-072, AZ-073 | katılımcı + engelleme + ödeme/pencere ön süzgeçleri (+ STOMP typing) | conversation#can_post | ✓ | Ön süzgeçler (MessagingAvailability, user_blocks) ReBAC dışı; §5.2-3'e uygun. |
-| C36 | `conversation` | `subscribe` | AZ-074 | katılımcı (STOMP SUBSCRIBE) | conversation#can_read | ✓ | K4 ile WS protokolü değişir; kural aynı kalır. |
-| C37 | `conversation` | `publish_to_topic` | AZ-077 | KONTROL YOK (simple broker /topic SEND) — doğrulanmadı | — | ✗ | K4 sunucu-itmeli modelde istemci yayın yapamaz; Go'da relation gerekmez, protokol reddeder. |
-| C38 | `conversation` | `list` | AZ-118 | kapsam: katılımcı | Scope(conversation#can_read) | ✓ |  |
-| C39 | `message` | `report` | AZ-080 | mesajın sohbetinde katılımcı (DAO WHERE); gönderen kendi mesajını raporlayamaz | — | ✗ | Öneri: `type message { conversation: [conversation]; sender: [user]; can_report: participant from conversation but not sender }`. |
-| C40 | `dispute` | `read` | AZ-082, AZ-083, AZ-084 | atamanın tarafı (kanıt listesi ve indirme); kanıt uyuşmazlığa ait olmalı | dispute#can_read | ✓ |  |
-| C41 | `dispute` | `add_evidence` | AZ-081 | atamanın tarafı; RESOLVED ise 409 | dispute#can_add_evidence | ✓ |  |
-| C42 | `shuttle` | `manage` | AZ-085, AZ-086, AZ-087 | ilanın editor'ı (QR üret/döndür, biniş listesi) | — | ✗ | Öneri: `type shuttle { job: [job]; can_manage: editor from job; can_board: seat_holder }` (seat_holder tuple'ı koltuk seçiminde yazılır). |
-| C43 | `shuttle` | `board` | AZ-088, AZ-089 | bu serviste koltuğu olan işçi; koltuksuz taraf 409, yabancı 404 | — | ✗ | Bkz. üst satır. |
-| C44 | `seat_assignment` | `mark_boarding` | AZ-090 | koltuğun ilanının editor'ı | — | ✗ | Öneri: `type seat_assignment { shuttle: [shuttle]; can_mark: can_manage from shuttle }`. |
-| C45 | `user` | `read_public` | AZ-123, AZ-124, AZ-125, AZ-126, AZ-127, AZ-128, AZ-129 | tasarım gereği açık: profil, deneyim, müsaitlik, rozet, yorum, puan, işveren istatistiği | — | ✗ | Öneri: `type user { define public_viewer: [user:*] }` (N01 §9.d). Müsaitlik takviminin açık olması ürün kararı. |
-| C46 | `user` | `read_cv_url` | AZ-094 | kendisi VEYA ona başvuru almış işveren (projeksiyon) | — | ✗ | private_file.download ile aynı kural, ROLE_ADMIN baypası hariç. |
-| C47 | `private_file` | `download` | AZ-093 | sahip VEYA marketplace ROLE_ADMIN VEYA sahibinden başvuru almış işveren (kalıcı) | — | ✗ | Öneri: `type cv { owner: [user]; reviewer: [user, company#member]; can_download: owner or reviewer }`; reviewer tuple'ı başvuru anında yazılır. ROLE_ADMIN baypası Go'da kalkar (personel `user.read_pii`). |
-| C48 | `user` | `read_presence` | AZ-078, AZ-079 | REST'te KONTROL YOK | — | ✗ | §5.4'teki bilinen `contact` kalemi; REST ve WS aynı kurala bağlanmalı. |
-| C49 | `user` | `watch_presence` | AZ-075 | kendisi VEYA ortak sohbet (STOMP) | — | ✗ | §5.4: türetilmiş `contact` ilişkisi gerekir. |
-| C50 | `user` | `create_individual_job` | AZ-044 | öznitelik: isEmployer + kimlik doğrulanmış | — | dış | ReBAC dışı ön süzgeç (öznitelik). |
-| C51 | `image` | `delete` | AZ-095 | yükleyen VEYA marketplace ROLE_ADMIN | owner (Scope) | ≈ | ROLE_ADMIN baypası Go'da kalkar; ret 400 ve var olma sızar. |
-| C52 | `experience` | `write` | AZ-096, AZ-097 | yalnız sahibi | owner (model dışı, Scope SelfUserID) | dış |  |
-| C53 | `education` | `write` | AZ-098, AZ-099 | yalnız sahibi | owner (model dışı, Scope SelfUserID) | dış |  |
-| C54 | `job_alert` | `write` | AZ-100, AZ-101 | yalnız sahibi | owner (model dışı, Scope SelfUserID) | dış |  |
-| C55 | `bank_account` | `write` | AZ-102, AZ-103, AZ-104 | yalnız sahibi | owner (model dışı, Scope SelfUserID) | dış |  |
-| C56 | `device` | `write` | AZ-107 | yalnız sahibi | owner (model dışı, Scope SelfUserID) | dış |  |
-| C57 | `availability_exception` | `write` | AZ-110 | yalnız sahibi | owner (model dışı, Scope SelfUserID) | dış |  |
-| C58 | `job_template` | `read` | AZ-105 | yalnız sahibi | owner | dış |  |
-| C59 | `job_template` | `write` | AZ-106 | yalnız sahibi | owner | dış |  |
-| C60 | `session` | `read` | AZ-108 | yalnız sahibi | owner | dış |  |
-| C61 | `session` | `write` | AZ-109 | yalnız sahibi (iptal) | owner | dış |  |
-| C62 | `user_verification` | `confirm` | AZ-111 | yalnız sahibi; ret 403 (var olma sızar) | owner | dış |  |
-| C63 | `notification` | `mark_read` | AZ-112 | yalnız alıcı; başkasınınki sessizce yok sayılır (200) | owner | dış |  |
-| C64 | `notification` | `mark_opened` | AZ-130 | kimliksiz; bildirim UUID'si yetenek URL'si | — | dış |  |
-| C65 | `address_search_session` | `use` | AZ-114, AZ-115 | bellek içi oturumun sahibi; ret 400 | owner | dış |  |
-| C66 | `payment_attempt` | `complete_callback` | AZ-131 | kimliksiz; sağlayıcı token'ı + sunucudan sorgu (reconcile) | — | dış | Yetki değil sağlayıcı doğrulaması: test/oracle/reconcile. |
-| C67 | `payment_attempt` | `read_outcome` | AZ-132 | kimliksiz; kayıtlı sonucu okur | — | dış |  |
-| C68 | `realtime_destination` | `subscribe` | AZ-076 | bilinen hedef dışı her SUBSCRIBE reddedilir | — | dış | Varsayılan ret; K4 ile protokol değişir. |
+<!-- tablo:başla (pairs.py üretir) -->
 
-## Modelin yanlış ifade ettiği çiftler (≈)
+| # | Nesne | Eylem | Satırlar | Java kuralı | Hedef (karar) | §5.4 | Uyum | Önerilen relation | Motor | Java hedeften farklı |
+|---|---|---|---|---|---|---|---|---|---|---|
+| C01 | `job_assignment` | `read` | AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018 | işçi ∪ creator ∪ şirket yetkilisi (partyOf) | işçi ∪ editor from job (D1) | job_assignment#can_read | ✓ | `job_assignment#can_read` | go + openfga | eski creator (D1) |
+| C02 | `job_assignment` | `respond` | AZ-002 | yalnız işçi | = Java | — | ✗ | `job_assignment#can_respond` | go + openfga | — |
+| C03 | `job_assignment` | `complete` | AZ-003 | partyOf == EMPLOYER (creator ∪ yetkili) | editor from job; açık uyuşmazlıkta ön süzgeç reddeder (D4) (D1, D4) | job_assignment#can_complete | ✓ | `job_assignment#can_complete` | go + openfga | eski creator (D1); uyuşmazlık (D4, oracle) |
+| C04 | `job_assignment` | `pay` | AZ-004, AZ-005 | BİREYSEL: creator; ŞİRKET: güncel yetkili; durum kontrolü yetkiden önce | editor from job; yetki kontrolü durumdan önce (D1, Java hatası) | job_assignment#can_pay (editor from job) | ≈ | `job_assignment#can_pay` | go + openfga | ret biçimi (403) ve kontrol sırası |
+| C05 | `job_assignment` | `cancel` | AZ-007, AZ-008 | taraf (partyOf) | party (D1) | job_assignment#can_cancel | ✓ | `job_assignment#can_cancel` | go + openfga | eski creator (D1) |
+| C06 | `job_assignment` | `record_work` | AZ-010, AZ-011 | yalnız işçi (check-in/out) | = Java | job_assignment#can_check_in | ✓ | `job_assignment#can_record_work` | go + openfga | — |
+| C07 | `job_assignment` | `open_dispute` | AZ-013 | taraf; emanet ön süzgeç | party (D1) | — | ✗ | `job_assignment#can_open_dispute` | go + openfga | ret biçimi (farklı 404) |
+| C08 | `job_assignment` | `review` | AZ-015 | taraf; COMPLETED ön süzgeç | party (D1) | — | ✗ | `job_assignment#can_review` | go + openfga | — |
+| C09 | `job_assignment` | `reveal_worker_identity` | AZ-016, AZ-017 | işveren tarafı + HIRED + oran sınırı | editor from job + HIRED ön süzgeç (D1) | — | ✗ | `job_assignment#can_reveal_worker_identity` | go + openfga | eski creator (D1) |
+| C10 | `job_assignment` | `select_seat` | AZ-019, AZ-091, AZ-092 | taraf (işveren işçi adına seçebilir) | party (D1) | — | ✗ | `job_assignment#can_select_seat` | go + openfga | — |
+| C11 | `job_assignment` | `issue_boarding_qr` | AZ-020, AZ-021 | taraf VE işçi | worker | — | ✗ | `job_assignment#can_board` | go + openfga | — |
+| C12 | `job_assignment` | `list` | AZ-119 | işçi → worker_id; işveren → yalnız creator | Scope(can_read): liste tekil okumayla aynı (D2) | Scope(job_assignment#can_read) | ✓ | `Scope(job_assignment#can_read)` | go_only | şirket yetkilisi listede görmüyor (D2) |
+| C13 | `job` | `read` | AZ-121, AZ-122 | herkes, her durumda | herkes, her durumda (kapanmış/iptal ilan 'süresi doldu' gösterilir); soft-delete'te yok (D3) | job#can_view (public_viewer yalnız OPEN) | ≈ | `job#can_view` | go + openfga | — |
+| C14 | `job` | `read_employer_view` | AZ-041, AZ-042 | detayda editor, aramada yalnız creator | her yerde editor (D2, D1) | job#editor | ✓ | `job#can_edit` | go + openfga | aramada şirket yetkilisi (D2) |
+| C15 | `job` | `read_exact_address` | AZ-043 | creator ∪ atanmış işçi ∪ şirket adresi açık | editor ∪ aktif atamadaki işçi ∪ adres açık (D1'den türetildi: şirket ilanında tüm üyeler) (D1) | — | ✗ | `job#can_read_exact_address` | go + openfga | şirket üyeleri ve eski creator (D1) |
+| C16 | `job` | `edit` | AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032 | editor (JobEditors) | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#can_edit | ✓ | `job#can_edit` | go + openfga | eski creator (D1) |
+| C17 | `job` | `read_private` | AZ-028, AZ-030 | editor | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#editor | ✓ | `job#can_read_private` | go + openfga | eski creator (D1) |
+| C18 | `job` | `list_applications` | AZ-033, AZ-034 | BİREYSEL: creator (404); ŞİRKET: güncel yetkili (400) | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job_application#can_read (editor from job) | ≈ | `job#can_list_applications` | go + openfga | ret biçimi (400 / farklı 404) |
+| C19 | `job` | `cancel` | AZ-025 | editor | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#can_edit | ✓ | `job#can_edit` | go + openfga | eski creator (D1) |
+| C20 | `job` | `close` | AZ-026 | editor | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#can_edit | ✓ | `job#can_edit` | go + openfga | eski creator (D1) |
+| C21 | `job` | `apply` | AZ-035, AZ-036 | editor olmayan herkes; OPEN; hazır olma | applicant_pool but not editor (applicant_pool yalnız OPEN iken) (D3) | — | ✗ | `job#can_apply` | go + openfga | — |
+| C22 | `job` | `open_conversation` | AZ-037, AZ-038, AZ-039 | creator ∪ yetkili herhangi bir işçiyle; işçi kendisi için; ödeme ve engelleme ön süzgeç | editor (+ ödeme/engelleme ön süzgeci) (D1) | — | ✗ | `job#can_open_conversation` | go + openfga | eski creator (D1) |
+| C23 | `job` | `copy_as_template` | AZ-040 | editor (JobEditors kopyası) | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#can_edit | ✓ | `job#can_edit` | go + openfga | eski creator (D1) |
+| C24 | `company` | `read` | AZ-123, AZ-124 | kimlikli her kullanıcı; galeri herkese | = Java | — | ✗ | `company#viewer` | go + openfga | — |
+| C25 | `company` | `read_member_view` | AZ-057, AZ-058, AZ-060 | üye: onay notu, kişi listesi, şirket ilanları | = Java | company#member | ✓ | `company#can_read_internal` | go + openfga | ret biçimi (404/403/maske) |
+| C26 | `company` | `manage` | AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061 | yalnız ADMIN | = Java | company#can_manage | ✓ | `company#can_manage` | go + openfga | — |
+| C27 | `company` | `create_job` | AZ-059 | üye | = Java | company#can_manage_jobs | ✓ | `company#can_manage_jobs` | go + openfga | ret biçimi (400) |
+| C28 | `company` | `tag_talent_pool_entry` | AZ-113 | KONTROL YOK | üye | — | ✗ | `company#can_manage_jobs` | go + openfga | kontrol yok |
+| C29 | `company_invitation` | `read` | AZ-063 | davet eden ∪ davet edilen ∪ şirket ADMIN'i | = Java | — | ✗ | `company_invitation#can_read` | go + openfga | — |
+| C30 | `company_invitation` | `answer` | AZ-062 | yalnız davet edilen | = Java | — | ✗ | `company_invitation#can_answer` | go + openfga | — |
+| C31 | `job_application` | `decide` | AZ-045, AZ-046 | BİREYSEL: creator; ŞİRKET: güncel yetkili | editor from job (D1) | job_application#can_decide (editor from job) | ≈ | `job_application#can_decide` | go + openfga | — |
+| C32 | `job_application` | `withdraw` | AZ-047 | yalnız başvuran | = Java | job_application#can_withdraw | ✓ | `job_application#can_withdraw` | go + openfga | — |
+| C33 | `job_application` | `list` | AZ-118 | creator → bireysel ilanlar; yetkili → şirket ilanları | Scope(can_read) (D1) | Scope(job_application#can_read) | ≈ | `Scope(job_application#can_read)` | go_only | — |
+| C34 | `conversation` | `read` | AZ-064, AZ-065, AZ-066, AZ-067, AZ-069 | katılımcı | = Java | conversation#can_read | ✓ | `conversation#can_read` | go + openfga | — |
+| C35 | `conversation` | `post` | AZ-068, AZ-070, AZ-071, AZ-072, AZ-073 | katılımcı + engelleme + ödeme/pencere ön süzgeçleri | = Java | conversation#can_post | ✓ | `conversation#can_post` | go + openfga | — |
+| C36 | `conversation` | `subscribe` | AZ-074 | katılımcı (STOMP) | katılımcı (K4 düz WS) | conversation#can_read | ✓ | `conversation#can_read` | go + openfga | — |
+| C37 | `conversation` | `publish_to_topic` | AZ-077 | KONTROL YOK (doğrulanmadı) | istemci konu yayını yapamaz (K4 sunucu-itmeli) (K4) | — | dış | `go:protocol_no_client_publish` | skip | kontrol yok |
+| C38 | `conversation` | `list` | AZ-120 | katılımcı | Scope(can_read) | Scope(conversation#can_read) | ✓ | `Scope(conversation#can_read)` | go_only | — |
+| C39 | `message` | `report` | AZ-080 | mesajın sohbetinde katılımcı; gönderen kendi mesajını raporlayamaz | = Java | — | ✗ | `message#can_report` | go + openfga | — |
+| C40 | `dispute` | `read` | AZ-082, AZ-083, AZ-084 | atamanın tarafı | party from assignment (D1) | dispute#can_read | ✓ | `dispute#can_read` | go + openfga | — |
+| C41 | `dispute` | `add_evidence` | AZ-081 | atamanın tarafı; RESOLVED ise 409 | party from assignment (D1) | dispute#can_add_evidence | ✓ | `dispute#can_add_evidence` | go + openfga | — |
+| C42 | `shuttle` | `manage` | AZ-085, AZ-086, AZ-087 | ilanın editor'ı | editor from job (D1) | — | ✗ | `shuttle#can_manage` | go + openfga | — |
+| C43 | `shuttle` | `board` | AZ-088, AZ-089 | koltuk sahibi; koltuksuz taraf 409, yabancı 404 | = Java | — | ✗ | `shuttle#can_board` | go + openfga | — |
+| C44 | `shuttle` | `read_details` | AZ-116 | işveren tarafı tümü; işçi yalnız koltuğu olan servis (VIEW_STATUSES) | can_manage ∪ seat_holder (+ atama durumu ön süzgeci) | — | ✗ | `shuttle#can_read_details` | go + openfga | — |
+| C45 | `seat_assignment` | `mark_boarding` | AZ-090 | koltuğun ilanının editor'ı | can_manage from shuttle (D1) | — | ✗ | `seat_assignment#can_mark_boarding` | go + openfga | — |
+| C46 | `user` | `read_public` | AZ-125, AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131 | tasarım gereği açık | = Java | — | ✗ | `user#public_viewer` | go + openfga | — |
+| C47 | `user` | `read_cv_url` | AZ-094 | kendisi ∪ başvuru almış işveren (projeksiyon) | private_file#can_download (D5) | — | ✗ | `private_file#can_download` | go + openfga | — |
+| C48 | `private_file` | `download` | AZ-093 | sahip ∪ ROLE_ADMIN ∪ başvuru almış işveren | sahip ∪ reviewer (ROLE_ADMIN yok) (D5) | — | ✗ | `private_file#can_download` | go + openfga | ROLE_ADMIN baypası (D5) |
+| C49 | `user` | `read_presence` | AZ-078, AZ-079 | REST'te KONTROL YOK | self ∪ contact | — | ✗ | `user#can_see_presence` | go + openfga | kontrol yok |
+| C50 | `user` | `watch_presence` | AZ-075 | kendisi ∪ ortak sohbet (STOMP) | self ∪ contact | — | ✗ | `user#can_see_presence` | go + openfga | — |
+| C51 | `user` | `create_individual_job` | AZ-044 | öznitelik: isEmployer + kimlik doğrulanmış | = Java | — | dış | `go:attribute_is_employer` | go_only | — |
+| C52 | `image` | `delete` | AZ-095 | yükleyen ∪ ROLE_ADMIN | yalnız yükleyen (D5) | owner (Scope) | dış | `go:owner` | go_only | ROLE_ADMIN baypası (D5); ret biçimi (400) |
+| C53 | `platform` | `read_actuator` | AZ-117 | pazaryeri ROLE_ADMIN | pazaryeri öznesine kapalı (operasyon uçları dış yüzeyde yok) (D5) | — | dış | `go:no_marketplace_admin` | go_only | ROLE_ADMIN baypası (D5) |
+| C54 | `experience` | `write` | AZ-096, AZ-097 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C55 | `education` | `write` | AZ-098, AZ-099 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C56 | `job_alert` | `write` | AZ-100, AZ-101 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C57 | `bank_account` | `write` | AZ-102, AZ-103, AZ-104 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C58 | `device` | `write` | AZ-107 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C59 | `availability_exception` | `write` | AZ-110 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C60 | `job_template` | `read` | AZ-105 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
+| C61 | `job_template` | `write` | AZ-106 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
+| C62 | `session` | `read` | AZ-108 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
+| C63 | `session` | `write` | AZ-109 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
+| C64 | `user_verification` | `confirm` | AZ-111 | yalnız sahibi; ret 403 | yalnız sahibi; gizli ret | owner | dış | `go:owner` | go_only | ret biçimi (403) |
+| C65 | `notification` | `mark_read` | AZ-112 | yalnız alıcı; başkasınınki sessiz 200 | yalnız alıcı; gizli ret | owner | dış | `go:owner` | go_only | sessiz kabul |
+| C66 | `notification` | `mark_opened` | AZ-132 | kimliksiz; bildirim UUID'si | = Java | — | dış | `go:capability_url` | go_only | — |
+| C67 | `address_search_session` | `use` | AZ-114, AZ-115 | bellek içi oturumun sahibi; ret 400 | = Java | owner | dış | `go:owner` | go_only | — |
+| C68 | `payment_attempt` | `complete_callback` | AZ-133 | kimliksiz; sağlayıcı token'ı + sunucudan sorgu | = Java | — | dış | `go:provider_token` | skip | — |
+| C69 | `payment_attempt` | `read_outcome` | AZ-134 | kimliksiz; kayıtlı sonucu okur | = Java | — | dış | `go:provider_token` | skip | — |
+| C70 | `realtime_destination` | `subscribe` | AZ-076 | bilinen hedef dışı SUBSCRIBE reddedilir | = Java (K4 protokolünde) (K4) | — | dış | `go:ws_destination` | go_only | — |
 
-| Çift | Java | §5.4 modeli | Sonuç |
+<!-- tablo:bitir -->
+
+## §5.4'ün yanlış ifade ettiği çiftler (≈)
+
+| Çift | §5.4 | Hedef | Düzeltme |
 |---|---|---|---|
-| C04 `job_assignment.pay`, C18 `job.list_applications`, C31 `job_application.decide`, C33 `job_application.list` | Bireysel ilanda yalnız creator; şirket ilanında yalnız şirketin **güncel** yetkilisi. Creator şirketten ayrıldıysa erişimi biter. | `editor from job` = creator ∪ şirket üyesi; creator her zaman içeride | Java'da iki ayrı "işveren" kavramı var. **JobEditors/partyOf** (düzenleme, atama okuma, tamamlama, iptal) creator'ı her zaman içerir. **Başvuru/ödeme yolu** ise creator'ı yalnız bireysel ilanda tanır. Model yalnız ilkini ifade ediyor. |
-| C12 `job_assignment.list` | "İşveren olarak atamalarım" yalnız `creator_id` ile süzer | `Scope(can_read)` = party | Tekil okuma şirket yetkilisine açık ama liste kapalı. Scope ile Check aynı relation'dan türetilirse liste genişler. Bu bir ürün kararı. |
-| C13 `job.read` | CLOSED/CANCELLED dahil her ilan kimliksiz okunur | `public_viewer` yalnız OPEN iken yazılır | Model daha kısıtlayıcı. Kapanmış ilanın paylaşılan bağlantısı Go'da 404 olur. |
-| C14 `job.read_employer_view` | Detayda editor, arama listesinde yalnız creator | `editor` | Java kendi içinde tutarsız. Model tek kural verir. |
-| C51 `image.delete` | Yükleyen **ya da marketplace `ROLE_ADMIN`** | sahip (Scope) | `ROLE_ADMIN` baypası personel modeline taşınmamış. Go'da kalkar (§5.5). |
+| C04 `job_assignment.pay`, C18 `job.list_applications`, C31 `job_application.decide`, C33 `job_application.list` | `editor from job`; editor creator'ı her zaman içerir | D1: şirket ilanında yalnız güncel üyelik | `editor` D1'e göre yeniden tanımlandı; Java bu yolda zaten D1 gibi. |
+| C13 `job.read` | `public_viewer` yalnız OPEN iken yazılır | D3: her durumda görünür, başvuru ayrı | `public_viewer` her durumda; `applicant_pool` yalnız OPEN. |
 
-## Modelde karşılığı olmayan çiftler (✗)
+## Önerilen DSL (D1–D5 uygulanmış)
 
-- **Atama alt eylemleri:** C02 `respond` (yalnız işçi), C07 `open_dispute` (taraf), C08 `review` (taraf), C09 `reveal_worker_identity` (işveren tarafı), C10 `select_seat` (taraf), C11 `issue_boarding_qr` (yalnız işçi).
-- **İlan:** C15 `read_exact_address`. Alan düzeyi bir kural. Şirket yetkilisini dışarıda bırakır, editor'dan dardır. C21 `apply` negatif bir ilişki. C22 `open_conversation`.
-- **Şirket:** C24 `read`: kimlikli herkes okur. C28 `tag_talent_pool_entry`: **Java'da kontrol yok**.
-- **Tipi olmayan nesneler:**
-  - C29, C30 `company_invitation`
-  - C39 `message.report`
-  - C42, C43 `shuttle`; C44 `seat_assignment`
-  - C46, C47 CV dosyası
-  - C45 `user.read_public`
-- **Presence:** C48 REST'te **kontrol yok**. C49 STOMP'ta "kendisi ya da ortak sohbet" kuralı var. §5.4 bunu zaten "bilinen kalem" olarak not ediyor. REST ile WS'nin aynı kurala bağlanması gerekir.
-- **C37 `conversation.publish_to_topic`:** STOMP SEND katılımcı kontrolünden geçmiyor (**doğrulanmadı**). K4 ile istemci yayın yapamayacağından Go'da relation gerekmez. Protokol bu yayını reddeder.
-
-## Model düzeltme önerisi
-
-Aşağıdaki ekler §5.4'ün alt kümesinde kalır (`[type]`, `X from Y`, `or`, `but not`). İşaretli satırlar Java'nın bugünkü davranışını korur. Hangisinin hedef olduğu ürün kararıdır.
+Alt küme: `[type]`, `X from Y`, `or`, `but not`. `with condition` kullanılmadı; durum koşulları tuple varlığına çevrildi ya da Go ön süzgecinde (§5.2-3).
 
 ```
+model
+  schema 1.1
+
+type user
+  relations
+    define self: [user]                       # her kullanıcı için user:X#self@user:X
+    define contact: [user]                    # sohbet kurulurken iki yönlü yazılır
+    define public_viewer: [user:*]            # deneyim, müsaitlik, rozet, yorum, puan
+    define can_see_presence: self or contact  # REST ve WS aynı kural (C49, C50)
+
+type staff
+type staff_role
+  relations
+    define includer: [staff_role]
+    define assignee: [staff] or assignee from includer
+
+type platform                                 # personel izinleri (25); pazaryeri öznesine relation yok (D5)
+  relations
+    define user_read_pii: [staff_role#assignee]
+    # … §5.4'teki gibi
+
+type company
+  relations
+    define admin: [user]
+    define staff_member: [user]
+    define member: admin or staff_member
+    define viewer: [user:*]                   # C24
+    define can_manage: admin
+    define can_manage_jobs: member
+    define can_read_internal: member          # onay notu, kişi listesi, şirket ilanları (C25)
+
+type company_invitation                       # C29, C30
+  relations
+    define company: [company]
+    define inviter: [user]
+    define invitee: [user]
+    define can_read: inviter or invitee or admin from company
+    define can_answer: invitee
+
 type job
   relations
     define owner_company: [company]
-    define creator: [user]
-    define individual_owner: [user]          # YENİ: tuple yalnız employerType = INDIVIDUAL iken yazılır
-    define public_viewer: [user:*]
-    define editor: creator or can_manage_jobs from owner_company
-    define employer: individual_owner or member from owner_company   # YENİ: başvuru/ödeme yolunun "işveren"i (Java C04/C18/C31/C33)
+    define creator: [user]                    # denetim için; yetki vermez (D1)
+    define individual_owner: [user]           # yalnız BİREYSEL ilanda yazılır (D1)
+    define public_viewer: [user:*]            # her durumda; soft-delete'te silinir (D3)
+    define applicant_pool: [user:*]           # yalnız OPEN iken (D3)
+    define active_worker: [user]              # adresin göründüğü atama durumlarında
+    define public_address_viewer: [user:*]    # şirket adresi herkese açıksa
+    define employer: individual_owner or member from owner_company   # D1
+    define editor: employer
     define can_view: public_viewer or editor
     define can_edit: editor
-    define can_apply: [user:*] but not editor                         # YENİ (C21); OPEN + hazır olma prefilter
-    define can_list_applications: employer                            # YENİ (C18)
+    define can_read_private: editor           # ulaşım planı, ilanın atama listesi (C17)
+    define can_list_applications: editor      # C18
+    define can_apply: applicant_pool but not editor   # C21
+    define can_open_conversation: editor      # işçi tarafı ödeme ön süzgeciyle (C22)
+    define can_read_exact_address: editor or active_worker or public_address_viewer   # C15
 
 type job_application
   relations
     define job: [job]
     define applicant: [user]
-    define can_read: applicant or employer from job                   # DEĞİŞİR: editor → employer
-    define can_decide: employer from job                              # DEĞİŞİR (C31)
+    define can_read: applicant or editor from job
+    define can_decide: editor from job
     define can_withdraw: applicant
 
 type job_assignment
@@ -154,74 +204,66 @@ type job_assignment
     define worker: [user]
     define party: worker or editor from job
     define can_read: party
-    define can_respond: worker                                        # YENİ (C02)
+    define can_respond: worker
     define can_cancel: party
-    define can_complete: editor from job
-    define can_pay: employer from job                                 # DEĞİŞİR (C04)
-    define can_record_work: worker                                    # ad değişikliği: can_check_in (check-in + check-out)
-    define can_open_dispute: party                                    # YENİ (C07); emanet prefilter
-    define can_review: party                                          # YENİ (C08); COMPLETED prefilter
-    define can_reveal_worker_identity: editor from job                # YENİ (C09); HIRED prefilter + oran sınırı
-    define can_select_seat: party                                     # YENİ (C10)
-    define can_board: worker                                          # YENİ (C11)
+    define can_complete: editor from job      # D4 ön süzgeç
+    define can_pay: editor from job           # yetki kontrolü durumdan önce
+    define can_record_work: worker            # check-in ve check-out
+    define can_open_dispute: party
+    define can_review: party                  # COMPLETED ön süzgeç
+    define can_reveal_worker_identity: editor from job   # HIRED ön süzgeç + oran sınırı
+    define can_select_seat: party
+    define can_board: worker
 
-type company
+type dispute
   relations
-    define viewer: [user:*]                                           # YENİ (C24)
-    # admin, staff_member, member, can_manage, can_manage_jobs aynen
+    define assignment: [job_assignment]
+    define can_read: party from assignment
+    define can_add_evidence: party from assignment
 
-type company_invitation                                               # YENİ (C29, C30)
+type conversation
   relations
-    define company: [company]
-    define inviter: [user]
-    define invitee: [user]
-    define can_read: inviter or invitee or admin from company
-    define can_answer: invitee
+    define participant: [user]
+    define can_read: participant
+    define can_post: participant              # engelleme ve ödeme ön süzgeç
 
-type message                                                          # YENİ (C39)
+type message                                  # C39
   relations
     define conversation: [conversation]
     define sender: [user]
     define can_report: participant from conversation but not sender
 
-type shuttle                                                          # YENİ (C42, C43)
+type shuttle                                  # C42, C43, C44
   relations
     define job: [job]
-    define seat_holder: [user]                                        # koltuk seçiminde yazılır
+    define seat_holder: [user]                # koltuk seçiminde yazılır
     define can_manage: editor from job
     define can_board: seat_holder
+    define can_read_details: can_manage or seat_holder   # plaka/şoför; atama durumu ön süzgeç
 
-type seat_assignment                                                  # YENİ (C44)
+type seat_assignment                          # C45
   relations
     define shuttle: [shuttle]
     define can_mark_boarding: can_manage from shuttle
 
-type cv                                                               # YENİ (C46, C47)
+type private_file                             # CV (C47, C48); tek tip adı
   relations
     define owner: [user]
-    define reviewer: [user, company#member]                           # başvuru anında yazılır (Java: kalıcı)
+    define reviewer: [user, company#member]   # başvuru anında yazılır (Java'da kalıcı)
     define can_download: owner or reviewer
-
-type user
-  relations
-    define public_viewer: [user:*]                                    # YENİ (C45): deneyim, müsaitlik, rozet, yorum
-    define contact: [user]                                            # §5.4'teki bilinen kalem (C48, C49)
-    define can_see_presence: contact
 ```
-
-**Not:** `employer` ilişkisi Java'nın bugünkü davranışını korur. Ürün tarafı "ilan sahibi şirketten ayrılsa da kendi açtığı ilanın başvurularını yönetsin" derse `employer` kaldırılır ve yerine `editor` kullanılır. O durumda C04, C18, C31 ve C33 ✓ olur ve Java'dan bilinçli olarak ayrılınır. Karar verilmeden matrisin bu satırları "karar bekliyor" kalır.
 
 ## Kontrol eksik ya da şüpheli noktalar (envanterden)
 
-| Satır | Bulgu |
-|---|---|
-| AZ-078, AZ-079 | `GET /users/{userId}/presence` ve `POST /presence/lookup` herkesin çevrimiçi/son görülme bilgisini döndürüyor. STOMP'taki kural REST'te yok. |
-| AZ-077 | STOMP SEND `/topic/conversations/{id}`: yalnız oran sınırı var. Simple broker bunu abonelere iletebilir. **Doğrulanmadı.** Testi yok. |
-| AZ-113 | `PUT /users/me/talent-pool/{workerId}`: `companyId` için üyelik kontrolü yok. |
-| AZ-004 | `POST /job-assignments/{id}/payment-session`: durum (409) yetkiden (403) önce bakılıyor. Yabancı, atamanın ödeme durumunu öğrenebiliyor. |
-| AZ-033, AZ-034 | `GET /jobs/{jobId}/applications`: şirket dalı 400, bireysel dal 404 dönüyor. Aynı uçta iki farklı ret biçimi var. |
-| AZ-095 | `DELETE /images/{id}`: var olmayan görsel ile yetkisiz istek farklı 400 mesajları alıyor, yani var olma sızıyor. Ayrıca `ROLE_ADMIN` baypası var. |
-| AZ-111 | `POST /verifications/{id}/confirm`: 403 ile 404 ayrımı var olmayı sızdırıyor (N01 §9.d). |
-| AZ-112 | `POST /users/me/notifications/{id}/read`: başkasının bildirimi sessizce 200 alıyor. |
-| AZ-093 | CV indirme: işçi bir kez başvurduysa, o işverenin bütün güncel yetkilileri CV'yi süresiz indirebiliyor. |
-| AZ-043 | Tam adres, şirket ilanında şirket yetkilisine (creator değilse) gösterilmiyor. Bu editor kuralından dar. Kasıtlı görünüyor: `CompanyJobListingRulesTest:177#theSameJobIsExactForTheContactWhoOpenedItAndApproximateForTheOther` bu davranışı bağlıyor. |
+| Satır | Öncelik | Bulgu |
+|---|---|---|
+| AZ-077 | **yüksek** | STOMP SEND `/topic/conversations/{id}`: yalnız oran sınırı; simple broker abonelere iletebilir (sahte olay). **Doğrulanmadı**, testi yok. Go'da K4 sunucu-itmeli protokolle kapanır: istemci konu yayını yapamaz. |
+| AZ-078, AZ-079 | yüksek | `GET /users/{userId}/presence`, `POST /presence/lookup` herkesin çevrimiçi/son görülme bilgisini döndürüyor. STOMP'taki kural REST'te yok. |
+| AZ-004, AZ-005 | orta | Ödeme oturumunda durum (409) yetkiden önce; yabancı ödeme durumunu öğrenebiliyor. Go: yetki önce (karar). |
+| AZ-113 | orta | Yetenek havuzunda `companyId` üyelik kontrolü yok. |
+| AZ-093, AZ-095, AZ-117 | orta | Pazaryeri ROLE_ADMIN baypası (CV, görsel, `/actuator`). D5 ile kalkar. |
+| AZ-033, AZ-034 | düşük | Aynı uçta şirket dalı 400, bireysel dal 404. |
+| AZ-095 | düşük | Var olmayan görsel ile yetkisiz istek farklı 400 mesajı: var olma sızar. |
+| AZ-111 | düşük | 403/404 ayrımı var olmayı sızdırıyor (N01 §9.d). |
+| AZ-112 | düşük | Başkasının bildirimi sessizce 200. |
+| AZ-043 | — | Tam adres şirket ilanında creator dışındaki yetkiliye gösterilmiyor; `CompanyJobListingRulesTest#theSameJobIsExactForTheContactWhoOpenedItAndApproximateForTheOther` bağlıyor. D1'den türetilen hedef tüm üyeler; ürün onayı istenir. |

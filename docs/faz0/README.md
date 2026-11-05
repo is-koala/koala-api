@@ -1,14 +1,16 @@
 # Faz 0: Java authz envanteri
 
-Bu klasörde Java `koala-backend`'deki dağınık yetki kontrollerinin envanteri var (plan §5.6-1, §5.6-2). Kaynak `origin/main` anlık görüntüsüdür. Satır numaraları o görüntüye aittir. Java çalıştırılmadı; envanter kod ve test okunarak çıkarıldı.
+Bu klasörde Java `koala-backend`'deki dağınık yetki kontrollerinin envanteri var (plan §5.6-1, §5.6-2; ADR-0014). Kaynak `origin/main` anlık görüntüsüdür. Satır numaraları o görüntüye aittir. Java çalıştırılmadı; envanter kod ve test okunarak çıkarıldı.
 
 | Dosya | İçerik |
 |---|---|
-| [`authz-envanteri.csv`](authz-envanteri.csv) | Marketplace tarafı, kaynak düzeyi yetki noktaları: **132 satır** |
-| [`authz-personel-izinleri.csv`](authz-personel-izinleri.csv) | Personel tarafı: 83 `/admin` ucunun izni ve 18 servis içi dinamik kontrol, **101 satır** |
-| [`authz-ciftleri.md`](authz-ciftleri.md) | Satırların `(nesne tipi, eylem)` çiftlerine indirgenmesi (**68 çift**), §5.4 modeline eşleme, uyumsuzluklar ve model önerisi |
-| [`../../test/authz/matrix.yaml`](../../test/authz/matrix.yaml) | Matris **taslağı**: 186 satır, her çiftte en az bir izin ve bir ret |
-| [`tarama/`](tarama/) | Envanteri üreten betikler |
+| [`authz-envanteri.csv`](authz-envanteri.csv) | Pazaryeri tarafı, kaynak düzeyi yetki noktaları: **134 satır** (`AZ-nnn`) |
+| [`authz-personel-izinleri.csv`](authz-personel-izinleri.csv) | Personel tarafı: 83 `/admin` ucunun izni ve 18 servis içi dinamik kontrol, **101 satır** (`PI-nnn`) |
+| [`authz-ciftleri.md`](authz-ciftleri.md) | Satırların `(nesne tipi, eylem)` çiftlerine indirgenmesi (**70 çift**), §5.4 modeline eşleme, ürün kararları D1–D5, önerilen DSL |
+| [`../../internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml) | Matris **taslağı**: 210 satır; fikstürler, tuple'lar, `actions:` haritası, `basis` sözlüğü, `java` / `expect` ayrımı, `engine` |
+| [`tarama/`](tarama/) | Envanteri, matrisi ve oracle tablolarını üreten betikler |
+
+İlgili teslimler: senaryo kataloğu [`test/scenarios/`](../../test/scenarios/), oracle [`testdata/oracle/`](../../testdata/oracle/), Iyzico vektörleri [`testdata/iyzico/`](../../testdata/iyzico/).
 
 ## Nasıl üretildi
 
@@ -42,16 +44,17 @@ Bu klasörde Java `koala-backend`'deki dağınık yetki kontrollerinin envanteri
 4. **Test bağlama.**
    - `tarama/tests.py` 2 752 test metodunu indeksliyor: HTTP istekleri, beklenen statüler, çağrılan metotlar ve beklenen istisnalar.
    - Aday testler uç ve ret statüsü eşleşmesiyle önerildi.
-   - Sonra test gövdeleri okunarak elle seçildi: `test_eslesmesi = elle`, **72 satır**.
-   - Bulunamayanlar `bulunamadı` olarak işaretli: **60 satır**. Bunların bir kısmı bilinçli olarak testi olmayan noktalar: tasarım gereği açık uçlar, kimliksiz uçlar ve kontrolü olmayan noktalar.
+   - Sonra test gövdeleri okunarak elle seçildi: `test_eslesmesi = elle`, **73 satır**.
+   - Bulunamayanlar `bulunamadı` olarak işaretli: **61 satır**. Bunların bir kısmı bilinçli olarak testi olmayan noktalar: tasarım gereği açık uçlar, kimliksiz uçlar ve kontrolü olmayan noktalar.
 
-Yeniden üretmek için (Python 3, bağımlılık yok, Java gerekmez):
+Yeniden üretmek için (Python 3, bağımlılık yok, Java gerekmez). **Bütün betikler depo kökünden çalışır**; `<backend-src>` Java deposunun yerel kopyasıdır, ara dosyalar için geçici bir dizin kullanın:
 
 ```sh
-python3 -I tarama/endpoints.py <backend-src> > eps.json
-python3 -I tarama/tests.py     <backend-src> > tests.json
-python3 -I tarama/build_authz.py <backend-src> eps.json tests.json <çıktı-dizini>
-python3 -I tarama/pairs.py <çıktı-dizini>/authz-envanteri.csv ciftler-tablo.md ../../test/authz/matrix.yaml
+python3 -I docs/faz0/tarama/endpoints.py <backend-src> > /tmp/eps.json
+python3 -I docs/faz0/tarama/tests.py     <backend-src> > /tmp/tests.json
+python3 -I docs/faz0/tarama/build_authz.py <backend-src> /tmp/eps.json /tmp/tests.json   # → docs/faz0/*.csv
+python3 -I docs/faz0/tarama/pairs.py                                                     # → authz-ciftleri.md tablosu + matrix.yaml
+python3 -I docs/faz0/tarama/oracle_uret.py                                               # → testdata/oracle/*.csv
 ```
 
 ## Satır kuralı
@@ -60,13 +63,15 @@ Bir satır, **(guard'ın konumu, korunan public metot)** ikilisidir.
 
 - `requireCompanyAdmin` 8 yerden çağrılır. Bu yüzden 8 satırdır ve her satır kendi ucunu taşır.
 - `MessagingManager.loadParticipating` 5 public metodu korur. Bu yüzden aynı konumdan 5 satır çıkar.
-- Toplam 132 satır, 112 farklı konumdan ve 39 dosyadan geliyor.
+- `requireOwned` gibi özel yardımcılarda `konum` karar satırıdır (`ExperienceManager.java:79`); çağrı satırı `desen`'de yazılıdır.
+- Toplam 134 satır, 109 farklı konumdan ve 40 dosyadan geliyor.
 
 Envantere girenler:
 
 - Tekil kaynak kontrolleri.
 - Alt nesnenin ebeveyne aitliği (kapsama). Örnekler: servis plana ait mi, kanıt uyuşmazlığa ait mi.
-- Alan düzeyi projeksiyonlar. Bunlarda ret yoktur, alan maskelenir.
+- Alan düzeyi projeksiyonlar. Bunlarda ret yoktur, alan maskelenir (ör. ulaşımda plaka/şoför, `TransportManager.assignmentView`).
+- URL düzeyi rol kuralı: `/actuator/**` pazaryeri `ROLE_ADMIN` (D5 ile kalkar).
 - İlişki taşıyan liste kapsamları. Bunlar "kendi" listeleri dışındaki 3 liste.
 - Tasarım gereği açık uçlar: 11 satır, ileride `public` ilişkisi olarak modellenecek.
 - Kimliksiz uçlar: yetenek URL'si ya da sağlayıcı token'ı ile çalışanlar.
@@ -91,12 +96,14 @@ Envantere girmeyenler:
 | `alt_eylem` | Uca özgü eylem |
 | `gizleme_404` | `evet` = `Concealment.notFound` · `evet-yardımcısız` = var olmayanla aynı 404 mesajı, yardımcı yok · `kısmi` = 404 ama mesaj farklı (ayırt edilebilir) · `hayır` = 403/400/409 · `sessiz` = 200, iş yok · `yok` = ret yok |
 | `hata_kodu` | HTTP statüsü ve mesaj sabiti |
-| `java_testi` | Bağlayan test (`Dosya.java:satır#test`) |
+| `java_testi` | Bağlayan test (`src/test/java/…/Dosya.java#test`; biçim senaryo ve oracle ile aynı) |
 | `test_eslesmesi` | `elle` / `bulunamadı` |
 | `uc` | HTTP metot + yol (STOMP için `STOMP SUBSCRIBE/SEND …`) |
 | `not` | Bulgu ya da açıklama |
 
 ## Personel tarafı (`authz-personel-izinleri.csv`)
+
+**Matrisin kapsamı dışındadır.** `matrix.yaml` pazaryeri ReBAC kararlarını sınar. Personel tarafı uç başına izin tablosudur (RBAC + rol DAG'ı, §5.5); Go'da `/v1/admin/**` operasyonlarının `x-authz-permission` eşlemesi ve ayrı bir izin tablosu testiyle bağlanacak. Kaynağı bu CSV'dir; satır kimlikleri `PI-nnn` (oracle'daki `ST-` settlement görevi satırlarıyla çakışmasın diye).
 
 - 79 uç `@RequiresPermission` ile korunuyor, 4'ü kimlik doğrulama ucu.
 - Birden çok izin yazılmışsa hepsi gerekir (`containsAll`). Boş izin "kayıtlı personel yeter" demektir. Annotation yoksa istek fail-closed 403 alır.
@@ -111,8 +118,8 @@ Envantere girmeyenler:
 
 ## Doğrulanmamış noktalar
 
-- **AZ-077.** STOMP SEND ile `/topic/conversations/{id}`'ye yayın gerçekten abonelere ulaşıyor mu? Simple broker davranışı canlı denenmedi.
-- **AZ-121.** Onaylanmamış şirketin detayı herkese açık görünüyor. Onay durumu süzgeci bulunamadı ama tam taranmadı.
-- **AZ-131, AZ-132.** Ödeme callback'inin uydurma ya da bilinmeyen token'la davranışı matriste "doğrulanmadı" olarak duruyor.
+- **AZ-077 (öncelik yüksek).** STOMP SEND ile `/topic/conversations/{id}`'ye yayın gerçekten abonelere ulaşıyor mu? Simple broker davranışı canlı denenmedi. Go'da K4 sunucu-itmeli protokolle kapanır.
+- **AZ-123.** Onaylanmamış şirketin detayı herkese açık görünüyor. Onay durumu süzgeci bulunamadı ama tam taranmadı.
+- **AZ-133, AZ-134.** Ödeme callback'inin bilinmeyen token'la davranışı matriste `skip` motoruyla duruyor; oracle `reconcile.csv` RC-01 bağlar.
 - **Personel CSV'sinde ret testi eşleşmesi otomatik.** 47 satırın testleri elle okunmadı.
-- **`bulunamadı` olan 60 satır.** Testin gerçekten olmadığı kesin değil. Tarama yöntemi, yolu değişkenle kuran testleri kaçırır.
+- **`bulunamadı` olan 61 satır.** Testin gerçekten olmadığı kesin değil. Tarama yöntemi, yolu değişkenle kuran testleri kaçırır.
