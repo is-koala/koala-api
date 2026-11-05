@@ -39,9 +39,7 @@ func TestReadTestOnExampleResources(t *testing.T) {
 		App:     app,
 		Catalog: dbtest.SoftDeleteCatalog(t),
 		Fixtures: map[string]softdeletetest.Fixture{
-			"example_owners": func(ctx context.Context, q db.Querier) (uuid.UUID, error) {
-				return insertOwner(ctx, q)
-			},
+			"example_owners": insertOwner,
 			"example_projects": func(ctx context.Context, q db.Querier) (uuid.UUID, error) {
 				owner, err := insertOwner(ctx, q)
 				if err != nil {

@@ -99,7 +99,7 @@ func loadCatalog(paths ...string) (*softdelete.Catalog, error) {
 	}
 	docs := make([][]byte, len(paths))
 	for i, p := range paths {
-		data, err := os.ReadFile(p) //nolint:gosec // a repository path given by make or the probe script
+		data, err := os.ReadFile(p)
 		if err != nil {
 			return nil, fmt.Errorf("read catalog: %w", err)
 		}
@@ -114,7 +114,7 @@ func loadCatalog(paths ...string) (*softdelete.Catalog, error) {
 
 // rewrite applies fn to the file and writes it back only when it changed.
 func rewrite(path string, fn func(string) (string, error)) error {
-	data, err := os.ReadFile(path) //nolint:gosec // repository paths from the fixed lists above
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read: %w", err)
 	}
