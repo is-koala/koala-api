@@ -114,7 +114,9 @@ func echoValidated(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("X-Read-Failed", strconv.FormatBool(readErr != nil))
-	_ = json.NewEncoder(w).Encode(v.ValidatedValue())
+	if err := json.NewEncoder(w).Encode(v.ValidatedValue()); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func newValidateRouter(t *testing.T) http.Handler {

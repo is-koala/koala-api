@@ -95,6 +95,6 @@ func (s skipRoutes) Trace(p string, h http.HandlerFunc)   { s.handle(http.Method
 
 func (s skipRoutes) handle(method, pattern string, h http.HandlerFunc) {
 	if !s.skip[pattern] {
-		s.Router.MethodFunc(method, pattern, h)
+		s.MethodFunc(method, pattern, h)
 	}
 }
