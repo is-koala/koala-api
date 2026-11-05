@@ -624,7 +624,7 @@ func TestMetricsUseRouteTemplates(t *testing.T) {
 	h := withClient(r)
 	do(h, http.MethodGet, "/v1/jobs/4242", nil)
 	do(h, http.MethodGet, "/v1/jobs/4343", nil)
-	doRaw(h, http.MethodGet, "/v1/jobs/4444", nil, "")
+	doRaw(r, http.MethodGet, "/v1/jobs/4444", nil, "") // no client headers: 400
 	do(h, "PURGE", "/v1/jobs/1", nil)
 
 	got := series(t, reg, httpx.MetricRequestDuration)

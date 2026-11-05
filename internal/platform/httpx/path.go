@@ -50,7 +50,10 @@ func canonicalPath(path, raw string) bool {
 		return false
 	}
 	for i := range len(path) {
-		if c := path[i]; c < 0x20 || c == 0x7f || c == '\\' {
+		// A '%' left after decoding was sent as %25. Go keeps no raw form
+		// for it when the default encoding reproduces the request, so it
+		// is caught here rather than in raw.
+		if c := path[i]; c < 0x20 || c == 0x7f || c == '\\' || c == '%' {
 			return false
 		}
 	}
