@@ -11,7 +11,7 @@
 //
 // Fanout is in memory, so one process serves all connections (plan §9
 // R9). Running several instances needs a cross-instance channel such as
-// Postgres LISTEN/NOTIFY; see ADR-0011.
+// Postgres LISTEN/NOTIFY; see ADR-0018.
 package realtime
 
 import (
@@ -121,6 +121,8 @@ type TypingData struct {
 // Error codes of the realtime layer.
 const (
 	CodeTicketInvalid       apperr.Code = "REALTIME_TICKET_INVALID"
+	CodeTicketRateLimited   apperr.Code = "REALTIME_TICKET_RATE_LIMITED"
+	CodeDeviceRequired      apperr.Code = "REALTIME_DEVICE_REQUIRED"
 	CodeProtocolUnsupported apperr.Code = "REALTIME_PROTOCOL_UNSUPPORTED"
 	CodeOriginForbidden     apperr.Code = "REALTIME_ORIGIN_FORBIDDEN"
 	CodeDraining            apperr.Code = "REALTIME_DRAINING"

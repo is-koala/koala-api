@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -11,14 +12,14 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"golang.org/x/time/rate"
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
-	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
 
 // client is one WebSocket connection. Three goroutines serve it: the HTTP
-// handler goroutine reads, a writer drains send, and a heartbeat pings.
-// Only the writer writes data and close frames.
+// handler goroutine reads, a writer drains send, and a heartbeat pings and
+// re-checks the session. Only the writer writes data and close frames.
 type client struct {
 	id        string
 	principal Principal
@@ -37,12 +38,13 @@ type client struct {
 	seen atomic.Bool
 
 	// Read loop only.
-	bucket  tokenBucket
+	limiter *rate.Limiter
 	strikes int
 }
 
 // requestClose asks the writer to send a close frame with code and end
-// the connection. The first request wins.
+// the connection. The first request wins. Callers go through
+// Hub.closeClient, which also stops the fanout to c.
 func (c *client) requestClose(code websocket.StatusCode, reason string) {
 	c.closeOnce.Do(func() {
 		c.closeCode = code
@@ -51,20 +53,28 @@ func (c *client) requestClose(code websocket.StatusCode, reason string) {
 	})
 }
 
-// enqueue queues msg without blocking. A client whose queue is full is
-// too slow to keep up; it is closed with 1013 and backfills over REST
-// after reconnecting.
-func (c *client) enqueue(msg []byte) {
+func (c *client) isClosing() bool {
 	select {
-	case c.send <- msg:
+	case <-c.closing:
+		return true
 	default:
-		c.requestClose(websocket.StatusTryAgainLater, "slow consumer")
+		return false
 	}
 }
 
-// serve upgrades an authenticated handshake and runs the connection until
-// it ends. It runs in the HTTP handler goroutine of a Router.Stream route,
-// so r's context has no request deadline.
+// enqueue queues msg without blocking and reports whether it fit.
+func (c *client) enqueue(msg []byte) bool {
+	select {
+	case c.send <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
+// serve joins, re-checks the session, upgrades and runs the connection
+// until it ends. It runs in the HTTP handler goroutine of a Router.Stream
+// route, so r's context has no request deadline.
 func (h *Hub) serve(w http.ResponseWriter, r *http.Request, p Principal, allowedOrigins []string) {
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -74,7 +84,7 @@ func (h *Hub) serve(w http.ResponseWriter, r *http.Request, p Principal, allowed
 		send:      make(chan []byte, h.opts.SendBuffer),
 		kill:      cancel,
 		closing:   make(chan struct{}),
-		bucket:    newTokenBucket(h.opts.CommandRate, h.opts.CommandBurst),
+		limiter:   rate.NewLimiter(rate.Limit(h.opts.CommandRate), h.opts.CommandBurst),
 	}
 	hello, err := h.encode(EventHello, HelloData{
 		ConnectionID:        c.id,
@@ -82,14 +92,21 @@ func (h *Hub) serve(w http.ResponseWriter, r *http.Request, p Principal, allowed
 		MaxMessageBytes:     h.opts.MaxMessageBytes,
 	})
 	if err != nil {
-		httpx.WriteError(w, r, h.logger, err)
+		writeHandshakeError(w, r, h.logger, err)
 		return
 	}
 	if err := h.join(c, hello); err != nil {
-		httpx.WriteError(w, r, h.logger, err)
+		writeHandshakeError(w, r, h.logger, err)
 		return
 	}
 	defer h.leave(c)
+
+	// A revocation between Redeem and join found no connection to close;
+	// checking once more after join closes that window.
+	if err := h.checkSession(ctx, p); err != nil {
+		writeHandshakeError(w, r, h.logger, err)
+		return
+	}
 
 	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		Subprotocols:   []string{Subprotocol},
@@ -105,6 +122,21 @@ func (h *Hub) serve(w http.ResponseWriter, r *http.Request, p Principal, allowed
 	h.logger.InfoContext(ctx, "realtime connected", slog.String("connection_id", c.id))
 	h.run(ctx, ws, c)
 	h.logger.InfoContext(ctx, "realtime disconnected", slog.String("connection_id", c.id))
+}
+
+// checkSession reports a session that is no longer active as 401
+// REALTIME_TICKET_INVALID, within HandshakeTimeout.
+func (h *Hub) checkSession(ctx context.Context, p Principal) error {
+	sctx, cancel := context.WithTimeout(ctx, h.opts.HandshakeTimeout)
+	defer cancel()
+	active, err := h.sessions.Active(sctx, p)
+	if err != nil {
+		return fmt.Errorf("realtime: check session: %w", err)
+	}
+	if !active {
+		return apperr.New(apperr.KindUnauthenticated, CodeTicketInvalid)
+	}
+	return nil
 }
 
 // run serves an accepted connection and returns when all its goroutines
@@ -131,7 +163,7 @@ func (h *Hub) readLoop(ctx context.Context, ws *websocket.Conn, c *client) {
 				// rest of the oversized message; closing the socket with
 				// unread input would reset the connection before the
 				// client sees the close frame.
-				c.requestClose(websocket.StatusMessageTooBig, "message too big")
+				h.closeClient(c, websocket.StatusMessageTooBig, "message too big")
 			}
 			h.logger.DebugContext(ctx, "realtime read ended",
 				slog.String("connection_id", c.id),
@@ -141,13 +173,13 @@ func (h *Hub) readLoop(ctx context.Context, ws *websocket.Conn, c *client) {
 		}
 		c.seen.Store(true)
 		if typ != websocket.MessageText {
-			c.requestClose(websocket.StatusUnsupportedData, "text messages only")
+			h.closeClient(c, websocket.StatusUnsupportedData, "text messages only")
 			return
 		}
-		if !c.bucket.allow(h.clock.Now()) {
+		if !c.limiter.AllowN(h.clock.Now(), 1) {
 			c.strikes++
 			if c.strikes >= h.opts.MaxRateStrikes {
-				c.requestClose(websocket.StatusPolicyViolation, "rate limit exceeded")
+				h.closeClient(c, websocket.StatusPolicyViolation, "rate limit exceeded")
 				return
 			}
 			if c.strikes == 1 {
@@ -160,11 +192,21 @@ func (h *Hub) readLoop(ctx context.Context, ws *websocket.Conn, c *client) {
 	}
 }
 
-// writeLoop writes queued events and, when asked, the close frame.
+// writeLoop writes queued events and, when asked, the close frame. A close
+// request wins over queued events: nothing is written to a connection
+// after it was asked to close, for example after its session was revoked.
 func (h *Hub) writeLoop(ctx context.Context, ws *websocket.Conn, c *client, done <-chan struct{}) {
 	for {
+		if c.isClosing() {
+			h.closeConn(ctx, ws, c)
+			return
+		}
 		select {
 		case msg := <-c.send:
+			if c.isClosing() {
+				h.closeConn(ctx, ws, c)
+				return
+			}
 			wctx, cancel := context.WithTimeout(ctx, h.opts.WriteTimeout)
 			err := ws.Write(wctx, websocket.MessageText, msg)
 			cancel()
@@ -180,12 +222,10 @@ func (h *Hub) writeLoop(ctx context.Context, ws *websocket.Conn, c *client, done
 			return
 		case <-done:
 			// The reader stopped. If it asked for a close frame (binary
-			// message, rate limit), send it; otherwise the connection is
-			// already gone.
-			select {
-			case <-c.closing:
+			// message, rate limit, oversized message), send it; otherwise
+			// the connection is already gone.
+			if c.isClosing() {
 				h.closeConn(ctx, ws, c)
-			default:
 			}
 			return
 		}
@@ -204,11 +244,14 @@ func (h *Hub) closeConn(ctx context.Context, ws *websocket.Conn, c *client) {
 	c.kill()
 }
 
-// heartbeat pings every PingInterval and closes the connection when
-// nothing, not even a pong, arrived for IdleTimeout.
+// heartbeat pings every PingInterval, closes the connection when nothing,
+// not even a pong, arrived for IdleTimeout, and re-checks the session
+// every SessionCheckInterval.
 func (h *Hub) heartbeat(ctx context.Context, ws *websocket.Conn, c *client, done <-chan struct{}) {
-	t := time.NewTicker(h.opts.PingInterval)
-	defer t.Stop()
+	ping := time.NewTicker(h.opts.PingInterval)
+	defer ping.Stop()
+	session := time.NewTicker(h.opts.SessionCheckInterval)
+	defer session.Stop()
 	var idle time.Duration
 	for {
 		select {
@@ -216,7 +259,10 @@ func (h *Hub) heartbeat(ctx context.Context, ws *websocket.Conn, c *client, done
 			return
 		case <-c.closing:
 			return
-		case <-t.C:
+		case <-session.C:
+			h.recheckSession(ctx, c)
+			continue
+		case <-ping.C:
 		}
 		if c.seen.Swap(false) {
 			idle = 0
@@ -224,7 +270,7 @@ func (h *Hub) heartbeat(ctx context.Context, ws *websocket.Conn, c *client, done
 			idle += h.opts.PingInterval
 		}
 		if idle >= h.opts.IdleTimeout {
-			c.requestClose(websocket.StatusPolicyViolation, "idle timeout")
+			h.closeClient(c, websocket.StatusPolicyViolation, "idle timeout")
 			return
 		}
 		// Ping waits for the pong. A missing pong is not an error here:
@@ -235,29 +281,19 @@ func (h *Hub) heartbeat(ctx context.Context, ws *websocket.Conn, c *client, done
 	}
 }
 
-// tokenBucket limits commands per connection. It takes the time from the
-// hub's clock, so tests drive it with a fake clock.
-type tokenBucket struct {
-	rate   float64
-	burst  float64
-	tokens float64
-	last   time.Time
-}
-
-func newTokenBucket(rate float64, burst int) tokenBucket {
-	return tokenBucket{rate: rate, burst: float64(burst), tokens: float64(burst)}
-}
-
-func (b *tokenBucket) allow(now time.Time) bool {
-	if !b.last.IsZero() {
-		if elapsed := now.Sub(b.last); elapsed > 0 {
-			b.tokens = min(b.burst, b.tokens+elapsed.Seconds()*b.rate)
-		}
+// recheckSession closes c with CloseSessionRevoked when its session ended.
+// A failed lookup keeps the connection (logged at WARN): the next check
+// retries, and a database blip must not disconnect every client at once.
+func (h *Hub) recheckSession(ctx context.Context, c *client) {
+	err := h.checkSession(ctx, c.principal)
+	var ae *apperr.Error
+	switch {
+	case err == nil:
+	case errors.As(err, &ae) && ae.Kind == apperr.KindUnauthenticated:
+		h.closeClient(c, CloseSessionRevoked, "session revoked")
+	default:
+		h.logger.WarnContext(ctx, "realtime session check failed",
+			slog.String("connection_id", c.id),
+			slog.Any("error", err))
 	}
-	b.last = now
-	if b.tokens < 1 {
-		return false
-	}
-	b.tokens--
-	return true
 }

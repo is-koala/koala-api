@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
@@ -57,7 +56,8 @@ type TicketHash [sha256.Size]byte
 // Faz 4 implements it on Postgres: Put is an INSERT, Take is
 // DELETE FROM realtime_tickets WHERE hash = $1 RETURNING ..., which keeps
 // redemption single-use across instances; a River periodic job deletes
-// expired rows.
+// expired rows. There is no production implementation yet; tests use an
+// in-memory one.
 type TicketStore interface {
 	Put(ctx context.Context, hash TicketHash, t Ticket) error
 	// Take removes and returns the ticket. found is false when there is
@@ -109,10 +109,11 @@ func (t *Tickets) Issue(ctx context.Context, p Principal) (IssuedTicket, error) 
 }
 
 // Redeem consumes a ticket and returns the principal it was issued to.
-// presentedDevice is the X-Device-Id of the handshake, or "" when there is
-// none: browsers cannot set headers on a WebSocket, so the binding is
-// enforced at issue time and by the session check here, and a native
-// client that presents a device must present the ticket's.
+// presentedDevice is the X-Device-Id of the handshake, or "" for a
+// browser, which cannot set headers on a WebSocket (Connect requires the
+// header when there is no Origin). For a browser the binding is enforced
+// at issue time and by the session check here; a client that presents a
+// device must present the ticket's.
 //
 // Every rejection is the same 401 REALTIME_TICKET_INVALID, so a client
 // cannot tell an unknown ticket from a used or expired one. The ticket is
@@ -168,63 +169,4 @@ func validTicketValue(v string) bool {
 		}
 	}
 	return true
-}
-
-// MemoryTicketStore is a TicketStore for one process. It is the spike's
-// store (ADR-0011) and is replaced by the Postgres store in Faz 4; with
-// more than one instance a ticket issued on one could not be redeemed on
-// another. Expired tickets are dropped on Put.
-type MemoryTicketStore struct {
-	mu      sync.Mutex
-	tickets map[TicketHash]Ticket
-	// order is the insertion order. With one TTL for every ticket it is
-	// also the expiry order, so pruning stops at the first live ticket.
-	order []TicketHash
-}
-
-// NewMemoryTicketStore returns an empty store.
-func NewMemoryTicketStore() *MemoryTicketStore {
-	return &MemoryTicketStore{tickets: make(map[TicketHash]Ticket)}
-}
-
-// Put stores t under hash.
-func (s *MemoryTicketStore) Put(_ context.Context, hash TicketHash, t Ticket) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.prune(t.IssuedAt)
-	if _, dup := s.tickets[hash]; dup {
-		return errors.New("realtime: duplicate ticket hash")
-	}
-	s.tickets[hash] = t
-	s.order = append(s.order, hash)
-	return nil
-}
-
-// Take removes and returns the ticket stored under hash.
-func (s *MemoryTicketStore) Take(_ context.Context, hash TicketHash) (Ticket, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	t, found := s.tickets[hash]
-	delete(s.tickets, hash)
-	return t, found, nil
-}
-
-// Len returns the number of stored tickets, expired ones included until
-// the next Put.
-func (s *MemoryTicketStore) Len() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return len(s.tickets)
-}
-
-func (s *MemoryTicketStore) prune(now time.Time) {
-	i := 0
-	for ; i < len(s.order); i++ {
-		t, found := s.tickets[s.order[i]]
-		if found && now.Before(t.ExpiresAt) {
-			break
-		}
-		delete(s.tickets, s.order[i])
-	}
-	s.order = s.order[i:]
 }

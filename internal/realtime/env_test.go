@@ -21,8 +21,9 @@ import (
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
-// waitTimeout bounds every wait in these tests.
-const waitTimeout = 5 * time.Second
+// waitTimeout bounds every wait in these tests. It is generous on purpose:
+// CI runs them with -race on shared runners.
+const waitTimeout = 10 * time.Second
 
 // allowedOrigin is the browser origin the test handler accepts.
 const allowedOrigin = "https://app.koala.test"
@@ -63,6 +64,32 @@ func (c *fakeClock) Advance(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
+// memoryTicketStore is the test TicketStore. Production gets a Postgres
+// store in Faz 4 (ADR-0018).
+type memoryTicketStore struct {
+	mu      sync.Mutex
+	tickets map[realtime.TicketHash]realtime.Ticket
+}
+
+func newMemoryTicketStore() *memoryTicketStore {
+	return &memoryTicketStore{tickets: make(map[realtime.TicketHash]realtime.Ticket)}
+}
+
+func (s *memoryTicketStore) Put(_ context.Context, hash realtime.TicketHash, t realtime.Ticket) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tickets[hash] = t
+	return nil
+}
+
+func (s *memoryTicketStore) Take(_ context.Context, hash realtime.TicketHash) (realtime.Ticket, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, found := s.tickets[hash]
+	delete(s.tickets, hash)
+	return t, found, nil
+}
+
 // fakeConversations stands in for authz (Faz 4). It is read-only.
 type fakeConversations map[realtime.ConversationID][]realtime.UserID
 
@@ -85,13 +112,22 @@ func fixtureConversations() fakeConversations {
 type fakeSessions struct {
 	mu      sync.Mutex
 	revoked map[string]bool
+	calls   map[string]int
+	// revokeAt revokes a session on its nth Active call.
+	revokeAt map[string]int
 }
 
-func newFakeSessions() *fakeSessions { return &fakeSessions{revoked: make(map[string]bool)} }
+func newFakeSessions() *fakeSessions {
+	return &fakeSessions{revoked: make(map[string]bool), calls: make(map[string]int), revokeAt: make(map[string]int)}
+}
 
 func (f *fakeSessions) Active(_ context.Context, p realtime.Principal) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.calls[p.SessionID]++
+	if n, ok := f.revokeAt[p.SessionID]; ok && f.calls[p.SessionID] >= n {
+		f.revoked[p.SessionID] = true
+	}
 	return !f.revoked[p.SessionID], nil
 }
 
@@ -99,6 +135,14 @@ func (f *fakeSessions) Revoke(session string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.revoked[session] = true
+}
+
+// RevokeOnCall makes the nth Active call for session (and later ones)
+// report it revoked, to hit a race window deterministically.
+func (f *fakeSessions) RevokeOnCall(session string, n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.revokeAt[session] = n
 }
 
 // sessionOf is the session id headerAuth gives a user on a device.
@@ -119,10 +163,22 @@ func (headerAuth) Principal(r *http.Request) (realtime.Principal, error) {
 	return realtime.Principal{UserID: user, SessionID: sessionOf(user, device), DeviceID: device}, nil
 }
 
-func testOptions() realtime.Options {
-	opts := realtime.DefaultOptions()
-	opts.CommandBurst = 50
-	return opts
+// envConfig configures newEnv.
+type envConfig struct {
+	hub        realtime.Options
+	handler    realtime.HandlerOptions
+	drainDelay time.Duration
+}
+
+// defaultEnv uses the production limits, except that commands and
+// tickets are not rate-limited in tests that are not about rate limits.
+func defaultEnv() envConfig {
+	hub := realtime.DefaultOptions()
+	hub.CommandBurst = 1000
+	handler := realtime.DefaultHandlerOptions()
+	handler.AllowedOrigins = []string{allowedOrigin}
+	handler.TicketBurst = 1000
+	return envConfig{hub: hub, handler: handler}
 }
 
 // env is a running httpx.Server with the realtime routes and the hub as
@@ -141,17 +197,17 @@ type env struct {
 	stopResult error
 }
 
-func newEnv(t *testing.T, opts realtime.Options, drainDelay time.Duration) *env {
+func newEnv(t *testing.T, cfg envConfig) *env {
 	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
 	clock := newFakeClock()
 	sessions := newFakeSessions()
-	hub, err := realtime.NewHub(fixtureConversations(), clock, logger, opts)
+	hub, err := realtime.NewHub(fixtureConversations(), sessions, clock, logger, cfg.hub)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tickets := realtime.NewTickets(realtime.NewMemoryTicketStore(), sessions, clock, logger)
-	handler, err := realtime.NewHandler(hub, tickets, headerAuth{}, logger, []string{allowedOrigin})
+	tickets := realtime.NewTickets(newMemoryTicketStore(), sessions, clock, logger)
+	handler, err := realtime.NewHandler(hub, tickets, headerAuth{}, logger, cfg.handler)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +220,7 @@ func newEnv(t *testing.T, opts realtime.Options, drainDelay time.Duration) *env 
 		t.Fatal(err)
 	}
 	srv := httpx.NewServer(router, health, logger, httpx.ServerOptions{
-		DrainDelay:      drainDelay,
+		DrainDelay:      cfg.drainDelay,
 		ShutdownTimeout: waitTimeout,
 		Streams:         []httpx.Stream{hub},
 	})
@@ -197,7 +253,7 @@ func (e *env) shutdown() error {
 		e.stop()
 		select {
 		case e.stopResult = <-e.served:
-		case <-time.After(2 * waitTimeout):
+		case <-time.After(3 * waitTimeout):
 			e.stopResult = context.DeadlineExceeded
 		}
 		e.transport.CloseIdleConnections()
@@ -205,8 +261,9 @@ func (e *env) shutdown() error {
 	return e.stopResult
 }
 
-// ticket gets a ticket over REST as user on device.
-func (e *env) ticket(t *testing.T, user realtime.UserID, device string) string {
+// issue requests a ticket as user on device and returns the response
+// status, its Retry-After header and the ticket.
+func (e *env) issue(t *testing.T, user realtime.UserID, device string) (status int, retryAfter, ticket string) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, e.base+realtime.PathTickets, http.NoBody)
 	if err != nil {
@@ -219,19 +276,33 @@ func (e *env) ticket(t *testing.T, user realtime.UserID, device string) string {
 		t.Fatal(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST %s = %d, want 201", realtime.PathTickets, resp.StatusCode)
-	}
 	var body realtime.TicketResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
+	if resp.StatusCode == http.StatusCreated {
+		if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
 	}
-	return body.Ticket
+	return resp.StatusCode, resp.Header.Get("Retry-After"), body.Ticket
+}
+
+// ticket gets a ticket over REST as user on device.
+func (e *env) ticket(t *testing.T, user realtime.UserID, device string) string {
+	t.Helper()
+	status, _, ticket := e.issue(t, user, device)
+	if status != http.StatusCreated {
+		t.Fatalf("POST %s = %d, want 201", realtime.PathTickets, status)
+	}
+	return ticket
 }
 
 // protocols is the Sec-WebSocket-Protocol list a client sends.
 func protocols(ticket string) []string {
 	return []string{realtime.Subprotocol, realtime.TicketProtocolPrefix + ticket}
+}
+
+// deviceHeader is the handshake header of a native client on device.
+func deviceHeader(device string) http.Header {
+	return http.Header{realtime.HeaderDeviceID: {device}}
 }
 
 // dialSpec describes one handshake.
@@ -241,15 +312,19 @@ type dialSpec struct {
 	// ignorePings makes the client drop pings instead of answering with
 	// a pong, like a peer that has gone away.
 	ignorePings bool
+	// paused leaves the peer's reader stopped until peer.resume, like a
+	// client that does not keep up.
+	paused bool
 }
 
-// dialResult is a handshake's outcome: a peer, or the HTTP status and
-// problem code of the rejection.
+// dialResult is a handshake's outcome: a peer, or the HTTP status,
+// Retry-After and problem code of the rejection.
 type dialResult struct {
-	peer   *peer
-	status int
-	code   apperr.Code
-	err    error
+	peer       *peer
+	status     int
+	retryAfter string
+	code       apperr.Code
+	err        error
 }
 
 func (e *env) dial(t *testing.T, spec dialSpec) dialResult {
@@ -267,6 +342,7 @@ func (e *env) dial(t *testing.T, spec dialSpec) dialResult {
 	res.err = err
 	if resp != nil {
 		res.status = resp.StatusCode
+		res.retryAfter = resp.Header.Get("Retry-After")
 		if resp.Body != nil {
 			b, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
@@ -277,19 +353,16 @@ func (e *env) dial(t *testing.T, spec dialSpec) dialResult {
 		}
 	}
 	if conn != nil {
-		res.peer = newPeer(t, conn)
+		res.peer = newPeer(t, conn, !spec.paused)
 	}
 	return res
 }
 
-// connect opens an authenticated connection for user on device and reads
-// its hello event.
+// connect opens an authenticated native connection for user on device and
+// reads its hello event.
 func (e *env) connect(t *testing.T, user realtime.UserID, device string) *peer {
 	t.Helper()
-	res := e.dial(t, dialSpec{
-		protocols: protocols(e.ticket(t, user, device)),
-		header:    http.Header{realtime.HeaderDeviceID: {device}},
-	})
+	res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, user, device)), header: deviceHeader(device)})
 	if res.err != nil {
 		t.Fatalf("connect %s: status %d %s: %v", user, res.status, res.code, res.err)
 	}
@@ -321,19 +394,29 @@ type peer struct {
 	conn     *websocket.Conn
 	events   chan realtime.Event
 	overflow atomic.Bool
+	started  sync.Once
 	done     chan struct{}
 	status   websocket.StatusCode // valid after done is closed
 }
 
-func newPeer(t *testing.T, conn *websocket.Conn) *peer {
+func newPeer(t *testing.T, conn *websocket.Conn, start bool) *peer {
 	t.Helper()
-	p := &peer{conn: conn, events: make(chan realtime.Event, 256), done: make(chan struct{})}
-	go p.readAll()
+	conn.SetReadLimit(1 << 20)
+	p := &peer{conn: conn, events: make(chan realtime.Event, 1024), done: make(chan struct{})}
+	if start {
+		p.resume()
+	}
 	t.Cleanup(func() {
 		_ = conn.CloseNow()
+		p.resume() // a paused reader must still run to completion
 		<-p.done
 	})
 	return p
+}
+
+// resume starts the background reader once.
+func (p *peer) resume() {
+	p.started.Do(func() { go p.readAll() })
 }
 
 func (p *peer) readAll() {
@@ -396,7 +479,7 @@ func (p *peer) nextError(t *testing.T) realtime.ErrorData {
 }
 
 // closeStatus waits until the server closes the connection and returns
-// the close code. Events still in flight are discarded.
+// the close code. Events still queued stay readable through remaining.
 func (p *peer) closeStatus(t *testing.T) websocket.StatusCode {
 	t.Helper()
 	select {
@@ -405,6 +488,20 @@ func (p *peer) closeStatus(t *testing.T) websocket.StatusCode {
 	case <-time.After(waitTimeout):
 		t.Fatal("connection not closed within the timeout")
 		return 0
+	}
+}
+
+// remaining returns the types of the events received but not yet
+// consumed. Call it after closeStatus.
+func (p *peer) remaining() []realtime.EventType {
+	var types []realtime.EventType
+	for {
+		select {
+		case ev := <-p.events:
+			types = append(types, ev.Type)
+		default:
+			return types
+		}
 	}
 }
 

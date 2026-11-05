@@ -3,7 +3,9 @@ package realtime_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,14 +16,29 @@ import (
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
+// TestDefaultLimits pins the production limits recorded in ADR-0018.
+func TestDefaultLimits(t *testing.T) {
+	t.Parallel()
+
+	o := realtime.DefaultOptions()
+	got := []any{o.MaxMessageBytes, o.SendBuffer, o.PingInterval, o.IdleTimeout, o.CommandRate, o.CommandBurst, o.MaxRateStrikes, o.MaxConnsPerUser}
+	want := []any{int64(64 << 10), 64, 20 * time.Second, 60 * time.Second, 5.0, 10, 20, 10}
+	if !slices.Equal(got, want) {
+		t.Fatalf("DefaultOptions() limits = %v, want %v", got, want)
+	}
+	h := realtime.DefaultHandlerOptions()
+	if h.TicketInterval != 6*time.Second || h.TicketBurst != 5 {
+		t.Fatalf("DefaultHandlerOptions() = %+v, want 6s interval, burst 5", h)
+	}
+}
+
 // TestTicketIsSingleUse: a ticket opens one connection; replaying it is
 // rejected before the upgrade.
 func TestTicketIsSingleUse(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, testOptions(), 0)
-	ticket := e.ticket(t, alice, "phone")
-	spec := dialSpec{protocols: protocols(ticket), header: http.Header{realtime.HeaderDeviceID: {"phone"}}}
+	e := newEnv(t, defaultEnv())
+	spec := dialSpec{protocols: protocols(e.ticket(t, alice, "phone")), header: deviceHeader("phone")}
 
 	first := e.dial(t, spec)
 	if first.err != nil {
@@ -42,7 +59,7 @@ func TestTicketIsSingleUse(t *testing.T) {
 func TestHandshakeRejections(t *testing.T) {
 	t.Parallel()
 
-	phone := http.Header{realtime.HeaderDeviceID: {"phone"}}
+	phone := deviceHeader("phone")
 	tests := []struct {
 		name   string
 		spec   func(e *env, ticket string) dialSpec
@@ -69,10 +86,18 @@ func TestHandshakeRejections(t *testing.T) {
 			return dialSpec{protocols: protocols(ticket), header: phone}
 		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
 		{"other device", func(_ *env, ticket string) dialSpec {
-			return dialSpec{protocols: protocols(ticket), header: http.Header{realtime.HeaderDeviceID: {"tablet"}}}
+			return dialSpec{protocols: protocols(ticket), header: deviceHeader("tablet")}
 		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
+		{"native client without device", func(_ *env, ticket string) dialSpec {
+			return dialSpec{protocols: protocols(ticket)}
+		}, http.StatusUnauthorized, realtime.CodeDeviceRequired},
 		{"session revoked after issue", func(e *env, ticket string) dialSpec {
 			e.sessions.Revoke(sessionOf(alice, "phone"))
+			return dialSpec{protocols: protocols(ticket), header: phone}
+		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
+		{"session revoked between redeem and join", func(e *env, ticket string) dialSpec {
+			// Call 1 is Redeem, call 2 the re-check after join.
+			e.sessions.RevokeOnCall(sessionOf(alice, "phone"), 2)
 			return dialSpec{protocols: protocols(ticket), header: phone}
 		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
 		{"foreign origin", func(_ *env, ticket string) dialSpec {
@@ -83,7 +108,7 @@ func TestHandshakeRejections(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			e := newEnv(t, testOptions(), 0)
+			e := newEnv(t, defaultEnv())
 			res := e.dial(t, tt.spec(e, e.ticket(t, alice, "phone")))
 			if res.err == nil {
 				t.Fatal("handshake succeeded")
@@ -95,28 +120,55 @@ func TestHandshakeRejections(t *testing.T) {
 	}
 }
 
-// TestOriginRejectionKeepsTicket: the origin is checked before the ticket
-// is spent, and a browser from an allowed origin connects without a
-// device header.
-func TestOriginRejectionKeepsTicket(t *testing.T) {
+// TestPreTicketRejectionsKeepTicket: origin, device and handshake header
+// checks run before the ticket is spent; a browser from an allowed origin
+// connects without a device header.
+func TestPreTicketRejectionsKeepTicket(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, testOptions(), 0)
+	e := newEnv(t, defaultEnv())
 	ticket := e.ticket(t, alice, "phone")
+
 	foreign := e.dial(t, dialSpec{protocols: protocols(ticket), header: http.Header{"Origin": {"https://evil.example"}}})
 	if foreign.status != http.StatusForbidden {
 		t.Fatalf("foreign origin: status %d, want 403", foreign.status)
 	}
-	allowed := e.dial(t, dialSpec{protocols: protocols(ticket), header: http.Header{"Origin": {allowedOrigin}}})
-	if allowed.err != nil {
-		t.Fatalf("allowed origin: status %d %s: %v", allowed.status, allowed.code, allowed.err)
+	native := e.dial(t, dialSpec{protocols: protocols(ticket)})
+	if native.status != http.StatusUnauthorized || native.code != realtime.CodeDeviceRequired {
+		t.Fatalf("native without device: status %d %s", native.status, native.code)
+	}
+
+	// A malformed Sec-WebSocket-Key, sent by hand: the client library
+	// always sends a valid one.
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, e.base+realtime.PathConnect, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "not-sixteen-bytes")
+	req.Header.Set("Sec-WebSocket-Protocol", strings.Join(protocols(ticket), ", "))
+	req.Header.Set(realtime.HeaderDeviceID, "phone")
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("bad Sec-WebSocket-Key: status %d, want 400", resp.StatusCode)
+	}
+
+	browser := e.dial(t, dialSpec{protocols: protocols(ticket), header: http.Header{"Origin": {allowedOrigin}}})
+	if browser.err != nil {
+		t.Fatalf("allowed origin: status %d %s: %v", browser.status, browser.code, browser.err)
 	}
 }
 
 func TestPlainRequestsAreRejected(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, testOptions(), 0)
+	e := newEnv(t, defaultEnv())
 	tests := []struct {
 		method string
 		path   string
@@ -142,12 +194,37 @@ func TestPlainRequestsAreRejected(t *testing.T) {
 	}
 }
 
+// TestTicketIssueRateLimit: the production ticket limit per user (burst 5,
+// then one per 6 s) with Retry-After; other users are not affected.
+func TestTicketIssueRateLimit(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultEnv()
+	cfg.handler = realtime.DefaultHandlerOptions()
+	e := newEnv(t, cfg)
+	for i := range cfg.handler.TicketBurst {
+		if status, _, _ := e.issue(t, alice, "phone"); status != http.StatusCreated {
+			t.Fatalf("ticket %d: status %d, want 201", i, status)
+		}
+	}
+	if status, retry, _ := e.issue(t, alice, "phone"); status != http.StatusTooManyRequests || retry != "6" {
+		t.Fatalf("over the burst: status %d, Retry-After %q; want 429, 6", status, retry)
+	}
+	if status, _, _ := e.issue(t, bob, "phone"); status != http.StatusCreated {
+		t.Fatalf("other user: status %d, want 201", status)
+	}
+	e.clock.Advance(cfg.handler.TicketInterval)
+	if status, _, _ := e.issue(t, alice, "phone"); status != http.StatusCreated {
+		t.Fatalf("after the interval: status %d, want 201", status)
+	}
+}
+
 // TestUnauthorizedEventsAreNotReceived: a connection only gets events the
 // server addressed to its user; membership comes from Conversations.
 func TestUnauthorizedEventsAreNotReceived(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, testOptions(), 0)
+	e := newEnv(t, defaultEnv())
 	a := e.connect(t, alice, "phone")
 	b := e.connect(t, bob, "phone")
 	c := e.connect(t, carol, "phone")
@@ -200,7 +277,7 @@ func TestUnauthorizedEventsAreNotReceived(t *testing.T) {
 func TestClientCommandsCannotForgeEvents(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, testOptions(), 0)
+	e := newEnv(t, defaultEnv())
 	a := e.connect(t, alice, "phone")
 	b := e.connect(t, bob, "phone")
 
@@ -244,15 +321,15 @@ func TestClientCommandsCannotForgeEvents(t *testing.T) {
 func TestMessageSizeLimit(t *testing.T) {
 	t.Parallel()
 
-	opts := testOptions()
-	e := newEnv(t, opts, 0)
+	cfg := defaultEnv()
+	e := newEnv(t, cfg)
 	a := e.connect(t, alice, "phone")
 
-	a.send(t, strings.Repeat(" ", int(opts.MaxMessageBytes)))
+	a.send(t, strings.Repeat(" ", int(cfg.hub.MaxMessageBytes)))
 	if got := a.nextError(t); got.Code != realtime.CodeCommandInvalid {
 		t.Fatalf("message at the limit: %+v, want %s", got, realtime.CodeCommandInvalid)
 	}
-	a.send(t, strings.Repeat(" ", int(opts.MaxMessageBytes)+1))
+	a.send(t, strings.Repeat(" ", int(cfg.hub.MaxMessageBytes)+1))
 	if got := a.closeStatus(t); got != websocket.StatusMessageTooBig {
 		t.Fatalf("close status %d, want %d", got, websocket.StatusMessageTooBig)
 	}
@@ -262,7 +339,7 @@ func TestMessageSizeLimit(t *testing.T) {
 func TestBinaryMessageClosesConnection(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, testOptions(), 0)
+	e := newEnv(t, defaultEnv())
 	a := e.connect(t, alice, "phone")
 	ctx, cancel := context.WithTimeout(t.Context(), waitTimeout)
 	defer cancel()
@@ -274,21 +351,20 @@ func TestBinaryMessageClosesConnection(t *testing.T) {
 	}
 }
 
-// TestCommandRateLimit: the burst passes, the next command is answered
-// with REALTIME_RATE_LIMITED, tokens refill with time, and a client that
-// keeps flooding is closed with 1008.
+// TestCommandRateLimit runs the production command limits (5/s, burst 10,
+// 20 strikes): the burst passes, the next command is answered with
+// REALTIME_RATE_LIMITED, tokens refill with time, and a client that keeps
+// flooding is closed with 1008.
 func TestCommandRateLimit(t *testing.T) {
 	t.Parallel()
 
-	opts := testOptions()
-	opts.CommandRate = 1
-	opts.CommandBurst = 3
-	opts.MaxRateStrikes = 5
-	e := newEnv(t, opts, 0)
+	cfg := defaultEnv()
+	cfg.hub = realtime.DefaultOptions()
+	e := newEnv(t, cfg)
 	a := e.connect(t, alice, "phone")
 	b := e.connect(t, bob, "phone")
 
-	for range opts.CommandBurst {
+	for range cfg.hub.CommandBurst {
 		a.send(t, typing(convAB, "burst"))
 	}
 	a.send(t, typing(convAB, "over"))
@@ -296,9 +372,9 @@ func TestCommandRateLimit(t *testing.T) {
 		t.Fatalf("over the burst: %+v, want %s", got, realtime.CodeRateLimited)
 	}
 
-	e.clock.Advance(time.Second)
+	e.clock.Advance(250 * time.Millisecond) // one token at 5/s (1.25)
 	a.send(t, typing(convAB, "refilled"))
-	for range opts.MaxRateStrikes {
+	for range cfg.hub.MaxRateStrikes {
 		a.send(t, typing(convAB, "flood"))
 	}
 	if got := a.nextError(t); got.Code != realtime.CodeRateLimited {
@@ -309,7 +385,7 @@ func TestCommandRateLimit(t *testing.T) {
 	}
 
 	// bob saw the burst and the refilled command, nothing else.
-	for i := range opts.CommandBurst + 1 {
+	for i := range cfg.hub.CommandBurst + 1 {
 		if ev := b.next(t); ev.Type != realtime.EventTyping {
 			t.Fatalf("bob event %d: %s, want %s", i, ev.Type, realtime.EventTyping)
 		}
@@ -322,12 +398,12 @@ func TestCommandRateLimit(t *testing.T) {
 func TestIdleConnectionIsClosed(t *testing.T) {
 	t.Parallel()
 
-	opts := testOptions()
-	opts.PingInterval = 25 * time.Millisecond
-	opts.IdleTimeout = 250 * time.Millisecond
-	e := newEnv(t, opts, 0)
+	cfg := defaultEnv()
+	cfg.hub.PingInterval = 50 * time.Millisecond
+	cfg.hub.IdleTimeout = 500 * time.Millisecond
+	e := newEnv(t, cfg)
 	live := e.connect(t, bob, "phone")
-	res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "phone")), ignorePings: true})
+	res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "phone")), header: deviceHeader("phone"), ignorePings: true})
 	if res.err != nil {
 		t.Fatalf("dial: status %d %s: %v", res.status, res.code, res.err)
 	}
@@ -338,46 +414,129 @@ func TestIdleConnectionIsClosed(t *testing.T) {
 	e.assertNothingQueued(t, live, bob)
 }
 
-// TestUserFanoutAndSessionRevocation: a user's event reaches all of their
-// devices; revoking one session closes only that device with 4401.
-func TestUserFanoutAndSessionRevocation(t *testing.T) {
+// TestSessionRevocationClosesOnlyThatDevice: a user's event reaches all
+// of their devices; revoking one session closes only that device with
+// 4401, and nothing published after the revocation reaches it.
+func TestSessionRevocationClosesOnlyThatDevice(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, testOptions(), 0)
+	e := newEnv(t, defaultEnv())
 	phone := e.connect(t, alice, "phone")
 	tablet := e.connect(t, alice, "tablet")
 
-	const note realtime.EventType = "test.note"
-	if err := e.hub.PublishUser(alice, note, struct{}{}); err != nil {
+	const before, after realtime.EventType = "test.before", "test.after"
+	if err := e.hub.PublishUser(alice, before, struct{}{}); err != nil {
 		t.Fatal(err)
 	}
 	for name, p := range map[string]*peer{"phone": phone, "tablet": tablet} {
-		if ev := p.next(t); ev.Type != note {
-			t.Fatalf("%s got %s, want %s", name, ev.Type, note)
+		if ev := p.next(t); ev.Type != before {
+			t.Fatalf("%s got %s, want %s", name, ev.Type, before)
 		}
 	}
 
 	e.hub.DisconnectSession(alice, sessionOf(alice, "phone"))
+	if err := e.hub.PublishUser(alice, after, struct{}{}); err != nil {
+		t.Fatal(err)
+	}
 	if got := phone.closeStatus(t); got != realtime.CloseSessionRevoked {
 		t.Fatalf("revoked phone: close status %d, want %d", got, realtime.CloseSessionRevoked)
+	}
+	if got := phone.remaining(); len(got) != 0 {
+		t.Fatalf("revoked phone received %v after the revocation", got)
+	}
+	if ev := tablet.next(t); ev.Type != after {
+		t.Fatalf("tablet got %s, want %s", ev.Type, after)
+	}
+}
+
+// TestPeriodicSessionCheck: a revocation the hub was not told about (for
+// example made on another instance) still ends the connection at the next
+// session check.
+func TestPeriodicSessionCheck(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultEnv()
+	cfg.hub.SessionCheckInterval = 50 * time.Millisecond
+	e := newEnv(t, cfg)
+	phone := e.connect(t, alice, "phone")
+	tablet := e.connect(t, alice, "tablet")
+
+	e.sessions.Revoke(sessionOf(alice, "phone"))
+	if got := phone.closeStatus(t); got != realtime.CloseSessionRevoked {
+		t.Fatalf("close status %d, want %d", got, realtime.CloseSessionRevoked)
 	}
 	e.assertNothingQueued(t, tablet, alice)
 }
 
+// TestSlowConsumerIsClosed: a client that stops reading fills its queue
+// and is closed with 1013 once it reads again.
+func TestSlowConsumerIsClosed(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultEnv()
+	cfg.hub.SendBuffer = 4
+	e := newEnv(t, cfg)
+	res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "phone")), header: deviceHeader("phone"), paused: true})
+	if res.err != nil {
+		t.Fatalf("dial: status %d %s: %v", res.status, res.code, res.err)
+	}
+
+	// 400 × 128 KiB is far more than the socket buffers of both ends, so
+	// the writer blocks and the queue overflows.
+	payload := struct {
+		Pad string `json:"pad"`
+	}{Pad: strings.Repeat("x", 128<<10)}
+	for range 400 {
+		if err := e.hub.PublishUser(alice, "test.bulk", payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res.peer.resume()
+	if got := res.peer.closeStatus(t); got != websocket.StatusTryAgainLater {
+		t.Fatalf("close status %d, want %d", got, websocket.StatusTryAgainLater)
+	}
+}
+
+// TestShutdownCutsUnresponsiveConnections: a peer that never answers the
+// close frame is cut when the shutdown deadline passes, and Shutdown
+// reports it.
+func TestShutdownCutsUnresponsiveConnections(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, defaultEnv())
+	res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "phone")), header: deviceHeader("phone"), paused: true})
+	if res.err != nil {
+		t.Fatalf("dial: status %d %s: %v", res.status, res.code, res.err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := e.hub.Shutdown(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.Contains(err.Error(), "cut 1 connections") {
+		t.Fatalf("Shutdown() = %v, want 1 connection cut at the deadline", err)
+	}
+	// The close handshake alone would wait 5 s for the peer.
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("Shutdown took %s", elapsed)
+	}
+}
+
 // TestConnectionLimitPerUser: the connection over MaxConnsPerUser is
-// refused with 429; closing one frees a slot.
+// refused with 429 and Retry-After; closing one frees a slot.
 func TestConnectionLimitPerUser(t *testing.T) {
 	t.Parallel()
 
-	opts := testOptions()
-	opts.MaxConnsPerUser = 2
-	e := newEnv(t, opts, 0)
+	cfg := defaultEnv()
+	cfg.hub.MaxConnsPerUser = 2
+	e := newEnv(t, cfg)
 	first := e.connect(t, alice, "phone")
 	e.connect(t, alice, "tablet")
 
-	over := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "laptop")), header: http.Header{realtime.HeaderDeviceID: {"laptop"}}})
-	if over.status != http.StatusTooManyRequests || over.code != realtime.CodeTooManyConnections {
-		t.Fatalf("third connection: status %d %s, want 429 %s", over.status, over.code, realtime.CodeTooManyConnections)
+	over := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "laptop")), header: deviceHeader("laptop")})
+	if over.status != http.StatusTooManyRequests || over.code != realtime.CodeTooManyConnections || over.retryAfter != "30" {
+		t.Fatalf("third connection: status %d %s Retry-After %q, want 429 %s 30",
+			over.status, over.code, over.retryAfter, realtime.CodeTooManyConnections)
 	}
 
 	if err := first.conn.Close(websocket.StatusNormalClosure, ""); err != nil {
@@ -385,7 +544,7 @@ func TestConnectionLimitPerUser(t *testing.T) {
 	}
 	deadline := time.Now().Add(waitTimeout)
 	for {
-		res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "laptop")), header: http.Header{realtime.HeaderDeviceID: {"laptop"}}})
+		res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "laptop")), header: deviceHeader("laptop")})
 		if res.err == nil {
 			break
 		}
@@ -397,12 +556,15 @@ func TestConnectionLimitPerUser(t *testing.T) {
 }
 
 // TestShutdownDrainsThenClosesStreams follows httpx.Server's order: once
-// draining starts, new WebSockets get 503 while open ones keep working;
-// after the drain delay they get a 1001 close frame and Serve returns nil.
+// draining starts, new WebSockets get 503 with Retry-After while open ones
+// keep working; after the drain delay they get a 1001 close frame and
+// Serve returns nil.
 func TestShutdownDrainsThenClosesStreams(t *testing.T) {
 	t.Parallel()
 
-	e := newEnv(t, testOptions(), time.Second)
+	cfg := defaultEnv()
+	cfg.drainDelay = 3 * time.Second
+	e := newEnv(t, cfg)
 	a := e.connect(t, alice, "phone")
 
 	e.stop()
@@ -410,8 +572,11 @@ func TestShutdownDrainsThenClosesStreams(t *testing.T) {
 	// an ordinary connection and gets the 1001 below.
 	deadline := time.Now().Add(waitTimeout)
 	for {
-		res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, bob, "phone")), header: http.Header{realtime.HeaderDeviceID: {"phone"}}})
+		res := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, bob, "phone")), header: deviceHeader("phone")})
 		if res.status == http.StatusServiceUnavailable && res.code == realtime.CodeDraining {
+			if res.retryAfter != "5" {
+				t.Fatalf("Retry-After %q, want 5", res.retryAfter)
+			}
 			break
 		}
 		if time.Now().After(deadline) {
@@ -428,5 +593,30 @@ func TestShutdownDrainsThenClosesStreams(t *testing.T) {
 	}
 	if err := e.shutdown(); err != nil {
 		t.Fatalf("Serve() = %v, want nil", err)
+	}
+}
+
+func TestHandlerRejectsUnsafeOrigins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		origin string
+		ok     bool
+	}{
+		{"https://app.koala.test", true},
+		{"https://app.koala.test:8443", true},
+		{"http://app.koala.test", false},
+		{"https://app.koala.test:443", false},
+		{"https://*.koala.test", false},
+		{"https://app.koala.test/path", false},
+		{"app.koala.test", false},
+	}
+	for _, tt := range tests {
+		opts := realtime.DefaultHandlerOptions()
+		opts.AllowedOrigins = []string{tt.origin}
+		_, err := realtime.NewHandler(nil, nil, headerAuth{}, nil, opts)
+		if (err == nil) != tt.ok {
+			t.Errorf("NewHandler(%q) error = %v, want ok=%v", tt.origin, err, tt.ok)
+		}
 	}
 }

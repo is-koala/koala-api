@@ -25,7 +25,7 @@ type Conversations interface {
 	Participants(ctx context.Context, conversation ConversationID) ([]UserID, error)
 }
 
-// Options are the per-connection limits (ADR-0011).
+// Options are the connection limits (ADR-0018).
 type Options struct {
 	// MaxMessageBytes caps one client message; a larger one closes the
 	// connection with 1009.
@@ -35,12 +35,23 @@ type Options struct {
 	SendBuffer int
 	// WriteTimeout bounds writing one event.
 	WriteTimeout time.Duration
-	// PingInterval is the keepalive period. It stays below common proxy
-	// idle timeouts (60 s).
+	// PingInterval is the keepalive period. It stays well below common
+	// proxy idle timeouts (60 s).
 	PingInterval time.Duration
-	// IdleTimeout closes a connection that sent nothing, not even a pong,
-	// for this long. It must exceed PingInterval.
+	// IdleTimeout closes a connection after this many consecutive ping
+	// intervals in which nothing, not even a pong, arrived. It is a
+	// multiple of PingInterval, so the connection closes between
+	// IdleTimeout and IdleTimeout+PingInterval after the last frame.
 	IdleTimeout time.Duration
+	// HandshakeTimeout bounds the work before the upgrade (ticket and
+	// session lookups) and each periodic session check.
+	HandshakeTimeout time.Duration
+	// CommandTimeout bounds one client command.
+	CommandTimeout time.Duration
+	// SessionCheckInterval is how often an open connection re-checks its
+	// session, so a revocation that DisconnectSession did not reach (for
+	// example on another instance) still ends it.
+	SessionCheckInterval time.Duration
 	// CommandRate (per second) and CommandBurst form the command token
 	// bucket of one connection.
 	CommandRate  float64
@@ -56,15 +67,18 @@ type Options struct {
 // DefaultOptions returns the production limits.
 func DefaultOptions() Options {
 	return Options{
-		MaxMessageBytes: 64 << 10,
-		SendBuffer:      64,
-		WriteTimeout:    10 * time.Second,
-		PingInterval:    25 * time.Second,
-		IdleTimeout:     60 * time.Second,
-		CommandRate:     5,
-		CommandBurst:    10,
-		MaxRateStrikes:  20,
-		MaxConnsPerUser: 10,
+		MaxMessageBytes:      64 << 10,
+		SendBuffer:           64,
+		WriteTimeout:         10 * time.Second,
+		PingInterval:         20 * time.Second,
+		IdleTimeout:          60 * time.Second,
+		HandshakeTimeout:     5 * time.Second,
+		CommandTimeout:       5 * time.Second,
+		SessionCheckInterval: time.Minute,
+		CommandRate:          5,
+		CommandBurst:         10,
+		MaxRateStrikes:       20,
+		MaxConnsPerUser:      10,
 	}
 }
 
@@ -74,11 +88,12 @@ func (o *Options) validate() error {
 		o.MaxRateStrikes <= 0 || o.MaxConnsPerUser <= 0 || o.CommandRate <= 0 {
 		errs = append(errs, errors.New("limits must be positive"))
 	}
-	if o.WriteTimeout <= 0 || o.PingInterval <= 0 {
+	if o.WriteTimeout <= 0 || o.PingInterval <= 0 || o.HandshakeTimeout <= 0 ||
+		o.CommandTimeout <= 0 || o.SessionCheckInterval <= 0 {
 		errs = append(errs, errors.New("timeouts must be positive"))
 	}
-	if o.IdleTimeout <= o.PingInterval {
-		errs = append(errs, errors.New("IdleTimeout must exceed PingInterval"))
+	if o.PingInterval > 0 && (o.IdleTimeout <= o.PingInterval || o.IdleTimeout%o.PingInterval != 0) {
+		errs = append(errs, errors.New("IdleTimeout must be a multiple of PingInterval, at least twice it"))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("realtime options: %w", errors.Join(errs...))
@@ -96,12 +111,17 @@ type commandFunc func(ctx context.Context, c *client, data json.RawMessage) erro
 // Conversations for PublishConversation. It implements httpx.Stream.
 type Hub struct {
 	conversations Conversations
+	sessions      Sessions
 	clock         Clock
 	logger        *slog.Logger
 	opts          Options
 	commands      map[CommandType]commandFunc
 
-	mu       sync.Mutex
+	mu sync.Mutex
+	// all holds every joined connection until it leaves; Shutdown uses
+	// it. users is the fanout index: a connection leaves it as soon as
+	// it is asked to close, so nothing more is queued for it.
+	all      map[*client]struct{}
 	users    map[UserID]map[*client]struct{}
 	draining bool
 	// conns counts the connection handlers that joined; Shutdown waits for
@@ -110,15 +130,17 @@ type Hub struct {
 }
 
 // NewHub returns an empty hub.
-func NewHub(conversations Conversations, clock Clock, logger *slog.Logger, opts Options) (*Hub, error) {
+func NewHub(conversations Conversations, sessions Sessions, clock Clock, logger *slog.Logger, opts Options) (*Hub, error) {
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
 	h := &Hub{
 		conversations: conversations,
+		sessions:      sessions,
 		clock:         clock,
 		logger:        logger,
 		opts:          opts,
+		all:           make(map[*client]struct{}),
 		users:         make(map[UserID]map[*client]struct{}),
 	}
 	h.commands = map[CommandType]commandFunc{
@@ -152,15 +174,16 @@ func (h *Hub) PublishConversation(ctx context.Context, conversation Conversation
 	return nil
 }
 
-// DisconnectSession closes the connections of an ended session with
-// CloseSessionRevoked. Faz 1's logout and revocation call it, so
-// revocation also ends open WebSockets (ADR-0015 §2).
+// DisconnectSession closes this instance's connections of an ended
+// session with CloseSessionRevoked; from the moment it returns no event
+// is queued for them. Faz 1's logout and revocation call it. Connections
+// on other instances notice at their next session check (ADR-0018).
 func (h *Hub) DisconnectSession(user UserID, session string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for c := range h.users[user] {
 		if c.principal.SessionID == session {
-			c.requestClose(CloseSessionRevoked, "session revoked")
+			h.closeLocked(c, CloseSessionRevoked, "session revoked")
 		}
 	}
 }
@@ -183,11 +206,10 @@ const forceCloseWait = 5 * time.Second
 func (h *Hub) Shutdown(ctx context.Context) error {
 	h.mu.Lock()
 	h.draining = true
-	open := h.snapshot()
-	h.mu.Unlock()
-	for _, c := range open {
-		c.requestClose(websocket.StatusGoingAway, "server shutting down")
+	for c := range h.all {
+		h.closeLocked(c, websocket.StatusGoingAway, "server shutting down")
 	}
+	h.mu.Unlock()
 
 	done := make(chan struct{})
 	go func() {
@@ -201,7 +223,10 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	}
 
 	h.mu.Lock()
-	open = h.snapshot()
+	open := make([]*client, 0, len(h.all))
+	for c := range h.all {
+		open = append(open, c)
+	}
 	h.mu.Unlock()
 	for _, c := range open {
 		c.kill()
@@ -214,17 +239,6 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	case <-t.C:
 		return fmt.Errorf("realtime: shutdown: %d connections did not stop: %w", len(open), ctx.Err())
 	}
-}
-
-// snapshot returns every open connection. h.mu must be held.
-func (h *Hub) snapshot() []*client {
-	var all []*client
-	for _, conns := range h.users {
-		for c := range conns {
-			all = append(all, c)
-		}
-	}
-	return all
 }
 
 func (h *Hub) isDraining() bool {
@@ -250,26 +264,49 @@ func (h *Hub) join(c *client, hello []byte) error {
 		h.users[c.principal.UserID] = conns
 	}
 	conns[c] = struct{}{}
-	c.enqueue(hello)
+	h.all[c] = struct{}{}
+	c.enqueue(hello) // the queue is empty: cannot fail
 	h.conns.Add(1)
 	return nil
 }
 
 func (h *Hub) leave(c *client) {
 	h.mu.Lock()
-	if conns := h.users[c.principal.UserID]; conns != nil {
-		delete(conns, c)
-		if len(conns) == 0 {
-			delete(h.users, c.principal.UserID)
-		}
-	}
+	h.unindexLocked(c)
+	delete(h.all, c)
 	h.mu.Unlock()
 	h.conns.Done()
 }
 
+// closeClient asks c to close and takes it out of the fanout index.
+func (h *Hub) closeClient(c *client, code websocket.StatusCode, reason string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closeLocked(c, code, reason)
+}
+
+// closeLocked is closeClient with h.mu held.
+func (h *Hub) closeLocked(c *client, code websocket.StatusCode, reason string) {
+	c.requestClose(code, reason)
+	h.unindexLocked(c)
+}
+
+func (h *Hub) unindexLocked(c *client) {
+	conns := h.users[c.principal.UserID]
+	if conns == nil {
+		return
+	}
+	delete(conns, c)
+	if len(conns) == 0 {
+		delete(h.users, c.principal.UserID)
+	}
+}
+
 // fanout queues msg on every connection of users except those of except.
 // It holds h.mu for the whole loop, so two fanouts never interleave and
-// every connection sees events in publish order.
+// every connection sees events in publish order. A connection whose
+// queue is full is too slow to keep up; it is closed with 1013 and
+// backfills over REST after reconnecting.
 func (h *Hub) fanout(users []UserID, except UserID, msg []byte) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -280,7 +317,9 @@ func (h *Hub) fanout(users []UserID, except UserID, msg []byte) {
 		}
 		seen[u] = struct{}{}
 		for c := range h.users[u] {
-			c.enqueue(msg)
+			if !c.enqueue(msg) {
+				h.closeLocked(c, websocket.StatusTryAgainLater, "slow consumer")
+			}
 		}
 	}
 }
@@ -303,9 +342,9 @@ func (h *Hub) encode(typ EventType, data any) ([]byte, error) {
 	return msg, nil
 }
 
-// dispatch decodes one client message and runs its command. Unknown and
-// malformed commands are answered with an error event; the connection
-// stays open.
+// dispatch decodes one client message and runs its command within
+// CommandTimeout. Unknown and malformed commands are answered with an
+// error event; the connection stays open.
 func (h *Hub) dispatch(ctx context.Context, c *client, raw []byte) {
 	var cmd Command
 	if err := decodeStrict(raw, &cmd); err != nil || !validClientID(cmd.ID, false) {
@@ -317,7 +356,9 @@ func (h *Hub) dispatch(ctx context.Context, c *client, raw []byte) {
 		h.sendError(ctx, c, cmd.ID, apperr.New(apperr.KindInvalid, CodeCommandUnknown))
 		return
 	}
-	if err := run(ctx, c, cmd.Data); err != nil {
+	cctx, cancel := context.WithTimeout(ctx, h.opts.CommandTimeout)
+	defer cancel()
+	if err := run(cctx, c, cmd.Data); err != nil {
 		h.sendError(ctx, c, cmd.ID, err)
 	}
 }
@@ -337,7 +378,9 @@ func (h *Hub) sendError(ctx context.Context, c *client, commandID string, err er
 		h.logger.ErrorContext(ctx, "realtime error event failed", slog.Any("error", encErr))
 		return
 	}
-	c.enqueue(msg)
+	if !c.enqueue(msg) {
+		h.closeClient(c, websocket.StatusTryAgainLater, "slow consumer")
+	}
 }
 
 // typing handles CommandTyping: the sender must take part in the

@@ -11,10 +11,10 @@ import (
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
-func newTickets(store realtime.TicketStore) (*realtime.Tickets, *fakeClock, *fakeSessions) {
+func newTickets() (*realtime.Tickets, *fakeClock, *fakeSessions) {
 	clock := newFakeClock()
 	sessions := newFakeSessions()
-	return realtime.NewTickets(store, sessions, clock, slog.New(slog.DiscardHandler)), clock, sessions
+	return realtime.NewTickets(newMemoryTicketStore(), sessions, clock, slog.New(slog.DiscardHandler)), clock, sessions
 }
 
 var alicePhone = realtime.Principal{UserID: alice, SessionID: "s1", DeviceID: "phone"}
@@ -29,7 +29,7 @@ func isTicketInvalid(err error) bool {
 func TestTicketRedeemedOnceUnderRace(t *testing.T) {
 	t.Parallel()
 
-	tickets, _, _ := newTickets(realtime.NewMemoryTicketStore())
+	tickets, _, _ := newTickets()
 	issued, err := tickets.Issue(t.Context(), alicePhone)
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestTicketRedeem(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			tickets, clock, sessions := newTickets(realtime.NewMemoryTicketStore())
+			tickets, clock, sessions := newTickets()
 			issued, err := tickets.Issue(t.Context(), alicePhone)
 			if err != nil {
 				t.Fatal(err)
@@ -99,7 +99,7 @@ func TestTicketRedeem(t *testing.T) {
 func TestTicketIssueNeedsDeviceSession(t *testing.T) {
 	t.Parallel()
 
-	tickets, _, _ := newTickets(realtime.NewMemoryTicketStore())
+	tickets, _, _ := newTickets()
 	if _, err := tickets.Issue(t.Context(), realtime.Principal{UserID: alice, SessionID: "s1"}); err == nil {
 		t.Fatal("Issue without a device succeeded")
 	}
@@ -108,7 +108,7 @@ func TestTicketIssueNeedsDeviceSession(t *testing.T) {
 func TestTicketValuesAreDistinctAndOpaque(t *testing.T) {
 	t.Parallel()
 
-	tickets, _, _ := newTickets(realtime.NewMemoryTicketStore())
+	tickets, _, _ := newTickets()
 	seen := make(map[string]bool)
 	for range 100 {
 		issued, err := tickets.Issue(t.Context(), alicePhone)
@@ -119,26 +119,5 @@ func TestTicketValuesAreDistinctAndOpaque(t *testing.T) {
 			t.Fatalf("ticket %q: want 43 base64url characters, unique", issued.Value)
 		}
 		seen[issued.Value] = true
-	}
-}
-
-// TestMemoryTicketStorePrunesExpired: tickets that expired unredeemed do
-// not accumulate.
-func TestMemoryTicketStorePrunesExpired(t *testing.T) {
-	t.Parallel()
-
-	store := realtime.NewMemoryTicketStore()
-	tickets, clock, _ := newTickets(store)
-	for range 10 {
-		if _, err := tickets.Issue(t.Context(), alicePhone); err != nil {
-			t.Fatal(err)
-		}
-	}
-	clock.Advance(realtime.TicketTTL)
-	if _, err := tickets.Issue(t.Context(), alicePhone); err != nil {
-		t.Fatal(err)
-	}
-	if got := store.Len(); got != 1 {
-		t.Fatalf("store holds %d tickets, want 1", got)
 	}
 }
