@@ -31,6 +31,11 @@ const (
 
 	// amrPassword is the amr value of a password sign-in (RFC 8176).
 	amrPassword = "pwd"
+
+	// ClockSkew is the tolerance on exp, nbf and iat (RFC 7519 §4.1.4
+	// allows a small leeway): a token is valid until exp+ClockSkew and
+	// from nbf-ClockSkew. It covers clocks of several instances.
+	ClockSkew = 5 * time.Second
 )
 
 // accessClaims are an access token's claims: the registered ones plus the
@@ -79,6 +84,7 @@ func NewTokenClass(aud string, ring tokenkeys.Ring, clk clock.Clock) (*TokenClas
 			jwt.WithExpirationRequired(),
 			jwt.WithIssuedAt(),
 			jwt.WithTimeFunc(clk.Now),
+			jwt.WithLeeway(ClockSkew),
 		),
 	}, nil
 }
@@ -154,6 +160,7 @@ func (c *TokenClass) verify(raw string) (verifiedToken, error) {
 
 // key is the parser's key function: the token must declare this class's
 // type and one of its key ids. The alg is pinned by the parser.
+// Expiry, not-before and issued-at are checked with ClockSkew.
 func (c *TokenClass) key(t *jwt.Token) (any, error) {
 	if typ, _ := t.Header["typ"].(string); typ != accessTokenType {
 		return nil, errors.New("unexpected token type")

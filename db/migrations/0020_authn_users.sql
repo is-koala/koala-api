@@ -105,30 +105,45 @@ CREATE TABLE user_refresh_tokens (
     -- Sliding (idle) limit of this token, never past the session's end.
     expires_at timestamptz NOT NULL,
     consumed_at timestamptz,
+    -- Set with consumed_at: the successor token is HMAC-SHA256 keyed by
+    -- this token over the salt, so a retry of this token inside the grace
+    -- window can be answered with the same successor (ADR-0025 §3).
+    successor_salt bytea,
     CONSTRAINT user_refresh_tokens_hash_check CHECK (octet_length(token_hash) = 32),
     CONSTRAINT user_refresh_tokens_expiry_check CHECK (expires_at > created_at),
+    CONSTRAINT user_refresh_tokens_consumed_together CHECK ((consumed_at IS NULL) = (successor_salt IS NULL)),
     CONSTRAINT user_refresh_tokens_hash_key UNIQUE (token_hash)
 );
 
 CREATE INDEX user_refresh_tokens_session_idx ON user_refresh_tokens (session_id);
 
--- Every sign-in attempt, failed or not, for both principal kinds. The
--- target is the SHA-256 of the normalized identifier, so an attempt on an
--- address that has no account stores no address.
+-- Every sign-in attempt for both principal kinds: the security log and
+-- the persistent failure counter of the marketplace lock (ADR-0025 §5).
+-- The target is HMAC-SHA256 of the normalized identifier under the server
+-- secret KOALA_LOGIN_PEPPER: an attempt stores no address, and a leaked
+-- table cannot be matched against a list of addresses. A LOCKED attempt
+-- was refused unexamined while the target was locked; it does not count
+-- as a failure. Rows are kept 90 days.
 CREATE TABLE login_attempts (
     id uuid PRIMARY KEY,
     principal_kind text NOT NULL,
     target_hash bytea NOT NULL,
-    succeeded boolean NOT NULL,
+    outcome text NOT NULL,
     created_at timestamptz NOT NULL,
     CONSTRAINT login_attempts_principal_kind_check CHECK (principal_kind IN ('USER', 'STAFF')),
-    CONSTRAINT login_attempts_target_hash_check CHECK (octet_length(target_hash) = 32)
+    CONSTRAINT login_attempts_target_hash_check CHECK (octet_length(target_hash) = 32),
+    CONSTRAINT login_attempts_outcome_check CHECK (outcome IN ('SUCCEEDED', 'FAILED', 'LOCKED'))
 );
 
-CREATE INDEX login_attempts_target_idx ON login_attempts (target_hash, created_at);
+CREATE INDEX login_attempts_target_idx ON login_attempts (principal_kind, target_hash, outcome, created_at);
 CREATE INDEX login_attempts_created_at_idx ON login_attempts (created_at);
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON user_sessions, user_refresh_tokens, login_attempts TO koala_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON user_sessions TO koala_app;
+-- Refresh tokens go with their session (ON DELETE CASCADE runs as the
+-- owner); the application never deletes one itself.
+GRANT SELECT, INSERT, UPDATE ON user_refresh_tokens TO koala_app;
+-- The attempt log is append-only for the application, purged after 90 days.
+GRANT SELECT, INSERT, DELETE ON login_attempts TO koala_app;
 
 -- +goose Down
 DROP TABLE login_attempts;

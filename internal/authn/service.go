@@ -42,23 +42,31 @@ type Service struct {
 	reads     *authndb.Queries
 	passwords PasswordHasher
 	tokens    *TokenClass
+	targets   targets
 	clock     clock.Clock
 	logger    *slog.Logger
+	metrics   *Metrics
 	onRevoke  RevokeHook
 }
 
 // NewService returns the marketplace authentication service. tokens is
-// the marketplace class.
-func NewService(database *db.DB, passwords PasswordHasher, tokens *TokenClass, clk clock.Clock, logger *slog.Logger, onRevoke RevokeHook) (*Service, error) {
+// the marketplace class; pepper keys the sign-in targets
+// (KOALA_LOGIN_PEPPER).
+func NewService(database *db.DB, passwords PasswordHasher, tokens *TokenClass, pepper []byte, clk clock.Clock,
+	logger *slog.Logger, metrics *Metrics, onRevoke RevokeHook,
+) (*Service, error) {
 	if tokens.audience != AudienceMarketplace {
 		return nil, fmt.Errorf("authn: marketplace service needs the %s token class, got %s", AudienceMarketplace, tokens.audience)
 	}
-	if onRevoke == nil {
-		return nil, errors.New("authn: revoke hook is required")
+	if onRevoke == nil || metrics == nil {
+		return nil, errors.New("authn: revoke hook and metrics are required")
+	}
+	if len(pepper) == 0 {
+		return nil, errors.New("authn: login pepper is required")
 	}
 	return &Service{
-		db: database, reads: authndb.New(database.Pool()), passwords: passwords,
-		tokens: tokens, clock: clk, logger: logger, onRevoke: onRevoke,
+		db: database, reads: authndb.New(database.Pool()), passwords: passwords, tokens: tokens,
+		targets: targets{pepper: pepper}, clock: clk, logger: logger, metrics: metrics, onRevoke: onRevoke,
 	}, nil
 }
 
@@ -71,28 +79,37 @@ type LoginInput struct {
 	Platform  string
 }
 
+// Target returns the keyed hash that stands for a sign-in identifier in
+// the attempt log and the rate limit keys.
+func (s *Service) Target(email string) []byte { return s.targets.of(normalizeEmail(email)) }
+
 // Login signs a user in on a device. It replaces the device's open
 // sessions (AUTH-002) and returns a new token pair.
 //
-// An unknown address, an account without a password and a wrong password
-// are the same error and pay the same cost: one argon2id verification and
-// one attempt row (AUTH-001). The device id is checked before anything
-// is looked up.
+// An unknown address, an account without a password, a wrong password and
+// a locked target are the same error and pay the same cost: the lock
+// check, one argon2id verification and one attempt row (AUTH-001,
+// ADR-0025 §5). The device id is checked before anything is looked up.
 func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 	if err := checkDeviceKey(in.DeviceKey); err != nil {
 		return TokenPair{}, err
 	}
 	email := normalizeEmail(in.Email)
-	target := targetHash(email)
+	target := s.targets.of(email)
 	mismatch := apperr.New(apperr.KindUnauthenticated, CodeEmailOrPasswordMismatch)
+	now := s.clock.Now()
 
+	failures, locked, err := s.lockState(ctx, target, now)
+	if err != nil {
+		return TokenPair{}, err
+	}
 	cred, err := s.reads.GetUserCredentials(ctx, email)
 	found := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return TokenPair{}, fmt.Errorf("authn: load user credentials: %w", err)
 	}
 	var ok, rehash bool
-	if found && cred.PasswordHash != nil {
+	if found && cred.PasswordHash != nil && !locked {
 		ok, rehash, err = s.passwords.Verify(ctx, *cred.PasswordHash, in.Password)
 	} else {
 		err = s.passwords.VerifyDummy(ctx, in.Password)
@@ -100,17 +117,17 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("authn: verify password: %w", err)
 	}
-	if !ok {
-		if err := s.recordFailure(ctx, target); err != nil {
+	if locked {
+		if err := insertAttempt(ctx, s.reads, principalUser, target, outcomeLocked, now); err != nil {
 			return TokenPair{}, err
 		}
 		return TokenPair{}, mismatch
 	}
+	if !ok {
+		return TokenPair{}, s.fail(ctx, target, failures, now, mismatch)
+	}
 	if cred.Status != UserActive {
-		if err := s.recordFailure(ctx, target); err != nil {
-			return TokenPair{}, err
-		}
-		return TokenPair{}, apperr.New(apperr.KindForbidden, CodeAccountSuspended)
+		return TokenPair{}, s.fail(ctx, target, failures, now, apperr.New(apperr.KindForbidden, CodeAccountSuspended))
 	}
 	var newHash string
 	if rehash {
@@ -119,19 +136,27 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 		}
 	}
 
-	now := s.clock.Now()
 	var pair TokenPair
+	var outcome error
 	err = s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := authndb.New(tx)
 		u, err := q.LockUserForSignIn(ctx, cred.ID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return mismatch // deleted since the read above
+			outcome = mismatch // deleted since the read above
+			return insertAttempt(ctx, q, principalUser, target, outcomeFailed, now)
 		}
 		if err != nil {
 			return fmt.Errorf("authn: lock user: %w", err)
 		}
+		if u.PasswordHash == nil || *u.PasswordHash != *cred.PasswordHash {
+			// Changed since it was verified above: the password checked
+			// was not the account's password at sign-in time.
+			outcome = mismatch
+			return insertAttempt(ctx, q, principalUser, target, outcomeFailed, now)
+		}
 		if u.Status != UserActive {
-			return apperr.New(apperr.KindForbidden, CodeAccountSuspended)
+			outcome = apperr.New(apperr.KindForbidden, CodeAccountSuspended)
+			return insertAttempt(ctx, q, principalUser, target, outcomeFailed, now)
 		}
 		if newHash != "" {
 			if err := q.UpdateUserPasswordHash(ctx, authndb.UpdateUserPasswordHashParams{ID: u.ID, PasswordHash: &newHash}); err != nil {
@@ -149,7 +174,7 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 		if pair, err = s.openSession(ctx, q, u.ID, deviceID, now); err != nil {
 			return err
 		}
-		if err := insertAttempt(ctx, q, principalUser, target, true, now); err != nil {
+		if err := insertAttempt(ctx, q, principalUser, target, outcomeSucceeded, now); err != nil {
 			return err
 		}
 		tx.AfterCommit(func(ctx context.Context) {
@@ -162,7 +187,48 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("authn: sign in: %w", err)
 	}
+	if outcome != nil {
+		return TokenPair{}, outcome
+	}
 	return pair, nil
+}
+
+// lockState reads the persistent failure counter of a target from the
+// attempt log: its failures since the last success, and whether a lock is
+// in force. Every UserLockThreshold failures start a lock of
+// UserLockDuration from the failure that completed the hundred; refused
+// attempts are logged as LOCKED and do not count, so they do not extend
+// it.
+func (s *Service) lockState(ctx context.Context, target []byte, now time.Time) (int64, bool, error) {
+	n, err := s.reads.CountFailuresSinceSuccess(ctx, authndb.CountFailuresSinceSuccessParams{PrincipalKind: principalUser, TargetHash: target})
+	if err != nil {
+		return 0, false, fmt.Errorf("authn: count failures: %w", err)
+	}
+	if n < UserLockThreshold {
+		return n, false, nil
+	}
+	start, err := s.reads.NthFailureSinceSuccess(ctx, authndb.NthFailureSinceSuccessParams{
+		PrincipalKind: principalUser, TargetHash: target, Position: n/UserLockThreshold*UserLockThreshold - 1,
+	})
+	if err != nil {
+		return 0, false, fmt.Errorf("authn: find lock start: %w", err)
+	}
+	return n, now.Before(start.Add(UserLockDuration)), nil
+}
+
+// fail logs a failed sign-in in its own statement (a transaction would
+// roll it back with the request) and returns refusal. The failure that
+// completes a hundred starts a lock: counted and logged.
+func (s *Service) fail(ctx context.Context, target []byte, failures int64, now time.Time, refusal error) error {
+	if err := insertAttempt(ctx, s.reads, principalUser, target, outcomeFailed, now); err != nil {
+		return err
+	}
+	if (failures+1)%UserLockThreshold == 0 {
+		s.metrics.lockout("user", scopeTarget)
+		s.logger.WarnContext(ctx, "sign-in target locked after consecutive failures",
+			slog.Int64("failures", failures+1), slog.Duration("lock", UserLockDuration))
+	}
+	return refusal
 }
 
 // upsertDevice returns the user's active device with in.DeviceKey,
@@ -201,16 +267,15 @@ func (s *Service) openSession(ctx context.Context, q *authndb.Queries, userID, d
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("authn: insert session: %w", err)
 	}
-	return s.issuePair(ctx, q, userID, sid, now, end)
+	return s.issuePair(ctx, q, userID, sid, newOpaque(), now, end)
 }
 
-// issuePair writes a new refresh token of session sid and signs an access
-// token.
-func (s *Service) issuePair(ctx context.Context, q *authndb.Queries, userID, sid uuid.UUID, now, sessionEnd time.Time) (TokenPair, error) {
-	refresh, hash := newOpaque()
+// issuePair stores refresh as a new refresh token of session sid and
+// signs an access token.
+func (s *Service) issuePair(ctx context.Context, q *authndb.Queries, userID, sid uuid.UUID, refresh string, now, sessionEnd time.Time) (TokenPair, error) {
 	refreshExp := refreshExpiry(now, sessionEnd, UserRefreshIdleTTL)
 	err := q.InsertUserRefreshToken(ctx, authndb.InsertUserRefreshTokenParams{
-		ID: newID(), SessionID: sid, TokenHash: hash, CreatedAt: now, ExpiresAt: refreshExp,
+		ID: newID(), SessionID: sid, TokenHash: hashOpaque(refresh), CreatedAt: now, ExpiresAt: refreshExp,
 	})
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("authn: insert refresh token: %w", err)
@@ -226,14 +291,18 @@ func (s *Service) issuePair(ctx context.Context, q *authndb.Queries, userID, sid
 }
 
 // Refresh rotates a refresh token (K12, OAuth 2.0 Security BCP §4.14):
-// the presented token is consumed and a new pair is issued. The session
+// the presented token is consumed and its successor issued. The session
 // comes from the refresh token itself, so an expired access token is not
 // needed (AUTH-003).
 //
-// A consumed token presented again is reuse: the session, the token's
-// family, is revoked. So is a session asked from another device than its
-// own (AUTH-004), and one past its idle or absolute limit (AUTH-005).
-// Those revocations commit although the request fails.
+// A consumed token presented again is reuse and revokes the session, the
+// token's family, with one exception (ADR-0025 §3): within
+// RefreshGraceWindow of the rotation, from the session's own device, while
+// the successor is still unused, the client is retrying, and it gets the
+// same successor again with a new access token. A session asked from
+// another device than its own is revoked (AUTH-004), and so is one past
+// its idle or absolute limit (AUTH-005). Those revocations commit although
+// the request fails.
 func (s *Service) Refresh(ctx context.Context, refreshToken, deviceKey string) (TokenPair, error) {
 	if err := checkDeviceKey(deviceKey); err != nil {
 		return TokenPair{}, err
@@ -258,15 +327,23 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, deviceKey string) (
 			outcome = apperr.New(apperr.KindUnauthenticated, code)
 			return s.revokeIn(ctx, tx, q, row.UserID, row.SessionID, reason, now)
 		}
+		live := row.DeviceKey != nil && row.UserStatus != nil && *row.UserStatus == UserActive
 		switch {
 		case row.RevokedAt != nil:
 			outcome = apperr.New(apperr.KindUnauthenticated, CodeSessionInactive)
 			return nil
 		case row.ConsumedAt != nil:
+			if live && *row.DeviceKey == deviceKey && !now.After(row.ConsumedAt.Add(RefreshGraceWindow)) {
+				retry, ok, err := s.retrySuccessor(ctx, q, refreshToken, row.SuccessorSalt, row.UserID, row.SessionID, now)
+				if err != nil || ok {
+					pair = retry
+					return err
+				}
+			}
 			s.logger.WarnContext(ctx, "refresh token reused; session revoked",
 				slog.String("session_id", row.SessionID.String()))
 			return end(reasonRefreshReused, CodeRefreshTokenReused)
-		case row.DeviceKey == nil || row.UserStatus == nil || *row.UserStatus != UserActive:
+		case !live:
 			return end(reasonInactive, CodeSessionInactive)
 		case *row.DeviceKey != deviceKey:
 			s.logger.WarnContext(ctx, "refresh from another device; session revoked",
@@ -275,13 +352,15 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, deviceKey string) (
 		case !now.Before(row.ExpiresAt) || !now.Before(row.SessionExpiresAt):
 			return end(reasonExpired, CodeRefreshTokenExpired)
 		}
-		if err := q.ConsumeUserRefreshToken(ctx, authndb.ConsumeUserRefreshTokenParams{Now: now, ID: row.ID}); err != nil {
+		salt := newSalt()
+		err = q.ConsumeUserRefreshToken(ctx, authndb.ConsumeUserRefreshTokenParams{Now: now, SuccessorSalt: salt, ID: row.ID})
+		if err != nil {
 			return fmt.Errorf("authn: consume refresh token: %w", err)
 		}
 		if err := q.TouchUserSession(ctx, authndb.TouchUserSessionParams{Now: now, ID: row.SessionID, SeenBefore: now}); err != nil {
 			return fmt.Errorf("authn: touch session: %w", err)
 		}
-		pair, err = s.issuePair(ctx, q, row.UserID, row.SessionID, now, row.SessionExpiresAt)
+		pair, err = s.issuePair(ctx, q, row.UserID, row.SessionID, successorOf(refreshToken, salt), now, row.SessionExpiresAt)
 		return err
 	})
 	if err != nil {
@@ -291,6 +370,34 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, deviceKey string) (
 		return TokenPair{}, outcome
 	}
 	return pair, nil
+}
+
+// retrySuccessor answers a retry inside the grace window: the successor
+// of token, if it is still unused and unexpired, with a new access token.
+// ok is false when the retry does not qualify and is reuse.
+func (s *Service) retrySuccessor(ctx context.Context, q *authndb.Queries, token string, salt []byte, userID, sid uuid.UUID, now time.Time) (TokenPair, bool, error) {
+	if len(salt) == 0 {
+		return TokenPair{}, false, nil
+	}
+	successor := successorOf(token, salt)
+	next, err := q.GetUserRefreshTokenForUpdate(ctx, hashOpaque(successor))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TokenPair{}, false, nil
+	}
+	if err != nil {
+		return TokenPair{}, false, fmt.Errorf("authn: load successor: %w", err)
+	}
+	if next.ConsumedAt != nil || !now.Before(next.ExpiresAt) || !now.Before(next.SessionExpiresAt) {
+		return TokenPair{}, false, nil
+	}
+	access, accessExp, err := s.tokens.issue(userID, sid, 0, nil)
+	if err != nil {
+		return TokenPair{}, false, err
+	}
+	return TokenPair{
+		AccessToken: access, AccessTokenExpiresAt: accessExp,
+		RefreshToken: successor, RefreshTokenExpiresAt: next.ExpiresAt, SessionID: sid,
+	}, true, nil
 }
 
 // revokeIn closes a session inside tx and tells the hook after commit.
@@ -470,15 +577,9 @@ func (s *Service) Purge(ctx context.Context) (sessions, attempts int64, err erro
 	return sessions, attempts, nil
 }
 
-// recordFailure logs a failed sign-in in its own statement: the request
-// fails, and a transaction would roll the row back with it.
-func (s *Service) recordFailure(ctx context.Context, target []byte) error {
-	return insertAttempt(ctx, s.reads, principalUser, target, false, s.clock.Now())
-}
-
-func insertAttempt(ctx context.Context, q *authndb.Queries, kind string, target []byte, succeeded bool, now time.Time) error {
+func insertAttempt(ctx context.Context, q *authndb.Queries, kind string, target []byte, outcome string, now time.Time) error {
 	err := q.InsertLoginAttempt(ctx, authndb.InsertLoginAttemptParams{
-		ID: newID(), PrincipalKind: kind, TargetHash: target, Succeeded: succeeded, CreatedAt: now,
+		ID: newID(), PrincipalKind: kind, TargetHash: target, Outcome: outcome, CreatedAt: now,
 	})
 	if err != nil {
 		return fmt.Errorf("authn: record login attempt: %w", err)

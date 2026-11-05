@@ -11,6 +11,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/jobs"
 	"github.com/is-koala/koala-api/internal/platform/log"
 	"github.com/is-koala/koala-api/internal/platform/metrics"
 )
@@ -81,7 +82,7 @@ type listeners struct {
 
 // serve wires the application and blocks until ctx is canceled and the
 // shutdown sequence has finished. Order on shutdown (plan §3.10):
-// readiness 503 → HTTP drain → (Faz 1) cancel workers → metrics listener
+// readiness 503 → HTTP drain → stop workers → metrics listener
 // → close pools; the caller closes the pools after serve returns. The
 // metrics listener stays up through the drain, so the drain itself is
 // observable. checks gate /readyz.
@@ -104,10 +105,18 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	go func() { metricsDone <- metrics.Serve(metricsCtx, lns.metrics, metrics.Handler(reg, logger), logger) }()
 
 	health := httpx.NewHealth(logger, checks...)
-	mods, err := wireModules(ctx, cfg, database, clock.Real{}, logger)
+	mods, err := wireModules(ctx, cfg, database, clock.Real{}, logger, reg)
 	var router *httpx.Router
 	if err == nil {
 		router, err = newRouter(ctx, cfg, logger, health, reg, rateLimitGroups(), mods)
+	}
+	var workers *jobs.Client
+	if err == nil {
+		workers, err = newWorkerClient(database, mods, logger)
+	}
+	stopWorkers := func(context.Context) {}
+	if err == nil {
+		stopWorkers = startWorkers(ctx, workers, logger, workerRetry)
 	}
 	if err == nil {
 		srv := httpx.NewServer(router, health, logger, httpx.ServerOptions{
@@ -123,7 +132,12 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	} else {
 		_ = lns.api.Close()
 	}
-	// Faz 1: cancel the worker context, wait for workers.
+	// After the drain: let a running job finish within workerStopTimeout
+	// (the margin of stop_grace_period over drain + shutdown, ADR-0025 §7);
+	// past it River cancels the job.
+	stopCtx, cancelStop := context.WithTimeout(context.WithoutCancel(ctx), workerStopTimeout)
+	stopWorkers(stopCtx)
+	cancelStop()
 	stopMetrics()
 	if metricsErr := <-metricsDone; metricsErr != nil && err == nil {
 		err = metricsErr

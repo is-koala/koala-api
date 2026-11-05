@@ -9,6 +9,7 @@
 package authn
 
 import (
+	"net/netip"
 	"regexp"
 	"time"
 	"unicode/utf8"
@@ -98,19 +99,46 @@ const (
 	touchInterval = 5 * time.Minute
 )
 
-// Staff lockout (AUTH-011): StaffLockThreshold consecutive wrong passwords
-// lock the account for StaffLockDuration. While locked no attempt, right
-// or wrong, changes the counter or the lock.
+// Staff lockout (AUTH-011, ADR-0025 §6; PCI DSS 4.0 8.3.4, OWASP):
+//   - per (account, client address): StaffLockThreshold consecutive wrong
+//     passwords from the address lock the account for that address for
+//     StaffLockDuration;
+//   - per account, from any address: from StaffBackoffAfter consecutive
+//     wrong passwords on, each one sets a backoff that doubles from
+//     StaffBackoffBase up to StaffBackoffMax. There is no hard lock on the
+//     account, so nobody can keep a member out from other addresses.
+//
+// While a lock or backoff is in force every attempt is refused unexamined
+// and changes nothing; the answer is the plain failure.
 const (
 	StaffLockThreshold = 5
-	StaffLockDuration  = 15 * time.Minute
+	StaffLockDuration  = 30 * time.Minute
+	StaffBackoffAfter  = 10
+	StaffBackoffBase   = time.Second
+	StaffBackoffMax    = 15 * time.Minute
 )
 
-// Password rule (AUTH-009): at least 12 characters, at most 72 bytes of
-// UTF-8, no composition rule. Sign-in accepts whatever the account has.
+// Marketplace lock (ADR-0025 §5; NIST SP 800-63B 5.2.2): every
+// UserLockThreshold consecutive failures on a sign-in target lock it for
+// UserLockDuration. The counter is the attempt log itself. A locked target
+// answers exactly like a wrong password.
+const (
+	UserLockThreshold = 100
+	UserLockDuration  = time.Hour
+)
+
+// RefreshGraceWindow is how long after a rotation the same refresh token,
+// from the same device, still gets the successor already issued instead of
+// counting as reuse (ADR-0025 §3): a client retry, not a theft.
+const RefreshGraceWindow = 10 * time.Second
+
+// Password rule (AUTH-009, ADR-0025 §5): at least 12 and at most 128
+// characters, no composition rule. NIST SP 800-63B asks to allow at least
+// 64; the ceiling also bounds the hashing work. Sign-in accepts whatever
+// the account has.
 const (
 	PasswordMinChars = 12
-	PasswordMaxBytes = 72
+	PasswordMaxChars = 128
 )
 
 // User and staff statuses (CHECK constraints of 0020 and 0021).
@@ -130,6 +158,14 @@ const (
 	reasonRefreshReused  = "REFRESH_REUSED"
 	reasonExpired        = "EXPIRED"
 	reasonInactive       = "INACTIVE"
+	reasonLocked         = "LOCKED"
+)
+
+// Attempt outcomes (login_attempts CHECK constraint).
+const (
+	outcomeSucceeded = "SUCCEEDED"
+	outcomeFailed    = "FAILED"
+	outcomeLocked    = "LOCKED"
 )
 
 // deviceKeyPattern is the X-Device-Id format (ADR-0021 §2) and the
@@ -142,7 +178,7 @@ func ValidDeviceKey(k string) bool { return deviceKeyPattern.MatchString(k) }
 // CheckPassword applies the password rule to a new password. It is the
 // rule's one place; every surface that sets a password calls it.
 func CheckPassword(p string) error {
-	if utf8.RuneCountInString(p) < PasswordMinChars || len(p) > PasswordMaxBytes {
+	if n := utf8.RuneCountInString(p); n < PasswordMinChars || n > PasswordMaxChars {
 		return apperr.New(apperr.KindInvalid, CodePasswordPolicy)
 	}
 	return nil
@@ -205,9 +241,9 @@ type StaffMember struct {
 	MustChangePassword bool
 }
 
-// staffFailure applies one wrong password to the counter: at the
-// threshold the account locks and the counter starts over.
-func staffFailure(failures int32, now time.Time) (int32, *time.Time) {
+// addressFailure applies one wrong password to an (account, address)
+// counter: at the threshold the pair locks and the counter starts over.
+func addressFailure(failures int32, now time.Time) (int32, *time.Time) {
 	failures++
 	if failures >= StaffLockThreshold {
 		until := now.Add(StaffLockDuration)
@@ -216,9 +252,39 @@ func staffFailure(failures int32, now time.Time) (int32, *time.Time) {
 	return failures, nil
 }
 
-// staffLocked reports whether a lock is in force at now.
-func staffLocked(lockedUntil *time.Time, now time.Time) bool {
-	return lockedUntil != nil && now.Before(*lockedUntil)
+// accountFailure applies one wrong password to the account-wide counter
+// and returns the backoff it sets, if any.
+func accountFailure(failures int32, now time.Time) (int32, *time.Time) {
+	failures++
+	if failures < StaffBackoffAfter {
+		return failures, nil
+	}
+	delay := StaffBackoffMax
+	if exp := failures - StaffBackoffAfter; exp < 20 { // 2^20 s is far past the cap
+		delay = min(StaffBackoffBase<<exp, StaffBackoffMax)
+	}
+	until := now.Add(delay)
+	return failures, &until
+}
+
+// inForce reports whether a lock or backoff ending at until holds at now.
+func inForce(until *time.Time, now time.Time) bool {
+	return until != nil && now.Before(*until)
+}
+
+// ClientKey is the address part of a lock or rate limit key: the address,
+// an IPv6 client by its /64 (one host usually owns a whole /64).
+func ClientKey(a netip.Addr) string {
+	if !a.IsValid() {
+		return "unknown"
+	}
+	a = a.Unmap()
+	if a.Is6() {
+		if p, err := a.Prefix(64); err == nil {
+			return p.String()
+		}
+	}
+	return a.String()
 }
 
 // refreshExpiry is a new refresh token's limit: the idle TTL from now,

@@ -13,16 +13,19 @@ import (
 )
 
 const consumeUserRefreshToken = `-- name: ConsumeUserRefreshToken :exec
-UPDATE user_refresh_tokens SET consumed_at = $1::timestamptz WHERE id = $2
+UPDATE user_refresh_tokens
+SET consumed_at = $1::timestamptz, successor_salt = $2::bytea
+WHERE id = $3
 `
 
 type ConsumeUserRefreshTokenParams struct {
-	Now time.Time
-	ID  uuid.UUID
+	Now           time.Time
+	SuccessorSalt []byte
+	ID            uuid.UUID
 }
 
 func (q *Queries) ConsumeUserRefreshToken(ctx context.Context, arg ConsumeUserRefreshTokenParams) error {
-	_, err := q.db.Exec(ctx, consumeUserRefreshToken, arg.Now, arg.ID)
+	_, err := q.db.Exec(ctx, consumeUserRefreshToken, arg.Now, arg.SuccessorSalt, arg.ID)
 	return err
 }
 
@@ -62,7 +65,7 @@ func (q *Queries) GetOpenUserSession(ctx context.Context, arg GetOpenUserSession
 }
 
 const getUserRefreshTokenForUpdate = `-- name: GetUserRefreshTokenForUpdate :one
-SELECT rt.id, rt.session_id, rt.expires_at, rt.consumed_at,
+SELECT rt.id, rt.session_id, rt.expires_at, rt.consumed_at, rt.successor_salt,
        s.user_id, s.expires_at AS session_expires_at, s.revoked_at,
        d.device_key, u.status AS user_status
 FROM user_refresh_tokens rt
@@ -78,6 +81,7 @@ type GetUserRefreshTokenForUpdateRow struct {
 	SessionID        uuid.UUID
 	ExpiresAt        time.Time
 	ConsumedAt       *time.Time
+	SuccessorSalt    []byte
 	UserID           uuid.UUID
 	SessionExpiresAt time.Time
 	RevokedAt        *time.Time
@@ -97,6 +101,7 @@ func (q *Queries) GetUserRefreshTokenForUpdate(ctx context.Context, tokenHash []
 		&i.SessionID,
 		&i.ExpiresAt,
 		&i.ConsumedAt,
+		&i.SuccessorSalt,
 		&i.UserID,
 		&i.SessionExpiresAt,
 		&i.RevokedAt,

@@ -14,6 +14,7 @@ import (
 
 	"github.com/is-koala/koala-api/internal/platform/appversion"
 	"github.com/is-koala/koala-api/internal/platform/config"
+	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
 )
 
 func TestLoadAppliesDefaults(t *testing.T) {
@@ -50,7 +51,7 @@ func testRing(t *testing.T, kid string) string {
 func TestLoadReadsEveryVariable(t *testing.T) {
 	t.Parallel()
 
-	mpKeys, staffKeys := testRing(t, "mp-1"), testRing(t, "st-1")
+	mpKeys, staffKeys, pepper := testRing(t, "mp-1"), testRing(t, "st-1"), tokenkeys.NewPepper()
 	cfg, err := config.Load([]string{
 		"KOALA_ENV=production",
 		"KOALA_HTTP_ADDR=127.0.0.1:9000",
@@ -66,6 +67,7 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		"KOALA_JWT_MARKETPLACE_KEYS=" + mpKeys,
 		"KOALA_JWT_STAFF_KEYS=" + staffKeys,
 		"KOALA_REALTIME_ORIGINS=https://iskoala.com",
+		"KOALA_LOGIN_PEPPER=" + pepper,
 	})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -90,6 +92,7 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		JWTMarketplaceKeys: config.Secret(mpKeys),
 		JWTStaffKeys:       config.Secret(staffKeys),
 		RealtimeOrigins:    "https://iskoala.com",
+		LoginPepper:        config.Secret(pepper),
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %+v, want %+v", cfg, want)
@@ -295,12 +298,12 @@ func TestServeAuthErrors(t *testing.T) {
 	}
 	for _, env := range []config.Env{config.EnvStaging, config.EnvProduction} {
 		err := (config.Config{Env: env}).ServeAuthErrors()
-		for _, v := range []string{config.VarJWTMarketplaceKeys, config.VarJWTStaffKeys} {
+		for _, v := range []string{config.VarJWTMarketplaceKeys, config.VarJWTStaffKeys, config.VarLoginPepper} {
 			if err == nil || !strings.Contains(err.Error(), v+": required by serve") {
 				t.Errorf("%s: ServeAuthErrors() = %v, want an error naming %s", env, err, v)
 			}
 		}
-		ok := config.Config{Env: env, JWTMarketplaceKeys: "set", JWTStaffKeys: "set"}
+		ok := config.Config{Env: env, JWTMarketplaceKeys: "set", JWTStaffKeys: "set", LoginPepper: "set"}
 		if err := ok.ServeAuthErrors(); err != nil {
 			t.Errorf("%s with both rings: ServeAuthErrors() = %v", env, err)
 		}
@@ -319,6 +322,15 @@ func TestLoadRejectsBadKeyRings(t *testing.T) {
 	}{
 		"marketplace malformed": {[]string{"KOALA_ENV=local", "KOALA_JWT_MARKETPLACE_KEYS=k1"}, "KOALA_JWT_MARKETPLACE_KEYS: invalid value"},
 		"staff short seed":      {[]string{"KOALA_ENV=local", "KOALA_JWT_STAFF_KEYS=k1:AAAA"}, "KOALA_JWT_STAFF_KEYS: invalid value"},
+		"zero seed": {
+			[]string{"KOALA_ENV=local", "KOALA_JWT_STAFF_KEYS=k1:" + strings.Repeat("A", 43)},
+			"KOALA_JWT_STAFF_KEYS: invalid value",
+		},
+		"pepper too short": {[]string{"KOALA_ENV=local", "KOALA_LOGIN_PEPPER=c2hvcnQ"}, "KOALA_LOGIN_PEPPER: invalid value"},
+		"pepper not random": {
+			[]string{"KOALA_ENV=local", "KOALA_LOGIN_PEPPER=" + strings.Repeat("A", 43)},
+			"KOALA_LOGIN_PEPPER: invalid value",
+		},
 		"classes share a key": {
 			[]string{"KOALA_ENV=local", "KOALA_JWT_MARKETPLACE_KEYS=" + shared, "KOALA_JWT_STAFF_KEYS=" + shared},
 			"must not share a key",

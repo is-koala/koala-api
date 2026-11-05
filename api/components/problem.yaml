@@ -41,7 +41,7 @@ components:
           description: |
             Eşleşen route şablonu (`/v1/jobs/{jobId}`). Yol parametresinin değeri
             yazılmaz; eşleşmeyen istekte (404 `ROUTE_NOT_FOUND`) alan yoktur (ADR-0019).
-          examples: ["/v1/meta/ping"]
+          examples: ["/v1/auth/login"]
         requestId:
           type: string
           description: Yanıttaki `X-Request-Id` ile aynı değer.
@@ -56,7 +56,7 @@ components:
           title: Bad Request
           status: 400
           code: REQUEST_INVALID
-          instance: /v1/meta/ping
+          instance: /v1/auth/login
           requestId: req-123
           errors:
             - pointer: /amount/currency

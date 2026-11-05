@@ -45,8 +45,8 @@ const (
 	maxKeyLen    = 64
 )
 
-// maxPasswordBytes bounds what is hashed at sign-in, far above the rule's
-// 72 bytes (the contract caps the field too).
+// maxPasswordBytes bounds what is hashed at sign-in: twice the 512 bytes
+// that 128 characters of UTF-8 can take (the contract caps the field too).
 const maxPasswordBytes = 1024
 
 // errBadHash means a stored value is not an argon2id PHC string this
@@ -122,7 +122,29 @@ func (h *Passwords) Verify(ctx context.Context, stored, password string) (ok, re
 	if err != nil {
 		return false, false, err
 	}
-	return ok, params != h.params, nil
+	if params != h.params {
+		// A hash under other (older, usually cheaper) parameters must not
+		// answer faster than the dummy an unknown account is verified
+		// against: pay one derivation under the current parameters too,
+		// right or wrong (ADR-0025 §5).
+		if err := h.pad(ctx, password); err != nil {
+			return false, false, err
+		}
+		return ok, true, nil
+	}
+	return ok, false, nil
+}
+
+// pad pays the cost of one derivation under the current parameters.
+func (h *Passwords) pad(ctx context.Context, password string) error {
+	if err := h.acquire(ctx); err != nil {
+		return err
+	}
+	defer h.release()
+	salt := make([]byte, h.params.SaltLen)
+	_, _ = rand.Read(salt) // crypto/rand.Read never returns an error (Go 1.24+)
+	_ = argon2.IDKey([]byte(password), salt, h.params.Time, h.params.MemoryKiB, h.params.Threads, h.params.KeyLen)
+	return nil
 }
 
 // VerifyDummy pays the cost of one verification for an account that does

@@ -49,8 +49,6 @@ tags:
     description: |
       Personel girişi ve personel token sınıfı (ADR-0015 §5, ADR-0025): kilit,
       `must_change_password`, `token_version`. TOTP Faz 8'de gelir (K13).
-  - name: meta
-    description: Sözleşme ve sunucu sağlığıyla ilgili yardımcı uçlar.
   - name: realtime
     description: |
       WebSocket kanalı (ADR-0011, ADR-0018). Bu uçlar üretilen strict sunucunun
@@ -59,77 +57,6 @@ tags:
       sınırının dışında, `Router.Stream` ile çalışır.
 
 paths:
-  /v1/meta/ping:
-    post:
-      operationId: ping
-      tags: [meta]
-      summary: Gövdeyi doğrulayıp geri döndürür.
-      description: |
-        Sözleşme duman testi: istek gövdesi spec'e göre doğrulanır ve aynen geri
-        döner. Yan etkisi yoktur. Ortak para ve problem bileşenlerinin uçtan uca
-        çalıştığını gösterir (ADR-0019). **Üretim ortamında bağlanmaz**
-        (`KOALA_ENV=production`'da 404); ilk gerçek operasyon gelince silinecek.
-      security: []
-      x-no-idempotency-key: Yan etkisi yok; aynı gövde her zaman aynı yanıtı verir.
-      requestBody:
-        description: Doğrulanıp geri döndürülecek gövde.
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PingRequest"
-      responses:
-        "200":
-          description: Doğrulanmış gövde.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PingResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        default:
-          $ref: "#/components/responses/InternalError"
-    patch:
-      operationId: patchPing
-      tags: [meta]
-      summary: Merge Patch gövdesini doğrulayıp hangi alanların değiştiğini döndürür.
-      description: |
-        JSON Merge Patch (RFC 7396) duman testi. Gönderilmeyen alan değişmez, `null`
-        alanı temizler, değer alanı değiştirir; yanıt bu üç durumu ayırt eder. Yan
-        etkisi yoktur. Üretim ortamında bağlanmaz; ilk gerçek operasyonla silinecek
-        (ADR-0019).
-      security: []
-      requestBody:
-        description: Merge patch. Yalnız `application/merge-patch+json` kabul edilir.
-        required: true
-        content:
-          application/merge-patch+json:
-            schema:
-              $ref: "#/components/schemas/PingPatch"
-      responses:
-        "200":
-          description: Gövdenin hangi alanları değiştirdiği.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PingPatchResult"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        default:
-          $ref: "#/components/responses/InternalError"
-
   /v1/realtime/tickets:
     post:
       operationId: issueRealtimeTicket
@@ -643,88 +570,6 @@ components:
         altındaki operasyonlarda geçerlidir; marketplace token'ı burada reddedilir.
 
   schemas:
-    PingRequest:
-      type: object
-      description: Ping isteği. Bilinmeyen alan reddedilir.
-      additionalProperties: false
-      required: [amount]
-      properties:
-        amount:
-          $ref: "./components/money.yaml#/components/schemas/MoneyInput"
-          description: Geri döndürülecek tutar.
-          examples: [{amount: 15000, currency: TRY}]
-        note:
-          type: [string, "null"]
-          maxLength: 200
-          description: İsteğe bağlı not; null gönderilebilir.
-          examples: [Merhaba, null]
-      examples:
-        - amount: {amount: 15000, currency: TRY}
-          note: null
-
-    PingResponse:
-      type: object
-      description: Ping yanıtı; isteğin doğrulanmış hâli.
-      required: [amount, note]
-      properties:
-        amount:
-          $ref: "./components/money.yaml#/components/schemas/Money"
-          description: İstekteki tutar.
-          examples: [{amount: 15000, currency: TRY}]
-        note:
-          type: [string, "null"]
-          description: İstekteki not; gönderilmediyse null.
-      examples:
-        - amount: {amount: 15000, currency: TRY}
-          note: null
-
-    PingPatch:
-      type: object
-      description: |
-        Ping'in merge patch'i (RFC 7396). Hiçbir alan zorunlu değildir. Temizlenebilen
-        alan nullable'dır ve Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi",
-        "null" ve "değer" ayrılır (stil rehberi §3). `amount` temizlenemez: null 400 döner.
-      additionalProperties: false
-      properties:
-        amount:
-          $ref: "./components/money.yaml#/components/schemas/MoneyInput"
-          description: Yeni tutar. Temizlenemez.
-          examples: [{amount: 15000, currency: TRY}]
-        note:
-          type: [string, "null"]
-          maxLength: 200
-          description: Yeni not; `null` notu temizler.
-          examples: [Merhaba, null]
-          x-go-type: nullable.Nullable[string]
-          x-go-type-import:
-            path: github.com/oapi-codegen/nullable
-          x-go-type-skip-optional-pointer: true
-      examples:
-        - note: null
-        - amount: {amount: 15000, currency: TRY}
-          note: Merhaba
-
-    PingPatchResult:
-      type: object
-      description: Merge patch'in hangi alanları değiştirdiği.
-      required: [set, cleared]
-      properties:
-        set:
-          type: array
-          description: Değer verilen alanlar, alfabetik.
-          items:
-            type: string
-          examples: [[amount]]
-        cleared:
-          type: array
-          description: "`null` ile temizlenen alanlar, alfabetik."
-          items:
-            type: string
-          examples: [[note]]
-      examples:
-        - set: [amount]
-          cleared: [note]
-
     RealtimeTicket:
       type: object
       description: |

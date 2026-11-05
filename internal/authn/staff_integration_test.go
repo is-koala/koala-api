@@ -16,28 +16,42 @@ const (
 	opsEmail   = "ops@iskoala.com"
 	opsPw      = "ekip üyesinin uzun parolası"
 	newStaffPw = "yepyeni uzun bir parola"
+	officeIP   = "192.0.2.10"
+	homeIP     = "198.51.100.7"
 )
 
-func (e *env) staffLogin(t *testing.T, email, password string) authn.StaffTokenPair {
+func (e *env) staffLogin(t *testing.T, email, password, client string) authn.StaffTokenPair {
 	t.Helper()
-	pair, err := e.staff.Login(t.Context(), email, password)
+	pair, err := e.staff.Login(t.Context(), email, password, client)
 	if err != nil {
-		t.Fatalf("staff Login(%s) = %v", email, err)
+		t.Fatalf("staff Login(%s from %s) = %v", email, client, err)
 	}
 	return pair
 }
 
-// lockState reads the staff member's counter and lock.
+// lockState reads the member's account counter and backoff.
 func (e *env) lockState(t *testing.T, id uuid.UUID) (int32, *time.Time) {
 	t.Helper()
 	var n int32
 	var until *time.Time
 	err := e.db.Pool().QueryRow(t.Context(),
-		"SELECT failed_login_attempts, locked_until FROM active_staff_members WHERE id = $1", id).Scan(&n, &until)
+		"SELECT failed_login_attempts, backoff_until FROM active_staff_members WHERE id = $1", id).Scan(&n, &until)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return n, until
+}
+
+// addressLock reads the (member, address) lock, nil when there is none.
+func (e *env) addressLock(t *testing.T, id uuid.UUID, client string) *time.Time {
+	t.Helper()
+	var until *time.Time
+	err := e.db.Pool().QueryRow(t.Context(),
+		"SELECT max(locked_until) FROM staff_login_locks WHERE staff_id = $1 AND client_key = $2", id, client).Scan(&until)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return until
 }
 
 // AUTH-010: a wrong password, a disabled account (even with its right
@@ -57,7 +71,7 @@ func TestStaffLoginConcealment(t *testing.T) {
 		{"p3@example.com", opsPw},
 	} {
 		before := e.passwords.verifies.Load()
-		_, err := e.staff.Login(ctx, tc.email, tc.pw)
+		_, err := e.staff.Login(ctx, tc.email, tc.pw, officeIP)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
 		msgs = append(msgs, err.Error())
 		if got := e.passwords.verifies.Load() - before; got != 1 {
@@ -68,15 +82,18 @@ func TestStaffLoginConcealment(t *testing.T) {
 		t.Errorf("AUTH-010: errors differ: %q", msgs)
 	}
 	for _, addr := range []string{opsEmail, "gone@iskoala.com", "p3@example.com"} {
-		if ok, failed := e.attempts(t, "STAFF", addr); ok != 0 || failed != 1 {
-			t.Errorf("%s attempts: %d ok, %d failed", addr, ok, failed)
+		if row := e.attempts(t, "STAFF", addr); row.Succeeded != 0 || row.Failed != 1 {
+			t.Errorf("AUTH-010 %s attempts: %+v", addr, row)
 		}
 	}
 }
 
-// AUTH-011: five wrong passwords lock the account for 15 minutes. While
-// locked, the right password fails too, no attempt moves the lock, and
-// the answer is the plain failure. A success resets the counter.
+// AUTH-011 (ADR-0025 §6): five wrong passwords from one address lock the
+// account for that address for 30 minutes. While locked the right
+// password from that address fails too, nothing moves the lock, and the
+// answer is the plain failure. Another address is not locked out. A
+// success clears the counters. The HTTP bodies are compared byte for byte
+// in internal/app (TestStaffLockBodyIsTheFailureBody).
 func TestStaffLockout(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -84,43 +101,85 @@ func TestStaffLockout(t *testing.T) {
 	ctx := t.Context()
 
 	for i := 1; i <= authn.StaffLockThreshold; i++ {
-		_, err := e.staff.Login(ctx, opsEmail, wrongPw)
+		_, err := e.staff.Login(ctx, opsEmail, wrongPw, officeIP)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
-		n, until := e.lockState(t, id)
-		if i < authn.StaffLockThreshold && (n != int32(i) || until != nil) {
-			t.Fatalf("AUTH-011: after %d failures: counter %d, lock %v", i, n, until)
+		if i < authn.StaffLockThreshold && e.addressLock(t, id, officeIP) != nil {
+			t.Fatalf("AUTH-011: locked after %d failures", i)
 		}
 	}
-	_, lockedUntil := e.lockState(t, id)
-	if lockedUntil == nil || !lockedUntil.Equal(epoch.Add(authn.StaffLockDuration)) {
-		t.Fatalf("AUTH-011: lock = %v, want %s", lockedUntil, epoch.Add(authn.StaffLockDuration))
+	locked := e.addressLock(t, id, officeIP)
+	if locked == nil || !locked.Equal(epoch.Add(authn.StaffLockDuration)) {
+		t.Fatalf("AUTH-011: lock = %v, want %s", locked, epoch.Add(authn.StaffLockDuration))
+	}
+	if got := e.lockouts(t, "staff", "address"); got != 1 {
+		t.Errorf("AUTH-011: address lockouts metric = %v, want 1", got)
 	}
 
 	e.clock.Advance(5 * time.Minute)
 	for _, pw := range []string{opsPw, wrongPw} {
-		_, err := e.staff.Login(ctx, opsEmail, pw)
+		_, err := e.staff.Login(ctx, opsEmail, pw, officeIP)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
-		if _, until := e.lockState(t, id); until == nil || !until.Equal(*lockedUntil) {
+		if until := e.addressLock(t, id, officeIP); until == nil || !until.Equal(*locked) {
 			t.Errorf("AUTH-011: an attempt while locked moved the lock to %v", until)
 		}
 	}
-
-	e.clock.Advance(authn.StaffLockDuration)
-	e.staffLogin(t, opsEmail, opsPw)
-	if n, until := e.lockState(t, id); n != 0 || until != nil {
-		t.Errorf("AUTH-011: after a success: counter %d, lock %v", n, until)
+	if row := e.attempts(t, "STAFF", opsEmail); row.Locked != 2 {
+		t.Errorf("AUTH-011: attempts while locked = %+v, want 2 LOCKED", row)
 	}
 
-	// Another member: two failures, then a success clears the counter.
-	other := e.addStaff(t, "finance@iskoala.com", authn.StaffActive, false)
-	for range 2 {
-		if _, err := e.staff.Login(ctx, "finance@iskoala.com", wrongPw); err == nil {
+	// The lock is the address's: the member signs in from home.
+	e.staffLogin(t, opsEmail, opsPw, homeIP)
+	if n, until := e.lockState(t, id); n != 0 || until != nil {
+		t.Errorf("AUTH-011: account counter after a success = %d, %v", n, until)
+	}
+
+	e.clock.Advance(authn.StaffLockDuration)
+	e.staffLogin(t, opsEmail, opsPw, officeIP)
+	if until := e.addressLock(t, id, officeIP); until != nil {
+		t.Errorf("AUTH-011: the office lock survived a success: %v", until)
+	}
+}
+
+// Account-wide backoff (ADR-0025 §6): from the tenth consecutive wrong
+// password on the account, from any address, each failure sets a
+// doubling backoff during which every attempt is refused; there is no
+// hard lock.
+func TestStaffBackoff(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addStaff(t, opsEmail, authn.StaffActive, false)
+	ctx := t.Context()
+
+	// Four addresses, fewer than five failures each: no address lock.
+	for i := range authn.StaffBackoffAfter {
+		client := []string{"192.0.2.1", "192.0.2.2", "192.0.2.3", "192.0.2.4"}[i%4]
+		if _, err := e.staff.Login(ctx, opsEmail, wrongPw, client); err == nil {
 			t.Fatal("wrong password accepted")
 		}
 	}
-	e.staffLogin(t, "finance@iskoala.com", opsPw)
-	if n, _ := e.lockState(t, other); n != 0 {
-		t.Errorf("AUTH-011: counter after success = %d", n)
+	n, until := e.lockState(t, id)
+	if n != authn.StaffBackoffAfter || until == nil || !until.Equal(epoch.Add(authn.StaffBackoffBase)) {
+		t.Fatalf("after %d failures: counter %d, backoff %v; want %s", authn.StaffBackoffAfter, n, until, authn.StaffBackoffBase)
+	}
+	// During the backoff even the right password from a clean address fails.
+	_, err := e.staff.Login(ctx, opsEmail, opsPw, homeIP)
+	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
+
+	e.clock.Advance(authn.StaffBackoffBase)
+	if _, err := e.staff.Login(ctx, opsEmail, wrongPw, homeIP); err == nil {
+		t.Fatal("wrong password accepted")
+	}
+	if _, until := e.lockState(t, id); until == nil || !until.Equal(e.clock.Now().Add(2*authn.StaffBackoffBase)) {
+		t.Errorf("second backoff = %v, want twice the first", until)
+	}
+	if got := e.lockouts(t, "staff", "backoff"); got != 2 {
+		t.Errorf("backoff metric = %v, want 2", got)
+	}
+
+	e.clock.Advance(authn.StaffBackoffMax)
+	e.staffLogin(t, opsEmail, opsPw, homeIP)
+	if n, until := e.lockState(t, id); n != 0 || until != nil {
+		t.Errorf("after a success: counter %d, backoff %v", n, until)
 	}
 }
 
@@ -134,11 +193,11 @@ func TestStaffTokens(t *testing.T) {
 	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	e.addUser(t, alice, alicePw)
 	ctx := t.Context()
-	pair := e.staffLogin(t, opsEmail, opsPw)
+	pair := e.staffLogin(t, opsEmail, opsPw, officeIP)
 	userPair := e.login(t, alice, alicePw, deviceW1)
 
 	if _, err := e.staff.Authenticate(ctx, pair.AccessToken); err != nil {
-		t.Fatalf("fresh staff token: %v", err)
+		t.Fatalf("AUTH-012: fresh staff token: %v", err)
 	}
 	_, err := e.staff.Authenticate(ctx, pair.RefreshToken)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeTokenInvalid)
@@ -147,12 +206,12 @@ func TestStaffTokens(t *testing.T) {
 	_, err = e.users.Authenticate(ctx, pair.AccessToken, deviceW1)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeTokenInvalid)
 
-	e.clock.Advance(authn.AccessTokenTTL + time.Second)
+	e.clock.Advance(authn.AccessTokenTTL + authn.ClockSkew)
 	_, err = e.staff.Authenticate(ctx, pair.AccessToken)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeTokenExpired)
 	next, err := e.staff.Refresh(ctx, pair.RefreshToken)
 	if err != nil {
-		t.Fatalf("refresh within the idle limit: %v", err)
+		t.Fatalf("AUTH-012: refresh within the idle limit: %v", err)
 	}
 	e.clock.Advance(authn.StaffRefreshIdleTTL)
 	_, err = e.staff.Refresh(ctx, next.RefreshToken)
@@ -160,16 +219,16 @@ func TestStaffTokens(t *testing.T) {
 }
 
 // AUTH-013: logout and a password change end every token of the account,
-// on every device, the one that asked included. The change checks the
-// current password, and the new one follows AUTH-009.
+// on every device, access and refresh, the one that asked included. The
+// change checks the current password, and the new one follows AUTH-009.
 func TestStaffLogoutAndPasswordChange(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	ctx := t.Context()
 
-	laptop := e.staffLogin(t, opsEmail, opsPw)
-	desktop := e.staffLogin(t, opsEmail, opsPw)
+	laptop := e.staffLogin(t, opsEmail, opsPw, officeIP)
+	desktop := e.staffLogin(t, opsEmail, opsPw, homeIP)
 	p, err := e.staff.Authenticate(ctx, laptop.AccessToken)
 	if err != nil {
 		t.Fatal(err)
@@ -177,40 +236,72 @@ func TestStaffLogoutAndPasswordChange(t *testing.T) {
 	if err := e.staff.Logout(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	for name, tok := range map[string]string{"laptop": laptop.AccessToken, "desktop": desktop.AccessToken} {
-		_, err := e.staff.Authenticate(ctx, tok)
-		if apperr.From(err).Code != authn.CodeStaffSessionEnded {
+	for name, pair := range map[string]authn.StaffTokenPair{"laptop": laptop, "desktop": desktop} {
+		if _, err := e.staff.Authenticate(ctx, pair.AccessToken); apperr.From(err).Code != authn.CodeStaffSessionEnded {
 			t.Errorf("AUTH-013: %s access token after logout: %v", name, err)
 		}
-	}
-	for name, tok := range map[string]string{"laptop": laptop.RefreshToken, "desktop": desktop.RefreshToken} {
-		_, err := e.staff.Refresh(ctx, tok)
-		if apperr.From(err).Code != authn.CodeStaffSessionEnded {
+		if _, err := e.staff.Refresh(ctx, pair.RefreshToken); apperr.From(err).Code != authn.CodeStaffSessionEnded {
 			t.Errorf("AUTH-013: %s refresh token after logout: %v", name, err)
 		}
 	}
 
-	again := e.staffLogin(t, opsEmail, opsPw)
+	again := e.staffLogin(t, opsEmail, opsPw, officeIP)
+	other := e.staffLogin(t, opsEmail, opsPw, homeIP)
 	p, err = e.staff.Authenticate(ctx, again.AccessToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = e.staff.ChangePassword(ctx, p, wrongPw, newStaffPw)
+	err = e.staff.ChangePassword(ctx, p, wrongPw, newStaffPw, officeIP)
 	wantErr(t, err, apperr.KindForbidden, authn.CodeStaffCurrentPasswordMismatch)
-	err = e.staff.ChangePassword(ctx, p, opsPw, "onbir harf")
-	wantErr(t, err, apperr.KindInvalid, authn.CodePasswordPolicy) // AUTH-009 on the staff surface
+	err = e.staff.ChangePassword(ctx, p, opsPw, "onbir harf", officeIP)
+	if apperr.From(err).Code != authn.CodePasswordPolicy {
+		t.Errorf("AUTH-009 on the staff surface: %v, want %s", err, authn.CodePasswordPolicy)
+	}
 	if _, err := e.staff.Authenticate(ctx, again.AccessToken); err != nil {
-		t.Fatalf("refused changes must not end the session: %v", err)
+		t.Fatalf("AUTH-013: refused changes must not end the session: %v", err)
 	}
 
-	if err := e.staff.ChangePassword(ctx, p, opsPw, newStaffPw); err != nil {
+	if err := e.staff.ChangePassword(ctx, p, opsPw, newStaffPw, officeIP); err != nil {
 		t.Fatal(err)
 	}
-	_, err = e.staff.Authenticate(ctx, again.AccessToken)
-	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffSessionEnded)
-	_, err = e.staff.Login(ctx, opsEmail, opsPw)
+	for name, pair := range map[string]authn.StaffTokenPair{"changer": again, "other device": other} {
+		if _, err := e.staff.Authenticate(ctx, pair.AccessToken); apperr.From(err).Code != authn.CodeStaffSessionEnded {
+			t.Errorf("AUTH-013: %s access token after the change: %v", name, err)
+		}
+		if _, err := e.staff.Refresh(ctx, pair.RefreshToken); apperr.From(err).Code != authn.CodeStaffSessionEnded {
+			t.Errorf("AUTH-013: %s refresh token after the change: %v", name, err)
+		}
+	}
+	_, err = e.staff.Login(ctx, opsEmail, opsPw, officeIP)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
-	e.staffLogin(t, opsEmail, newStaffPw)
+	e.staffLogin(t, opsEmail, newStaffPw, officeIP)
+}
+
+// A wrong current password counts like a wrong sign-in password; the
+// fifth from one address locks it and ends the session (ADR-0025 §6).
+func TestStaffPasswordGuessingEndsTheSession(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addStaff(t, opsEmail, authn.StaffActive, false)
+	ctx := t.Context()
+	pair := e.staffLogin(t, opsEmail, opsPw, officeIP)
+	p, err := e.staff.Authenticate(ctx, pair.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= authn.StaffLockThreshold; i++ {
+		err := e.staff.ChangePassword(ctx, p, wrongPw, newStaffPw, officeIP)
+		wantErr(t, err, apperr.KindForbidden, authn.CodeStaffCurrentPasswordMismatch)
+		_, authErr := e.staff.Authenticate(ctx, pair.AccessToken)
+		if ended := authErr != nil; ended != (i == authn.StaffLockThreshold) {
+			t.Fatalf("after %d wrong current passwords: session ended = %v", i, ended)
+		}
+	}
+	if e.addressLock(t, id, officeIP) == nil {
+		t.Error("the address is not locked")
+	}
+	_, err = e.staff.Login(ctx, opsEmail, opsPw, officeIP)
+	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
 }
 
 // AUTH-014 (service part): a new account signs in with the must-change
@@ -222,39 +313,45 @@ func TestStaffMustChangeFlag(t *testing.T) {
 	e.addStaff(t, opsEmail, authn.StaffActive, true)
 	ctx := t.Context()
 
-	first := e.staffLogin(t, opsEmail, opsPw)
+	first := e.staffLogin(t, opsEmail, opsPw, officeIP)
 	if !first.MustChangePassword {
 		t.Fatal("AUTH-014: new account signed in without the must-change flag")
 	}
 	p, err := e.staff.Authenticate(ctx, first.AccessToken)
 	if err != nil || !p.MustChangePassword {
-		t.Fatalf("principal = %+v, %v", p, err)
+		t.Fatalf("AUTH-014: principal = %+v, %v", p, err)
 	}
-	if err := e.staff.ChangePassword(ctx, p, opsPw, newStaffPw); err != nil {
+	if err := e.staff.ChangePassword(ctx, p, opsPw, newStaffPw, officeIP); err != nil {
 		t.Fatal(err)
 	}
-	if second := e.staffLogin(t, opsEmail, newStaffPw); second.MustChangePassword {
+	if second := e.staffLogin(t, opsEmail, newStaffPw, officeIP); second.MustChangePassword {
 		t.Error("AUTH-014: flag still set after the change")
 	}
 }
 
-// Staff refresh rotation and reuse detection mirror the marketplace's.
+// Staff refresh rotation, the grace window and reuse detection mirror the
+// marketplace's.
 func TestStaffRefreshReuse(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	ctx := t.Context()
 
-	first := e.staffLogin(t, opsEmail, opsPw)
+	first := e.staffLogin(t, opsEmail, opsPw, officeIP)
 	second, err := e.staff.Refresh(ctx, first.RefreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
+	retry, err := e.staff.Refresh(ctx, first.RefreshToken)
+	if err != nil || retry.RefreshToken != second.RefreshToken {
+		t.Fatalf("retry inside the grace window = %v; want the same successor", err)
+	}
+	e.clock.Advance(authn.RefreshGraceWindow + time.Second)
 	_, err = e.staff.Refresh(ctx, first.RefreshToken)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeRefreshTokenReused)
 	_, err = e.staff.Refresh(ctx, second.RefreshToken)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffSessionEnded)
-	if n, err := e.staff.Purge(ctx); err != nil || n != 0 {
-		t.Errorf("Purge() before retention = %d, %v", n, err)
+	if n, locks, err := e.staff.Purge(ctx); err != nil || n != 0 || locks != 0 {
+		t.Errorf("Purge() before retention = %d, %d, %v", n, locks, err)
 	}
 }

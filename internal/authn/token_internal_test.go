@@ -197,6 +197,25 @@ func TestAccessTokenRejects(t *testing.T) {
 	})
 }
 
+// A token issued by an instance whose clock runs a little ahead is
+// accepted: nbf and iat within ClockSkew of now.
+func TestAccessTokenClockSkew(t *testing.T) {
+	t.Parallel()
+
+	f := newTokenFixture(t)
+	ahead := f.clock.Now().Add(ClockSkew - time.Second).Unix()
+	c := f.claims()
+	c["nbf"], c["iat"] = ahead, ahead
+	if _, err := f.marketplace.verify(f.sign(t, c, nil)); err != nil {
+		t.Fatalf("nbf and iat within the skew: %v", err)
+	}
+	beyond := f.clock.Now().Add(ClockSkew + time.Second).Unix()
+	c = f.claims()
+	c["nbf"] = beyond
+	_, err := f.marketplace.verify(f.sign(t, c, nil))
+	wantCode(t, err, CodeTokenInvalid)
+}
+
 // A genuine token past its expiry says so; the client refreshes. A forged
 // one never reaches the expiry check (AUTH-003: "the strict extractor
 // keeps refusing an expired token").
@@ -208,11 +227,11 @@ func TestAccessTokenExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.clock.Advance(AccessTokenTTL - time.Second)
+	f.clock.Advance(AccessTokenTTL + ClockSkew - time.Second)
 	if _, err := f.marketplace.verify(raw); err != nil {
-		t.Fatalf("one second before expiry: %v", err)
+		t.Fatalf("AUTH-003: within the clock skew after exp: %v", err)
 	}
-	f.clock.Advance(time.Second) // at exp the token is expired (valid while now < exp)
+	f.clock.Advance(time.Second) // valid while now < exp + ClockSkew
 	_, err = f.marketplace.verify(raw)
 	wantCode(t, err, CodeTokenExpired)
 

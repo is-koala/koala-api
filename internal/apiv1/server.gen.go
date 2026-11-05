@@ -11,7 +11,6 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/oapi-codegen/nullable"
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
@@ -100,66 +99,6 @@ type Me struct {
 
 // MeStatus Hesabın durumu.
 type MeStatus string
-
-// PingPatch Ping'in merge patch'i (RFC 7396). Hiçbir alan zorunlu değildir. Temizlenebilen
-// alan nullable'dır ve Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi",
-// "null" ve "değer" ayrılır (stil rehberi §3). `amount` temizlenemez: null 400 döner.
-//
-// Examples: {"note":null}, {"amount":{"amount":15000,"currency":"TRY"},"note":"Merhaba"}
-type PingPatch struct {
-	// Amount Yeni tutar. Temizlenemez.
-	//
-	// Examples: {"amount":15000,"currency":"TRY"}
-	Amount *MoneyInput `json:"amount,omitempty"`
-
-	// Note Yeni not; `null` notu temizler.
-	//
-	// Examples: Merhaba, null
-	Note nullable.Nullable[string] `json:"note,omitempty"`
-}
-
-// PingPatchResult Merge patch'in hangi alanları değiştirdiği.
-//
-// Examples: {"cleared":["note"],"set":["amount"]}
-type PingPatchResult struct {
-	// Cleared `null` ile temizlenen alanlar, alfabetik.
-	//
-	// Examples: ["note"]
-	Cleared []string `json:"cleared"`
-
-	// Set Değer verilen alanlar, alfabetik.
-	//
-	// Examples: ["amount"]
-	Set []string `json:"set"`
-}
-
-// PingRequest Ping isteği. Bilinmeyen alan reddedilir.
-//
-// Examples: {"amount":{"amount":15000,"currency":"TRY"},"note":null}
-type PingRequest struct {
-	// Amount Geri döndürülecek tutar.
-	//
-	// Examples: {"amount":15000,"currency":"TRY"}
-	Amount MoneyInput `json:"amount"`
-
-	// Note İsteğe bağlı not; null gönderilebilir.
-	//
-	// Examples: Merhaba, null
-	Note *string `json:"note,omitempty"`
-}
-
-// PingResponse Ping yanıtı; isteğin doğrulanmış hâli.
-//
-// Examples: {"amount":{"amount":15000,"currency":"TRY"},"note":null}
-type PingResponse struct {
-	// Amount İstekteki tutar.
-	//
-	// Examples: {"amount":15000,"currency":"TRY"}
-	Amount Money `json:"amount"`
-
-	// Note İstekteki not; gönderilmediyse null.
-	Note *string `json:"note"`
-}
 
 // RefreshRequest Döndürülecek refresh token.
 //
@@ -321,7 +260,7 @@ type TokenPair struct {
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type BadRequest = Problem
 
 // Forbidden RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -329,7 +268,7 @@ type BadRequest = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type Forbidden = Problem
 
 // InternalError RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -337,7 +276,7 @@ type Forbidden = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type InternalError = Problem
 
 // NotFound RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -345,7 +284,7 @@ type InternalError = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type NotFound = Problem
 
 // PayloadTooLarge RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -353,7 +292,7 @@ type NotFound = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type PayloadTooLarge = Problem
 
 // TooManyRequests RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -361,7 +300,7 @@ type PayloadTooLarge = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type TooManyRequests = Problem
 
 // Unauthorized RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -369,7 +308,7 @@ type TooManyRequests = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type Unauthorized = Problem
 
 // UnsupportedMediaType RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -377,7 +316,7 @@ type Unauthorized = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type UnsupportedMediaType = Problem
 
 // LoginStaffJSONRequestBody defines body for LoginStaff for application/json ContentType.
@@ -394,12 +333,6 @@ type LoginUserJSONRequestBody = LoginRequest
 
 // RefreshUserSessionJSONRequestBody defines body for RefreshUserSession for application/json ContentType.
 type RefreshUserSessionJSONRequestBody = RefreshRequest
-
-// PatchPingApplicationMergePatchPlusJSONRequestBody defines body for PatchPing for application/merge-patch+json ContentType.
-type PatchPingApplicationMergePatchPlusJSONRequestBody = PingPatch
-
-// PingJSONRequestBody defines body for Ping for application/json ContentType.
-type PingJSONRequestBody = PingRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -442,12 +375,6 @@ type ServerInterface interface {
 	// GetMySession Çağıranın açık oturumlarından birini döndürür.
 	// (GET /v1/me/sessions/{sessionId})
 	GetMySession(w http.ResponseWriter, r *http.Request, sessionID openapi_types.UUID)
-	// PatchPing Merge Patch gövdesini doğrulayıp hangi alanların değiştiğini döndürür.
-	// (PATCH /v1/meta/ping)
-	PatchPing(w http.ResponseWriter, r *http.Request)
-	// Ping Gövdeyi doğrulayıp geri döndürür.
-	// (POST /v1/meta/ping)
-	Ping(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -529,18 +456,6 @@ func (_ Unimplemented) RevokeMySession(w http.ResponseWriter, r *http.Request, s
 // GetMySession Çağıranın açık oturumlarından birini döndürür.
 // (GET /v1/me/sessions/{sessionId})
 func (_ Unimplemented) GetMySession(w http.ResponseWriter, r *http.Request, sessionID openapi_types.UUID) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// PatchPing Merge Patch gövdesini doğrulayıp hangi alanların değiştiğini döndürür.
-// (PATCH /v1/meta/ping)
-func (_ Unimplemented) PatchPing(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Ping Gövdeyi doğrulayıp geri döndürür.
-// (POST /v1/meta/ping)
-func (_ Unimplemented) Ping(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -759,34 +674,6 @@ func (siw *ServerInterfaceWrapper) GetMySession(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
-// PatchPing operation middleware
-func (siw *ServerInterfaceWrapper) PatchPing(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PatchPing(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// Ping operation middleware
-func (siw *ServerInterfaceWrapper) Ping(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.Ping(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -900,12 +787,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
-	r.Group(func(r chi.Router) {
-		r.Patch(options.BaseURL+"/v1/meta/ping", wrapper.PatchPing)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/v1/meta/ping", wrapper.Ping)
-	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/auth/login", wrapper.LoginUser)
 	})
@@ -2354,224 +2235,6 @@ func (response GetMySessiondefaultApplicationProblemPlusJSONResponse) VisitGetMy
 	return err
 }
 
-type PatchPingRequestObject struct {
-	Body *PatchPingApplicationMergePatchPlusJSONRequestBody
-}
-
-type PatchPingResponseObject interface {
-	VisitPatchPingResponse(w http.ResponseWriter) error
-}
-
-type PatchPing200JSONResponse PingPatchResult
-
-func (response PatchPing200JSONResponse) VisitPatchPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PatchPing400ApplicationProblemPlusJSONResponse struct {
-	BadRequestApplicationProblemPlusJSONResponse
-}
-
-func (response PatchPing400ApplicationProblemPlusJSONResponse) VisitPatchPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	if response.Headers.XMinimumAppVersion != nil {
-		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
-	}
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PatchPing413ApplicationProblemPlusJSONResponse struct {
-	PayloadTooLargeApplicationProblemPlusJSONResponse
-}
-
-func (response PatchPing413ApplicationProblemPlusJSONResponse) VisitPatchPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(413)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PatchPing415ApplicationProblemPlusJSONResponse struct {
-	UnsupportedMediaTypeApplicationProblemPlusJSONResponse
-}
-
-func (response PatchPing415ApplicationProblemPlusJSONResponse) VisitPatchPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(415)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PatchPing429ApplicationProblemPlusJSONResponse struct {
-	TooManyRequestsApplicationProblemPlusJSONResponse
-}
-
-func (response PatchPing429ApplicationProblemPlusJSONResponse) VisitPatchPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	if response.Headers.RetryAfter != nil {
-		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
-	}
-	w.WriteHeader(429)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PatchPingdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response PatchPingdefaultApplicationProblemPlusJSONResponse) VisitPatchPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PingRequestObject struct {
-	Body *PingJSONRequestBody
-}
-
-type PingResponseObject interface {
-	VisitPingResponse(w http.ResponseWriter) error
-}
-
-type Ping200JSONResponse PingResponse
-
-func (response Ping200JSONResponse) VisitPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type Ping400ApplicationProblemPlusJSONResponse struct {
-	BadRequestApplicationProblemPlusJSONResponse
-}
-
-func (response Ping400ApplicationProblemPlusJSONResponse) VisitPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	if response.Headers.XMinimumAppVersion != nil {
-		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
-	}
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type Ping413ApplicationProblemPlusJSONResponse struct {
-	PayloadTooLargeApplicationProblemPlusJSONResponse
-}
-
-func (response Ping413ApplicationProblemPlusJSONResponse) VisitPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(413)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type Ping415ApplicationProblemPlusJSONResponse struct {
-	UnsupportedMediaTypeApplicationProblemPlusJSONResponse
-}
-
-func (response Ping415ApplicationProblemPlusJSONResponse) VisitPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(415)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type Ping429ApplicationProblemPlusJSONResponse struct {
-	TooManyRequestsApplicationProblemPlusJSONResponse
-}
-
-func (response Ping429ApplicationProblemPlusJSONResponse) VisitPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	if response.Headers.RetryAfter != nil {
-		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
-	}
-	w.WriteHeader(429)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PingdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response PingdefaultApplicationProblemPlusJSONResponse) VisitPingResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// LoginStaff Personel girişi.
@@ -2613,12 +2276,6 @@ type StrictServerInterface interface {
 	// GetMySession Çağıranın açık oturumlarından birini döndürür.
 	// (GET /v1/me/sessions/{sessionId})
 	GetMySession(ctx context.Context, request GetMySessionRequestObject) (GetMySessionResponseObject, error)
-	// PatchPing Merge Patch gövdesini doğrulayıp hangi alanların değiştiğini döndürür.
-	// (PATCH /v1/meta/ping)
-	PatchPing(ctx context.Context, request PatchPingRequestObject) (PatchPingResponseObject, error)
-	// Ping Gövdeyi doğrulayıp geri döndürür.
-	// (POST /v1/meta/ping)
-	Ping(ctx context.Context, request PingRequestObject) (PingResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -3004,68 +2661,6 @@ func (sh *strictHandler) GetMySession(w http.ResponseWriter, r *http.Request, se
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMySessionResponseObject); ok {
 		if err := validResponse.VisitGetMySessionResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PatchPing operation middleware
-func (sh *strictHandler) PatchPing(w http.ResponseWriter, r *http.Request) {
-	var request PatchPingRequestObject
-
-	var body PatchPingApplicationMergePatchPlusJSONRequestBody
-	if err := runtime.BindJSONBody(r, &body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PatchPing(ctx, request.(PatchPingRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PatchPing")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PatchPingResponseObject); ok {
-		if err := validResponse.VisitPatchPingResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// Ping operation middleware
-func (sh *strictHandler) Ping(w http.ResponseWriter, r *http.Request) {
-	var request PingRequestObject
-
-	var body PingJSONRequestBody
-	if err := runtime.BindJSONBody(r, &body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.Ping(ctx, request.(PingRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "Ping")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PingResponseObject); ok {
-		if err := validResponse.VisitPingResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

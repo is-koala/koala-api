@@ -198,7 +198,7 @@ cmd_smoke() {
 
 	# 5. SIGTERM (plan §3.10, Faz 1 "/readyz drain davranışı"): /readyz
 	# turns 503 while /livez still answers 200 and the listener still
-	# accepts, then the process exits 0 within the 45 s stop_grace_period.
+	# accepts, then the process exits 0 within the 50 s stop_grace_period.
 	local t_term drain_ms="" code="" exit_code="" stop_ms=""
 	docker kill --signal TERM "$smoke_container" >/dev/null
 	t_term="$(now_ms)"

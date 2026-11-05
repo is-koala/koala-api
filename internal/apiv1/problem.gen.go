@@ -294,7 +294,7 @@ type ErrorCode string
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/auth/login","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type Problem struct {
 	// Code Stabil, makinece okunur hata kodu (UPPER_SNAKE). Bir kodun anlamı hiç değişmez;
 	// yeni kod eklemek geriye uyumludur. İstemciler bilmedikleri kodu genel hata olarak
@@ -391,7 +391,7 @@ type Problem struct {
 	// yazılmaz; eşleşmeyen istekte (404 `ROUTE_NOT_FOUND`) alan yoktur (ADR-0019).
 	//
 	//
-	// Examples: /v1/meta/ping
+	// Examples: /v1/auth/login
 	Instance *string `json:"instance,omitempty"`
 
 	// RequestID Yanıttaki `X-Request-Id` ile aynı değer.

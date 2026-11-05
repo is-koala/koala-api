@@ -42,6 +42,7 @@ const (
 	VarJWTMarketplaceKeys   = "KOALA_JWT_MARKETPLACE_KEYS"
 	VarJWTStaffKeys         = "KOALA_JWT_STAFF_KEYS"
 	VarRealtimeOrigins      = "KOALA_REALTIME_ORIGINS"
+	VarLoginPepper          = "KOALA_LOGIN_PEPPER"
 )
 
 // known lists every variable Load understands. A KOALA_* variable outside
@@ -50,7 +51,7 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarEnv, VarHTTPAddr, VarLogLevel, VarShutdownDrainDelay, VarShutdownTimeout,
 	VarDatabaseURL, VarOwnerDatabaseURL, VarBootstrapDatabaseURL,
 	VarMinAppVersion, VarTrustedProxies, VarMetricsAddr,
-	VarJWTMarketplaceKeys, VarJWTStaffKeys, VarRealtimeOrigins,
+	VarJWTMarketplaceKeys, VarJWTStaffKeys, VarRealtimeOrigins, VarLoginPepper,
 }
 
 // Env is the deployment environment.
@@ -113,6 +114,10 @@ type Config struct {
 	// from a browser (ADR-0018 §4), comma-separated https://host[:port].
 	// The realtime handler validates each when serve starts.
 	RealtimeOrigins string
+	// LoginPepper keys the HMAC that stands for a sign-in identifier in the
+	// attempt log and the rate limit keys (ADR-0025 §5): unpadded base64url
+	// of at least 32 random bytes. Required like the key rings.
+	LoginPepper Secret
 }
 
 // Secret is a configuration value that must not reach logs or error
@@ -383,6 +388,13 @@ func loadAuth(vars map[string]string, cfg *Config) []error {
 		rings[name] = ring
 		*dst = Secret(v)
 	}
+	if v, ok := vars[VarLoginPepper]; ok {
+		if _, err := tokenkeys.ParsePepper(v); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w: %w", VarLoginPepper, errInvalidValue, err))
+		} else {
+			cfg.LoginPepper = Secret(v)
+		}
+	}
 	if m, ok := rings[VarJWTMarketplaceKeys]; ok && m.SharesKey(rings[VarJWTStaffKeys]) {
 		errs = append(errs, fmt.Errorf("%s, %s: %w: the token classes must not share a key", VarJWTMarketplaceKeys, VarJWTStaffKeys, errInvalidValue))
 	}
@@ -390,14 +402,17 @@ func loadAuth(vars map[string]string, cfg *Config) []error {
 }
 
 // ServeAuthErrors reports the authentication settings serve cannot start
-// without: in staging and production both signing key rings. Elsewhere an
-// unset ring is generated per process (tokens die on restart).
+// without: in staging and production both signing key rings and the login
+// pepper. Elsewhere an unset one is generated per process (tokens die on
+// restart, attempt targets do not match across restarts).
 func (c Config) ServeAuthErrors() error {
 	if c.Env != EnvStaging && c.Env != EnvProduction {
 		return nil
 	}
 	var errs []error
-	for name, v := range map[string]Secret{VarJWTMarketplaceKeys: c.JWTMarketplaceKeys, VarJWTStaffKeys: c.JWTStaffKeys} {
+	for name, v := range map[string]Secret{
+		VarJWTMarketplaceKeys: c.JWTMarketplaceKeys, VarJWTStaffKeys: c.JWTStaffKeys, VarLoginPepper: c.LoginPepper,
+	} {
 		if v == "" {
 			errs = append(errs, fmt.Errorf("%s: required by serve in %s", name, c.Env))
 		}

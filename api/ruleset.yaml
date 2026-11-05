@@ -88,44 +88,63 @@ rules:
                 required: [x-authz]
 
   koala-admin-permission:
-    description: "/v1/admin altındaki her operasyon üç biçimden birindedir: adminBearer + `x-authz-permission` (`payout.release` biçiminde); personelin yalnız kendi hesabına dokunan, izinsiz uç için adminBearer + `x-authz-exempt`; personel girişi ve yenilemesi için `security: []`. Son ikisi izin taşımaz (stil rehberi §11, ADR-0005 madde 1; son iki biçim ADR-0025)."
+    description: "/v1/admin altındaki her operasyon, izinsiz personel uçlarının izin listesi (`/v1/admin/me`, `/v1/admin/auth/*`) dışında, adminBearer kullanır ve `x-authz-permission` (`payout.release` biçiminde) taşır (stil rehberi §11, ADR-0005 madde 1, ADR-0025 §9)."
     severity: error
-    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\//))][get,put,post,patch,delete]"
+    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\//) && !@property.match(/^\\/v1\\/admin\\/(me|auth\\/[a-z0-9-]+)$/))][get,put,post,patch,delete]"
     then:
       function: schema
       functionOptions:
         schema:
-          oneOf:
-            - required: [security, x-authz-permission]
-              properties:
-                x-authz-permission:
-                  type: string
-                  pattern: "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
-                security:
-                  type: array
-                  minItems: 1
-                  items:
-                    type: object
-                    required: [adminBearer]
-                    maxProperties: 1
-            - required: [security, x-authz-exempt]
-              properties:
-                security:
-                  type: array
-                  minItems: 1
-                  items:
-                    type: object
-                    required: [adminBearer]
-                    maxProperties: 1
-              not:
-                required: [x-authz-permission]
-            - required: [security]
-              properties:
-                security:
-                  type: array
-                  maxItems: 0
-              not:
-                required: [x-authz-permission]
+          required: [security, x-authz-permission]
+          properties:
+            x-authz-permission:
+              type: string
+              pattern: "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+            security:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required: [adminBearer]
+                maxProperties: 1
+
+  koala-admin-self-service:
+    description: "İzin listesindeki kimlikli personel uçları (`/v1/admin/me`, giriş ve yenileme dışındaki `/v1/admin/auth/*`) personelin yalnız kendi hesabına dokunur: adminBearer + `x-authz-exempt`, `x-authz-permission` yok (ADR-0025 §9)."
+    severity: error
+    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\/(me|auth\\/[a-z0-9-]+)$/) && !@property.match(/^\\/v1\\/admin\\/auth\\/(login|refresh)$/))][get,put,post,patch,delete]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          required: [security, x-authz-exempt]
+          properties:
+            security:
+              type: array
+              minItems: 1
+              items:
+                type: object
+                required: [adminBearer]
+                maxProperties: 1
+          not:
+            required: [x-authz-permission]
+
+  koala-admin-public:
+    description: "Kimliksiz personel uçları yalnız giriş ve yenilemedir (`/v1/admin/auth/login`, `/v1/admin/auth/refresh`): `security: []`, izin ve muafiyet yok (ADR-0025 §9)."
+    severity: error
+    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\/auth\\/(login|refresh)$/))][get,put,post,patch,delete]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          required: [security]
+          properties:
+            security:
+              type: array
+              maxItems: 0
+          not:
+            anyOf:
+              - required: [x-authz-permission]
+              - required: [x-authz-exempt]
 
   koala-admin-only-under-admin:
     description: adminBearer ve `x-authz-permission` yalnız /v1/admin altında kullanılır (stil rehberi §11).

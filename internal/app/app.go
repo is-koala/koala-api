@@ -24,6 +24,7 @@ commands:
   migrate      apply database migrations: up, down, status (goose)
   maint        maintenance tasks for scheduled ops jobs: reindex
   healthcheck  probe the local server's /livez (Docker HEALTHCHECK)
+  keygen       print a new signing key entry or login pepper
   version      print the build version
 `
 
@@ -53,6 +54,8 @@ func Run(ctx context.Context, args []string, sio IO) int {
 		return runMigrate(ctx, rest, sio)
 	case "maint":
 		return runMaint(ctx, rest, sio)
+	case "keygen":
+		return runKeygen(rest, sio)
 	case "version":
 		_, _ = fmt.Fprintln(sio.Stdout, sio.Version)
 		return ExitOK

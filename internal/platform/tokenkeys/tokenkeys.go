@@ -20,7 +20,8 @@ import (
 	"strings"
 )
 
-// MaxKeys bounds a ring: one signer and a few retiring keys.
+// MaxKeys bounds a ring: one signer and a few retiring keys. Rotation
+// needs two at a time; four leave room for an emergency replacement.
 const MaxKeys = 4
 
 // kidPattern is the key id: short, printable, safe in a JWT header.
@@ -73,9 +74,74 @@ func Parse(spec string) (Ring, error) {
 		if err != nil || len(raw) != ed25519.SeedSize {
 			return Ring{}, fmt.Errorf("key %d: seed must be %d bytes in unpadded base64url", i+1, ed25519.SeedSize)
 		}
+		if lowEntropy(raw) {
+			return Ring{}, fmt.Errorf("key %d: seed is not random (too few distinct bytes); generate one with `koala keygen jwt`", i+1)
+		}
 		r.keys = append(r.keys, Key{id: kid, private: ed25519.NewKeyFromSeed(raw)})
 	}
 	return r, nil
+}
+
+// minDistinct is the fewest distinct byte values a 32-byte secret may
+// have. Random bytes have about 30; fewer than 16 has a probability far
+// below 2^-100 and means a hand-made value (all zero, a repeated
+// pattern, a word).
+const minDistinct = 16
+
+// lowEntropy reports a secret that cannot have come from a random source.
+func lowEntropy(b []byte) bool {
+	var seen [256]bool
+	distinct := 0
+	for _, c := range b {
+		if !seen[c] {
+			seen[c] = true
+			distinct++
+		}
+	}
+	return distinct < minDistinct
+}
+
+// NewKeyEntry returns a ring entry "kid:seed" with a fresh random seed,
+// ready to put into a KOALA_JWT_*_KEYS variable (`koala keygen jwt`).
+func NewKeyEntry(kid string) (string, error) {
+	if !kidPattern.MatchString(kid) {
+		return "", fmt.Errorf("kid must match %s", kidPattern)
+	}
+	seed := make([]byte, ed25519.SeedSize)
+	_, _ = rand.Read(seed) // crypto/rand.Read never returns an error (Go 1.24+)
+	return kid + ":" + base64.RawURLEncoding.EncodeToString(seed), nil
+}
+
+// PepperBytes is the size of a pepper made by NewPepper and the least a
+// configured one may have.
+const PepperBytes = 32
+
+// ParsePepper reads a server secret for keyed hashes (KOALA_LOGIN_PEPPER):
+// unpadded base64url of at least PepperBytes random bytes.
+func ParsePepper(v string) ([]byte, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(v))
+	if err != nil || len(raw) < PepperBytes {
+		return nil, fmt.Errorf("want at least %d bytes in unpadded base64url", PepperBytes)
+	}
+	if lowEntropy(raw) {
+		return nil, errors.New("not random (too few distinct bytes); generate one with `koala keygen pepper`")
+	}
+	return raw, nil
+}
+
+// NewPepper returns a fresh pepper value (`koala keygen pepper`).
+func NewPepper() string {
+	b := make([]byte, PepperBytes)
+	_, _ = rand.Read(b) // crypto/rand.Read never returns an error (Go 1.24+)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// GeneratePepper returns random pepper bytes for a process that has none
+// configured (outside staging and production).
+func GeneratePepper() []byte {
+	b := make([]byte, PepperBytes)
+	_, _ = rand.Read(b) // crypto/rand.Read never returns an error (Go 1.24+)
+	return b
 }
 
 // Generate returns a ring of one random key named prefix + "-ephemeral".

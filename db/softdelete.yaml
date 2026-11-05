@@ -34,6 +34,9 @@ tables:
   staff_members:
     class: soft_delete
     pii: true
+    # Staff accounts are created by the bootstrap and staff management as
+    # koala_maint; the application only reads and updates them.
+    app_view: [SELECT, UPDATE]
   user_sessions:
     class: M2
     reason: >-
@@ -46,9 +49,18 @@ tables:
       rows stay until then, for reuse detection (K12).
   login_attempts:
     class: M2
+    pii: true
     reason: >-
-      Sign-in attempt log for security review; target is a hash, purged
-      after its retention.
+      Security log and persistent failure counter of sign-ins (ADR-0025 §5).
+      Not M1: it has a fixed 90-day retention and is hard-deleted after it,
+      which M1 ("never deleted") forbids. The target is an HMAC of the
+      address under a server secret; with the time it is still personal
+      data, hence pii.
+  staff_login_locks:
+    class: M2
+    reason: >-
+      Failure counter and lock of one (staff member, client address) pair;
+      purged a day after its last change.
   staff_sessions:
     class: M2
     reason: Staff sessions (ADR-0025); hard-deleted after they end.
@@ -101,6 +113,10 @@ edges:
     parent: devices
     policy: detach
   - child: staff_sessions
+    column: staff_id
+    parent: staff_members
+    policy: detach
+  - child: staff_login_locks
     column: staff_id
     parent: staff_members
     policy: detach

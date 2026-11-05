@@ -4,6 +4,7 @@ package authn_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/platform/apperr"
+	"github.com/is-koala/koala-api/internal/platform/dbtest"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
@@ -57,8 +59,8 @@ func TestLoginConcealsUnknownAddress(t *testing.T) {
 	t.Run("AUTH-001/both recorded as failed", func(t *testing.T) {
 		t.Parallel()
 		for _, addr := range []string{alice, nobody} {
-			if ok, failed := e.attempts(t, "USER", addr); ok != 0 || failed != 1 {
-				t.Errorf("%s attempts: %d ok, %d failed; want 0, 1", addr, ok, failed)
+			if row := e.attempts(t, "USER", addr); row.Succeeded != 0 || row.Failed != 1 {
+				t.Errorf("AUTH-001 %s attempts: %+v; want one failure", addr, row)
 			}
 		}
 	})
@@ -70,7 +72,9 @@ func TestLoginAcceptsAnExistingShortPassword(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	e.addUser(t, alice, oldShort)
-	e.login(t, alice, oldShort, deviceW1)
+	if _, err := e.users.Login(t.Context(), authn.LoginInput{Email: alice, Password: oldShort, DeviceKey: deviceW1}); err != nil {
+		t.Fatalf("AUTH-009: sign-in with an existing 8-character password: %v", err)
+	}
 }
 
 // AUTH-002: a new sign-in on a device closes that device's session; other
@@ -117,8 +121,8 @@ func TestLoginReplacesTheDeviceSession(t *testing.T) {
 				t.Errorf("device %q: %d verifications; credentials were looked at", device, got)
 			}
 		}
-		if ok, failed := e.attempts(t, "USER", bob); ok+failed != 0 {
-			t.Errorf("attempts recorded for a request without a device: %d", ok+failed)
+		if row := e.attempts(t, "USER", bob); row.Succeeded+row.Failed+row.Locked != 0 {
+			t.Errorf("AUTH-002: attempts recorded for a request without a device: %+v", row)
 		}
 	})
 }
@@ -226,8 +230,9 @@ func TestRefreshRotation(t *testing.T) {
 			t.Fatal(err)
 		}
 		if second.RefreshToken == first.RefreshToken || second.SessionID != first.SessionID {
-			t.Fatal("refresh did not rotate the token within the session")
+			t.Fatal("AUTH-005: refresh did not rotate the token within the session")
 		}
+		e.clock.Advance(authn.RefreshGraceWindow + time.Second)
 		_, err = e.users.Refresh(ctx, first.RefreshToken, deviceW1)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeRefreshTokenReused)
 		_, err = e.users.Refresh(ctx, second.RefreshToken, deviceW1)
@@ -308,33 +313,110 @@ func TestRefreshRotation(t *testing.T) {
 		_, err := e.users.Refresh(ctx, pair.RefreshToken, deviceW1)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeRefreshTokenExpired)
 	})
+	t.Run("AUTH-005/retry inside the grace window gets the same successor", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+		e := newEnv(t)
+		e.addUser(t, alice, alicePw)
+		first := e.login(t, alice, alicePw, deviceW1)
+		second, err := e.users.Refresh(ctx, first.RefreshToken, deviceW1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.clock.Advance(authn.RefreshGraceWindow)
+		retry, err := e.users.Refresh(ctx, first.RefreshToken, deviceW1)
+		if err != nil || retry.RefreshToken != second.RefreshToken || !retry.RefreshTokenExpiresAt.Equal(second.RefreshTokenExpiresAt) {
+			t.Fatalf("AUTH-005 retry = %+v, %v; want the successor already issued", retry, err)
+		}
+		if _, err := e.users.Authenticate(ctx, retry.AccessToken, deviceW1); err != nil {
+			t.Fatalf("AUTH-005: access token of the retry: %v", err)
+		}
+		if e.revoked.has(first.SessionID) {
+			t.Error("AUTH-005: a retry revoked the session")
+		}
+	})
+	t.Run("AUTH-005/retry that is not a retry is reuse", func(t *testing.T) {
+		t.Parallel()
+		for name, tc := range map[string]struct {
+			wait         time.Duration
+			device       string
+			useSuccessor bool
+		}{
+			"after the window":          {wait: authn.RefreshGraceWindow + time.Second, device: deviceW1},
+			"from another device":       {device: deviceW2},
+			"after the successor's use": {device: deviceW1, useSuccessor: true},
+		} {
+			e := newEnv(t)
+			e.addUser(t, alice, alicePw)
+			ctx := t.Context()
+			first := e.login(t, alice, alicePw, deviceW1)
+			second, err := e.users.Refresh(ctx, first.RefreshToken, deviceW1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.useSuccessor {
+				if _, err := e.users.Refresh(ctx, second.RefreshToken, deviceW1); err != nil {
+					t.Fatal(err)
+				}
+			}
+			e.clock.Advance(tc.wait)
+			_, err = e.users.Refresh(ctx, first.RefreshToken, tc.device)
+			if apperr.From(err).Code != authn.CodeRefreshTokenReused {
+				t.Errorf("AUTH-005 %s: %v, want %s", name, err, authn.CodeRefreshTokenReused)
+			}
+			if active, _ := e.users.SessionActive(ctx, mustUser(t, e, alice), first.SessionID, deviceW1); active {
+				t.Errorf("AUTH-005 %s: the session survived reuse", name)
+			}
+		}
+	})
 	t.Run("AUTH-005/concurrent refreshes of one token", func(t *testing.T) {
 		t.Parallel()
 		ctx := t.Context()
 		e := newEnv(t)
 		e.addUser(t, alice, alicePw)
 		pair := e.login(t, alice, alicePw, deviceW1)
-		var wg sync.WaitGroup
+
+		// Hold the token's row so both refreshes queue on it, then let go:
+		// the first rotates, the second is a retry inside the grace window
+		// and gets the same successor. Deterministic: the test waits until
+		// Postgres shows both waiting on the lock.
+		hold, err := e.db.Pool().Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hash := sha256.Sum256([]byte(pair.RefreshToken))
+		if _, err := hold.Exec(ctx, "SELECT 1 FROM user_refresh_tokens WHERE token_hash = $1 FOR UPDATE", hash[:]); err != nil {
+			t.Fatal(err)
+		}
+		results := make([]authn.TokenPair, 2)
 		errs := make([]error, 2)
-		for i := range errs {
+		var wg sync.WaitGroup
+		for i := range results {
 			wg.Go(func() {
-				_, errs[i] = e.users.Refresh(ctx, pair.RefreshToken, deviceW1)
+				results[i], errs[i] = e.users.Refresh(ctx, pair.RefreshToken, deviceW1)
+			})
+			dbtest.Eventually(t, 10*time.Second, "refresh waiting on the token's lock", func() (bool, error) {
+				var waiting int
+				err := e.db.Pool().QueryRow(ctx, `
+					SELECT count(*) FROM pg_stat_activity
+					WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting)
+				return waiting == i+1, err
 			})
 		}
+		if err := hold.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
 		wg.Wait()
-		ok, reused := 0, 0
-		for _, err := range errs {
-			switch {
-			case err == nil:
-				ok++
-			case apperr.From(err).Code == authn.CodeRefreshTokenReused:
-				reused++
-			default:
-				t.Errorf("unexpected error %v", err)
+		for i, err := range errs {
+			if err != nil {
+				t.Fatalf("AUTH-005: refresh %d: %v", i, err)
 			}
 		}
-		if ok != 1 || reused != 1 {
-			t.Errorf("%d succeeded, %d reused; want exactly one of each", ok, reused)
+		if results[0].RefreshToken != results[1].RefreshToken {
+			t.Errorf("AUTH-005: concurrent refreshes got different successors")
+		}
+		if _, err := e.users.Refresh(ctx, results[0].RefreshToken, deviceW1); err != nil {
+			t.Errorf("AUTH-005: the shared successor does not work: %v", err)
 		}
 	})
 }
@@ -377,7 +459,7 @@ func TestOwnSessions(t *testing.T) {
 		err := e.users.RevokeSession(ctx, p1, b3.SessionID)
 		wantErr(t, err, apperr.KindNotFound, authn.CodeSessionNotFound)
 		if _, err := e.users.Authenticate(ctx, b3.AccessToken, devicePhone); err != nil {
-			t.Errorf("bob's session after alice tried to close it: %v", err)
+			t.Errorf("AUTH-016: bob's session after alice tried to close it: %v", err)
 		}
 	}
 	// AUTH-016: revoking the others spares the caller.
@@ -505,3 +587,53 @@ func flip(s string) string {
 type alwaysActive struct{}
 
 func (alwaysActive) Active(context.Context, realtime.Principal) (bool, error) { return true, nil }
+
+// Marketplace lock (ADR-0025 §5, NIST SP 800-63B): the hundredth
+// consecutive failure on a target locks it for an hour. While locked the
+// right password gets the wrong-password answer and pays the same
+// verification; refused attempts do not extend the lock. The HTTP body is
+// compared byte for byte in internal/app.
+func TestLoginLocksAfterAHundredFailures(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.addUser(t, alice, alicePw)
+	ctx := t.Context()
+	target := e.users.Target(alice)
+	for i := range authn.UserLockThreshold - 1 {
+		_, err := e.db.Pool().Exec(ctx,
+			"INSERT INTO login_attempts (id, principal_kind, target_hash, outcome, created_at) VALUES ($1, 'USER', $2, 'FAILED', $3)",
+			uuid.Must(uuid.NewV7()), target, epoch.Add(-time.Duration(authn.UserLockThreshold-i)*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, wrong := e.users.Login(ctx, authn.LoginInput{Email: alice, Password: wrongPw, DeviceKey: deviceW1})
+	wantErr(t, wrong, apperr.KindUnauthenticated, authn.CodeEmailOrPasswordMismatch)
+	if got := e.lockouts(t, "user", "target"); got != 1 {
+		t.Errorf("lockouts metric = %v, want 1", got)
+	}
+
+	before := e.passwords.verifies.Load()
+	_, locked := e.users.Login(ctx, authn.LoginInput{Email: alice, Password: alicePw, DeviceKey: deviceW1})
+	if locked == nil || locked.Error() != wrong.Error() {
+		t.Fatalf("locked: %v, want the wrong-password error %v", locked, wrong)
+	}
+	if got := e.passwords.verifies.Load() - before; got != 1 {
+		t.Errorf("a locked sign-in paid %d verifications, want 1", got)
+	}
+	e.clock.Advance(authn.UserLockDuration - time.Second)
+	if _, err := e.users.Login(ctx, authn.LoginInput{Email: alice, Password: alicePw, DeviceKey: deviceW1}); err == nil {
+		t.Fatal("signed in while locked")
+	}
+	if row := e.attempts(t, "USER", alice); row.Locked != 2 || row.Failed != authn.UserLockThreshold {
+		t.Errorf("attempts = %+v, want 2 LOCKED that do not count as failures", row)
+	}
+
+	e.clock.Advance(time.Second)
+	e.login(t, alice, alicePw, deviceW1)
+	if _, err := e.users.Login(ctx, authn.LoginInput{Email: alice, Password: wrongPw, DeviceKey: deviceW1}); apperr.From(err).Code != authn.CodeEmailOrPasswordMismatch {
+		t.Fatalf("after the lock: %v", err)
+	}
+	// The success reset the counter: one failure is not a lock.
+	e.login(t, alice, alicePw, deviceW1)
+}

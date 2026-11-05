@@ -22,6 +22,9 @@ const (
 	groupMessage  = "message"
 	groupSitemap  = "sitemap"
 	groupBoarding = "boarding"
+	// groupAuthAccount holds the account-wide sign-in buckets, one per
+	// target from any address (ADR-0025 §8). No route is in it.
+	groupAuthAccount = "auth_account"
 )
 
 // perMinute is a bucket of burst requests that refills n per minute.
@@ -36,11 +39,15 @@ func rateLimitGroups() map[string]httpx.GroupLimits {
 		httpx.GroupRead:  {PerIP: perMinute(600, 120), PerIdentity: perMinute(300, 60)},
 		httpx.GroupWrite: {PerIP: perMinute(300, 60), PerIdentity: perMinute(60, 20)},
 		// Login, registration, OTP and password reset. The module adds a
-		// KeyCustom bucket per hashed target (Java: path + IP + target).
+		// KeyCustom bucket per (hashed target, address) (Java: path + IP +
+		// target).
 		groupAuth:     {PerIP: perMinute(30, 10), PerCustom: perMinute(10, 5)},
 		groupUpload:   {PerIP: perMinute(100, 20), PerIdentity: perMinute(20, 5)},
 		groupMessage:  {PerIP: perMinute(150, 30), PerIdentity: perMinute(30, 10)},
 		groupSitemap:  {PerIP: perMinute(30, 10)},
 		groupBoarding: {PerIP: perMinute(600, 60), PerIdentity: perMinute(120, 20)},
+		// A sign-in target from any address; the (target, address) bucket
+		// is auth's PerCustom (ADR-0025 §8).
+		groupAuthAccount: {PerCustom: perMinute(30, 10)},
 	}
 }

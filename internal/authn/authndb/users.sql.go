@@ -12,8 +12,35 @@ import (
 	"github.com/google/uuid"
 )
 
+const countFailuresSinceSuccess = `-- name: CountFailuresSinceSuccess :one
+SELECT count(*)
+FROM login_attempts f
+WHERE f.principal_kind = $1 AND f.target_hash = $2
+  AND f.outcome = 'FAILED'
+  AND f.created_at > coalesce((
+      SELECT max(s.created_at) FROM login_attempts s
+      WHERE s.principal_kind = $1 AND s.target_hash = $2
+        AND s.outcome = 'SUCCEEDED'), '-infinity'::timestamptz)
+`
+
+type CountFailuresSinceSuccessParams struct {
+	PrincipalKind string
+	TargetHash    []byte
+}
+
+// CountFailuresSinceSuccess is the persistent failure counter of a target:
+// its FAILED attempts after its last SUCCEEDED one (ADR-0025 §5).
+func (q *Queries) CountFailuresSinceSuccess(ctx context.Context, arg CountFailuresSinceSuccessParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countFailuresSinceSuccess, arg.PrincipalKind, arg.TargetHash)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countLoginAttempts = `-- name: CountLoginAttempts :one
-SELECT count(*) FILTER (WHERE succeeded) AS succeeded, count(*) FILTER (WHERE NOT succeeded) AS failed
+SELECT count(*) FILTER (WHERE outcome = 'SUCCEEDED') AS succeeded,
+       count(*) FILTER (WHERE outcome = 'FAILED') AS failed,
+       count(*) FILTER (WHERE outcome = 'LOCKED') AS locked
 FROM login_attempts
 WHERE principal_kind = $1 AND target_hash = $2
 `
@@ -26,13 +53,14 @@ type CountLoginAttemptsParams struct {
 type CountLoginAttemptsRow struct {
 	Succeeded int64
 	Failed    int64
+	Locked    int64
 }
 
 // CountLoginAttempts counts the attempts on one target by outcome.
 func (q *Queries) CountLoginAttempts(ctx context.Context, arg CountLoginAttemptsParams) (CountLoginAttemptsRow, error) {
 	row := q.db.QueryRow(ctx, countLoginAttempts, arg.PrincipalKind, arg.TargetHash)
 	var i CountLoginAttemptsRow
-	err := row.Scan(&i.Succeeded, &i.Failed)
+	err := row.Scan(&i.Succeeded, &i.Failed, &i.Locked)
 	return i, err
 }
 
@@ -129,7 +157,7 @@ func (q *Queries) InsertDevice(ctx context.Context, arg InsertDeviceParams) erro
 }
 
 const insertLoginAttempt = `-- name: InsertLoginAttempt :exec
-INSERT INTO login_attempts (id, principal_kind, target_hash, succeeded, created_at)
+INSERT INTO login_attempts (id, principal_kind, target_hash, outcome, created_at)
 VALUES ($1, $2, $3, $4, $5)
 `
 
@@ -137,7 +165,7 @@ type InsertLoginAttemptParams struct {
 	ID            uuid.UUID
 	PrincipalKind string
 	TargetHash    []byte
-	Succeeded     bool
+	Outcome       string
 	CreatedAt     time.Time
 }
 
@@ -146,7 +174,7 @@ func (q *Queries) InsertLoginAttempt(ctx context.Context, arg InsertLoginAttempt
 		arg.ID,
 		arg.PrincipalKind,
 		arg.TargetHash,
-		arg.Succeeded,
+		arg.Outcome,
 		arg.CreatedAt,
 	)
 	return err
@@ -179,27 +207,59 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 }
 
 const lockUserForSignIn = `-- name: LockUserForSignIn :one
-SELECT id, status
+SELECT id, status, password_hash
 FROM active_users
 WHERE id = $1
 FOR UPDATE
 `
 
 type LockUserForSignInRow struct {
-	ID     uuid.UUID
-	Status string
+	ID           uuid.UUID
+	Status       string
+	PasswordHash *string
 }
 
 // LockUserForSignIn locks the active user row FOR UPDATE. It serializes
 // sign-ins of one user (device upsert, session replacement) and, being
 // stronger than FOR SHARE, gives the guarantee of
 // softdelete.LockActiveParent for the device and session rows the
-// sign-in inserts: the user cannot be soft-deleted until it commits.
+// sign-in inserts: the user cannot be soft-deleted until it commits. The
+// hash comes back so the caller can see whether it changed since the
+// password was verified outside the lock.
 func (q *Queries) LockUserForSignIn(ctx context.Context, id uuid.UUID) (LockUserForSignInRow, error) {
 	row := q.db.QueryRow(ctx, lockUserForSignIn, id)
 	var i LockUserForSignInRow
-	err := row.Scan(&i.ID, &i.Status)
+	err := row.Scan(&i.ID, &i.Status, &i.PasswordHash)
 	return i, err
+}
+
+const nthFailureSinceSuccess = `-- name: NthFailureSinceSuccess :one
+SELECT f.created_at
+FROM login_attempts f
+WHERE f.principal_kind = $1 AND f.target_hash = $2
+  AND f.outcome = 'FAILED'
+  AND f.created_at > coalesce((
+      SELECT max(s.created_at) FROM login_attempts s
+      WHERE s.principal_kind = $1 AND s.target_hash = $2
+        AND s.outcome = 'SUCCEEDED'), '-infinity'::timestamptz)
+ORDER BY f.created_at, f.id
+OFFSET $3::bigint
+LIMIT 1
+`
+
+type NthFailureSinceSuccessParams struct {
+	PrincipalKind string
+	TargetHash    []byte
+	Position      int64
+}
+
+// NthFailureSinceSuccess is the time of the target's failure number
+// position+1 after its last success: the start of a lock.
+func (q *Queries) NthFailureSinceSuccess(ctx context.Context, arg NthFailureSinceSuccessParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, nthFailureSinceSuccess, arg.PrincipalKind, arg.TargetHash, arg.Position)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
 }
 
 const purgeLoginAttempts = `-- name: PurgeLoginAttempts :execrows

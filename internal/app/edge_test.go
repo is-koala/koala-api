@@ -24,20 +24,41 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/metrics"
 )
 
-const adr0021 = "../../docs/adr/0021-http-edge-clients-rate-limit-metrics.md"
+// rateLimitADRs hold the rate limit group tables: ADR-0021's and the rows
+// a later ADR adds (an accepted ADR is not edited).
+func rateLimitADRs() []string {
+	return []string{
+		"../../docs/adr/0021-http-edge-clients-rate-limit-metrics.md",
+		"../../docs/adr/0025-authentication-tokens-sessions-and-staff-sign-in.md",
+	}
+}
 
-// adrRateLimitTable reads ADR-0021's rate limit table: group → per
-// address, per identity and custom rates as "per minute / burst" ("—"
-// for none).
+// adrRateLimitTable reads the rate limit tables of rateLimitADRs: group →
+// per address, per identity and custom rates as "per minute / burst" ("—"
+// for none). A group listed twice is an error.
 func adrRateLimitTable(t *testing.T) map[string][3]string {
 	t.Helper()
-	raw, err := os.ReadFile(adr0021)
+	out := map[string][3]string{}
+	for _, path := range rateLimitADRs() {
+		for name, row := range adrRateLimitRows(t, path) {
+			if _, dup := out[name]; dup {
+				t.Fatalf("rate limit group %s is listed twice", name)
+			}
+			out[name] = row
+		}
+	}
+	return out
+}
+
+func adrRateLimitRows(t *testing.T, path string) map[string][3]string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_, table, ok := strings.Cut(string(raw), "<!-- rate-limit-groups:")
 	if !ok {
-		t.Fatal("ADR-0021 has no rate-limit-groups table marker")
+		t.Fatalf("%s has no rate-limit-groups table marker", path)
 	}
 	out := map[string][3]string{}
 	for _, line := range strings.Split(table, "\n")[1:] {
@@ -57,8 +78,8 @@ func adrRateLimitTable(t *testing.T) map[string][3]string {
 	return out
 }
 
-// TestRateLimitGroups: the production limits are exactly ADR-0021's
-// table, the single source of the values (ADR-0021 §5).
+// TestRateLimitGroups: the production limits are exactly the ADR tables
+// (ADR-0021 §5, ADR-0025 §8), the single source of the values.
 func TestRateLimitGroups(t *testing.T) {
 	t.Parallel()
 
@@ -71,12 +92,12 @@ func TestRateLimitGroups(t *testing.T) {
 	want := adrRateLimitTable(t)
 	got := rateLimitGroups()
 	if len(want) == 0 || len(got) != len(want) {
-		t.Fatalf("code has %d groups, ADR-0021 lists %d", len(got), len(want))
+		t.Fatalf("code has %d groups, the ADRs list %d", len(got), len(want))
 	}
 	for name, g := range got {
 		row := [3]string{format(g.PerIP), format(g.PerIdentity), format(g.PerCustom)}
 		if row != want[name] {
-			t.Errorf("group %s: code %q, ADR-0021 %q", name, row, want[name])
+			t.Errorf("group %s: code %q, ADR %q", name, row, want[name])
 		}
 	}
 }
@@ -155,7 +176,7 @@ func TestWiredRouterLimitsPerAddress(t *testing.T) {
 	burst := rateLimitGroups()[httpx.GroupWrite].PerIP.Burst
 	var last *httptest.ResponseRecorder
 	for range burst + 1 {
-		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/meta/ping", strings.NewReader(`{}`))
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/auth/logout", strings.NewReader(`{}`))
 		req.Header.Set("Content-Type", "application/json")
 		setClient(req.Header)
 		last = httptest.NewRecorder()

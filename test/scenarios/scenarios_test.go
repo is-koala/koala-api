@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,6 +28,12 @@ import (
 func activeDomains() []string {
 	return []string{"auth"} // Faz 1
 }
+
+// currentPhase is the plan phase (§6.1) the repository is in. A deferred
+// or partial scenario names the phase that closes it; once that phase is
+// behind (the PR that exits it raises this constant), the scenario is red
+// until it is bound in full (ADR-0025 §11).
+const currentPhase = 1
 
 // repoRoot is the repository root relative to this directory.
 const repoRoot = "../.."
@@ -55,10 +62,29 @@ type scenario struct {
 	// "internal/authn.TestRefreshRotation" or ".../TestX/sub".
 	GoTest yaml.Node `yaml:"go_test"`
 	// Deferred names the phase a P0 of an active domain waits for and why.
-	Deferred string `yaml:"deferred"`
+	Deferred *pending `yaml:"deferred"`
 	// Partial says which part of the rule the bound tests leave to a later
 	// PR or phase.
-	Partial string `yaml:"partial"`
+	Partial *pending `yaml:"partial"`
+}
+
+// pending is work a scenario still waits for: the plan phase that closes
+// it and why.
+type pending struct {
+	Phase  int    `yaml:"phase"`
+	Reason string `yaml:"reason"`
+}
+
+func (p *pending) check(field string) error {
+	switch {
+	case p == nil:
+		return nil
+	case p.Phase < 1 || strings.TrimSpace(p.Reason) == "":
+		return fmt.Errorf("%s needs a phase (≥ 1) and a reason", field)
+	case p.Phase < currentPhase:
+		return fmt.Errorf("%s waits for phase %d, which is over (current phase %d): bind the scenario in full", field, p.Phase, currentPhase)
+	}
+	return nil
 }
 
 func (s scenario) goTests() ([]string, error) {
@@ -143,10 +169,12 @@ func TestCatalogsAreWellFormed(t *testing.T) {
 }
 
 // Rule 3: in an active domain every P0 is bound to Go tests or deferred
-// with a reason, never both. Every bound test, of any priority, exists in
-// its package's test files and carries the scenario id in its doc comment
-// or body. That it passes is the gate's job: make verify runs the unit
-// tests, make test-integration the integration ones.
+// with a reason, never both, and nothing waits for a phase that is over.
+// Every bound test, of any priority, exists in its package's test files
+// and carries the scenario id in a string of its body (a subtest name or a
+// failure message: a doc comment is not enough); a bound subtest exists as
+// a t.Run name. That it passes is the gate's job: make verify runs the
+// unit tests, make test-integration the integration ones.
 func TestScenariosAreBoundToTests(t *testing.T) {
 	t.Parallel()
 
@@ -160,10 +188,15 @@ func TestScenariosAreBoundToTests(t *testing.T) {
 			}
 			if active && s.Priority == "P0" {
 				switch {
-				case len(bound) == 0 && strings.TrimSpace(s.Deferred) == "":
+				case len(bound) == 0 && s.Deferred == nil:
 					t.Errorf("%s: P0 %s has neither go_test nor deferred", file, s.ID)
-				case len(bound) > 0 && s.Deferred != "":
+				case len(bound) > 0 && s.Deferred != nil:
 					t.Errorf("%s: %s has both go_test and deferred", file, s.ID)
+				}
+			}
+			for field, p := range map[string]*pending{"deferred": s.Deferred, "partial": s.Partial} {
+				if err := p.check(field); err != nil {
+					t.Errorf("%s: %s: %v", file, s.ID, err)
 				}
 			}
 			for _, name := range bound {
@@ -176,29 +209,32 @@ func TestScenariosAreBoundToTests(t *testing.T) {
 }
 
 // testIndex caches the parsed test files of each package directory.
-type testIndex map[string]map[string]string // dir → Test function → its source
+type testIndex map[string]map[string][]string // dir → Test function → its body's string literals
 
 func (ix testIndex) check(name, id string) error {
 	pkg, test, ok := strings.Cut(name, ".")
 	if !ok || !strings.HasPrefix(pkg, "internal/") {
 		return fmt.Errorf("go_test %q: want internal/<package>.TestName[/subtest]", name)
 	}
-	fn, _, _ := strings.Cut(test, "/")
+	fn, sub, hasSub := strings.Cut(test, "/")
 	funcs, err := ix.load(pkg)
 	if err != nil {
 		return err
 	}
-	src, ok := funcs[fn]
+	strs, ok := funcs[fn]
 	if !ok {
 		return fmt.Errorf("go_test %q: %s has no test function %s", name, pkg, fn)
 	}
-	if !strings.Contains(src, id) {
-		return fmt.Errorf("go_test %q: %s does not mention %s in its doc comment or body", name, fn, id)
+	if !slices.ContainsFunc(strs, func(v string) bool { return strings.Contains(v, id) }) {
+		return fmt.Errorf("go_test %q: no string in the body of %s carries %s", name, fn, id)
+	}
+	if hasSub && !slices.ContainsFunc(strs, func(v string) bool { return v == sub || strings.HasPrefix(v, sub+"/") }) {
+		return fmt.Errorf("go_test %q: %s has no subtest %q", name, fn, sub)
 	}
 	return nil
 }
 
-func (ix testIndex) load(pkg string) (map[string]string, error) {
+func (ix testIndex) load(pkg string) (map[string][]string, error) {
 	if funcs, ok := ix[pkg]; ok {
 		return funcs, nil
 	}
@@ -206,7 +242,7 @@ func (ix testIndex) load(pkg string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list %s: %w", pkg, err)
 	}
-	funcs := map[string]string{}
+	funcs := map[string][]string{}
 	fset := token.NewFileSet()
 	for _, f := range files {
 		src, err := os.ReadFile(f)
@@ -222,11 +258,20 @@ func (ix testIndex) load(pkg string) (map[string]string, error) {
 			if !ok || fd.Recv != nil || !strings.HasPrefix(fd.Name.Name, "Test") {
 				continue
 			}
-			start := fd.Pos()
-			if fd.Doc != nil {
-				start = fd.Doc.Pos()
+			if fd.Body == nil {
+				continue
 			}
-			funcs[fd.Name.Name] = string(src[fset.Position(start).Offset:fset.Position(fd.End()).Offset])
+			var strs []string
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				lit, ok := n.(*ast.BasicLit)
+				if ok && lit.Kind == token.STRING {
+					if v, err := strconv.Unquote(lit.Value); err == nil {
+						strs = append(strs, v)
+					}
+				}
+				return true
+			})
+			funcs[fd.Name.Name] = strs
 		}
 	}
 	ix[pkg] = funcs

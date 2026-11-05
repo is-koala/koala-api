@@ -16,21 +16,39 @@ WHERE id = $1;
 -- are read and written under it, and it gives the guarantee of
 -- softdelete.LockActiveParent for the session the sign-in inserts.
 SELECT id, password_hash, status, must_change_password, failed_login_attempts,
-       locked_until, token_version
+       backoff_until, token_version
 FROM active_staff_members
 WHERE id = $1
 FOR UPDATE;
 
--- name: InsertStaffMember :exec
--- InsertStaffMember adds a staff member. Staff management (Faz 8) and the
--- bootstrap call it; Faz 1 seeds tests with it.
-INSERT INTO active_staff_members (id, email, password_hash, status, must_change_password, created_at)
-VALUES ($1, $2, $3, $4, $5, $6);
-
 -- name: SetStaffFailures :exec
+-- SetStaffFailures stores the account-wide failure counter and backoff.
 UPDATE active_staff_members
-SET failed_login_attempts = sqlc.arg(failed_login_attempts), locked_until = sqlc.narg(locked_until)
+SET failed_login_attempts = sqlc.arg(failed_login_attempts), backoff_until = sqlc.narg(backoff_until)
 WHERE id = sqlc.arg(id);
+
+-- name: GetStaffLoginLock :one
+-- GetStaffLoginLock reads and locks the (account, address) pair's counter.
+SELECT failures, locked_until
+FROM staff_login_locks
+WHERE staff_id = $1 AND client_key = $2
+FOR UPDATE;
+
+-- name: SetStaffLoginLock :exec
+INSERT INTO staff_login_locks (staff_id, client_key, failures, locked_until, updated_at)
+VALUES (sqlc.arg(staff_id), sqlc.arg(client_key), sqlc.arg(failures), sqlc.narg(locked_until), sqlc.arg(now)::timestamptz)
+ON CONFLICT (staff_id, client_key) DO UPDATE
+SET failures = EXCLUDED.failures, locked_until = EXCLUDED.locked_until, updated_at = EXCLUDED.updated_at;
+
+-- name: ClearStaffLoginLock :exec
+DELETE FROM staff_login_locks WHERE staff_id = $1 AND client_key = $2;
+
+-- name: PurgeStaffLoginLocks :execrows
+-- PurgeStaffLoginLocks deletes pairs untouched since the bound whose lock,
+-- if any, has ended.
+DELETE FROM staff_login_locks
+WHERE updated_at < sqlc.arg(before)::timestamptz
+  AND (locked_until IS NULL OR locked_until < sqlc.arg(before)::timestamptz);
 
 -- name: UpdateStaffPasswordHash :exec
 -- UpdateStaffPasswordHash stores a rehash under current parameters; it is
@@ -66,7 +84,7 @@ VALUES ($1, $2, $3, $4, $5);
 -- GetStaffRefreshTokenForUpdate finds a staff refresh token by hash with
 -- its session, both locked. The member is reached by LEFT JOIN (detach
 -- edge); NULL means deleted.
-SELECT rt.id, rt.session_id, rt.expires_at, rt.consumed_at,
+SELECT rt.id, rt.session_id, rt.expires_at, rt.consumed_at, rt.successor_salt,
        s.staff_id, s.token_version, s.expires_at AS session_expires_at, s.revoked_at,
        m.token_version AS member_token_version, m.status AS member_status
 FROM staff_refresh_tokens rt
@@ -76,7 +94,9 @@ WHERE rt.token_hash = $1
 FOR UPDATE OF rt, s;
 
 -- name: ConsumeStaffRefreshToken :exec
-UPDATE staff_refresh_tokens SET consumed_at = sqlc.arg(now)::timestamptz WHERE id = sqlc.arg(id);
+UPDATE staff_refresh_tokens
+SET consumed_at = sqlc.arg(now)::timestamptz, successor_salt = sqlc.arg(successor_salt)::bytea
+WHERE id = sqlc.arg(id);
 
 -- name: RevokeStaffSession :exec
 UPDATE staff_sessions

@@ -46,8 +46,12 @@ scenarios:
       - "src/test/java/com/exskylab/koala/…/XxxIT.java#metot"
       - "src/main/java/com/exskylab/koala/…/Xxx.java:120-135"
     go_test: null        # Go testinin tam adı ya da adlarının listesi: "internal/payment.TestReconcile/PAY-001"
-    deferred: "…"        # isteğe bağlı: fazı başlamış alanda bağlanmayan P0'ın beklediği faz ve gerekçe
-    partial: "…"         # isteğe bağlı: bağlı testlerin kuralın hangi kısmını sonraya bıraktığı
+    deferred:            # isteğe bağlı: fazı başlamış alanda bağlanmayan P0'ın beklediği faz
+      phase: 2           #   onu kapatacak faz (plan §6.1)
+      reason: "…"        #   gerekçe
+    partial:             # isteğe bağlı: bağlı testlerin kuralın hangi kısmını sonraya bıraktığı
+      phase: 1
+      reason: "…"
 ```
 
 ### Alan kuralları
@@ -62,9 +66,10 @@ scenarios:
   - Biçim tektir ve envanter, matris ve oracle ile aynıdır: test için `src/test/java/…/X.java#metot`, kod için `src/main/java/…/X.java:satır`.
 - **`id_prefix`** dosya başında bir kez yazılır; her `id` bu önekle başlar.
 - **API sızıntısı yok:** HTTP statüsü (403…), yol (`/admin/…`), metot (GET/POST) ve "uç" sözcüğü senaryoda geçmez. Ret iş diliyle yazılır ("izin yok hatası", "var olmayan kaynaktan ayırt edilemez").
-- **`go_test`**, Go testi yazılana kadar `null` kalır. Kural birden çok testle kanıtlanıyorsa liste yazılır. Bağlı her test fonksiyonu, doc yorumunda ya da gövdesinde senaryo kimliğini (`AUTH-001`) taşır.
-- **`deferred`**, fazı başlamış bir alanda henüz bağlanamayan P0 için yazılır: beklediği faz ve gerekçe. `go_test` ile birlikte bulunmaz.
-- **`partial`**, bağlı testler kuralın bir kısmını sonraki bir PR'a ya da faza bırakıyorsa yazılır; kapsama raporunda ayrıca sayılır.
+- **`go_test`**, Go testi yazılana kadar `null` kalır. Kural birden çok testle kanıtlanıyorsa liste yazılır. Bağlı her test fonksiyonu senaryo kimliğini (`AUTH-001`) gövdesindeki bir dizgede taşır: alt test adında ya da hata iletisinde. Yalnız doc yorumunda geçmesi yetmez. `go_test` bir alt testi adlandırıyorsa (`…TestX/AUTH-001`) o adda bir `t.Run` bulunur.
+- **`deferred`**, fazı başlamış bir alanda henüz bağlanamayan P0 için yazılır: `phase` onu kapatacak faz, `reason` gerekçe. `go_test` ile birlikte bulunmaz.
+- **`partial`**, bağlı testler kuralın bir kısmını sonraki bir PR'a ya da faza bırakıyorsa yazılır (`phase`, `reason`); kapsama raporunda ayrıca sayılır.
+- `phase`'i geçmiş bir `deferred` ya da `partial` kırmızıdır: fazdan çıkan PR `scenarios_test.go`'daki `currentPhase` sabitini artırır ve o fazın açık kalemleri CI'ı kırar (ADR-0025 §11). Bu, plan §6.1'deki "%100 yeşil" çıkış kriterinin makine kontrolüdür.
 
 ### Öncelik
 
@@ -82,7 +87,7 @@ Dosya içinde P0'lar önce gelir.
 
 1. `id`'ler tekil ve `<id_prefix>-<nnn>` biçiminde; `id_prefix` dosya başında var (`TestCatalogsAreWellFormed`).
 2. `priority` ∈ {P0, P1, P2}; `source` boş değil.
-3. Fazı başlamış alanda (`activeDomains`; Faz 1'den beri `auth`) her P0'ın ya `go_test`'i ya `deferred`'ı var, ikisi birden değil. Bağlı her test, hangi öncelikte olursa olsun, paketinin test dosyalarında var ve senaryo kimliğini taşıyor (`TestScenariosAreBoundToTests`). Testin geçtiğini kapı kanıtlar: birim testleri `make verify`, DB'li olanları `make test-integration` koşar.
+3. Fazı başlamış alanda (`activeDomains`; Faz 1'den beri `auth`) her P0'ın ya `go_test`'i ya `deferred`'ı var, ikisi birden değil; hiçbir `deferred` ya da `partial` geçmiş bir fazı beklemiyor. Bağlı her test, hangi öncelikte olursa olsun, paketinin test dosyalarında var ve senaryo kimliğini gövdesindeki bir dizgede taşıyor; adlandırılan alt test var (`TestScenariosAreBoundToTests`). Testin geçtiğini kapı kanıtlar: birim testleri `make verify`, DB'li olanları `make test-integration` koşar.
 
 Kapsama oranı (P0/P1 için `go_test` dolu ve yeşil olanlar / toplam) faz çıkışında ölçülür.
 

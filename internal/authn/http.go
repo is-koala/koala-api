@@ -132,7 +132,7 @@ func (h *HTTP) RevokeMyOtherSessions(ctx context.Context, _ apiv1.RevokeMyOtherS
 
 // LoginStaff signs a staff member in.
 func (h *HTTP) LoginStaff(ctx context.Context, req apiv1.LoginStaffRequestObject) (apiv1.LoginStaffResponseObject, error) {
-	pair, err := h.staff.Login(ctx, req.Body.Email, req.Body.Password)
+	pair, err := h.staff.Login(ctx, req.Body.Email, req.Body.Password, ClientKey(httpx.ClientIPFrom(ctx)))
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +166,7 @@ func (h *HTTP) ChangeStaffPassword(ctx context.Context, req apiv1.ChangeStaffPas
 	if !ok {
 		return nil, errNoPrincipal
 	}
-	if err := h.staff.ChangePassword(ctx, p, req.Body.CurrentPassword, req.Body.NewPassword); err != nil {
+	if err := h.staff.ChangePassword(ctx, p, req.Body.CurrentPassword, req.Body.NewPassword, ClientKey(httpx.ClientIPFrom(ctx))); err != nil {
 		return nil, err
 	}
 	return apiv1.ChangeStaffPassword204Response{}, nil
@@ -219,25 +219,31 @@ type TargetLimiter interface {
 }
 
 // StrictMiddleware returns the strict server middleware of the
-// authentication operations:
+// authentication operations (ADR-0025 §5, AUTH-018):
 //
-//   - The sign-in, refresh and staff password operations take a token from
-//     the bucket of their target in group (KeyCustom; Java's AUTH bucket
-//     keyed by the target): the hashed address of a sign-in, the hashed
-//     refresh token, the staff member changing a password. The address
-//     bucket of the root chain applies too, so one target cannot lock out
-//     the others behind the same address and one address cannot try many
-//     targets fast (AUTH-018).
+//   - A sign-in takes a token from two KeyCustom buckets: one per (target,
+//     client address) in pairGroup and one per target from any address in
+//     accountGroup. The target is the keyed hash of the address, so one
+//     account hammered behind an office NAT does not lock out the next,
+//     and many addresses together cannot try one account fast.
+//   - A refresh takes one from the bucket of its hashed token, a staff
+//     password change from the member's, both in pairGroup.
 //   - Token responses are not cached (RFC 6749 §5.1).
-func StrictMiddleware(limiter TargetLimiter, group string) apiv1.StrictMiddlewareFunc {
+//
+// The address bucket of the root chain applies on top.
+func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup string) apiv1.StrictMiddlewareFunc {
 	return func(f apiv1.StrictHandlerFunc, _ string) apiv1.StrictHandlerFunc {
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
-			key, tokens := rateLimitTarget(ctx, request)
+			keys, tokens := h.rateLimitKeys(ctx, request)
 			if tokens {
 				w.Header().Set("Cache-Control", "no-store")
 			}
-			if key != "" {
-				if ok, wait := limiter.Allow(group, httpx.KeyCustom, key); !ok {
+			for _, k := range keys {
+				group := pairGroup
+				if k.account {
+					group = accountGroup
+				}
+				if ok, wait := limiter.Allow(group, httpx.KeyCustom, k.key); !ok {
 					return nil, httpx.RateLimitedError(w, wait)
 				}
 			}
@@ -246,22 +252,32 @@ func StrictMiddleware(limiter TargetLimiter, group string) apiv1.StrictMiddlewar
 	}
 }
 
-// rateLimitTarget returns the rate limit key of an authentication request
-// ("" for other operations) and whether its response carries tokens.
-func rateLimitTarget(ctx context.Context, request any) (key string, tokens bool) {
+type limitKey struct {
+	key     string
+	account bool
+}
+
+// rateLimitKeys returns the rate limit keys of an authentication request
+// (none for other operations) and whether its response carries tokens.
+func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool) {
+	addr := ClientKey(httpx.ClientIPFrom(ctx))
+	signIn := func(prefix string, target []byte) []limitKey {
+		t := prefix + hex.EncodeToString(target)
+		return []limitKey{{key: t + "@" + addr}, {key: t, account: true}}
+	}
 	switch req := request.(type) {
 	case apiv1.LoginUserRequestObject:
-		return "login:user:" + hex.EncodeToString(targetHash(normalizeEmail(req.Body.Email))), true
+		return signIn("login:user:", h.users.Target(req.Body.Email)), true
 	case apiv1.LoginStaffRequestObject:
-		return "login:staff:" + hex.EncodeToString(targetHash(normalizeEmail(req.Body.Email))), true
+		return signIn("login:staff:", h.staff.Target(req.Body.Email)), true
 	case apiv1.RefreshUserSessionRequestObject:
-		return "refresh:user:" + hex.EncodeToString(hashOpaque(req.Body.RefreshToken)), true
+		return []limitKey{{key: "refresh:user:" + hex.EncodeToString(hashOpaque(req.Body.RefreshToken))}}, true
 	case apiv1.RefreshStaffSessionRequestObject:
-		return "refresh:staff:" + hex.EncodeToString(hashOpaque(req.Body.RefreshToken)), true
+		return []limitKey{{key: "refresh:staff:" + hex.EncodeToString(hashOpaque(req.Body.RefreshToken))}}, true
 	case apiv1.ChangeStaffPasswordRequestObject:
 		if p, ok := StaffFrom(ctx); ok {
-			return "password:staff:" + p.StaffID.String(), false
+			return []limitKey{{key: "password:staff:" + p.StaffID.String()}}, false
 		}
 	}
-	return "", false
+	return nil, false
 }

@@ -42,13 +42,17 @@ const (
 type authApp struct {
 	router    http.Handler
 	clock     *clock.Fake
+	db        *db.DB
+	maint     *db.DB
 	q         *authndb.Queries
 	passwords *authn.Passwords
+	mods      modules
 }
 
 func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	t.Helper()
-	database := dbtest.New(t).Open(t, db.RoleApp)
+	d := dbtest.New(t)
+	database := d.Open(t, db.RoleApp)
 	clk := clock.NewFake(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC))
 	logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
 	mods := testModulesOn(t, database, clk)
@@ -61,7 +65,10 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &authApp{router: router, clock: clk, q: authndb.New(database.Pool()), passwords: passwords}
+	return &authApp{
+		router: router, clock: clk, db: database, maint: d.Open(t, db.RoleMaint),
+		q: authndb.New(database.Pool()), passwords: passwords, mods: mods,
+	}
 }
 
 func (a *authApp) addUser(t *testing.T) {
@@ -84,10 +91,11 @@ func (a *authApp) addStaff(t *testing.T, mustChange bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = a.q.InsertStaffMember(t.Context(), authndb.InsertStaffMemberParams{
-		ID: uuid.Must(uuid.NewV7()), Email: staffEmail, PasswordHash: hash, Status: authn.StaffActive,
-		MustChangePassword: mustChange, CreatedAt: a.clock.Now(),
-	})
+	// koala_maint creates staff accounts; the application cannot.
+	_, err = a.maint.Pool().Exec(t.Context(), `
+		INSERT INTO staff_members (id, email, password_hash, status, must_change_password, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		uuid.Must(uuid.NewV7()), staffEmail, hash, authn.StaffActive, mustChange, a.clock.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,11 +105,18 @@ func (a *authApp) addStaff(t *testing.T, mustChange bool) {
 // headers; an admin path carries none (the panel sends no device).
 func (a *authApp) call(t *testing.T, method, path, bearer, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return a.callFrom(t, "192.0.2.1", method, path, bearer, body)
+}
+
+// callFrom sends a request from client address addr.
+func (a *authApp) callFrom(t *testing.T, addr, method, path, bearer, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	var rd io.Reader = http.NoBody
 	if body != "" {
 		rd = strings.NewReader(body)
 	}
 	req := httptest.NewRequestWithContext(t.Context(), method, path, rd)
+	req.RemoteAddr = addr + ":40000"
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -175,7 +190,67 @@ func TestLoginFailureBodiesAreIdentical(t *testing.T) {
 	if known.Code != unknown.Code {
 		t.Errorf("AUTH-001: status %d vs %d", known.Code, unknown.Code)
 	}
-	a.loginUser(t)
+
+	// A locked target answers the same bytes, also to the right password
+	// (ADR-0025 §5): 98 earlier failures, the known one above and one more
+	// make the hundred.
+	target := a.mods.users.Target(userEmail)
+	for i := range authn.UserLockThreshold - 2 {
+		_, err := a.db.Pool().Exec(t.Context(),
+			"INSERT INTO login_attempts (id, principal_kind, target_hash, outcome, created_at) VALUES ($1, 'USER', $2, 'FAILED', $3)",
+			uuid.Must(uuid.NewV7()), target, a.clock.Now().Add(-time.Duration(authn.UserLockThreshold-i)*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	wantStatus(t, a.call(t, http.MethodPost, "/v1/auth/login", "", `{"email":"`+userEmail+`","password":"yanlış ama uzun parola"}`),
+		http.StatusUnauthorized, string(authn.CodeEmailOrPasswordMismatch))
+	locked := a.call(t, http.MethodPost, "/v1/auth/login", "", `{"email":"`+userEmail+`","password":"`+userPw+`"}`)
+	if !bytes.Equal(locked.Body.Bytes(), known.Body.Bytes()) || locked.Code != known.Code {
+		t.Errorf("AUTH-001: a locked sign-in differs from a wrong password:\n%s\n%s", locked.Body, known.Body)
+	}
+}
+
+// AUTH-011: the answer of a locked staff address is the wrong-password
+// answer, byte for byte, even to the right password; the account still
+// signs in from another address (ADR-0025 §6).
+func TestStaffLockBodyIsTheFailureBody(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	a.addStaff(t, false)
+	const office, home = "192.0.2.50", "198.51.100.9"
+	wrongBody := `{"email":"` + staffEmail + `","password":"yanlış ama uzun parola"}`
+	var wrong *httptest.ResponseRecorder
+	for range authn.StaffLockThreshold {
+		wrong = a.callFrom(t, office, http.MethodPost, "/v1/admin/auth/login", "", wrongBody)
+	}
+	wantStatus(t, wrong, http.StatusUnauthorized, string(authn.CodeStaffLoginFailed))
+	locked := a.callFrom(t, office, http.MethodPost, "/v1/admin/auth/login", "", `{"email":"`+staffEmail+`","password":"`+staffPw+`"}`)
+	if locked.Code != wrong.Code || !bytes.Equal(locked.Body.Bytes(), wrong.Body.Bytes()) {
+		t.Errorf("AUTH-011: locked answer differs from a wrong password:\n%s\n%s", locked.Body, wrong.Body)
+	}
+	wantStatus(t, a.callFrom(t, home, http.MethodPost, "/v1/admin/auth/login", "", `{"email":"`+staffEmail+`","password":"`+staffPw+`"}`),
+		http.StatusOK, "")
+}
+
+// AUTH-013: nobody logs anyone out anonymously; after a password change
+// the old access and refresh tokens are refused.
+func TestStaffSessionEndsOverHTTP(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	a.addStaff(t, false)
+
+	wantStatus(t, a.call(t, http.MethodPost, "/v1/admin/auth/logout", "", ""), http.StatusUnauthorized, string(authn.CodeTokenMissing))
+	staff := a.loginStaff(t, staffPw)
+	wantStatus(t, a.call(t, http.MethodPost, "/v1/admin/auth/password", staff.AccessToken,
+		`{"currentPassword":"`+staffPw+`","newPassword":"yepyeni uzun bir parola"}`), http.StatusNoContent, "")
+	wantStatus(t, a.call(t, http.MethodGet, "/v1/admin/me", staff.AccessToken, ""),
+		http.StatusUnauthorized, string(authn.CodeStaffSessionEnded))
+	refresh := a.call(t, http.MethodPost, "/v1/admin/auth/refresh", "", `{"refreshToken":"`+staff.RefreshToken+`"}`)
+	wantStatus(t, refresh, http.StatusUnauthorized, string(authn.CodeStaffSessionEnded))
+	if refresh.Code == http.StatusOK {
+		t.Error("AUTH-013: the refresh token survived the password change")
+	}
 }
 
 // AUTH-015 (D5): the marketplace and staff identities do not cross; an
@@ -325,19 +400,30 @@ func TestRealtimeTicketsOverHTTP(t *testing.T) {
 	refused(t, revoked)
 }
 
-// AUTH-018: sign-in has its own budget per target, so one account being
-// hammered behind an office NAT does not lock out the next. Staff
-// sign-in, refresh and the staff password change share the auth group.
-// An oversized auth body is refused before it is buffered.
+// AUTH-018 (ADR-0025 §8): sign-in has a budget per (target, address),
+// so one account hammered behind an office NAT does not lock out the
+// next, and one per target from any address, so many addresses together
+// cannot try one account fast. Staff sign-in, refresh and the staff
+// password change share the auth group. An oversized auth body is
+// refused before it is buffered.
 func TestAuthRateLimits(t *testing.T) {
 	t.Parallel()
-	a := newAuthApp(t, rateLimitGroups())
+	// The production bursts, refilled hourly: the test spends seconds on
+	// argon2id and must not see a token come back. TestRateLimitGroups
+	// pins the production rates.
+	groups := rateLimitGroups()
+	slow := func(r httpx.Rate) httpx.Rate { return httpx.Rate{Every: time.Hour, Burst: r.Burst} }
+	auth, account := groups[groupAuth], groups[groupAuthAccount]
+	auth.PerCustom, account.PerCustom = slow(auth.PerCustom), slow(account.PerCustom)
+	groups[groupAuth], groups[groupAuthAccount] = auth, account
+	a := newAuthApp(t, groups)
 	a.addUser(t)
+	attack := `{"email":"saldirilan@example.com","password":"yanlış ama uzun parola"}`
 
-	burst := rateLimitGroups()[groupAuth].PerCustom.Burst
+	pair := auth.PerCustom.Burst
 	var last *httptest.ResponseRecorder
-	for range burst + 1 {
-		last = a.call(t, http.MethodPost, "/v1/auth/login", "", `{"email":"saldirilan@example.com","password":"yanlış ama uzun parola"}`)
+	for range pair + 1 {
+		last = a.callFrom(t, "192.0.2.1", http.MethodPost, "/v1/auth/login", "", attack)
 	}
 	wantStatus(t, last, http.StatusTooManyRequests, httpx.CodeRateLimited)
 	if last.Header().Get("Retry-After") == "" {
@@ -345,6 +431,15 @@ func TestAuthRateLimits(t *testing.T) {
 	}
 	// Same address, another target: not limited.
 	a.loginUser(t)
+
+	// The target's account-wide bucket: the first address spent pair
+	// tokens of it; a second address spends the rest; a third is refused.
+	for range account.PerCustom.Burst - pair {
+		wantStatus(t, a.callFrom(t, "192.0.2.2", http.MethodPost, "/v1/auth/login", "", attack),
+			http.StatusUnauthorized, string(authn.CodeEmailOrPasswordMismatch))
+	}
+	wantStatus(t, a.callFrom(t, "192.0.2.3", http.MethodPost, "/v1/auth/login", "", attack),
+		http.StatusTooManyRequests, httpx.CodeRateLimited)
 
 	spec, err := api.Load(context.Background())
 	if err != nil {
@@ -358,7 +453,7 @@ func TestAuthRateLimits(t *testing.T) {
 		"POST /v1/auth/login", "POST /v1/auth/refresh", "POST /v1/admin/auth/login",
 		"POST /v1/admin/auth/refresh", "POST /v1/admin/auth/password",
 	} {
-		if routes[r] != groupAuth {
+		if routes[r] != groupAuth { // AUTH-018
 			t.Errorf("AUTH-018: %s is in group %q, want %s", r, routes[r], groupAuth)
 		}
 	}
@@ -372,4 +467,34 @@ func TestAuthRateLimits(t *testing.T) {
 	rec := httptest.NewRecorder()
 	a.router.ServeHTTP(rec, req)
 	wantStatus(t, rec, http.StatusRequestEntityTooLarge, "REQUEST_BODY_TOO_LARGE")
+}
+
+// The purge runs as a River periodic job (ADR-0025 §7): the client serve
+// starts enqueues it on start and works it; ended sessions past their
+// retention are gone.
+func TestAuthPurgeJob(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	a.addUser(t)
+	user := a.loginUser(t)
+	wantStatus(t, a.call(t, http.MethodPost, "/v1/auth/logout", user.AccessToken, ""), http.StatusNoContent, "")
+	a.clock.Advance(authn.EndedSessionRetention + time.Hour)
+
+	client, err := newWorkerClient(a.db, a.mods, log.New(&bytes.Buffer{}, slog.LevelInfo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 10*time.Second)
+		defer cancel()
+		_ = client.Stop(ctx)
+	})
+	dbtest.Eventually(t, 30*time.Second, "the purge job removing the ended session", func() (bool, error) {
+		var sessions int
+		err := a.db.Pool().QueryRow(t.Context(), "SELECT count(*) FROM user_sessions").Scan(&sessions)
+		return sessions == 0, err
+	})
 }

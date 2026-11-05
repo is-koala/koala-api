@@ -9,9 +9,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/internal/authn"
-	"github.com/is-koala/koala-api/internal/meta"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
@@ -20,33 +20,36 @@ import (
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
-// modules are the domain modules the router mounts.
+// modules are the domain modules the router mounts and the workers run.
+// authHTTP implements the whole generated strict server interface today;
+// the next module's handler joins it in a composing struct.
 type modules struct {
 	users    *authn.Service
 	staff    *authn.StaffService
 	authHTTP *authn.HTTP
 	hub      *realtime.Hub
 	realtime *realtime.Handler
+	purge    *authPurgeWorker
 }
 
-// strictServer composes the modules' parts of the generated strict server
-// interface; each module implements its own operations.
-type strictServer struct {
-	*meta.Handler
-	*authn.HTTP
-}
-
-// wireModules builds the modules on database. Authentication comes first:
-// the realtime layer checks its sessions, and it closes a session's
-// connections when authentication revokes the session (ADR-0022).
-func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger) (modules, error) {
+// wireModules builds the modules on database, their metrics on reg.
+// Authentication comes first: the realtime layer checks its sessions, and
+// it closes a session's connections when authentication revokes the
+// session (ADR-0022).
+func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
+	reg prometheus.Registerer,
+) (modules, error) {
 	var hub *realtime.Hub
 	onRevoke := func(_ context.Context, userID, sessionID uuid.UUID) {
 		if hub != nil {
 			hub.DisconnectSession(realtime.UserID(userID.String()), sessionID.String())
 		}
 	}
-	users, staff, err := wireAuthn(ctx, cfg, database, clk, logger, onRevoke)
+	metrics, err := authn.NewMetrics(reg)
+	if err != nil {
+		return modules{}, fmt.Errorf("wire authn: %w", err)
+	}
+	users, staff, err := wireAuthn(ctx, cfg, database, clk, logger, metrics, onRevoke)
 	if err != nil {
 		return modules{}, err
 	}
@@ -55,14 +58,18 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, fmt.Errorf("wire realtime: %w", err)
 	}
-	tickets := realtime.NewTickets(realtime.NewPostgresTickets(database.Pool()), sessions, clk, logger)
+	ticketStore := realtime.NewPostgresTickets(database.Pool())
+	tickets := realtime.NewTickets(ticketStore, sessions, clk, logger)
 	opts := realtime.DefaultHandlerOptions()
 	opts.AllowedOrigins = splitList(cfg.RealtimeOrigins)
 	handler, err := realtime.NewHandler(hub, tickets, realtimeAuth{users: users}, logger, opts)
 	if err != nil {
 		return modules{}, fmt.Errorf("wire realtime: %w", err)
 	}
-	return modules{users: users, staff: staff, authHTTP: authn.NewHTTP(users, staff), hub: hub, realtime: handler}, nil
+	return modules{
+		users: users, staff: staff, authHTTP: authn.NewHTTP(users, staff), hub: hub, realtime: handler,
+		purge: &authPurgeWorker{users: users, staff: staff, tickets: ticketStore, clock: clk, logger: logger},
+	}, nil
 }
 
 // wireAuthn builds the two authentication services (ADR-0025). Each token
@@ -70,7 +77,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 // that is not configured is generated per process (config.ServeAuthErrors
 // refuses that where it matters).
 func wireAuthn(ctx context.Context, cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
-	onRevoke authn.RevokeHook,
+	metrics *authn.Metrics, onRevoke authn.RevokeHook,
 ) (*authn.Service, *authn.StaffService, error) {
 	// One argon2id hash per CPU at a time: each holds 19 MiB for tens of
 	// milliseconds; more in parallel would only queue on the CPUs.
@@ -91,11 +98,15 @@ func wireAuthn(ctx context.Context, cfg config.Config, database *db.DB, clk cloc
 			return nil, nil, fmt.Errorf("wire authn: %w", err)
 		}
 	}
-	users, err := authn.NewService(database, passwords, classes[authn.AudienceMarketplace], clk, logger, onRevoke)
+	pepper, err := loginPepper(ctx, cfg.LoginPepper, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	users, err := authn.NewService(database, passwords, classes[authn.AudienceMarketplace], pepper, clk, logger, metrics, onRevoke)
 	if err != nil {
 		return nil, nil, fmt.Errorf("wire authn: %w", err)
 	}
-	staff, err := authn.NewStaffService(database, passwords, classes[authn.AudienceStaff], clk, logger)
+	staff, err := authn.NewStaffService(database, passwords, classes[authn.AudienceStaff], pepper, clk, logger, metrics)
 	if err != nil {
 		return nil, nil, fmt.Errorf("wire authn: %w", err)
 	}
@@ -113,6 +124,21 @@ func keyRing(ctx context.Context, aud string, secret config.Secret, logger *slog
 		return tokenkeys.Ring{}, fmt.Errorf("wire authn: %s keys: %w", aud, err)
 	}
 	return ring, nil
+}
+
+// loginPepper is KOALA_LOGIN_PEPPER, or outside staging and production
+// when it is unset a per-process one (attempt targets then do not match
+// across restarts).
+func loginPepper(ctx context.Context, secret config.Secret, logger *slog.Logger) ([]byte, error) {
+	if secret == "" {
+		logger.WarnContext(ctx, "login pepper not configured; using an ephemeral one")
+		return tokenkeys.GeneratePepper(), nil
+	}
+	pepper, err := tokenkeys.ParsePepper(secret.Reveal())
+	if err != nil {
+		return nil, fmt.Errorf("wire authn: login pepper: %w", err)
+	}
+	return pepper, nil
 }
 
 func splitList(v string) []string {

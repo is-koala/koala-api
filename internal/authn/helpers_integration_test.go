@@ -4,16 +4,15 @@ package authn_test
 
 import (
 	"context"
-	"crypto/sha256"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/authn/authndb"
@@ -37,8 +36,10 @@ const (
 // env is one test's database and services, on a fake clock.
 type env struct {
 	db        *db.DB
+	maint     *db.DB
 	q         *authndb.Queries
 	clock     *clock.Fake
+	reg       *prometheus.Registry
 	passwords *countingHasher
 	users     *authn.Service
 	staff     *authn.StaffService
@@ -47,7 +48,8 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	database := dbtest.New(t).Open(t, db.RoleApp)
+	d := dbtest.New(t)
+	database := d.Open(t, db.RoleApp)
 	clk := clock.NewFake(epoch)
 	logger := log.New(io.Discard, slog.LevelInfo)
 	inner, err := authn.NewPasswords(authn.DefaultParams(), 4)
@@ -64,17 +66,23 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	rev := &revocations{}
-	users, err := authn.NewService(database, passwords, mp, clk, logger, rev.hook)
+	reg := prometheus.NewRegistry()
+	metrics, err := authn.NewMetrics(reg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	staff, err := authn.NewStaffService(database, passwords, st, clk, logger)
+	pepper := tokenkeys.GeneratePepper()
+	users, err := authn.NewService(database, passwords, mp, pepper, clk, logger, metrics, rev.hook)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staff, err := authn.NewStaffService(database, passwords, st, pepper, clk, logger, metrics)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return &env{
-		db: database, q: authndb.New(database.Pool()), clock: clk, passwords: passwords,
-		users: users, staff: staff, revoked: rev,
+		db: database, maint: d.Open(t, db.RoleMaint), q: authndb.New(database.Pool()), clock: clk, reg: reg,
+		passwords: passwords, users: users, staff: staff, revoked: rev,
 	}
 }
 
@@ -103,9 +111,11 @@ func (e *env) addStaff(t *testing.T, email, status string, mustChange bool) uuid
 		t.Fatal(err)
 	}
 	id := uuid.Must(uuid.NewV7())
-	err = e.q.InsertStaffMember(t.Context(), authndb.InsertStaffMemberParams{
-		ID: id, Email: email, PasswordHash: hash, Status: status, MustChangePassword: mustChange, CreatedAt: e.clock.Now(),
-	})
+	// Staff accounts are created by koala_maint (bootstrap, staff
+	// management); the application role cannot insert them.
+	_, err = e.maint.Pool().Exec(t.Context(), `
+		INSERT INTO staff_members (id, email, password_hash, status, must_change_password, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)`, id, email, hash, status, mustChange, e.clock.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,15 +131,39 @@ func (e *env) login(t *testing.T, email, password, device string) authn.TokenPai
 	return pair
 }
 
-// attempts counts the login_attempts rows of an address.
-func (e *env) attempts(t *testing.T, kind, email string) (succeeded, failed int64) {
+// attempts counts the login_attempts rows of an address by outcome.
+func (e *env) attempts(t *testing.T, kind, email string) authndb.CountLoginAttemptsRow {
 	t.Helper()
-	h := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
-	row, err := e.q.CountLoginAttempts(t.Context(), authndb.CountLoginAttemptsParams{PrincipalKind: kind, TargetHash: h[:]})
+	row, err := e.q.CountLoginAttempts(t.Context(), authndb.CountLoginAttemptsParams{PrincipalKind: kind, TargetHash: e.users.Target(email)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return row.Succeeded, row.Failed
+	return row
+}
+
+// lockouts reads koala_auth_lockouts_total for a principal and scope.
+func (e *env) lockouts(t *testing.T, principal, scope string) float64 {
+	t.Helper()
+	families, err := e.reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range families {
+		if f.GetName() != authn.MetricLockouts {
+			continue
+		}
+		for _, m := range f.GetMetric() {
+			labels := map[string]string{}
+			for _, l := range m.GetLabel() {
+				labels[l.GetName()] = l.GetValue()
+			}
+			if labels["principal"] == principal && labels["scope"] == scope {
+				return m.GetCounter().GetValue()
+			}
+		}
+	}
+	t.Fatalf("no %s{principal=%q,scope=%q}", authn.MetricLockouts, principal, scope)
+	return 0
 }
 
 func discard() *slog.Logger { return log.New(io.Discard, slog.LevelInfo) }

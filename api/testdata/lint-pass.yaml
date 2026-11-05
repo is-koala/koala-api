@@ -163,7 +163,7 @@ paths:
       responses:
         default:
           $ref: "#/components/responses/Problem"
-  /v1/admin/auth/session:
+  /v1/admin/auth/refresh:
     get:
       operationId: adminGetSignInState
       security: []

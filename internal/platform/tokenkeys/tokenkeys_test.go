@@ -60,6 +60,8 @@ func TestParseRingRejects(t *testing.T) {
 		"not base64url": "k1:" + strings.Repeat("!", 43),
 		"padded":        "k1:" + base64.URLEncoding.EncodeToString(make([]byte, 32)),
 		"repeated kid":  "k1:" + s + ",k1:" + seed(t),
+		"zero seed":     "k1:" + base64.RawURLEncoding.EncodeToString(make([]byte, 32)),
+		"pattern seed":  "k1:" + base64.RawURLEncoding.EncodeToString([]byte(strings.Repeat("koala!", 6)[:32])),
 		"too many":      "a:" + s + ",b:" + seed(t) + ",c:" + seed(t) + ",d:" + seed(t) + ",e:" + seed(t),
 	}
 	for name, spec := range cases {
@@ -113,5 +115,35 @@ func TestGenerate(t *testing.T) {
 	}
 	if !(tokenkeys.Ring{}).Empty() {
 		t.Error("zero ring is not empty")
+	}
+}
+
+func TestNewKeyEntryAndPepper(t *testing.T) {
+	t.Parallel()
+
+	entry, err := tokenkeys.NewKeyEntry("st-2026-11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tokenkeys.Parse(entry); err != nil {
+		t.Fatalf("a generated entry does not parse: %v", err)
+	}
+	if _, err := tokenkeys.NewKeyEntry("bad kid"); err == nil {
+		t.Error("NewKeyEntry accepted a kid with a space")
+	}
+	if p, err := tokenkeys.ParsePepper(tokenkeys.NewPepper()); err != nil || len(p) != tokenkeys.PepperBytes {
+		t.Fatalf("a generated pepper does not parse: %v", err)
+	}
+	for name, v := range map[string]string{
+		"short":      base64.RawURLEncoding.EncodeToString(make([]byte, 16)),
+		"zero":       base64.RawURLEncoding.EncodeToString(make([]byte, 32)),
+		"not base64": strings.Repeat("!", 43),
+	} {
+		if _, err := tokenkeys.ParsePepper(v); err == nil {
+			t.Errorf("%s pepper accepted", name)
+		}
+	}
+	if len(tokenkeys.GeneratePepper()) != tokenkeys.PepperBytes {
+		t.Error("GeneratePepper size")
 	}
 }

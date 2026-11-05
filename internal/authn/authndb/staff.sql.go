@@ -42,17 +42,34 @@ func (q *Queries) ChangeStaffPassword(ctx context.Context, arg ChangeStaffPasswo
 	return err
 }
 
+const clearStaffLoginLock = `-- name: ClearStaffLoginLock :exec
+DELETE FROM staff_login_locks WHERE staff_id = $1 AND client_key = $2
+`
+
+type ClearStaffLoginLockParams struct {
+	StaffID   uuid.UUID
+	ClientKey string
+}
+
+func (q *Queries) ClearStaffLoginLock(ctx context.Context, arg ClearStaffLoginLockParams) error {
+	_, err := q.db.Exec(ctx, clearStaffLoginLock, arg.StaffID, arg.ClientKey)
+	return err
+}
+
 const consumeStaffRefreshToken = `-- name: ConsumeStaffRefreshToken :exec
-UPDATE staff_refresh_tokens SET consumed_at = $1::timestamptz WHERE id = $2
+UPDATE staff_refresh_tokens
+SET consumed_at = $1::timestamptz, successor_salt = $2::bytea
+WHERE id = $3
 `
 
 type ConsumeStaffRefreshTokenParams struct {
-	Now time.Time
-	ID  uuid.UUID
+	Now           time.Time
+	SuccessorSalt []byte
+	ID            uuid.UUID
 }
 
 func (q *Queries) ConsumeStaffRefreshToken(ctx context.Context, arg ConsumeStaffRefreshTokenParams) error {
-	_, err := q.db.Exec(ctx, consumeStaffRefreshToken, arg.Now, arg.ID)
+	_, err := q.db.Exec(ctx, consumeStaffRefreshToken, arg.Now, arg.SuccessorSalt, arg.ID)
 	return err
 }
 
@@ -74,6 +91,31 @@ func (q *Queries) GetStaffCredentials(ctx context.Context, email string) (GetSta
 	row := q.db.QueryRow(ctx, getStaffCredentials, email)
 	var i GetStaffCredentialsRow
 	err := row.Scan(&i.ID, &i.PasswordHash)
+	return i, err
+}
+
+const getStaffLoginLock = `-- name: GetStaffLoginLock :one
+SELECT failures, locked_until
+FROM staff_login_locks
+WHERE staff_id = $1 AND client_key = $2
+FOR UPDATE
+`
+
+type GetStaffLoginLockParams struct {
+	StaffID   uuid.UUID
+	ClientKey string
+}
+
+type GetStaffLoginLockRow struct {
+	Failures    int32
+	LockedUntil *time.Time
+}
+
+// GetStaffLoginLock reads and locks the (account, address) pair's counter.
+func (q *Queries) GetStaffLoginLock(ctx context.Context, arg GetStaffLoginLockParams) (GetStaffLoginLockRow, error) {
+	row := q.db.QueryRow(ctx, getStaffLoginLock, arg.StaffID, arg.ClientKey)
+	var i GetStaffLoginLockRow
+	err := row.Scan(&i.Failures, &i.LockedUntil)
 	return i, err
 }
 
@@ -118,7 +160,7 @@ func (q *Queries) GetStaffPasswordHash(ctx context.Context, id uuid.UUID) (strin
 }
 
 const getStaffRefreshTokenForUpdate = `-- name: GetStaffRefreshTokenForUpdate :one
-SELECT rt.id, rt.session_id, rt.expires_at, rt.consumed_at,
+SELECT rt.id, rt.session_id, rt.expires_at, rt.consumed_at, rt.successor_salt,
        s.staff_id, s.token_version, s.expires_at AS session_expires_at, s.revoked_at,
        m.token_version AS member_token_version, m.status AS member_status
 FROM staff_refresh_tokens rt
@@ -133,6 +175,7 @@ type GetStaffRefreshTokenForUpdateRow struct {
 	SessionID          uuid.UUID
 	ExpiresAt          time.Time
 	ConsumedAt         *time.Time
+	SuccessorSalt      []byte
 	StaffID            uuid.UUID
 	TokenVersion       int64
 	SessionExpiresAt   time.Time
@@ -152,6 +195,7 @@ func (q *Queries) GetStaffRefreshTokenForUpdate(ctx context.Context, tokenHash [
 		&i.SessionID,
 		&i.ExpiresAt,
 		&i.ConsumedAt,
+		&i.SuccessorSalt,
 		&i.StaffID,
 		&i.TokenVersion,
 		&i.SessionExpiresAt,
@@ -198,34 +242,6 @@ func (q *Queries) GetStaffSessionState(ctx context.Context, id uuid.UUID) (GetSt
 		&i.MustChangePassword,
 	)
 	return i, err
-}
-
-const insertStaffMember = `-- name: InsertStaffMember :exec
-INSERT INTO active_staff_members (id, email, password_hash, status, must_change_password, created_at)
-VALUES ($1, $2, $3, $4, $5, $6)
-`
-
-type InsertStaffMemberParams struct {
-	ID                 uuid.UUID
-	Email              string
-	PasswordHash       string
-	Status             string
-	MustChangePassword bool
-	CreatedAt          time.Time
-}
-
-// InsertStaffMember adds a staff member. Staff management (Faz 8) and the
-// bootstrap call it; Faz 1 seeds tests with it.
-func (q *Queries) InsertStaffMember(ctx context.Context, arg InsertStaffMemberParams) error {
-	_, err := q.db.Exec(ctx, insertStaffMember,
-		arg.ID,
-		arg.Email,
-		arg.PasswordHash,
-		arg.Status,
-		arg.MustChangePassword,
-		arg.CreatedAt,
-	)
-	return err
 }
 
 const insertStaffRefreshToken = `-- name: InsertStaffRefreshToken :exec
@@ -280,7 +296,7 @@ func (q *Queries) InsertStaffSession(ctx context.Context, arg InsertStaffSession
 
 const lockStaffForSignIn = `-- name: LockStaffForSignIn :one
 SELECT id, password_hash, status, must_change_password, failed_login_attempts,
-       locked_until, token_version
+       backoff_until, token_version
 FROM active_staff_members
 WHERE id = $1
 FOR UPDATE
@@ -292,7 +308,7 @@ type LockStaffForSignInRow struct {
 	Status              string
 	MustChangePassword  bool
 	FailedLoginAttempts int32
-	LockedUntil         *time.Time
+	BackoffUntil        *time.Time
 	TokenVersion        int64
 }
 
@@ -308,10 +324,26 @@ func (q *Queries) LockStaffForSignIn(ctx context.Context, id uuid.UUID) (LockSta
 		&i.Status,
 		&i.MustChangePassword,
 		&i.FailedLoginAttempts,
-		&i.LockedUntil,
+		&i.BackoffUntil,
 		&i.TokenVersion,
 	)
 	return i, err
+}
+
+const purgeStaffLoginLocks = `-- name: PurgeStaffLoginLocks :execrows
+DELETE FROM staff_login_locks
+WHERE updated_at < $1::timestamptz
+  AND (locked_until IS NULL OR locked_until < $1::timestamptz)
+`
+
+// PurgeStaffLoginLocks deletes pairs untouched since the bound whose lock,
+// if any, has ended.
+func (q *Queries) PurgeStaffLoginLocks(ctx context.Context, before time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeStaffLoginLocks, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const purgeStaffSessions = `-- name: PurgeStaffSessions :execrows
@@ -346,18 +378,45 @@ func (q *Queries) RevokeStaffSession(ctx context.Context, arg RevokeStaffSession
 
 const setStaffFailures = `-- name: SetStaffFailures :exec
 UPDATE active_staff_members
-SET failed_login_attempts = $1, locked_until = $2
+SET failed_login_attempts = $1, backoff_until = $2
 WHERE id = $3
 `
 
 type SetStaffFailuresParams struct {
 	FailedLoginAttempts int32
-	LockedUntil         *time.Time
+	BackoffUntil        *time.Time
 	ID                  uuid.UUID
 }
 
+// SetStaffFailures stores the account-wide failure counter and backoff.
 func (q *Queries) SetStaffFailures(ctx context.Context, arg SetStaffFailuresParams) error {
-	_, err := q.db.Exec(ctx, setStaffFailures, arg.FailedLoginAttempts, arg.LockedUntil, arg.ID)
+	_, err := q.db.Exec(ctx, setStaffFailures, arg.FailedLoginAttempts, arg.BackoffUntil, arg.ID)
+	return err
+}
+
+const setStaffLoginLock = `-- name: SetStaffLoginLock :exec
+INSERT INTO staff_login_locks (staff_id, client_key, failures, locked_until, updated_at)
+VALUES ($1, $2, $3, $4, $5::timestamptz)
+ON CONFLICT (staff_id, client_key) DO UPDATE
+SET failures = EXCLUDED.failures, locked_until = EXCLUDED.locked_until, updated_at = EXCLUDED.updated_at
+`
+
+type SetStaffLoginLockParams struct {
+	StaffID     uuid.UUID
+	ClientKey   string
+	Failures    int32
+	LockedUntil *time.Time
+	Now         time.Time
+}
+
+func (q *Queries) SetStaffLoginLock(ctx context.Context, arg SetStaffLoginLockParams) error {
+	_, err := q.db.Exec(ctx, setStaffLoginLock,
+		arg.StaffID,
+		arg.ClientKey,
+		arg.Failures,
+		arg.LockedUntil,
+		arg.Now,
+	)
 	return err
 }
 

@@ -192,8 +192,8 @@ func checkSoftDeleted(t *testing.T, q *pgxpool.Pool, tb softdelete.Table) {
 	if len(appOnTable) > 0 {
 		t.Errorf("koala_app has %v on the base table %s", appOnTable, tb.Name)
 	}
-	if !slices.Equal(appOnView, []string{"SELECT", "INSERT", "UPDATE"}) {
-		t.Errorf("koala_app on %s = %v, want SELECT, INSERT, UPDATE", tb.View(), appOnView)
+	if want := tb.AppViewPrivileges(); !slices.Equal(appOnView, want) {
+		t.Errorf("koala_app on %s = %v, want %v (catalog app_view)", tb.View(), appOnView, want)
 	}
 	if !slices.Equal(maintOnTable, []string{"SELECT", "INSERT", "UPDATE", "DELETE"}) {
 		t.Errorf("koala_maint on %s = %v, want SELECT, INSERT, UPDATE, DELETE", tb.Name, maintOnTable)

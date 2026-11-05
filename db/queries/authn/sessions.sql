@@ -19,7 +19,7 @@ VALUES ($1, $2, $3, $4, $5);
 -- session, locking both: two refreshes of one token are serialized, so
 -- the second sees the first's consumption (reuse). The device and the
 -- user are reached by LEFT JOIN (detach edges); NULL means deleted.
-SELECT rt.id, rt.session_id, rt.expires_at, rt.consumed_at,
+SELECT rt.id, rt.session_id, rt.expires_at, rt.consumed_at, rt.successor_salt,
        s.user_id, s.expires_at AS session_expires_at, s.revoked_at,
        d.device_key, u.status AS user_status
 FROM user_refresh_tokens rt
@@ -30,7 +30,9 @@ WHERE rt.token_hash = $1
 FOR UPDATE OF rt, s;
 
 -- name: ConsumeUserRefreshToken :exec
-UPDATE user_refresh_tokens SET consumed_at = sqlc.arg(now)::timestamptz WHERE id = sqlc.arg(id);
+UPDATE user_refresh_tokens
+SET consumed_at = sqlc.arg(now)::timestamptz, successor_salt = sqlc.arg(successor_salt)::bytea
+WHERE id = sqlc.arg(id);
 
 -- name: RevokeUserSession :execrows
 UPDATE user_sessions

@@ -1,16 +1,10 @@
 # Expected koala-* results of api/testdata/lint-probe.yaml: one line per
 # (rule, JSON path) pair, tab-separated. scripts/api-lint-probe.sh fails on
 # a missing or an unexpected pair.
-# koala-operation-authz and koala-admin-permission are oneOfs: for some
-# failing cases (a broken `not`, a member's constraint) vacuum v0.36.2
-# reports once at the operation and once at its path item, so those cases
-# have two lines; the probe pins which.
+# koala-operation-authz is a oneOf whose branches use `not`: when a case
+# breaks a `not`, vacuum v0.36.2 reports it once at the operation and once
+# at its path item, so those cases have two lines.
 koala-admin-only-under-admin	$.paths['/v1/permission-outside-admin'].get
-koala-admin-permission	$.paths['/v1/admin/exempt-marketplace']
-koala-admin-permission	$.paths['/v1/admin/exempt-marketplace'].get
-koala-admin-permission	$.paths['/v1/admin/public-with-permission']
-koala-admin-permission	$.paths['/v1/admin/public-with-permission'].get
-koala-admin-permission	$.paths['/v1/admin/users'].get
 koala-body-limit	$.paths['/v1/body-limit'].post
 koala-bps-integer	$.components.schemas['BpsNotInteger'].properties['feeBps']
 koala-bps-integer	$.components.schemas['BpsNotIntegerNullable'].properties['rentBps']
@@ -62,3 +56,8 @@ koala-properties-camel-case	$.components.schemas.SnakeCase.properties.snake_case
 koala-rate-in-basis-points	$.components.schemas['RateNotBps'].properties['commissionRate']
 koala-rate-in-basis-points	$.components.schemas['RateNotBpsNullable'].properties['successRate']
 koala-sort-fields	$.paths['/v1/sort'].get
+koala-admin-permission	$.paths['/v1/admin/exempt-elsewhere'].get
+koala-admin-permission	$.paths['/v1/admin/users'].get
+koala-admin-public	$.paths['/v1/admin/auth/login'].get
+koala-admin-self-service	$.paths['/v1/admin/auth/sessions'].get
+koala-operation-authz	$.paths['/v1/admin/auth/login'].get
