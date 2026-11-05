@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.2/configuration-schema.json
+# Root spec: request/response types, chi router glue and the strict server
+# interface (ADR-0006, ADR-0019). Component files are generated into this same package
+# by oapi-codegen-components.yaml; "-" maps their $refs to this package.
+package: apiv1
+output: server.gen.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true
+output-options:
+  name-normalizer: ToCamelCaseWithInitialisms
+import-mapping:
+  ./components/problem.yaml: "-"
+  ./components/money.yaml: "-"
+  ./components/pagination.yaml: "-"
+  ./components/datetime.yaml: "-"
+  ./components/headers.yaml: "-"
+# No spec file fetches anything over the network.
+allow-remote-refs-from: []
+# ErrorCodeInternal, not a bare INTERNAL that the next enum could clash with.
+compatibility:
+  always-prefix-enum-values: true

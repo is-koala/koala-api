@@ -1,0 +1,186 @@
+# The correct forms of the lint-probe.yaml cases (scripts/api-lint-probe.sh):
+# no koala-* rule may report anything here. Each case shows the form the
+# style guide asks for; together with the probe it proves a rule both
+# catches the mistake and accepts the right pattern. Not part of the
+# contract.
+openapi: 3.1.1
+info:
+  title: Lint pass
+  version: 0.0.0
+security:
+  - marketplaceBearer: []
+paths:
+  /v1/things/{thingId}:
+    get:
+      operationId: getThing
+      x-authz: {action: can_read, object: thing}
+      parameters:
+        - {name: thingId, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Thing"
+                  - type: object
+                    properties:
+                      updatedAt: {type: string, format: date-time}
+        "404":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: patchThing
+      x-authz: {action: can_edit, object: thing}
+      parameters:
+        - {name: thingId, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note:
+                  type: [string, "null"]
+                  x-go-type: nullable.Nullable[string]
+                  x-go-type-import: {path: github.com/oapi-codegen/nullable}
+                  x-go-type-skip-optional-pointer: true
+                price:
+                  oneOf:
+                    - {$ref: "#/components/schemas/MoneyInput"}
+                    - {type: "null"}
+                  x-go-type: nullable.Nullable[MoneyInput]
+                  x-go-type-skip-optional-pointer: true
+                address:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    line2:
+                      type: [string, "null"]
+                      x-go-type: nullable.Nullable[string]
+                      x-go-type-skip-optional-pointer: true
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Thing"}
+        default:
+          $ref: "#/components/responses/Problem"
+  /v1/things:
+    post:
+      operationId: createThing
+      x-authz: {action: can_create, object: thing}
+      x-body-limit: 2097152
+      parameters:
+        - {name: Idempotency-Key, in: header, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              unevaluatedProperties: false
+              allOf:
+                - type: object
+                  properties:
+                    name: {type: string}
+                    inner:
+                      type: object
+                      additionalProperties: false
+                      properties:
+                        x: {type: string}
+              properties:
+                price: {$ref: "#/components/schemas/MoneyInput"}
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Thing"}
+        "409":
+          $ref: "#/components/responses/Problem"
+        default:
+          $ref: "#/components/responses/Problem"
+    get:
+      operationId: listThings
+      x-authz: {action: can_read, object: thing}
+      x-sort-fields: [createdAt, id]
+      x-seo-search: true
+      parameters:
+        - {name: limit, in: query, schema: {type: integer, format: int32}}
+        - {name: cursor, in: query, schema: {type: string}}
+        - {name: includeTotal, in: query, schema: {type: boolean}}
+        - {name: sort, in: query, schema: {type: string}}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: {type: array, items: {$ref: "#/components/schemas/Thing"}}
+                  nextCursor: {type: [string, "null"]}
+                  total: {type: integer, format: int64}
+        default:
+          $ref: "#/components/responses/Problem"
+  /v1/admin/things:
+    get:
+      operationId: adminListThings
+      x-authz: {action: can_read, object: thing}
+      x-authz-permission: thing.read
+      security: [{adminBearer: []}]
+      deprecated: true
+      x-sunset: "2027-01-31"
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+components:
+  securitySchemes:
+    marketplaceBearer: {type: http, scheme: bearer}
+    adminBearer: {type: http, scheme: bearer}
+  responses:
+    Problem:
+      description: problem
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status, code]
+            properties:
+              type: {type: string}
+              title: {type: string}
+              status: {type: integer, format: int32}
+              code: {type: string}
+  schemas:
+    Money:
+      type: object
+      properties:
+        amount: {type: integer, format: int64}
+        currency: {type: string, enum: [TRY]}
+    MoneyInput:
+      type: object
+      additionalProperties: false
+      properties:
+        amount: {type: integer, format: int64}
+        currency: {type: string, enum: [TRY]}
+    Thing:
+      type: object
+      properties:
+        id: {type: string, format: uuid}
+        state: {type: [string, "null"], enum: [ACTIVE, null]}
+        count: {type: [integer, "null"], format: int32}
+        price: {$ref: "#/components/schemas/Money"}
+        refundAmount:
+          oneOf:
+            - {$ref: "#/components/schemas/Money"}
+            - {type: "null"}
+        commissionBps: {type: integer, format: int32}
+        rentBps: {type: [integer, "null"], format: int32}
+        exchangeRate: {type: string}
+        createdAt: {type: string, format: date-time}
+        birthDate: {type: string, format: date}

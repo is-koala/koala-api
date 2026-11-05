@@ -1,0 +1,289 @@
+# Koala HTTP sözleşmesi: tek doğruluk kaynağı (ADR-0005, ADR-0006, ADR-0019).
+# Kurallar docs/api-style-guide.md'de, makinece zorlanan kısmı
+# api/ruleset.yaml'da (make api-lint). Sunucu kodu internal/apiv1'e
+# `make generate` ile üretilir; elle düzenlenmez.
+openapi: 3.1.1
+info:
+  title: Koala API
+  version: 0.1.0
+  summary: İstanbul'da kısa süreli işler pazaryerinin HTTP API'si.
+  description: |
+    Kurallar: `docs/api-style-guide.md`.
+
+    - Başarılı yanıt çıplak gövdedir; zarf yoktur. Hata yanıtı RFC 9457
+      `application/problem+json`'dur ve stabil bir `code` taşır.
+    - Para `{amount, currency}` biçimindedir; `amount` kuruş cinsinden tam sayıdır.
+      Oranlar baz puandır.
+    - Zamanlar RFC 3339'dur.
+    - Listeler cursor ile sayfalanır.
+    - Platform başlıkları (`X-Request-Id`, `X-Device-Id`, `X-App-Version`,
+      `X-Client-Platform`) her istekte geçerlidir ve operasyonlarda listelenmez;
+      tanımları `components/headers.yaml`'dadır, zorunluluklarını middleware zorlar.
+    - Dosyalar API'den geçmez: istemci presigned URL ile doğrudan nesne deposuna
+      yükler (ADR-0019).
+  contact:
+    name: Koala
+    url: https://iskoala.com
+  license:
+    name: Proprietary
+    url: https://iskoala.com
+
+servers:
+  - url: https://api.iskoala.com
+    description: Üretim
+  - url: http://localhost:8080
+    description: Yerel geliştirme
+
+# Varsayılan: marketplace kullanıcı token'ı. Public operasyon `security: []`
+# yazar; /v1/admin altındaki operasyon adminBearer yazar.
+security:
+  - marketplaceBearer: []
+
+tags:
+  - name: meta
+    description: Sözleşme ve sunucu sağlığıyla ilgili yardımcı uçlar.
+
+paths:
+  /v1/meta/ping:
+    post:
+      operationId: ping
+      tags: [meta]
+      summary: Gövdeyi doğrulayıp geri döndürür.
+      description: |
+        Sözleşme duman testi: istek gövdesi spec'e göre doğrulanır ve aynen geri
+        döner. Yan etkisi yoktur. Ortak para ve problem bileşenlerinin uçtan uca
+        çalıştığını gösterir (ADR-0019). **Üretim ortamında bağlanmaz**
+        (`KOALA_ENV=production`'da 404); ilk gerçek operasyon gelince silinecek.
+      security: []
+      x-no-idempotency-key: Yan etkisi yok; aynı gövde her zaman aynı yanıtı verir.
+      requestBody:
+        description: Doğrulanıp geri döndürülecek gövde.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PingRequest"
+      responses:
+        "200":
+          description: Doğrulanmış gövde.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PingResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    patch:
+      operationId: patchPing
+      tags: [meta]
+      summary: Merge Patch gövdesini doğrulayıp hangi alanların değiştiğini döndürür.
+      description: |
+        JSON Merge Patch (RFC 7396) duman testi. Gönderilmeyen alan değişmez, `null`
+        alanı temizler, değer alanı değiştirir; yanıt bu üç durumu ayırt eder. Yan
+        etkisi yoktur. Üretim ortamında bağlanmaz; ilk gerçek operasyonla silinecek
+        (ADR-0019).
+      security: []
+      requestBody:
+        description: Merge patch. Yalnız `application/merge-patch+json` kabul edilir.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/PingPatch"
+      responses:
+        "200":
+          description: Gövdenin hangi alanları değiştirdiği.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PingPatchResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+components:
+  securitySchemes:
+    marketplaceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Marketplace kullanıcısının 15 dakikalık erişim token'ı (K12). `/v1/admin`
+        dışındaki korunan operasyonlarda geçerlidir.
+    adminBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Personelin erişim token'ı (MFA'lı oturum, K13). Yalnız `/v1/admin`
+        altındaki operasyonlarda geçerlidir; marketplace token'ı burada reddedilir.
+
+  schemas:
+    PingRequest:
+      type: object
+      description: Ping isteği. Bilinmeyen alan reddedilir.
+      additionalProperties: false
+      required: [amount]
+      properties:
+        amount:
+          $ref: "./components/money.yaml#/components/schemas/MoneyInput"
+          description: Geri döndürülecek tutar.
+          examples: [{amount: 15000, currency: TRY}]
+        note:
+          type: [string, "null"]
+          maxLength: 200
+          description: İsteğe bağlı not; null gönderilebilir.
+          examples: [Merhaba, null]
+      examples:
+        - amount: {amount: 15000, currency: TRY}
+          note: null
+
+    PingResponse:
+      type: object
+      description: Ping yanıtı; isteğin doğrulanmış hâli.
+      required: [amount, note]
+      properties:
+        amount:
+          $ref: "./components/money.yaml#/components/schemas/Money"
+          description: İstekteki tutar.
+          examples: [{amount: 15000, currency: TRY}]
+        note:
+          type: [string, "null"]
+          description: İstekteki not; gönderilmediyse null.
+      examples:
+        - amount: {amount: 15000, currency: TRY}
+          note: null
+
+    PingPatch:
+      type: object
+      description: |
+        Ping'in merge patch'i (RFC 7396). Hiçbir alan zorunlu değildir. Temizlenebilen
+        alan nullable'dır ve Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi",
+        "null" ve "değer" ayrılır (stil rehberi §3). `amount` temizlenemez: null 400 döner.
+      additionalProperties: false
+      properties:
+        amount:
+          $ref: "./components/money.yaml#/components/schemas/MoneyInput"
+          description: Yeni tutar. Temizlenemez.
+          examples: [{amount: 15000, currency: TRY}]
+        note:
+          type: [string, "null"]
+          maxLength: 200
+          description: Yeni not; `null` notu temizler.
+          examples: [Merhaba, null]
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+      examples:
+        - note: null
+        - amount: {amount: 15000, currency: TRY}
+          note: Merhaba
+
+    PingPatchResult:
+      type: object
+      description: Merge patch'in hangi alanları değiştirdiği.
+      required: [set, cleared]
+      properties:
+        set:
+          type: array
+          description: Değer verilen alanlar, alfabetik.
+          items:
+            type: string
+          examples: [[amount]]
+        cleared:
+          type: array
+          description: "`null` ile temizlenen alanlar, alfabetik."
+          items:
+            type: string
+          examples: [[note]]
+      examples:
+        - set: [amount]
+          cleared: [note]
+
+  # Ortak hata yanıtları. Her biri Problem gövdesi döner; kodlar
+  # ErrorCode'dadır.
+  responses:
+    BadRequest:
+      description: |
+        İstek sözleşmeye uymuyor (`REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`, …) ya da
+        istemci sürümü desteklenmiyor (`APP_VERSION_UNSUPPORTED`; o zaman
+        `X-Minimum-App-Version` döner).
+      headers:
+        X-Minimum-App-Version:
+          $ref: "./components/headers.yaml#/components/headers/XMinimumAppVersion"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    Unauthorized:
+      description: Kimlik doğrulanamadı.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    Forbidden:
+      description: Kimlik doğrulandı ama eylem yasak. Okuma reddi 403 değil, kaynağın 404'üdür (ADR-0014).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    NotFound:
+      description: Kaynak yok ya da görme yetkiniz yok; ikisi ayırt edilemez.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    Conflict:
+      description: Kaynağın durumu isteğe izin vermiyor ya da aynı Idempotency-Key'li istek sürüyor.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: Gövde route'un sınırını aşıyor (`REQUEST_BODY_TOO_LARGE`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    UnprocessableContent:
+      description: Aynı Idempotency-Key farklı gövdeyle kullanıldı (`IDEMPOTENCY_KEY_REUSED`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    UnsupportedMediaType:
+      description: Gövdenin `Content-Type`'ı desteklenmiyor (`CONTENT_TYPE_UNSUPPORTED`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    TooManyRequests:
+      description: Oran sınırı aşıldı.
+      headers:
+        Retry-After:
+          $ref: "./components/headers.yaml#/components/headers/RetryAfter"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    InternalError:
+      description: Beklenmeyen hata (`INTERNAL`) ya da üst sistem hatası.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 )
 
@@ -30,10 +32,24 @@ type Problem struct {
 	Errors    []ProblemField `json:"errors,omitempty"`
 }
 
-// ProblemField is one entry of Problem.Errors.
+// ProblemField is one entry of Problem.Errors. A body member is named by
+// Pointer (RFC 6901; "" is the whole body, so it is always written for a
+// body member); a parameter by Parameter and In (QUERY, PATH, HEADER,
+// COOKIE), and then Pointer is absent (ADR-0019).
 type ProblemField struct {
-	Pointer string      `json:"pointer"`
-	Code    apperr.Code `json:"code"`
+	Pointer   *string     `json:"pointer,omitempty"`
+	Parameter string      `json:"parameter,omitempty"`
+	In        string      `json:"in,omitempty"`
+	Code      apperr.Code `json:"code"`
+}
+
+// NewProblemField converts an apperr field error to its wire form.
+func NewProblemField(f apperr.FieldError) ProblemField {
+	if f.In != "" {
+		return ProblemField{Parameter: f.Parameter, In: f.In, Code: f.Code}
+	}
+	pointer := f.Pointer
+	return ProblemField{Pointer: &pointer, Code: f.Code}
 }
 
 // StatusOf returns the HTTP status for an error kind. It is the only
@@ -58,6 +74,8 @@ func StatusOf(k apperr.Kind) int {
 		return http.StatusRequestEntityTooLarge
 	case apperr.KindUnavailable:
 		return http.StatusServiceUnavailable
+	case apperr.KindUnsupportedMediaType:
+		return http.StatusUnsupportedMediaType
 	case apperr.KindInternal:
 		return http.StatusInternalServerError
 	default:
@@ -66,13 +84,20 @@ func StatusOf(k apperr.Kind) int {
 }
 
 // NewProblem builds the problem document for status and code on request r.
+// Instance is the matched route template (/v1/jobs/{id}), never the raw
+// path: path parameters may carry personal data and are not echoed back.
+// An unmatched request has no instance.
 func NewProblem(r *http.Request, status int, code apperr.Code) Problem {
+	instance := ""
+	if rctx := chi.RouteContext(r.Context()); rctx != nil {
+		instance = rctx.RoutePattern()
+	}
 	return Problem{
 		Type:      ProblemTypeBase + strings.ReplaceAll(strings.ToLower(string(code)), "_", "-"),
 		Title:     http.StatusText(status),
 		Status:    status,
 		Code:      code,
-		Instance:  r.URL.Path,
+		Instance:  instance,
 		RequestID: RequestIDFrom(r.Context()),
 	}
 }
@@ -114,7 +139,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 
 	p := NewProblem(r, status, code)
 	for _, f := range e.Fields {
-		p.Errors = append(p.Errors, ProblemField(f))
+		p.Errors = append(p.Errors, NewProblemField(f))
 	}
 	WriteProblem(w, logger, r, p)
 }

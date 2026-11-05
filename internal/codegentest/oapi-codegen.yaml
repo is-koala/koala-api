@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.2/configuration-schema.json
+# Same options as internal/apiv1/oapi-codegen.yaml.
+package: codegentest
+output: openapi31.gen.go
+generate:
+  models: true
+  chi-server: true
+  strict-server: true
+output-options:
+  name-normalizer: ToCamelCaseWithInitialisms
+allow-remote-refs-from: []
+compatibility:
+  always-prefix-enum-values: true

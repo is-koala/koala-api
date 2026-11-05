@@ -13,7 +13,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 ## Kapı: CI'da koşar, yerelde ağır iş yok
 
-- Kapı `make verify`'dır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004). Sırası: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on`.
+- Kapı `make verify`'dır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004). Sırası: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`).
 - **Bu Mac'te yerelde ağır iş yapılmaz** (Yusuf, 04.11). `go test`, `go vet`, `go build`, golangci-lint, `make verify` ve docker çalıştırılmaz. Serbest olanlar: `gofmt`, `go mod tidy`, `make fmt-check`, `make mod-check`. İş bitince `go clean -cache`.
 - PR, CI'daki `verify` yeşil olmadan merge edilmez. Kırmızı kapıyla "sonra düzeltirim" yok.
 - `//nolint` yalnız linter adı ve gerekçeyle yazılır: `//nolint:wrapcheck // neden` **[lint: nolintlint]**. Gerekçesiz susturma yerine kodu düzelt.
@@ -57,13 +57,22 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - `softdelete.yaml`'da `detach` politikalı FK kenarında yalnız `LEFT JOIN active_*` kullanılır; INNER JOIN yasak. Faz 1'de lint'le zorlanacak.
 - Temel tablolara yalnız `koala_maint` rolü erişir: geri alma, temizlik, anonimleştirme. M1 tabloları (defter, kanıt) silinmez.
 
+## API (ADR-0005, ADR-0006, ADR-0019, `docs/api-style-guide.md`)
+
+- Sözleşme önce: `api/openapi.yaml` (OpenAPI 3.1) ve `api/components/*.yaml` tek doğruluk kaynağıdır. Akış: spec → `make api-lint` → `make generate` → uygulama.
+- Spec kuralları stil rehberindedir ve vacuum'la zorlanır **[make verify: api-lint]**. `scripts/api-lint-probe.sh` her kuralın bağımsız vakasını (kural, JSON yolu) beklentisiyle ve doğru biçimlerin geçtiğini kanıtlar.
+- `internal/apiv1/*.gen.go` üretilir ve commit edilir; elle düzenlenmez **[make verify: gen-check]**. `internal/codegentest` üreticinin 3.1 davranışını sabitler. Alan `http.go`'su üretilmiş `StrictServerInterface`'in kendi metotlarını uygular.
+- İstek biçimi spec'ten `httpx.ValidateRequests` ile doğrulanır; handler'da biçim kontrolü tekrar yazılmaz. Handler yalnız doğrulanmış değeri alır **[test]**. Authn doğrulamadan önce gelir.
+- `make generate` yerelde serbesttir; derleme gerektirdiği için önce yüke bakılır ve `nice -n 15` ile koşulur.
+- Servisin döndürdüğü her hata kodu `api/components/problem.yaml`'daki `ErrorCode` listesindedir (platform kodları için **[test]**).
+
 ## Hatalar (ADR-0007)
 
 - Servisler istemciye dönecek hatayı `apperr.New(kind, "STABLE_CODE")` ya da `apperr.Wrap(cause, kind, code)` ile üretir. Kod UPPER_SNAKE'tir ve anlamı hiç değişmez; OpenAPI'deki kod listesine eklenir.
 - Alan paketinde `ErrNotFound`/`ErrForbidden` gibi sentinel tanımlanmaz. HTTP durumu yalnız `httpx.StatusOf` ile belirlenir.
 - Dış paketten gelen hata bağlam eklenerek sarılır: `fmt.Errorf("load job %s: %w", id, err)` **[lint: wrapcheck, errorlint]**.
 - `*apperr.Error` olmayan hata istemciye `500 INTERNAL` olarak gider, sebebi yalnız log'a yazılır **[test]**. "Bu durumda 409 dönsün" gibi örtük eşleme yazılmaz.
-- Gövde decode hatası olduğu gibi döndürülür. `httpx.BodyLimit` aşımı (varsayılan 1 MiB) `413 REQUEST_BODY_TOO_LARGE` olur **[test]**. Daha büyük gövde gereken route `r.With(httpx.BodyLimit(n))` kullanır.
+- Gövde decode hatası olduğu gibi döndürülür. `httpx.BodyLimit` aşımı (varsayılan 1 MiB) `413 REQUEST_BODY_TOO_LARGE` olur **[test]**. Daha büyük gövde gereken operasyon spec'te `x-body-limit` yazar; spec dışı route `r.With(httpx.BodyLimit(n))` kullanır.
 - Yetkisiz okuma, kaynağın kendi 404'ünü döner. Gövde bayt bayt aynıdır (ADR-0014).
 
 ## Transaction (ADR-0012, plan §3.5)

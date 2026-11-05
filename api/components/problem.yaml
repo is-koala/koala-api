@@ -1,0 +1,161 @@
+# Hata gövdesi (RFC 9457) ve hata kodu kaydı (ADR-0007, ADR-0019, plan §3.4).
+#
+# Alanlar internal/platform/httpx.Problem ve ProblemField ile birebir
+# aynıdır: api.TestProblemSchemaMatchesHTTPX anahtar kümelerini ve zorunlu
+# alanları karşılaştırır, httpx.TestWriteErrorGoldenBody kablo biçimini
+# sabitler.
+openapi: 3.1.1
+info:
+  title: Koala ortak bileşenleri - problem
+  version: 1.0.0
+components:
+  schemas:
+    Problem:
+      type: object
+      description: |
+        RFC 9457 problem belgesi; medya tipi `application/problem+json`.
+        `detail` alanı yoktur: kullanıcıya gösterilecek metni istemci `code`'dan
+        üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
+        istemci bilmediği alanı yok sayar.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: "`https://api.iskoala.com/problems/<code-kebab>`; `code`'dan türetilir."
+          examples: ["https://api.iskoala.com/problems/request-invalid"]
+        title:
+          type: string
+          description: HTTP durumunun standart adı (`Bad Request`). Görüntülemek için değil.
+          examples: [Bad Request]
+        status:
+          type: integer
+          format: int32
+          minimum: 400
+          maximum: 599
+          examples: [400]
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        instance:
+          type: string
+          description: |
+            Eşleşen route şablonu (`/v1/jobs/{jobId}`). Yol parametresinin değeri
+            yazılmaz; eşleşmeyen istekte (404 `ROUTE_NOT_FOUND`) alan yoktur (ADR-0019).
+          examples: ["/v1/meta/ping"]
+        requestId:
+          type: string
+          description: Yanıttaki `X-Request-Id` ile aynı değer.
+          examples: [req-123]
+        errors:
+          type: array
+          description: Alan ve parametre hataları. Yalnız alan düzeyinde hata varsa bulunur.
+          items:
+            $ref: "#/components/schemas/ProblemField"
+      examples:
+        - type: https://api.iskoala.com/problems/request-invalid
+          title: Bad Request
+          status: 400
+          code: REQUEST_INVALID
+          instance: /v1/meta/ping
+          requestId: req-123
+          errors:
+            - pointer: /amount/currency
+              code: FIELD_REQUIRED
+            - parameter: limit
+              in: QUERY
+              code: FIELD_OUT_OF_RANGE
+
+    ProblemField:
+      type: object
+      description: |
+        Tek bir alanın ya da parametrenin hatası (ADR-0019). Gövdedeki üye `pointer`
+        ile (RFC 6901; `""` gövdenin tamamı), parametre `parameter` + `in` ile
+        gösterilir; ikisi birlikte bulunmaz. JSON:API'nin `source.pointer` /
+        `source.parameter` ayrımıyla aynı. Şema bunu zorlar: `parameter` ile `in`
+        birlikte gelir, `pointer` ile `parameter` birlikte gelmez ve ikisinden biri
+        mutlaka vardır.
+      required: [code]
+      dependentRequired:
+        parameter: [in]
+        in: [parameter]
+      not:
+        required: [pointer, parameter]
+      if:
+        not:
+          required: [pointer]
+      then:
+        required: [parameter]
+      properties:
+        pointer:
+          type: string
+          description: Gövdedeki üyenin RFC 6901 JSON pointer'ı.
+          examples: [/amount/currency]
+        parameter:
+          type: string
+          description: Parametrenin adı (`limit`, `Idempotency-Key`).
+          examples: [limit]
+        in:
+          type: string
+          description: Parametrenin yeri (OpenAPI `in`, UPPER_SNAKE enum kuralıyla).
+          enum: [QUERY, PATH, HEADER, COOKIE]
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+      examples:
+        - pointer: /amount/currency
+          code: FIELD_REQUIRED
+        - parameter: limit
+          in: QUERY
+          code: FIELD_OUT_OF_RANGE
+
+    ErrorCode:
+      type: string
+      description: |
+        Stabil, makinece okunur hata kodu (UPPER_SNAKE). Bir kodun anlamı hiç değişmez;
+        yeni kod eklemek geriye uyumludur. İstemciler bilmedikleri kodu genel hata olarak
+        gösterir. Servis yeni bir kod döndürmeden önce kod bu listeye eklenir
+        (CLAUDE.md "Hatalar"); istemcilerin kod listesi buradan üretilir (ADR-0007 madde 5).
+
+        Problem kodları (`Problem.code`):
+        - `INTERNAL` (500): sınıflandırılmamış hata; sebep yalnız log'da.
+        - `ROUTE_NOT_FOUND` (404): bilinmeyen yol.
+        - `METHOD_NOT_ALLOWED` (405): yol var, metot yok; `Allow` başlığı döner.
+        - `REQUEST_BODY_TOO_LARGE` (413): gövde operasyonun sınırını aşıyor.
+        - `CONTENT_TYPE_UNSUPPORTED` (415): gövdenin `Content-Type`'ı operasyonun kabul ettiklerinden değil.
+        - `REQUEST_INVALID` (400): istek sözleşmeye uymuyor; ayrıntı `errors`'ta.
+        - `REQUEST_BODY_MALFORMED` (400): gövde yok ya da JSON olarak çözülemiyor.
+        - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
+        - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
+        - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
+        - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
+        - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
+        - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
+          `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
+          başlığını zorunlu tutuyor (ADR-0019).
+
+        Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
+        - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
+        - `FIELD_UNKNOWN`: istek şemasında olmayan alan; gövdesi olmayan operasyona gövde.
+        - `FIELD_TYPE_INVALID`: JSON ya da parametre tipi yanlış.
+        - `FIELD_FORMAT_INVALID`: `format` (date-time, uuid, …) uymuyor.
+        - `FIELD_VALUE_INVALID`: enum, const, pattern ya da bileşik şema uymuyor.
+        - `FIELD_OUT_OF_RANGE`: sayı, uzunluk ya da öğe sayısı sınır dışında.
+      enum:
+        - INTERNAL
+        - ROUTE_NOT_FOUND
+        - METHOD_NOT_ALLOWED
+        - REQUEST_BODY_TOO_LARGE
+        - CONTENT_TYPE_UNSUPPORTED
+        - REQUEST_INVALID
+        - REQUEST_BODY_MALFORMED
+        - SORT_FIELD_NOT_ALLOWED
+        - CURSOR_INVALID
+        - IDEMPOTENCY_KEY_REQUIRED
+        - IDEMPOTENCY_KEY_REUSED
+        - IDEMPOTENCY_KEY_IN_USE
+        - APP_VERSION_UNSUPPORTED
+        - FIELD_REQUIRED
+        - FIELD_UNKNOWN
+        - FIELD_TYPE_INVALID
+        - FIELD_FORMAT_INVALID
+        - FIELD_VALUE_INVALID
+        - FIELD_OUT_OF_RANGE

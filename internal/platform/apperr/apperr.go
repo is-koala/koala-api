@@ -34,6 +34,9 @@ const (
 	// while the instance drains (proposal of the realtime spike; not in
 	// plan §3.4's list).
 	KindUnavailable
+	// KindUnsupportedMediaType: the request body's Content-Type is not one
+	// the operation accepts (ADR-0019).
+	KindUnsupportedMediaType
 )
 
 // String returns a stable, lowercase name for logs.
@@ -59,6 +62,8 @@ func (k Kind) String() string {
 		return "payload_too_large"
 	case KindUnavailable:
 		return "unavailable"
+	case KindUnsupportedMediaType:
+		return "unsupported_media_type"
 	default:
 		return fmt.Sprintf("kind(%d)", uint8(k))
 	}
@@ -71,10 +76,14 @@ type Code string
 // CodeInternal is the code of every error that is not an *Error.
 const CodeInternal Code = "INTERNAL"
 
-// FieldError points at one invalid request field (RFC 6901 JSON pointer).
+// FieldError points at one invalid part of the request: a body member by
+// its RFC 6901 JSON pointer ("" is the whole body), or, when In is set, a
+// parameter by its name and location (In: QUERY, PATH, HEADER or COOKIE).
 type FieldError struct {
-	Pointer string
-	Code    Code
+	Pointer   string
+	Parameter string
+	In        string
+	Code      Code
 }
 
 // Error is the application error. Cause is for logs only and is never
