@@ -25,6 +25,7 @@ Her ADR tek bir kararı kaydeder: **Bağlam / Karar / Sonuçlar**. "Neden" kısm
 | [0017](0017-river-goose-db-roles-and-test-db.md) | River + goose entegrasyonu, DB rol modeli ve test DB altyapısı | K3, K6, K7, K14 (ADR-0003 madde 6'nın, ADR-0004'ün "tek adım" kaleminin, ADR-0012 Karar 3'teki migration adlarının ve Karar 4'teki `InTx` imzasının yerine geçer) |
 | [0018](0018-realtime-ticket-and-ws-protocol.md) | Realtime bileti ve WS protokol ayrıntıları | K4, K12 (ADR-0015 §1'in bir kaleminin yerine geçer) |
 | [0019](0019-openapi-31-codegen-and-request-validation.md) | OpenAPI 3.1 spike sonucu, kod üretimi ve istek doğrulaması | K9, K5, K10, K11 (ADR-0005 madde 7'deki 426'nın yerine geçer) |
+| [0023](0023-image-release-pipeline-and-test-fakes.md) | İmaj kapısı, yayın hattı ve test sahteleri | §3.11, §6.1 Faz 1 ve 9 |
 
 **Not:** Plandaki ADR-0013, 0014, 0016 atıfları koala-backend'e aittir; bu dizindeki aynı numaralı ADR'lerle ilgisi yoktur.
 

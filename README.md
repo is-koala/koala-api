@@ -106,9 +106,44 @@ Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace
 - İstek gövdesi varsayılan olarak 1 MiB ile sınırlı. Aşılırsa `413 REQUEST_BODY_TOO_LARGE` döner; route bazında `httpx.BodyLimit(n)` ile yükseltilir.
 - Her yanıtta şu başlıklar var: `X-Content-Type-Options: nosniff` ve `Content-Security-Policy: frame-ancestors 'none'`.
 
-## Docker
+## Docker ve yayın
 
 `Dockerfile` çok aşamalıdır: `golang:1.27.3` → `distroless/static:nonroot`. İki taban imaj da etiket ve digest ile sabitlenmiştir. İmaj nonroot kullanıcıyla çalışır; sağlık kontrolü ikilinin kendisidir. İmaj paylaşılan Mac'te build edilmez.
+
+**Her PR'da** `verify.yml`'nin `image` job'ı `scripts/image.sh` ile imajı build eder ve Postgres'e karşı çalıştırır. İmaj GHCR'ye basılmaz; yalnız job'ın kendi geçici registry'sine basılır ve yayının basma yolu orada aynen koşar. Job şunlardan biri sağlanmazsa kırmızıdır (ADR-0023):
+- imaj nonroot ve shell'siz;
+- `koala bootstrap` ve `scripts/release-db.sh` geçiyor;
+- açılış: süreç başlangıcından `/livez` 200'e **1 sn'nin altında**;
+- `koala healthcheck` ve Docker `HEALTHCHECK` çalışıyor;
+- SIGTERM'de `/readyz` 503 dönerken `/livez` 200 kalıyor ve süreç 0 ile çıkıyor.
+
+İmaj boyutu ve ölçülen açılış süresi job özetindedir.
+
+**Yayın** `main`'den dispatch edilir: `gh workflow run "koala-api release" --ref main -f version=vX.Y.Z` (`release.yml`; adım adım: [`docs/runbook/yayin.md`](docs/runbook/yayin.md)). **İmaj GHCR'de yokken `v*` tag'i olmaz.** Akış:
+1. Sürüm SemVer olmalı ve var olan en büyük sürümden büyük olmalı.
+2. Aynı SHA'da `push: main` verify koşusu yeşil olmalı: `make verify`, entegrasyon testleri ve imaj smoke'u.
+3. İmaj build edilir ve smoke'tan geçer.
+4. İmaj, SBOM (SPDX) ve SLSA provenance attestation'larıyla etiketsiz basılır.
+5. Denetimler yapılır: tek imaj manifest'i; smoke edilen imajla aynı katmanlar, config ve `/koala`; SBOM; provenance.
+6. Ancak denetimlerden sonra etiketler atılır:
+   - `ghcr.io/is-koala/koala-api:<sürüm>`: imaj manifest'inin kendisi. Dokploy/Swarm indeks çekemediği için indeks değildir.
+   - `:<sürüm>-attest`: attestation'lı indeks.
+
+   `:latest` basılmaz; dağıtım `:<sürüm>@<digest>` ile yapılır.
+7. Workflow annotated `v*` tag'ini en son kendisi atar ve GitHub release'ini açar.
+8. Dokploy webhook'u (`DOKPLOY_DEPLOY_WEBHOOK` sırrı) yalnız kararlı sürümde ve `DOKPLOY_DEPLOY_ENABLED` depo değişkeni `true` iken koşar. Faz 9'a kadar kapalıdır.
+
+Elle atılan `v*` tag'i hiçbir şey build etmez. `release-tag-guard.yml` şu durumlarda kırmızı olur: tag annotated değil, `main`'de değil ya da imajı yok.
+
+Konteynerin durdurma süresi (`stop_grace_period`) `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT` toplamından uzun olmalı; varsayılanlarla **en az 45 sn** (Yapılandırma bölümü).
+
+**Yapılacak insan adımları** (ayrıntı runbook'ta):
+- [ ] GHCR paketinin görünürlüğü ve erişimi: private kalır, repoya bağlanır, Dokploy için `read:packages` token'ı verilir.
+- [ ] Branch protection, `v*` tag ruleset'i ve `production` environment'ı. Free planda private repo için yok; Team planı ya da public repo gerekir.
+- [ ] Dokploy `stop_grace_period` ≥ 45 sn.
+- [ ] Faz 9'da `DOKPLOY_DEPLOY_WEBHOOK` sırrı (HTTPS alan adı) ve `DOKPLOY_DEPLOY_ENABLED` değişkeni.
+
+Elle build gerekirse (CI ya da sunucu ortamında):
 
 ```sh
 docker build --build-arg VERSION=$(git describe --tags --always) -t koala-api .
@@ -120,12 +155,12 @@ docker build --build-arg VERSION=$(git describe --tags --always) -t koala-api .
 cmd/koala/            ince main: sinyal + app.Run
 internal/app/         elle wiring ve alt komutlar
 internal/apiv1/       spec'ten üretilmiş sunucu arayüzü (make generate; elle düzenlenmez)
-internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr, db, jobs (River), dbtest
+internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr, db, jobs (River), dbtest, clock, fakes (yalnız testler)
 internal/archtest/    lint'in ifade edemediği mimari testler
 db/                   goose migration'ları (db/migrations), grup rolleri (db/bootstrap); sorgular Faz 1'de
 api/                  OpenAPI 3.1 sözleşmesi, ortak bileşenler ve spec lint kuralları
 docs/adr/             mimari karar kayıtları
 docs/plan/            Go geçiş planı
 docs/runbook/         işletim notları
-scripts/              CI ve yayın yardımcıları: lint probları, entegrasyon testleri, release-db
+scripts/              CI ve yayın yardımcıları: lint probları, entegrasyon testleri, release-db, image (build, smoke, publish), release (sürüm kuralları)
 ```
