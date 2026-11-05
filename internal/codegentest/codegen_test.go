@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oapi-codegen/nullable"
+
 	"github.com/is-koala/koala-api/internal/codegentest"
 )
 
@@ -23,7 +25,41 @@ var (
 	_ codegentest.Platform   = codegentest.PlatformIOS                 // enum: prefixed constants
 	_ codegentest.PayoutKind = codegentest.PayoutKindPAYOUT            // type: string + const: a one-value enum
 	_ codegentest.Payout     = codegentest.PayoutPaidJSONRequestBody{} // webhooks: body type
+	// merge patch member: x-go-type nullable.Nullable + skip-optional-pointer
+	_ nullable.Nullable[string] = codegentest.PayoutPatch{}.Note
+	_ codegentest.PayoutPatch   = codegentest.PatchPayoutApplicationMergePatchPlusJSONRequestBody{}
 )
+
+// A merge patch member keeps absent, null and a value apart.
+func TestMergePatchMemberHasThreeStates(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body            string
+		specified, null bool
+		value           string
+	}{
+		{`{}`, false, false, ""},
+		{`{"note":null}`, true, true, ""},
+		{`{"note":"x"}`, true, false, "x"},
+	}
+	for _, tt := range tests {
+		var p codegentest.PayoutPatch
+		if err := json.Unmarshal([]byte(tt.body), &p); err != nil {
+			t.Fatal(err)
+		}
+		if p.Note.IsSpecified() != tt.specified || p.Note.IsNull() != tt.null || p.Note.GetOrEmpty() != tt.value {
+			t.Errorf("%s: specified %v null %v value %q", tt.body, p.Note.IsSpecified(), p.Note.IsNull(), p.Note.GetOrEmpty())
+		}
+		out, err := json.Marshal(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(out) != tt.body {
+			t.Errorf("round trip of %s gives %s", tt.body, out)
+		}
+	}
+}
 
 func TestNullableFieldsMarshal(t *testing.T) {
 	t.Parallel()

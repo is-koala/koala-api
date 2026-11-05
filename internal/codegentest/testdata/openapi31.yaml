@@ -30,6 +30,17 @@ paths:
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Payout"}
+    patch:
+      operationId: patchPayout
+      parameters:
+        - {name: payoutId, in: path, required: true, schema: {type: string, format: uuid}}
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema: {$ref: "#/components/schemas/PayoutPatch"}
+      responses:
+        "204": {description: ok}
 components:
   schemas:
     Platform:
@@ -69,3 +80,17 @@ components:
           fee: 1
           paidAt: null
           meta: {}
+    # A JSON Merge Patch body: a clearable member is nullable.Nullable, so
+    # absent, null and a value stay three states (stil rehberi §3).
+    PayoutPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        note:
+          type: [string, "null"]
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import: {path: github.com/oapi-codegen/nullable}
+          x-go-type-skip-optional-pointer: true
+        retries:
+          type: integer
+          format: int32

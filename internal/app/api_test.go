@@ -26,7 +26,11 @@ func newAPIRouter(tb testing.TB, env config.Env) http.Handler {
 }
 
 func ping(h http.Handler, contentType, body string) *httptest.ResponseRecorder {
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/meta/ping", strings.NewReader(body))
+	return callPing(h, http.MethodPost, contentType, body)
+}
+
+func callPing(h http.Handler, method, contentType, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequestWithContext(context.Background(), method, "/v1/meta/ping", strings.NewReader(body))
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set(httpx.HeaderRequestID, "req-1")
 	rec := httptest.NewRecorder()
@@ -146,7 +150,7 @@ func TestPingWrongMethodIsProblem(t *testing.T) {
 	h := newAPIRouter(t, config.EnvTest)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/meta/ping", http.NoBody))
-	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != http.MethodPost {
+	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != "POST, PATCH" {
 		t.Fatalf("status %d, Allow %q", rec.Code, rec.Header().Get("Allow"))
 	}
 }
@@ -157,7 +161,7 @@ func TestPingIsNotMountedInProduction(t *testing.T) {
 	t.Parallel()
 
 	h := newAPIRouter(t, config.EnvProduction)
-	for _, method := range []string{http.MethodPost, http.MethodGet} {
+	for _, method := range []string{http.MethodPost, http.MethodPatch, http.MethodGet} {
 		req := httptest.NewRequestWithContext(context.Background(), method, "/v1/meta/ping",
 			strings.NewReader(`{"amount":{"amount":1,"currency":"TRY"}}`))
 		req.Header.Set("Content-Type", "application/json")
@@ -170,6 +174,61 @@ func TestPingIsNotMountedInProduction(t *testing.T) {
 		if rec.Code != http.StatusNotFound || rec.Body.String() != want {
 			t.Fatalf("%s: status %d, body %s", method, rec.Code, rec.Body)
 		}
+	}
+}
+
+// PATCH /v1/meta/ping takes a JSON Merge Patch (RFC 7396): an absent
+// member is unchanged, null clears it, a value sets it. The three reach
+// the handler as distinct states (nullable.Nullable), through validation
+// and the generated strict server (stil rehberi §3).
+func TestPatchPingMergePatch(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIRouter(t, config.EnvTest)
+	const mergePatch = "application/merge-patch+json"
+	tests := []struct {
+		name        string
+		contentType string
+		body        string
+		wantStatus  int
+		wantBody    string
+	}{
+		{"nothing sent, nothing changes", mergePatch, `{}`, http.StatusOK, `{"cleared":[],"set":[]}`},
+		{"null clears", mergePatch, `{"note":null}`, http.StatusOK, `{"cleared":["note"],"set":[]}`},
+		{
+			"values set", mergePatch, `{"amount":{"amount":1,"currency":"TRY"},"note":"merhaba"}`,
+			http.StatusOK, `{"cleared":[],"set":["amount","note"]}`,
+		},
+		{
+			"a member that cannot be cleared", mergePatch, `{"amount":null}`, http.StatusBadRequest,
+			`{"type":"https://api.iskoala.com/problems/request-invalid","title":"Bad Request","status":400,` +
+				`"code":"REQUEST_INVALID","instance":"/v1/meta/ping","requestId":"req-1",` +
+				`"errors":[{"pointer":"/amount","code":"FIELD_TYPE_INVALID"}]}`,
+		},
+		{
+			"unknown member", mergePatch, `{"title":"x"}`, http.StatusBadRequest,
+			`{"type":"https://api.iskoala.com/problems/request-invalid","title":"Bad Request","status":400,` +
+				`"code":"REQUEST_INVALID","instance":"/v1/meta/ping","requestId":"req-1",` +
+				`"errors":[{"pointer":"/title","code":"FIELD_UNKNOWN"}]}`,
+		},
+		{
+			"plain JSON is not a merge patch", "application/json", `{"note":null}`, http.StatusUnsupportedMediaType,
+			`{"type":"https://api.iskoala.com/problems/content-type-unsupported","title":"Unsupported Media Type",` +
+				`"status":415,"code":"CONTENT_TYPE_UNSUPPORTED","instance":"/v1/meta/ping","requestId":"req-1"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := callPing(h, http.MethodPatch, tt.contentType, tt.body)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.wantStatus, rec.Body)
+			}
+			if got := strings.TrimSuffix(rec.Body.String(), "\n"); got != tt.wantBody {
+				t.Fatalf("body mismatch\n got: %s\nwant: %s", got, tt.wantBody)
+			}
+		})
 	}
 }
 

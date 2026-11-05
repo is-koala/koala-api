@@ -60,12 +60,17 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 | `GET` | Okuma; yan etkisi yok, gövdesi yok. | 200 |
 | `POST /koleksiyon` | Oluşturma. | 201 + `Location` + oluşan kaynak |
 | `POST /kaynak/{id}/<eylem>` | Durum geçişi ve CRUD'a sığmayan eylem: `…/complete`, `…/cancel` (ADR-0005 madde 2, plan §4.1-2; Stripe `…/confirm` kalıbı). Google'ın `:verb` biçimi yerine alt yol kullanılır. | 200 + güncel kaynak; gövde yoksa 204 |
-| `PATCH` | Kısmi güncelleme, **JSON Merge Patch** (RFC 7396, `application/merge-patch+json`): gönderilmeyen alan değişmez, `null` alanı temizler. | 200 + güncel kaynak |
+| `PATCH` | Kısmi güncelleme, **JSON Merge Patch** (RFC 7396, `application/merge-patch+json`; ADR-0019): gönderilmeyen alan değişmez, `null` alanı temizler. | 200 + güncel kaynak |
 | `PUT` | Yalnız istemcinin tamamını bildiği alt kaynakta tam yer değiştirme (ör. tercihler). | 200 |
 | `DELETE` | Silme (soft-delete, ADR-0013). | 204 |
 
 - Durum alanı (`status`) `PATCH` ile değiştirilmez; geçiş her zaman alt eylemdir. FSM `domain.go`'da tablo olarak durur (CLAUDE.md).
-- **PATCH için açık konu:** Merge Patch'te "gönderilmedi" ile "null" farklıdır. Go'da bu ayrım oapi-codegen'in `nullable-type` seçeneğini, o da `github.com/oapi-codegen/nullable` modülünü gerektirir. **Bu bağımlılık onay bekliyor**; onaylanana kadar spec'e PATCH operasyonu yazılmaz.
+- **PATCH yalnız JSON Merge Patch'tir** (RFC 7396; ADR-0019). Gövdenin `Content-Type`'ı `application/merge-patch+json` olmalıdır; `application/json` `415 CONTENT_TYPE_UNSUPPORTED` döner **[lint: koala-patch-is-merge-patch]** **[test: internal/app TestPatchPingMergePatch]**. Patch şeması şu kurallara uyar:
+  - Hiçbir üye zorunlu değildir. Şema bilinmeyen üyeyi reddeder (§4) **[lint: koala-merge-patch-shape, koala-closed-request-body]**.
+  - Temizlenebilen üye nullable'dır (`type: [string, "null"]`). Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi", "null" ve "değer" üç ayrı durum kalır. Bunun için üye `x-go-type: nullable.Nullable[string]`, `x-go-type-import: {path: github.com/oapi-codegen/nullable}` ve `x-go-type-skip-optional-pointer: true` taşır **[lint: koala-merge-patch-shape]** **[test: internal/codegentest]**.
+  - Temizlenemeyen üye nullable değildir; ona `null` göndermek `400 FIELD_TYPE_INVALID` döner.
+  - `nullable.Nullable` yalnız merge patch üyelerinde kullanılır; oapi-codegen'in global `nullable-type` seçeneği açılmaz. Gerekçe: zorunlu + nullable bir yanıt alanı `Nullable` olursa handler'ın atamayı unuttuğu değer `null` değil, sıfır değer (`""`, `0`) olarak yazılır. Pointer'da unutulan değer `null`'dır.
+  - Örnek: `PATCH /v1/meta/ping` (`PingPatch`).
 - Uzun iş isteğe bağlanmaz: 202 + iş kaynağı döner; sonuç iş kaynağından okunur (CLAUDE.md "Transaction").
 
 ## 4. İstek gövdesi

@@ -80,6 +80,40 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         default:
           $ref: "#/components/responses/InternalError"
+    patch:
+      operationId: patchPing
+      tags: [meta]
+      summary: Merge Patch gövdesini doğrulayıp hangi alanların değiştiğini döndürür.
+      description: |
+        JSON Merge Patch (RFC 7396) duman testi. Gönderilmeyen alan değişmez, `null`
+        alanı temizler, değer alanı değiştirir; yanıt bu üç durumu ayırt eder. Yan
+        etkisi yoktur. Üretim ortamında bağlanmaz; ilk gerçek operasyonla silinecek
+        (ADR-0019).
+      security: []
+      requestBody:
+        description: Merge patch. Yalnız `application/merge-patch+json` kabul edilir.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/PingPatch"
+      responses:
+        "200":
+          description: Gövdenin hangi alanları değiştirdiği.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PingPatchResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
 
 components:
   securitySchemes:
@@ -133,6 +167,53 @@ components:
       examples:
         - amount: {amount: 15000, currency: TRY}
           note: null
+
+    PingPatch:
+      type: object
+      description: |
+        Ping'in merge patch'i (RFC 7396). Hiçbir alan zorunlu değildir. Temizlenebilen
+        alan nullable'dır ve Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi",
+        "null" ve "değer" ayrılır (stil rehberi §3). `amount` temizlenemez: null 400 döner.
+      additionalProperties: false
+      properties:
+        amount:
+          $ref: "./components/money.yaml#/components/schemas/MoneyInput"
+          description: Yeni tutar. Temizlenemez.
+          examples: [{amount: 15000, currency: TRY}]
+        note:
+          type: [string, "null"]
+          maxLength: 200
+          description: Yeni not; `null` notu temizler.
+          examples: [Merhaba, null]
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+      examples:
+        - note: null
+        - amount: {amount: 15000, currency: TRY}
+          note: Merhaba
+
+    PingPatchResult:
+      type: object
+      description: Merge patch'in hangi alanları değiştirdiği.
+      required: [set, cleared]
+      properties:
+        set:
+          type: array
+          description: Değer verilen alanlar, alfabetik.
+          items:
+            type: string
+          examples: [[amount]]
+        cleared:
+          type: array
+          description: "`null` ile temizlenen alanlar, alfabetik."
+          items:
+            type: string
+          examples: [[note]]
+      examples:
+        - set: [amount]
+          cleared: [note]
 
   # Ortak hata yanıtları. Her biri Problem gövdesi döner; kodlar
   # ErrorCode'dadır.

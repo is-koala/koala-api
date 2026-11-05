@@ -198,6 +198,47 @@ rules:
                 unevaluatedProperties:
                   const: false
 
+  koala-patch-is-merge-patch:
+    description: "PATCH gövdesi yalnız JSON Merge Patch'tir (`application/merge-patch+json`, RFC 7396) (stil rehberi §3, ADR-0019)."
+    severity: error
+    given: "$.paths[*].patch.requestBody.content"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [application/merge-patch+json]
+          maxProperties: 1
+
+  koala-merge-patch-shape:
+    description: "Merge patch şemasında zorunlu üye yoktur; temizlenebilen (nullable) üye Go'da `nullable.Nullable[T]` olur: `x-go-type: nullable.Nullable[...]` + `x-go-type-skip-optional-pointer: true` (stil rehberi §3, ADR-0019)."
+    severity: error
+    given: "$.paths[*].patch.requestBody.content['application/merge-patch+json'].schema"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          not:
+            required: [required]
+          properties:
+            properties:
+              additionalProperties:
+                if:
+                  required: [type]
+                  properties:
+                    type:
+                      type: array
+                      contains:
+                        const: "null"
+                then:
+                  required: [x-go-type, x-go-type-skip-optional-pointer]
+                  properties:
+                    x-go-type:
+                      type: string
+                      pattern: "^nullable\\.Nullable\\["
+                    x-go-type-skip-optional-pointer:
+                      const: true
+
   koala-no-multipart-upload:
     description: Dosya API'den geçmez; istemci presigned URL ile doğrudan nesne deposuna yükler. multipart/form-data istek gövdesi yok (stil rehberi §4, ADR-0019).
     severity: error

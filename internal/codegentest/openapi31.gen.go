@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/oapi-codegen/nullable"
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
@@ -72,6 +73,12 @@ type Payout struct {
 // PayoutKind defines model for Payout.Kind.
 type PayoutKind string
 
+// PayoutPatch defines model for PayoutPatch.
+type PayoutPatch struct {
+	Note    nullable.Nullable[string] `json:"note,omitempty"`
+	Retries *int32                    `json:"retries,omitempty"`
+}
+
 // Platform defines model for Platform.
 type Platform string
 
@@ -84,6 +91,9 @@ type GetPayoutParams struct {
 	XClientPlatform *Platform `json:"X-Client-Platform,omitempty"`
 }
 
+// PatchPayoutApplicationMergePatchPlusJSONRequestBody defines body for PatchPayout for application/merge-patch+json ContentType.
+type PatchPayoutApplicationMergePatchPlusJSONRequestBody = PayoutPatch
+
 // PayoutPaidJSONRequestBody defines body for PayoutPaid for application/json ContentType.
 type PayoutPaidJSONRequestBody = Payout
 
@@ -92,6 +102,9 @@ type ServerInterface interface {
 
 	// (GET /v1/payouts/{payoutId})
 	GetPayout(w http.ResponseWriter, r *http.Request, payoutID openapi_types.UUID, params GetPayoutParams)
+
+	// (PATCH /v1/payouts/{payoutId})
+	PatchPayout(w http.ResponseWriter, r *http.Request, payoutID openapi_types.UUID)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -100,6 +113,11 @@ type Unimplemented struct{}
 
 // (GET /v1/payouts/{payoutId})
 func (_ Unimplemented) GetPayout(w http.ResponseWriter, r *http.Request, payoutID openapi_types.UUID, params GetPayoutParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /v1/payouts/{payoutId})
+func (_ Unimplemented) PatchPayout(w http.ResponseWriter, r *http.Request, payoutID openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -166,6 +184,32 @@ func (siw *ServerInterfaceWrapper) GetPayout(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetPayout(w, r, payoutID, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchPayout operation middleware
+func (siw *ServerInterfaceWrapper) PatchPayout(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "payoutId" -------------
+	var payoutID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "payoutId", chi.URLParam(r, "payoutId"), &payoutID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "payoutId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchPayout(w, r, payoutID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -291,6 +335,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/payouts/{payoutId}", wrapper.GetPayout)
 	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/v1/payouts/{payoutId}", wrapper.PatchPayout)
+	})
 
 	return r
 }
@@ -353,11 +400,31 @@ func (response GetPayout200JSONResponse) VisitGetPayoutResponse(w http.ResponseW
 	return err
 }
 
+type PatchPayoutRequestObject struct {
+	PayoutID openapi_types.UUID `json:"payoutId"`
+	Body     *PatchPayoutApplicationMergePatchPlusJSONRequestBody
+}
+
+type PatchPayoutResponseObject interface {
+	VisitPatchPayoutResponse(w http.ResponseWriter) error
+}
+
+type PatchPayout204Response struct {
+}
+
+func (response PatchPayout204Response) VisitPatchPayoutResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 
 	// (GET /v1/payouts/{payoutId})
 	GetPayout(ctx context.Context, request GetPayoutRequestObject) (GetPayoutResponseObject, error)
+
+	// (PATCH /v1/payouts/{payoutId})
+	PatchPayout(ctx context.Context, request PatchPayoutRequestObject) (PatchPayoutResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -419,6 +486,39 @@ func (sh *strictHandler) GetPayout(w http.ResponseWriter, r *http.Request, payou
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetPayoutResponseObject); ok {
 		if err := validResponse.VisitGetPayoutResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchPayout operation middleware
+func (sh *strictHandler) PatchPayout(w http.ResponseWriter, r *http.Request, payoutID openapi_types.UUID) {
+	var request PatchPayoutRequestObject
+
+	request.PayoutID = payoutID
+
+	var body PatchPayoutApplicationMergePatchPlusJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchPayout(ctx, request.(PatchPayoutRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchPayout")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchPayoutResponseObject); ok {
+		if err := validResponse.VisitPatchPayoutResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

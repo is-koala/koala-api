@@ -429,7 +429,10 @@ func keywordCode(keyword string) apperr.Code {
 		return CodeFieldRequired
 	case "additionalProperties", "unevaluatedProperties":
 		return CodeFieldUnknown
-	case "type":
+	case "type", "nullable":
+		// "nullable": the OpenAPI 3.0 validator's report of a null where
+		// the schema allows none, e.g. a merge patch clearing a member that
+		// cannot be cleared.
 		return CodeFieldTypeInvalid
 	case "format":
 		return CodeFieldFormatInvalid

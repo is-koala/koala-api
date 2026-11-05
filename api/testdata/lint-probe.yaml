@@ -67,6 +67,20 @@ paths:
                 $ref: "#/components/schemas/Thing"
         default:
           $ref: "#/components/responses/Problem"
+    patch:
+      operationId: patchThing
+      x-authz: {action: can_edit, object: thing}
+      requestBody:
+        content:
+          application/json: # koala-patch-is-merge-patch
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: {type: string}
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
     post:
       operationId: createThing
       x-authz: {action: can_create, object: thing}
@@ -111,8 +125,10 @@ paths:
           application/merge-patch+json:
             schema: # koala-closed-request-body: merge patch is a request body too
               type: object
+              required: [x] # koala-merge-patch-shape: nothing is required in a patch
               properties:
                 x: {type: string}
+                y: {type: [string, "null"]} # koala-merge-patch-shape: no nullable.Nullable
       responses:
         default:
           $ref: "#/components/responses/Problem"

@@ -108,6 +108,14 @@ RFC 9110 §15.5.22, 426 yanıtında `Upgrade` başlığını zorunlu tutar ve bu
 - `/v1/meta/ping` sözleşme duman testidir. `KOALA_ENV=production`'da route hiç kaydedilmez; her metotta bilinmeyen yol gibi 404 döner.
 - İlk gerçek operasyon geldiğinde silinir.
 
+### 10a. PATCH: JSON Merge Patch ve `nullable.Nullable`
+
+- `PATCH` gövdesi yalnız JSON Merge Patch'tir (RFC 7396, `application/merge-patch+json`). Gönderilmeyen üye değişmez, `null` temizler, değer değiştirir. Başka içerik tipi 415 döner.
+- Üç durumun Go'ya ulaşması için temizlenebilen üye `github.com/oapi-codegen/nullable` v1.2.0'ın `Nullable[T]` tipiyle üretilir (Apache-2.0; Yusuf, 05.11). Bu tip üye bazında `x-go-type` + `x-go-type-import` + `x-go-type-skip-optional-pointer: true` ile verilir.
+- oapi-codegen'in global `nullable-type` seçeneği açılmaz. Gerekçe: o seçenek zorunlu + nullable yanıt alanlarını da `Nullable` yapar ve atanmamış bir `Nullable` `null` değil, sıfır değer olarak yazılır; bu sessiz bir hatadır. Pointer'da atanmamış değer `null`'dır.
+- Lint (`koala-patch-is-merge-patch`, `koala-merge-patch-shape`, `koala-closed-request-body`) içerik tipini, zorunlu üye yokluğunu, kapalılığı ve nullable üyelerin `Nullable` olmasını zorlar.
+- `internal/codegentest` üreticinin bu biçimi üç durumlu ürettiğini, `internal/app` `PATCH /v1/meta/ping` ile doğrulama + bağlama yolunu test eder. Doğrulayıcı `+json` medya tiplerini JSON olarak çözer; `runtime.BindJSONValue` `null`'u `Nullable`'ın `UnmarshalJSON`'una verir.
+
 ### 11. Üretilen kod commit edilir
 
 - `internal/apiv1/*.gen.go` ve `internal/codegentest/*.gen.go` commit edilir. Go'da yerleşik pratik budur: `go generate` derlemenin parçası değildir, üretilen dosya paketle dağıtılır; protobuf, sqlc ve Kubernetes kodu da böyle. Getirisi:
@@ -145,5 +153,4 @@ RFC 9110 §15.5.22, 426 yanıtında `Upgrade` başlığını zorunlu tutar ve bu
 - Authn middleware'i (Faz 1) doğrulamadan önce gelir; kimliksiz istek gövde biçimi hakkında bir şey öğrenmez.
 - `httpx.IdempotencyKey` hem çıplak değeri (Stripe) hem taslaktaki tırnaklı structured-field string'i kabul eder ve tırnakları soyar.
 - Açık sorular:
-  - `oapi-codegen/nullable` (PATCH'te "gönderilmedi" ile "null" ayrımı) onay bekliyor.
   - `santhosh-tekuri/jsonschema/v6`'nın doğrudan bağımlılık olması onay bekliyor (Madde 2).
