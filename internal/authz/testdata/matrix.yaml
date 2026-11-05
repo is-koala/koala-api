@@ -932,7 +932,7 @@ cases:
     java: deny
     java_conceal: true
     engine: [go, openfga]
-    note: "D1'den türetildi; ürün onayı istenir"
+    note: "D1 (karar 05.11): şirket ilanının adresi iş yeri bilgisidir, can_manage_jobs üyeleri görür. Java yalnız ilanı açana gösteriyor: CompanyJobListingRulesTest#theSameJobIsExactForTheContactWhoOpenedItAndApproximateForTheOther"
     inventory: [AZ-043]
     source: ["src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anIndividualJobCannotRevealItsExactAddressToEveryone", "src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "src/test/java/com/exskylab/koala/webAPI/JobAddressVisibilityIT.java#anUnrelatedUserReceivesOnlyTheApproximateAddress"]
   - id: AZM-060

@@ -149,12 +149,12 @@ pair("job", "read_employer_view", "detayda editor, aramada yalnız creator", "he
       ("user:u_creator", "job:job_ind", A, A, "individual_owner"),
       ("user:u_stranger", "job:job_ind", D, D, False, "alan düzeyi: herkese açık görünüm")])
 pair("job", "read_exact_address", "creator ∪ atanmış işçi ∪ şirket adresi açık",
-     "editor ∪ aktif atamadaki işçi ∪ adres açık (D1'den türetildi: şirket ilanında tüm üyeler)", "D1",
+     "editor ∪ aktif atamadaki işçi ∪ adres açık; şirket ilanında can_manage_jobs üyeleri (adres iş yeri bilgisi)", "D1",
      "—", "✗", "job#can_read_exact_address", FGA, "şirket üyeleri ve eski creator (D1)",
      [("user:u_creator", "job:job_ind", A, A, "individual_owner"),
       ("user:u_worker", "job:job_ind", A, A, "active_worker"),
       ("user:u_stranger", "job:job_co_public_addr", A, A, "public"),
-      ("user:u_co_admin", "job:job_co", D, A, "company_member", "D1'den türetildi; ürün onayı istenir"),
+      ("user:u_co_admin", "job:job_co", D, A, "company_member", "D1 (karar 05.11): şirket ilanının adresi iş yeri bilgisidir, can_manage_jobs üyeleri görür. Java yalnız ilanı açana gösteriyor: CompanyJobListingRulesTest#theSameJobIsExactForTheContactWhoOpenedItAndApproximateForTheOther"),
       ("user:u_stranger", "job:job_ind", D, D, False, "alan düzeyi: maskeli adres"),
       (FORMER[0], "job:job_co_orphan", A, D, False, FORMER[1])])
 pair("job", "edit", "editor (JobEditors)", ED, "D1", "job#can_edit", "✓", "job#can_edit", FGA, "eski creator (D1)",

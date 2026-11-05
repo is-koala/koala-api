@@ -68,7 +68,7 @@ Doğrulanmamış (`kod` + `hesap`): **102 satır**; ayrıca 50 satır kısmi. Iy
 |---|---|
 | `payout-transitions.csv` | **Her zaman `go_beklenen` ve `go_hata`.** `go_beklenen` her satırda dolu ve makinece okunur (durum adı ya da `=`). `go_onceki` Go'daki başlangıç durumudur. |
 | `assignment-transitions.csv` | `go_durum`, `go_odeme`, `go_hata` (D4 ve Java hataları burada ayrışır). |
-| `cancellation-fee.csv` | Tutar kolonları (`_kurus`, `_bps`) ve `go_saglayici_islemi`; `go_uygulanabilir = hayir` satırları atlanır. |
+| `cancellation-fee.csv` | Tutar kolonları (`_kurus`, `_bps`), `go_beklenen` (sağlayıcı işlemleri) ve `go_ceza_alicisi`; `go_uygulanabilir = hayir` satırları atlanır. |
 | `commission.csv` | `_kurus` ve `oran_bps` kolonları; `go_uygulanabilir = hayir` atlanır. |
 | Diğerleri | Java kolonları (Go hedefi aynı). |
 
@@ -100,13 +100,16 @@ Java'da payout APPROVE başarılı olunca doğrudan `COMPLETED` oluyor (`Settlem
 |---|---|---|
 | D4 (AT-09, AT-14) | Uyuşmazlık açıkken işveren tamamlaması atamayı COMPLETED yapar (para emanette); otomatik tamamlama 409 atıp geri alınır | İkisi de reddedilir / atlanır; atama durumu değişmez |
 | Java hatası (AT-15b, CF-05, CF-14) | İş başladıktan sonra işveren iptalinde iade 0, `refundEmployer` çağrılmaz, para emanette kalır | Ceza işçiye geçer (`APPROVE`), emanet kapanır |
-| Java hatası (CF-10) | Yuvarlama iadeyi 0 yapınca aynı durum | `karar_bekliyor`: pencere içi cezanın alıcısı karar verilmedi |
+| Karar 05.11 (CF-02…CF-20, AT-15) | Geç iptal cezası `DISAPPROVE` ile işçiye aktarılmaz | Ceza iptal edilen tarafa: işveren iptalinde `REFUND+APPROVE`, ceza işçiye; platform komisyonu kendi kuralıyla (Faz 6) |
+| Karar 05.11 (CF-10) | Yuvarlama iadeyi 0 yapınca para emanette kalır | Tahsilatın tamamı ceza sayılır, `APPROVE` ile işçiye |
+| Karar 05.11 (AT-20) | Atama tamamlanmadan işçi lehine çözüm geri alınır | Emanet işçiye çıkar, atama `COMPLETED` ("çözümle tamamlandı", Upwork pratiği) |
+| Karar 05.11 (AT-21) | İşveren lehine çözümde atama durumu korunur | İade yapılır, atama `CANCELLED` |
 | Java hatası (envanter AZ-004/005) | Ödeme oturumunda durum kontrolü yetkiden önce | Yetki önce |
 
 ## Okurken çıkan bulgular (Java'da)
 
-1. Uyuşmazlık `RELEASE_TO_WORKER` ile çözülürken atama COMPLETED değilse çözüm geri alınır (AT-20).
-2. Uyuşmazlık `REFUND_EMPLOYER` atamayı iptal etmez (AT-21).
+1. Uyuşmazlık `RELEASE_TO_WORKER` ile çözülürken atama COMPLETED değilse çözüm geri alınır (AT-20; Go hedefi kararla belirlendi).
+2. Uyuşmazlık `REFUND_EMPLOYER` atamayı iptal etmez (AT-21; Go hedefi kararla belirlendi).
 3. `SettlementRetryTest#aSuccessfulDisapprovalClosesTheRefundInsteadOfLeavingItPending` adı yanıltıcı: görev REFUND (RF-03).
 4. Check-in tekrar oynatması (`clientEventId`) durum kontrolünden önce çalışır; atama artık aktif değilse de kayıtlı oturum döner (AT-07b).
 5. Iyzico istek gövdelerinin çoğu `HashMap`'ten serileşiyor (`IyzicoPaymentService.java:56, :100, :151, :205, :234, :258`); bayt-eşit kayıt-oynatma için Java'nın gerçek alan sırası kaydedilmeli (§6.2-3).

@@ -400,15 +400,20 @@ def cancellation():
             java_op = "REFUND"
         else:
             java_op = "REFUND+DISAPPROVE"
-        go_op = java_op
-        go_note = ""
-        if coll is not None and collected > 0 and refund <= 0:
-            if party == "EMPLOYER" and sec <= 0:
-                go_op = "APPROVE"
-                go_note = " Go (karar): iş başladıktan sonraki işveren iptalinde ceza işçiye geçer, emanet kapanır; komisyon payının dağılımı Faz 6'da."
-            else:
-                go_op = "karar_bekliyor"
-                go_note = " Go: para emanette kalmamalı ilkesi; geç-pencere cezasının alıcısı karar bekliyor."
+        # Go (karar 05.11): geç iptal cezası iptal edilen tarafa gider; işveren iptalinde ceza işçiye
+        # geçer (APPROVE), iade kısmı işverene (REFUND). İade 0 ise tahsilatın tamamı ceza sayılır.
+        # Platform komisyonu kendi kuralıyla kesilir (Faz 6).
+        if coll is not None and collected > 0 and fee > 0:
+            go_op = "REFUND+APPROVE" if refund > 0 else "APPROVE"
+            fee_to = "isci"
+            go_note = (" Go (karar 05.11): ceza iptal edilen tarafa, yani işçiye geçer; iade kısmı işverene."
+                       if refund > 0 else
+                       " Go (karar 05.11): iade 0 olduğundan tahsilatın tamamı ceza sayılır ve işçiye geçer; emanet kapanır.")
+            go_note += " Platform komisyonu kendi kuralıyla kesilir (Faz 6)."
+        else:
+            go_op = java_op
+            fee_to = "yok"
+            go_note = ""
         coll_ok = coll is None or Decimal(coll) == Decimal(coll).quantize(C2)
         go_ok = coll_ok and bps(Decimal(late)) != ""
         row = dict(id=f"CF-{n:02d}", taraf=party, tahsilat="null" if coll is None else coll,
@@ -416,14 +421,14 @@ def cancellation():
                    bildirim_sn=str(sec), serbest_pencere_saat=str(window), gec_iptal_orani=late,
                    gec_iptal_orani_bps=bps(Decimal(late)), sonuc_ceza_orani=str(rate), sonuc_ceza_orani_bps=bps(rate),
                    sonuc_ceza=str(fee), sonuc_iade=str(refund), sonuc_ceza_kurus=kurus(fee), sonuc_iade_kurus=kurus(refund),
-                   java_saglayici_islemi=java_op, go_saglayici_islemi=go_op, go_uygulanabilir="evet" if go_ok else "hayir",
+                   java_saglayici_islemi=java_op, go_beklenen=go_op, go_ceza_alicisi=fee_to, go_uygulanabilir="evet" if go_ok else "hayir",
                    kaynak_kod=src(kod + "; CancellationManager:101-122"), kaynak_test=src(test), test_kolonlari=cols,
                    not_=(note + go_note).strip())
         row["dogrulama"] = verdict(row, CF_OUT, "hesap")
         rows.append(row)
     cols = ["id", "taraf", "tahsilat", "tahsilat_kurus", "bildirim_sn", "serbest_pencere_saat", "gec_iptal_orani",
             "gec_iptal_orani_bps", "sonuc_ceza_orani", "sonuc_ceza_orani_bps", "sonuc_ceza", "sonuc_iade",
-            "sonuc_ceza_kurus", "sonuc_iade_kurus", "java_saglayici_islemi", "go_saglayici_islemi", "go_uygulanabilir",
+            "sonuc_ceza_kurus", "sonuc_iade_kurus", "java_saglayici_islemi", "go_beklenen", "go_ceza_alicisi", "go_uygulanabilir",
             "kaynak_kod", "kaynak_test", "test_kolonlari", "dogrulama", "not"]
     return cols, rows
 
@@ -614,10 +619,10 @@ def assignment():
         at("15", LIVE, "HELD_IN_ESCROW", "taraf_iptal", "taraf", "uyusmazlik=yok;iade=>0", "CANCELLED", "REFUNDED", "",
            kod="CancellationManager:81-135",
            test="AssignmentOperationsAuthorizationTest#aLateEmployerCancellationRefundsOnlyThePartLeftAfterTheFee", cols="java_odeme",
-           note="İade tutarı ve ceza: cancellation-fee.csv."),
+           note="İade tutarı ve ceza: cancellation-fee.csv. Go (karar 05.11): işveren iptalinde ceza kısmı işçiye APPROVE edilir (cancellation-fee.csv go_beklenen); bölünmüş emanetin durum adı Faz 6 FSM tablosunda."),
         at("15b", "IN_PROGRESS|CONFIRMED", "HELD_IN_ESCROW", "taraf_iptal", "isveren", "uyusmazlik=yok;bildirim_sn=<=0",
            "CANCELLED", "=", "", "CANCELLED", "RELEASED_TO_WORKER", "", kod="CancellationManager:101-122",
-           note="Java hatası: ceza %100, iade 0 olduğundan refundEmployer çağrılmaz, para emanette kalır. Go (karar): ceza işçiye geçer."),
+           note="Java hatası: ceza %100, iade 0 olduğundan refundEmployer çağrılmaz, para emanette kalır. Go (karar 05.11): tahsilatın tamamı ceza sayılır ve işçiye geçer."),
         at("15c", LIVE, "null|PENDING_COLLECTION|FAILED", "taraf_iptal", "taraf", "uyusmazlik=yok", "CANCELLED", "=", "",
            kod="CancellationManager:81-135",
            test="AssignmentOperationsAuthorizationTest#whenNoMoneyWasCollectedNoRefundIsAttempted", cols="java_odeme"),
@@ -642,12 +647,13 @@ def assignment():
            test="DisputeResolutionAuthorizationTest#staffHoldingTheReleasePermissionResolvesAndMovesTheMoney", cols="java_odeme",
            note="Personel dispute.resolve + payout.release ister."),
         at("20", "CONFIRMED|IN_PROGRESS", "HELD_IN_ESCROW", "uyusmazlik_release", "personel", "uyusmazlik=acik", "=", "=",
-           "PAYOUT_NOT_READY_FOR_RELEASE", kod="DisputeManager:165-166; PayoutManager:120-122",
-           note="canRelease COMPLETED ister; çözüm de geri alınır. Go hedefi karar bekliyor (D4 ile birlikte ele alınacak)."),
+           "PAYOUT_NOT_READY_FOR_RELEASE", "COMPLETED", "RELEASED_TO_WORKER", "", kod="DisputeManager:165-166; PayoutManager:120-122",
+           note="Java: canRelease COMPLETED ister; çözüm de geri alınır. Go (karar 05.11, Upwork pratiği): emanet işçiye serbest bırakılır, atama 'çözümle tamamlandı' olarak kapanır (COMPLETED, tamamlanma nedeni DISPUTE_RESOLUTION)."),
         at("21", "*", "HELD_IN_ESCROW", "uyusmazlik_refund", "personel", "uyusmazlik=acik", "=", "REFUNDED", "",
+           "CANCELLED", "REFUNDED", "",
            kod="DisputeManager:168; PayoutManager:172-215",
            test="DisputeResolutionAuthorizationTest#staffHoldingTheRefundPermissionResolvesAndRefundsTheEmployer", cols="java_odeme",
-           note="Atama iptal edilmez; tam tutar iade edilir."),
+           note="Java: atama iptal edilmez; tam tutar iade edilir. Go (karar 05.11): iade yapılır ve atama CANCELLED olur."),
     ]
     return ["id", "onceki_durum", "onceki_odeme", "olay", "aktor", "kosul", "java_durum", "java_odeme", "java_hata",
             "go_durum", "go_odeme", "go_hata", "kaynak_kod", "kaynak_test", "test_kolonlari", "dogrulama", "not"], rows

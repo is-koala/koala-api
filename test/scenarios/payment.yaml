@@ -441,10 +441,12 @@ scenarios:
       - "İşçi iptali → ceza 0,00, iade 1.075,00"
       - "Ceza + iade her zaman tahsilata eşittir"
       - "Java'da -10 dk iptalinde iade 0 olduğundan iade kaydı oluşmaz ve para emanette kalır"
-    decision: Java hatası (ceza alıcısı)
+    decision: Java hatası (ceza alıcısı); karar 05.11
     target: >
-      Karar: işveren iş başladıktan sonra iptal ederse ceza işçiye geçer, para emanette kalmaz.
-      Komisyon payının dağılımı Faz 6'da belirlenir. Pencere içi geç iptal cezasının alıcısı karar bekliyor.
+      Karar: geç iptal cezası iptal edilen tarafa gider. İşveren iptal ettiyse ceza işçiye geçer, iade
+      kısmı işverene döner; işçi iptal ettiyse politikadaki ceza (bugün 0) uygulanır. Yuvarlama sonucu
+      iade 0 çıkarsa tahsilatın tamamı ceza sayılır ve işçiye geçer; para emanette kalmaz. 3 sa örneğinde
+      537,50 işverene iade, 537,50 işçiye. Platform komisyonu kendi kuralına göre kesilir (Faz 6).
     oracle: testdata/oracle/cancellation-fee.csv
     source:
       - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#anEmployerCancellingInsideTheWindowPaysHalf"

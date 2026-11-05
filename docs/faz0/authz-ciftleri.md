@@ -15,7 +15,8 @@ Sektör standardına göre verildi. Hedef (`expect`) bu kararlarla hesaplanır; 
 | D5 | **Pazaryeri ROLE_ADMIN baypası kalkar** (görsel silme, CV indirme, `/actuator`). | C47, C48 (CV), C52 (görsel), C53 (`/actuator`). |
 
 Java hataları (oracle'da Java davranışı kalır, Go hedefi ayrı kolonda):
-- İşveren iş başladıktan sonra iptal ederse ceza işçiye geçer, para emanette kalmaz (`cancellation-fee.csv` `go_saglayici_islemi`, AT-15b).
+- Geç iptal cezası iptal edilen tarafa gider: işveren iptalinde ceza işçiye geçer, iade 0 ise tahsilatın tamamı ceza sayılır; para emanette kalmaz (`cancellation-fee.csv` `go_beklenen`, `go_ceza_alicisi`; AT-15, AT-15b).
+- Uyuşmazlık atama tamamlanmadan çözülürse: işçi lehine emanet işçiye çıkar ve atama "çözümle tamamlandı" kapanır; işveren lehine iade yapılır ve atama iptal olur (AT-20, AT-21; Upwork pratiği).
 - Ödeme oturumunda yetki kontrolü durum kontrolünden önce yapılır (C04, AZ-004/005).
 
 ## Özet
@@ -61,7 +62,7 @@ Uyum: ✓ aynen · ≈ §5.4 farklı karar verir · ✗ §5.4'te yok · dış = 
 | C12 | `job_assignment` | `list` | AZ-119 | işçi → worker_id; işveren → yalnız creator | Scope(can_read): liste tekil okumayla aynı (D2) | Scope(job_assignment#can_read) | ✓ | `Scope(job_assignment#can_read)` | go_only | şirket yetkilisi listede görmüyor (D2) |
 | C13 | `job` | `read` | AZ-121, AZ-122 | herkes, her durumda | herkes, her durumda (kapanmış/iptal ilan 'süresi doldu' gösterilir); soft-delete'te yok (D3) | job#can_view (public_viewer yalnız OPEN) | ≈ | `job#can_view` | go + openfga | — |
 | C14 | `job` | `read_employer_view` | AZ-041, AZ-042 | detayda editor, aramada yalnız creator | her yerde editor (D2, D1) | job#editor | ✓ | `job#can_edit` | go + openfga | aramada şirket yetkilisi (D2) |
-| C15 | `job` | `read_exact_address` | AZ-043 | creator ∪ atanmış işçi ∪ şirket adresi açık | editor ∪ aktif atamadaki işçi ∪ adres açık (D1'den türetildi: şirket ilanında tüm üyeler) (D1) | — | ✗ | `job#can_read_exact_address` | go + openfga | şirket üyeleri ve eski creator (D1) |
+| C15 | `job` | `read_exact_address` | AZ-043 | creator ∪ atanmış işçi ∪ şirket adresi açık | editor ∪ aktif atamadaki işçi ∪ adres açık; şirket ilanında can_manage_jobs üyeleri (adres iş yeri bilgisi) (D1) | — | ✗ | `job#can_read_exact_address` | go + openfga | şirket üyeleri ve eski creator (D1) |
 | C16 | `job` | `edit` | AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032 | editor (JobEditors) | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#can_edit | ✓ | `job#can_edit` | go + openfga | eski creator (D1) |
 | C17 | `job` | `read_private` | AZ-028, AZ-030 | editor | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#editor | ✓ | `job#can_read_private` | go + openfga | eski creator (D1) |
 | C18 | `job` | `list_applications` | AZ-033, AZ-034 | BİREYSEL: creator (404); ŞİRKET: güncel yetkili (400) | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job_application#can_read (editor from job) | ≈ | `job#can_list_applications` | go + openfga | ret biçimi (400 / farklı 404) |
@@ -266,4 +267,4 @@ type private_file                             # CV (C47, C48); tek tip adı
 | AZ-095 | düşük | Var olmayan görsel ile yetkisiz istek farklı 400 mesajı: var olma sızar. |
 | AZ-111 | düşük | 403/404 ayrımı var olmayı sızdırıyor (N01 §9.d). |
 | AZ-112 | düşük | Başkasının bildirimi sessizce 200. |
-| AZ-043 | — | Tam adres şirket ilanında creator dışındaki yetkiliye gösterilmiyor; `CompanyJobListingRulesTest#theSameJobIsExactForTheContactWhoOpenedItAndApproximateForTheOther` bağlıyor. D1'den türetilen hedef tüm üyeler; ürün onayı istenir. |
+| AZ-043 | — | Tam adres şirket ilanında creator dışındaki yetkiliye gösterilmiyor; `CompanyJobListingRulesTest#theSameJobIsExactForTheContactWhoOpenedItAndApproximateForTheOther` bağlıyor. Karar (05.11, D1): şirket ilanının adresi iş yeri bilgisidir, `can_manage_jobs` üyelerinin hepsi görür; Java davranışı matriste `java` alanında. |
