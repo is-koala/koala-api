@@ -377,11 +377,15 @@ func TestCommandRateLimit(t *testing.T) {
 	for range cfg.hub.MaxRateStrikes {
 		a.send(t, typing(convAB, "flood"))
 	}
-	if got := a.nextError(t); got.Code != realtime.CodeRateLimited {
-		t.Fatalf("flood: %+v, want %s", got, realtime.CodeRateLimited)
-	}
 	if got := a.closeStatus(t); got != websocket.StatusPolicyViolation {
 		t.Fatalf("close status %d, want %d", got, websocket.StatusPolicyViolation)
+	}
+	// The flood's REALTIME_RATE_LIMITED may or may not be written: a
+	// close request wins over queued events. Nothing else may arrive.
+	for _, typ := range a.remaining() {
+		if typ != realtime.EventError {
+			t.Fatalf("flooding client received %s", typ)
+		}
 	}
 
 	// bob saw the burst and the refilled command, nothing else.
