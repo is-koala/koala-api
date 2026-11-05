@@ -207,6 +207,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - Varsayılan güvenlik `marketplaceBearer`'dır (kök `security`).
 - **`/v1/admin` altındaki her operasyon** `security: [{adminBearer: []}]` ve `x-authz-permission: payout.release` taşır. Eşleme eksikse sunucu açılmaz (Faz 1) **[lint: koala-admin-permission]**. `adminBearer` ve `x-authz-permission` başka yerde kullanılmaz **[lint: koala-admin-only-under-admin]**.
 - **Sıra:** authn middleware'i (Faz 1) istek doğrulamasından önce gelir. Kimliksiz istek gövde biçimi hakkında bir şey öğrenmez (ADR-0019).
+- **Her GET operasyonu** okuduğu tabloyu `x-resource: <tablo>` ile adlandırır (`db/softdelete.yaml`'daki ad). Üretilmiş okuma testi (`softdeletetest.ReadTest`) bu operasyonlarda silinmiş nesnenin gizlendiğini sınar (ADR-0020). Zorunluluğu denetleyen vacuum kuralı ilk gerçek kaynakla gelir.
 
 ## 12. Kullanımdan kaldırma (öneri)
 
