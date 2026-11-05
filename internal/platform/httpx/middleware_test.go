@@ -23,7 +23,7 @@ import (
 func newTestRouter(t *testing.T) (http.Handler, *logSink) {
 	t.Helper()
 	logger, sink := newLogger()
-	r := httpx.NewRouter(logger, httpx.NewHealth(logger))
+	r := newRouter(t, logger, httpx.NewHealth(logger))
 	r.Get("/v1/jobs/{id}", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("X-Seen-Request-Id", httpx.RequestIDFrom(req.Context()))
 		w.WriteHeader(http.StatusNoContent)
@@ -65,7 +65,7 @@ func newTestRouter(t *testing.T) (http.Handler, *logSink) {
 	}
 	r.Post("/echo", readAll)
 	r.With(httpx.BodyLimit(2<<20)).Post("/upload", readAll)
-	return r, sink
+	return withClient(r), sink
 }
 
 func do(h http.Handler, method, target string, header http.Header) *httptest.ResponseRecorder {
@@ -73,6 +73,7 @@ func do(h http.Handler, method, target string, header http.Header) *httptest.Res
 	for k, v := range header {
 		req.Header[k] = v
 	}
+	setClientHeaders(req.Header)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec

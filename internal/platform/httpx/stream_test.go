@@ -20,7 +20,7 @@ func TestStreamRouteSkipsRequestBounds(t *testing.T) {
 	t.Parallel()
 
 	logger, _ := newLogger()
-	r := httpx.NewRouter(logger, httpx.NewHealth(logger))
+	r := newRouter(t, logger, httpx.NewHealth(logger))
 	reportDeadline := func(w http.ResponseWriter, req *http.Request) {
 		has := "no"
 		if _, ok := req.Context().Deadline(); ok {
@@ -67,7 +67,7 @@ func TestStreamRouteUnderMountedPrefix(t *testing.T) {
 	t.Parallel()
 
 	logger, _ := newLogger()
-	r := httpx.NewRouter(logger, httpx.NewHealth(logger))
+	r := newRouter(t, logger, httpx.NewHealth(logger))
 	sub := chi.NewRouter()
 	sub.Get("/jobs", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	r.Mount("/v1", sub)

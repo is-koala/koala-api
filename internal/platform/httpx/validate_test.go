@@ -130,7 +130,7 @@ func newValidateRouter(t *testing.T) http.Handler {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := httpx.NewRouter(logger, httpx.NewHealth(logger))
+	r := newRouter(t, logger, httpx.NewHealth(logger))
 	r.Group(func(g chi.Router) {
 		g.Use(validate)
 		noContent := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
@@ -140,7 +140,7 @@ func newValidateRouter(t *testing.T) http.Handler {
 		g.Get("/plain", noContent)
 		g.Get("/not-in-spec", noContent)
 	})
-	return r
+	return withClient(r)
 }
 
 type problemBody struct {
@@ -376,7 +376,8 @@ func BenchmarkValidateRequests(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	r := httpx.NewRouter(logger, httpx.NewHealth(logger))
+	r := newRouter(b, logger, httpx.NewHealth(logger))
+	h := withClient(r)
 	r.Group(func(g chi.Router) {
 		g.Use(validate)
 		noContent := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
@@ -394,7 +395,7 @@ func BenchmarkValidateRequests(b *testing.B) {
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("X-Key", "k")
 				rec := httptest.NewRecorder()
-				r.ServeHTTP(rec, req)
+				h.ServeHTTP(rec, req)
 				if rec.Code != http.StatusNoContent {
 					b.Fatalf("status %d: %s", rec.Code, rec.Body)
 				}

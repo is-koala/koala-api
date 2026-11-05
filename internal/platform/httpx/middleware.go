@@ -13,7 +13,6 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
@@ -94,10 +93,7 @@ func finishAccessLog(logger *slog.Logger, ww middleware.WrapResponseWriter, r *h
 	if status == 0 && aborted == nil {
 		status = http.StatusOK
 	}
-	route := ""
-	if rctx := chi.RouteContext(r.Context()); rctx != nil {
-		route = rctx.RoutePattern()
-	}
+	route := routeOf(r)
 	level := slog.LevelInfo
 	if route == PathLivez || route == PathReadyz {
 		// Docker and the proxy probe these every few seconds.
@@ -159,8 +155,9 @@ func recoverPanic(hw *headerWatcher, r *http.Request, logger *slog.Logger) {
 // headerWatcher records whether the response header has been sent. A status
 // code alone is not enough: Flush, ReadFrom and Hijack commit the response
 // without a WriteHeader call, and 1xx informational headers do not commit
-// it. Errors from the underlying writer pass through unchanged (wrapcheck
-// exempts these signatures in .golangci.yml).
+// it. Errors from the underlying writer pass through unchanged: the
+// ResponseWriter contract. wrapcheck exempts exactly these calls, in this
+// file only (.golangci.yml exclusions).
 type headerWatcher struct {
 	http.ResponseWriter
 	wroteHeader bool
@@ -186,7 +183,7 @@ func (hw *headerWatcher) ReadFrom(r io.Reader) (int64, error) {
 		return rf.ReadFrom(r)
 	}
 	// Hide this method from io.Copy so it does not call ReadFrom again.
-	return io.Copy(writerOnly{hw}, r) //nolint:wrapcheck // ResponseWriter contract: the copy error passes through unchanged
+	return io.Copy(writerOnly{hw}, r)
 }
 
 type writerOnly struct{ io.Writer }
