@@ -65,6 +65,7 @@ func TestStatusOfEveryKind(t *testing.T) {
 		{apperr.KindRateLimited, http.StatusTooManyRequests},
 		{apperr.KindUpstream, http.StatusBadGateway},
 		{apperr.KindPayloadTooLarge, http.StatusRequestEntityTooLarge},
+		{apperr.KindUnavailable, http.StatusServiceUnavailable},
 		{apperr.KindInternal, http.StatusInternalServerError},
 		{apperr.Kind(200), http.StatusInternalServerError},
 	}
@@ -194,5 +195,19 @@ func TestWriteErrorKeepsOtherKindsAroundMaxBytesError(t *testing.T) {
 	rec, _ := serveError(t, err)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+}
+
+// TestWriteErrorLogsUnavailableAsWarn: a 503 refusal (drain) is expected
+// and must not page as an error.
+func TestWriteErrorLogsUnavailableAsWarn(t *testing.T) {
+	t.Parallel()
+
+	rec, sink := serveError(t, apperr.New(apperr.KindUnavailable, "SERVICE_DRAINING"))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+	if got := sink.find(t, "request failed")["level"]; got != "WARN" {
+		t.Fatalf("level = %v, want WARN", got)
 	}
 }

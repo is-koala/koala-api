@@ -22,6 +22,7 @@ Her ADR tek bir kararı kaydeder: **Bağlam / Karar / Sonuçlar**. "Neden" kısm
 | [0014](0014-authorization.md) | Authz: uygulama içi, OpenFGA DSL alt kümesi | K17, §5 |
 | [0015](0015-sessions-and-staff-mfa.md) | Oturum modeli ve personel MFA | K12, K13 |
 | [0016](0016-nfc-chip-verification-in-go.md) | NFC çip doğrulaması Go'da | K15, K19 |
+| [0018](0018-realtime-ticket-and-ws-protocol.md) | Realtime bileti ve WS protokol ayrıntıları | K4, K12 (ADR-0015 §1'in bir kaleminin yerine geçer) |
 
 **Not:** Plandaki ADR-0013, 0014, 0016 atıfları koala-backend'e aittir; bu dizindeki aynı numaralı ADR'lerle ilgisi yoktur.
 
