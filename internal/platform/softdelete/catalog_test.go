@@ -54,17 +54,31 @@ func TestRealCatalogParses(t *testing.T) {
 func TestExampleCatalog(t *testing.T) {
 	t.Parallel()
 
+	// The examples are merged with the real catalog; only their part is
+	// pinned here, so real tables can join without touching this test.
 	cat := exampleCatalog(t)
 	want := []string{"example_comments", "example_folders", "example_invoices", "example_notes", "example_owners", "example_projects", "example_tasks"}
-	if got := cat.SoftDeleteTables(); !slices.Equal(got, want) {
-		t.Errorf("soft-deleted tables = %v, want %v", got, want)
+	var got []string
+	for _, name := range cat.SoftDeleteTables() {
+		if strings.HasPrefix(name, "example_") {
+			got = append(got, name)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("soft-deleted example tables = %v, want %v", got, want)
 	}
 	owners, _ := cat.Table("example_owners")
 	if !owners.PII || owners.View() != "active_example_owners" {
 		t.Errorf("example_owners = %+v, want pii and view active_example_owners", owners)
 	}
-	if n := len(cat.Edges()); n != 7 {
-		t.Errorf("edges = %d, want 7", n)
+	edges := 0
+	for _, e := range cat.Edges() {
+		if strings.HasPrefix(e.Child, "example_") {
+			edges++
+		}
+	}
+	if edges != 7 {
+		t.Errorf("example edges = %d, want 7", edges)
 	}
 }
 
