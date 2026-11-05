@@ -29,6 +29,7 @@ Her ADR tek bir kararı kaydeder: **Bağlam / Karar / Sonuçlar**. "Neden" kısm
 | [0021](0021-http-edge-clients-rate-limit-metrics.md) | HTTP kenarı: istemci başlıkları, oran sınırı, yol normalizasyonu ve metrikler | K12, §3.10 (ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü `x-authz-exempt` ile genişletir; ADR-0005 madde 7 ve ADR-0015 madde 3'e cihaz istisnaları ekler; ADR-0018 §4'teki cihaz adımının ve §8'deki kök zincirin yerine geçer) |
 | [0022](0022-realtime-binding-and-session-check-corrections.md) | Realtime düzeltmeleri: cihaz bağı, oturum kontrolü, origin ve kapanış payı | K4 (ADR-0018 §2'deki bilet ve cihaz bağının, Sonuçlar'daki "cihaz ve oturuma bağlıdır" cümlesinin, §4'teki aynı host origin kuralının ve §8'deki zorla kapatma beklemesinin yerine geçer; ADR-0011 madde 2 ve plan §4.1-8'deki cihaz eşleşmesini düzeltir) |
 | [0023](0023-image-release-pipeline-and-test-fakes.md) | İmaj kapısı, yayın hattı ve test sahteleri | §3.11, §6.1 Faz 1 ve 9 |
+| [0024](0024-authz-core-evaluator-and-conformance.md) | Authz çekirdeği: yorumlayıcı değerlendirici, model.json ve OpenFGA uygunluk koşucusu | K17 (ADR-0014'ün uygulaması) |
 
 **Not:** Plandaki ADR-0013, 0014, 0016 atıfları koala-backend'e aittir; bu dizindeki aynı numaralı ADR'lerle ilgisi yoktur.
 

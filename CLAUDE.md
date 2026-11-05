@@ -13,9 +13,10 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 ## Kapı: CI'da koşar, yerelde ağır iş yok
 
-- Kapı iki adımdır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004, ADR-0017):
+- Kapı üç adımdır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004, ADR-0017):
   1. `make verify`: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`) → `sqlc vet` ve probu (`sqlc-vet`). Bu adımdaki testler DB'siz birim testleridir.
   2. `make test-integration`: service container'daki Postgres'e karşı yalnız `integration` etiketli testler. Önce etiket korumaları koşar.
+  3. `make test-conformance` (ayrı `authz-conformance` job'u): `conformance` etiketli uygunluk koşucusu, authz matrisini Go değerlendiricisine ve service container'daki OpenFGA'ya koşturur; fark kırmızıdır (ADR-0024).
 - **Bu Mac'te yerelde ağır iş yapılmaz** (Yusuf, 04.11). `go test`, `go vet`, `go build`, golangci-lint, `make verify` ve docker çalıştırılmaz. Serbest olanlar: `gofmt`, `go mod tidy`, `make fmt-check`, `make mod-check`. İş bitince `go clean -cache`.
 - PR, CI'daki `verify` yeşil olmadan merge edilmez. Kırmızı kapıyla "sonra düzeltirim" yok.
 - `//nolint` yalnız linter adı ve gerekçeyle yazılır: `//nolint:wrapcheck // neden` **[lint: nolintlint]**. Gerekçesiz susturma yerine kodu düzelt.
