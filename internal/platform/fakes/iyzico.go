@@ -3,6 +3,7 @@ package fakes
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -34,15 +36,21 @@ type IyzicoKeys struct {
 
 // Iyzico is a fake Iyzico API (IYZWSv2). It authenticates every request
 // like Iyzico does: x-iyzi-rnd and an IYZWSv2 Authorization whose
-// signature is hex(HMAC-SHA256(secret, randomKey + path + body)). A request
-// that fails is answered 401 and consumes no programmed response; the body
-// of that 401 is the fake's own, Iyzico's real error body is not modeled.
+// signature is hex(HMAC-SHA256(secret, randomKey + path + body)), compared
+// exactly (lower-case hex, as the client writes it). A request that fails
+// is answered 401 and consumes no programmed response; the body of that
+// 401 is the fake's own, Iyzico's real error body is not modeled.
+//
+// A failed authentication also fails the test at cleanup: a client that
+// signs wrongly must not pass because it happens to handle the 401. A test
+// about a bad signature calls ExpectAuthFailures first.
 //
 // It has no default answers: a test programs each one with Enqueue, using
 // the builders below for signed responses.
 type Iyzico struct {
 	*Server
-	keys IyzicoKeys
+	keys             IyzicoKeys
+	authFailuresOkay atomic.Bool
 }
 
 // NewIyzico starts a fake Iyzico for the test; it stops at cleanup.
@@ -53,8 +61,15 @@ func NewIyzico(tb testing.TB, keys IyzicoKeys) *Iyzico {
 	return f
 }
 
+// ExpectAuthFailures lets requests that fail authentication through
+// without failing the test; they are still answered 401.
+func (f *Iyzico) ExpectAuthFailures() { f.authFailuresOkay.Store(true) }
+
 func (f *Iyzico) check(r Request) (Response, bool) {
 	if err := f.VerifyRequest(r); err != nil {
+		if !f.authFailuresOkay.Load() {
+			f.report(fmt.Sprintf("iyzico fake: %s %s failed authentication: %v (call ExpectAuthFailures if the test means it)", r.Method, r.Path, err))
+		}
 		return JSON(http.StatusUnauthorized, map[string]string{
 			"status":       "failure",
 			"errorCode":    "FAKE_UNAUTHORIZED",
@@ -89,13 +104,13 @@ func (f *Iyzico) VerifyRequest(r Request) error {
 	switch {
 	case !ok1 || !ok2 || !ok3:
 		return errors.New("iyzico: Authorization must be apiKey:…&randomKey:…&signature:…")
-	case apiKey != f.keys.APIKey:
+	case subtle.ConstantTimeCompare([]byte(apiKey), []byte(f.keys.APIKey)) != 1:
 		return errors.New("iyzico: unknown api key")
 	case authRandomKey != randomKey:
 		return errors.New("iyzico: randomKey differs from x-iyzi-rnd")
 	}
 	want := iyzicoRequestSignature(f.keys.SecretKey, randomKey, r.Path, r.Body)
-	if !hmac.Equal([]byte(strings.ToLower(signature)), []byte(want)) {
+	if !hmac.Equal([]byte(signature), []byte(want)) {
 		return errors.New("iyzico: signature mismatch")
 	}
 	return nil

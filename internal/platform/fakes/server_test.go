@@ -95,7 +95,7 @@ func TestServerDrop(t *testing.T) {
 }
 
 // TestOnlyTestsImportFakes keeps the fakes out of the server: no non-test
-// file in the module imports this package.
+// file outside the fakes tree imports this package or a package under it.
 func TestOnlyTestsImportFakes(t *testing.T) {
 	t.Parallel()
 	const pkg = "github.com/is-koala/koala-api/internal/platform/fakes"
@@ -105,6 +105,11 @@ func TestOnlyTestsImportFakes(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		t.Fatalf("module root %s: %v", root, err)
+	}
+	fakesDir := filepath.Join(root, "internal", "platform", "fakes")
+	inFakes := func(path string) bool {
+		dir := filepath.Dir(path)
+		return dir == fakesDir || strings.HasPrefix(dir, fakesDir+string(filepath.Separator))
 	}
 	fset := token.NewFileSet()
 	checked := 0
@@ -128,8 +133,9 @@ func TestOnlyTestsImportFakes(t *testing.T) {
 		}
 		checked++
 		for _, imp := range f.Imports {
-			if p, _ := strconv.Unquote(imp.Path.Value); p == pkg && filepath.Dir(path) != filepath.Join(root, "internal", "platform", "fakes") {
-				t.Errorf("%s imports %s; only tests may", path, pkg)
+			p, _ := strconv.Unquote(imp.Path.Value)
+			if (p == pkg || strings.HasPrefix(p, pkg+"/")) && !inFakes(path) {
+				t.Errorf("%s imports %s; only tests may", path, p)
 			}
 		}
 		return nil
@@ -139,5 +145,21 @@ func TestOnlyTestsImportFakes(t *testing.T) {
 	}
 	if checked < 20 {
 		t.Fatalf("checked only %d files; is %s the module root?", checked, root)
+	}
+}
+
+func TestServerRefusesAnOversizedBody(t *testing.T) {
+	t.Parallel()
+	rec := &recordingTB{}
+	t.Cleanup(func() { rec.finish() })
+	f := fakes.NewFCM(rec, "koala-test")
+
+	big := strings.Repeat("x", 1<<20+1)
+	if status, _ := call(t, f.Client(), http.MethodPost, f.TokenURL(), nil, big); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status %d, want 413", status)
+	}
+	errs := rec.finish()
+	if len(errs) != 1 || !strings.Contains(errs[0], "over 1048576 bytes") {
+		t.Fatalf("reported at cleanup: %q", errs)
 	}
 }

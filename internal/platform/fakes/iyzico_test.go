@@ -113,19 +113,21 @@ func TestIyzicoRefusesABadlyAuthenticatedRequest(t *testing.T) {
 		header http.Header
 		body   string
 	}{
-		"body changed":       {good, vec.Body + " "},
-		"wrong api key":      {iyzicoHeader("other-key", vec.RandomKey, vec.Signature), vec.Body},
-		"wrong signature":    {iyzicoHeader(v.Keys.APIKey, vec.RandomKey, strings.Repeat("0", 64)), vec.Body},
-		"no x-iyzi-rnd":      {http.Header{"Authorization": good["Authorization"]}, vec.Body},
-		"rnd differs":        {http.Header{"Authorization": good["Authorization"], "X-Iyzi-Rnd": {"1"}}, vec.Body},
-		"not IYZWSv2":        {http.Header{"Authorization": {"Bearer x"}, "X-Iyzi-Rnd": {vec.RandomKey}}, vec.Body},
-		"malformed IYZWSv2":  {http.Header{"Authorization": {"IYZWSv2 !!"}, "X-Iyzi-Rnd": {vec.RandomKey}}, vec.Body},
-		"missing signature:": {http.Header{"Authorization": {"IYZWSv2 " + base64.StdEncoding.EncodeToString([]byte("apiKey:a&randomKey:b"))}, "X-Iyzi-Rnd": {"b"}}, vec.Body},
+		"body changed":         {good, vec.Body + " "},
+		"wrong api key":        {iyzicoHeader("other-key", vec.RandomKey, vec.Signature), vec.Body},
+		"wrong signature":      {iyzicoHeader(v.Keys.APIKey, vec.RandomKey, strings.Repeat("0", 64)), vec.Body},
+		"no x-iyzi-rnd":        {http.Header{"Authorization": good["Authorization"]}, vec.Body},
+		"rnd differs":          {http.Header{"Authorization": good["Authorization"], "X-Iyzi-Rnd": {"1"}}, vec.Body},
+		"not IYZWSv2":          {http.Header{"Authorization": {"Bearer x"}, "X-Iyzi-Rnd": {vec.RandomKey}}, vec.Body},
+		"malformed IYZWSv2":    {http.Header{"Authorization": {"IYZWSv2 !!"}, "X-Iyzi-Rnd": {vec.RandomKey}}, vec.Body},
+		"upper-case signature": {iyzicoHeader(v.Keys.APIKey, vec.RandomKey, strings.ToUpper(vec.Signature)), vec.Body},
+		"missing signature:":   {http.Header{"Authorization": {"IYZWSv2 " + base64.StdEncoding.EncodeToString([]byte("apiKey:a&randomKey:b"))}, "X-Iyzi-Rnd": {"b"}}, vec.Body},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			f := newIyzico(t, v)
+			f.ExpectAuthFailures()
 			f.Enqueue(http.MethodPost, vec.URIPath, f.Success(map[string]any{"marker": "programmed"}))
 
 			status, body := call(t, f.Client(), http.MethodPost, f.URL()+vec.URIPath, tc.header, tc.body)
@@ -234,5 +236,25 @@ func TestIyzicoFailureAndSuccessBodies(t *testing.T) {
 	}
 	if got := f.Sign("conv-1", "tok-1"); got != v.Response.JavaTest[2].Signature {
 		t.Fatalf("Sign(conv-1, tok-1) = %s, want IV-03's signature", got)
+	}
+}
+
+// Without ExpectAuthFailures a badly signed request fails the test: a
+// client that signs wrongly must not pass because it handles the 401.
+func TestIyzicoAuthFailureFailsTheTestByDefault(t *testing.T) {
+	t.Parallel()
+	v := loadIyzicoVectors(t)
+	vec := v.Request.Derived[0]
+	rec := &recordingTB{}
+	t.Cleanup(func() { rec.finish() })
+	f := fakes.NewIyzico(rec, fakes.IyzicoKeys{APIKey: v.Keys.APIKey, SecretKey: v.Keys.SecretKey})
+
+	h := iyzicoHeader(v.Keys.APIKey, vec.RandomKey, vec.Signature)
+	if status, _ := call(t, f.Client(), http.MethodPost, f.URL()+vec.URIPath, h, vec.Body+" "); status != http.StatusUnauthorized {
+		t.Fatalf("status %d, want 401", status)
+	}
+	errs := rec.finish()
+	if len(errs) != 1 || !strings.Contains(errs[0], "failed authentication") {
+		t.Fatalf("reported at cleanup: %q", errs)
 	}
 }

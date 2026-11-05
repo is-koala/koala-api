@@ -20,7 +20,8 @@ import (
 	"testing"
 )
 
-// maxBody bounds a recorded request body; the services take small JSON.
+// maxBody bounds a request body; the services take small JSON. A larger
+// body is refused with 413 and fails the test at cleanup.
 const maxBody = 1 << 20
 
 // Request is a request a fake received.
@@ -69,7 +70,8 @@ type responder func(Request) (Response, bool)
 //  2. the next response enqueued for its method and path;
 //  3. the fake's default behavior, if it has one for that request.
 //
-// A request nothing answers gets 501 and fails the test at cleanup.
+// A request nothing answers gets 501 and fails the test at cleanup, as does
+// any other problem a fake reports.
 type Server struct {
 	tb       testing.TB
 	name     string
@@ -78,10 +80,10 @@ type Server struct {
 	check    responder
 	fallback responder
 
-	mu        sync.Mutex
-	requests  []Request
-	queues    map[string][]Response
-	unmatched []Request
+	mu       sync.Mutex
+	requests []Request
+	queues   map[string][]Response
+	problems []string
 }
 
 func newServer(tb testing.TB, name string, check, fallback responder) *Server {
@@ -137,9 +139,15 @@ func (s *Server) RequestsTo(method, path string) []Request {
 func key(method, path string) string { return method + " " + path }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
 	if err != nil {
+		s.report(fmt.Sprintf("%s fake: read body of %s %s: %v", s.name, r.Method, r.URL.Path, err))
 		http.Error(w, "fakes: read body", http.StatusBadRequest)
+		return
+	}
+	if len(body) > maxBody {
+		s.report(fmt.Sprintf("%s fake: %s %s body is over %d bytes", s.name, r.Method, r.URL.Path, maxBody))
+		http.Error(w, "fakes: body too large", http.StatusRequestEntityTooLarge)
 		return
 	}
 	req := Request{
@@ -178,9 +186,7 @@ func (s *Server) respond(req Request) Response {
 		}
 	}
 
-	s.mu.Lock()
-	s.unmatched = append(s.unmatched, req)
-	s.mu.Unlock()
+	s.report(fmt.Sprintf("%s fake: unexpected request %s", s.name, k))
 	return JSON(http.StatusNotImplemented, map[string]string{
 		"error": fmt.Sprintf("%s fake: no response programmed for %s", s.name, k),
 	})
@@ -211,15 +217,24 @@ func (s *Server) write(w http.ResponseWriter, r *http.Request, resp Response) {
 	_, _ = w.Write(resp.Body)
 }
 
+// report records a problem that fails the test at cleanup. Reporting from
+// the handler goroutine, not calling tb.Errorf there, keeps a problem
+// visible even when it happens after the test body returned.
+func (s *Server) report(problem string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.problems = append(s.problems, problem)
+}
+
 // close releases hanging requests, stops the server and fails the test
-// for every request nothing answered.
+// for every problem reported.
 func (s *Server) close() {
 	close(s.done)
 	s.srv.Close()
 	s.mu.Lock()
-	unmatched := slices.Clone(s.unmatched)
+	problems := slices.Clone(s.problems)
 	s.mu.Unlock()
-	for _, r := range unmatched {
-		s.tb.Errorf("%s fake: unexpected request %s %s", s.name, r.Method, r.Path)
+	for _, p := range problems {
+		s.tb.Errorf("%s", p)
 	}
 }
