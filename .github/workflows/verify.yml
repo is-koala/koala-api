@@ -61,3 +61,66 @@ jobs:
           PGPORT: "5432"
           PGUSER: postgres
           PGSSLMODE: disable
+
+  # The image (ADR-0023): built on every PR and main push, never pushed
+  # anywhere but this job's own registry. The smoke test runs it against
+  # Postgres: nonroot, startup < 1 s (plan §6.1 Faz 1), release-db.sh,
+  # koala healthcheck, SIGTERM. The publish path the release uses (single
+  # manifest check, SBOM, provenance) runs against the job registry.
+  # Results and the image size are in the job summary.
+  image:
+    name: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17.11@sha256:3b0cda93be7c8dba2ed484d19393d93845dc3dafb88973e248ba8e6d99d784e1
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+      registry:
+        image: registry:3.1.1@sha256:325b4b29b041e82803abeb703e201655e4e23ab83264ec1a7c9ddb0a5b14a6e0
+        ports:
+          - 127.0.0.1:5000:5000
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGSSLMODE: disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # network=host lets the builder push to the job registry on localhost.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: network=host
+
+      - name: Version
+        id: version
+        run: echo "version=ci-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: scripts/image.sh build "$VERSION" koala-api:ci
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Smoke test
+        run: scripts/image.sh smoke koala-api:ci "$VERSION"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+
+      - name: Publish to the job registry (release path)
+        run: scripts/image.sh publish localhost:5000/koala-api "$VERSION" --latest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ATTEST_DIR: ${{ runner.temp }}/attest
