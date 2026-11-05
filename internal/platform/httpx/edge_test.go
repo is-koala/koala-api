@@ -1,11 +1,13 @@
 package httpx_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/internal/platform/httpx"
@@ -110,8 +113,11 @@ func TestClientGate(t *testing.T) {
 			"no platform", "GET", "/v1/jobs", clientHeader("", "1.0.0", device), 400, httpx.CodeRequestInvalid,
 			[]map[string]any{paramErr(httpx.HeaderClientPlatform, "HEADER", httpx.CodeFieldRequired)}, "",
 		},
+		// Header values match case-insensitively; the canonical form is upper case.
+		{"platform in lower case", "GET", "/v1/jobs", clientHeader("ios", "1.0.0", device), 204, "", nil, "IOS"},
+		{"web as the web client sends it", "GET", "/v1/jobs", clientHeader("web", "", device), 204, "", nil, "WEB"},
 		{
-			"platform in the wrong case", "GET", "/v1/jobs", clientHeader("ios", "1.0.0", device), 400, httpx.CodeRequestInvalid,
+			"non-ASCII lookalike does not fold", "GET", "/v1/jobs", clientHeader("androıd", "1.0.0", device), 400, httpx.CodeRequestInvalid,
 			[]map[string]any{paramErr(httpx.HeaderClientPlatform, "HEADER", httpx.CodeFieldValueInvalid)}, "",
 		},
 		{
@@ -247,51 +253,91 @@ func TestCanonicalPath(t *testing.T) {
 }
 
 // FuzzCanonicalPath is the path traversal fuzz target of plan §6.1 (Faz
-// 2's exit criterion): whatever request target the middleware lets
-// through, its decoded path is canonical and, joined under a storage
-// prefix, stays inside it. CI runs the seed corpus with go test; a longer
-// run is `go test -fuzz FuzzCanonicalPath ./internal/platform/httpx`.
+// 2's exit criterion). The request target goes the way a real request
+// goes: parsed by net/http (http.ReadRequest, ParseRequestURI) and served
+// by the router, with its root chain, to a route with a path parameter
+// and to a catch-all. Whatever reaches a handler must be safe to use as a
+// storage key:
+//
+//   - the decoded path is canonical (no empty, "." or ".." segment, no
+//     backslash, no NUL, no encoded slash, backslash or percent);
+//   - the decoded value of {name} is one segment: no "/", "\", "%", NUL,
+//     and not "." or "..";
+//   - the decoded catch-all, joined under a storage prefix and resolved
+//     like a file system would, stays inside the prefix.
+//
+// CI runs the seed corpus with go test; a longer run is
+// `go test -fuzz FuzzCanonicalPath ./internal/platform/httpx`.
 func FuzzCanonicalPath(f *testing.F) {
 	for _, s := range []string{
-		"/", "/v1/jobs/42", "/uploads/images/..%2Ffiles/x", "/v1/%2e%2e/%2e%2e/etc/passwd",
-		"/v1/..%2f..%2fetc", "/v1/%252e%252e%252f", "/v1/a//b", "/v1/.%2e/x", "/v1/%c0%ae%c0%ae/",
-		"/v1/a%5c..%5cb", "/v1/..;/x", "/v1/%u002e%u002e/x", "/v1/a%00/b", "*", "/v1/jobs/",
+		"/v1/files/report.pdf", "/v1/raw/a/b.txt", "/v1/files/..%2Fsecret", "/v1/raw/..%2F..%2Fetc/passwd",
+		"/v1/raw/%2e%2e/%2e%2e/etc/passwd", "/v1/files/%2e%2e", "/v1/raw/%252e%252e%252f", "/v1/raw/a//b",
+		"/v1/raw/.%2e/x", "/v1/raw/%c0%ae%c0%ae/", "/v1/files/a%5c..%5cb", "/v1/raw/..;/x", "/v1/files/a%00",
+		"*", "/v1/files/", "http://api.test/v1/raw/../x", "/v1/files/caf%C3%A9", "/v1/raw/a%20b/c",
 	} {
 		f.Add(s)
 	}
 	logger, _ := newLogger()
+	r := newRouter(f, logger, httpx.NewHealth(logger))
+	type seen struct{ path, escaped, name, rest string }
+	record := func(w http.ResponseWriter, req *http.Request) {
+		got, ok := req.Context().Value(seenKey{}).(*seen)
+		if ok {
+			*got = seen{req.URL.Path, req.URL.EscapedPath(), chi.URLParam(req, "name"), chi.URLParam(req, "*")}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	r.Get("/v1/files/{name}", record)
+	r.Get("/v1/raw/*", record)
+
 	f.Fuzz(func(t *testing.T, target string) {
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://api.test"+target, http.NoBody)
-		if err != nil || req.URL.Host != "api.test" || req.URL.RawQuery != "" || req.URL.Fragment != "" {
+		req, err := http.ReadRequest(bufio.NewReader(strings.NewReader("GET " + target + " HTTP/1.1\r\nHost: api.test\r\n\r\n")))
+		if err != nil {
 			return
 		}
-		var got *http.Request
-		next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { got = r })
-		httpx.CanonicalPath(logger)(next).ServeHTTP(httptest.NewRecorder(), req)
-		if got == nil {
-			return
+		got := &seen{}
+		req = req.WithContext(context.WithValue(context.Background(), seenKey{}, got))
+		req.RemoteAddr = "192.0.2.1:1234"
+		setClientHeaders(req.Header)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			return // refused, or no route
 		}
-		p := got.URL.Path
-		if strings.Contains(p, "\\") || strings.Contains(p, "//") || strings.ContainsRune(p, 0) {
-			t.Fatalf("accepted %q: decoded path %q", target, p)
+		p := got.path
+		if strings.Contains(p, "\\") || strings.Contains(p, "//") || strings.ContainsRune(p, 0) || strings.Contains(p, "%") {
+			t.Fatalf("served %q: decoded path %q", target, p)
 		}
 		for _, seg := range strings.Split(p, "/") {
 			if seg == "." || seg == ".." {
-				t.Fatalf("accepted %q: dot segment in %q", target, p)
+				t.Fatalf("served %q: dot segment in %q", target, p)
 			}
 		}
-		raw := strings.ToLower(got.URL.EscapedPath())
 		for _, enc := range []string{"%2f", "%5c", "%25"} {
-			if strings.Contains(raw, enc) {
-				t.Fatalf("accepted %q: %s in %q", target, enc, raw)
+			if strings.Contains(strings.ToLower(got.escaped), enc) {
+				t.Fatalf("served %q: %s in %q", target, enc, got.escaped)
 			}
+		}
+		if got.name != "" {
+			name, err := url.PathUnescape(got.name)
+			if err != nil || name == "." || name == ".." || strings.ContainsAny(name, "/\\%\x00") {
+				t.Fatalf("served %q: {name} %q decodes to %q (%v)", target, got.name, name, err)
+			}
+		}
+		rest, err := url.PathUnescape(got.rest)
+		if err != nil {
+			t.Fatalf("served %q: catch-all %q does not decode: %v", target, got.rest, err)
 		}
 		const root = "/srv/uploads"
-		if joined := root + p; !strings.HasPrefix(cleanJoin(joined), root) {
-			t.Fatalf("accepted %q: %q escapes %s", target, p, root)
+		for _, v := range []string{rest, p} {
+			if joined := cleanJoin(root + "/" + v); joined != root && !strings.HasPrefix(joined, root+"/") {
+				t.Fatalf("served %q: %q escapes %s as %q", target, v, root, joined)
+			}
 		}
 	})
 }
+
+type seenKey struct{}
 
 // cleanJoin resolves dot segments the way a storage layer would.
 func cleanJoin(p string) string {
@@ -335,6 +381,9 @@ func TestClientIPResolver(t *testing.T) {
 		{"Forwarded is not read", trusted, "10.0.0.2:5000", nil, http.Header{"Forwarded": {"for=198.51.100.1"}}, "10.0.0.2"},
 		{"IPv6 proxy and client", trusted, "[2001:db8:ffff::1]:443", []string{"[2001:db8:1::7]:51000"}, nil, "2001:db8:1::7"},
 		{"IPv4-mapped peer", trusted, "[::ffff:10.0.0.2]:5000", []string{"203.0.113.5"}, nil, "203.0.113.5"},
+		// Only the last 16 entries are read: a client can prepend any number.
+		{"long client-written prefix", trusted, "10.0.0.2:5000", []string{"198.51.100.1, 198.51.100.2, 198.51.100.3, 198.51.100.4, 198.51.100.5, 198.51.100.6, 198.51.100.7, 198.51.100.8, 198.51.100.9, 198.51.100.10, 198.51.100.11, 198.51.100.12, 198.51.100.13, 198.51.100.14, 198.51.100.15, 198.51.100.16, 198.51.100.17, 198.51.100.18, 198.51.100.19, 198.51.100.20, 203.0.113.5"}, nil, "203.0.113.5"},
+		{"more trusted hops than are read", trusted, "10.0.0.2:5000", []string{"198.51.100.9, 10.0.1.1, 10.0.1.2, 10.0.1.3, 10.0.1.4, 10.0.1.5, 10.0.1.6, 10.0.1.7, 10.0.1.8, 10.0.1.9, 10.0.1.10, 10.0.1.11, 10.0.1.12, 10.0.1.13, 10.0.1.14, 10.0.1.15, 10.0.1.16, 10.0.1.17"}, nil, "10.0.1.2"},
 	}
 	for _, tt := range tests {
 		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/", http.NoBody)
@@ -534,6 +583,90 @@ func TestRateLimiterBoundsMemory(t *testing.T) {
 	}
 }
 
+func newFloodLimiter(t *testing.T, clock *fakeNow, maxKeys int) (*httpx.RateLimiter, *prometheus.Registry) {
+	t.Helper()
+	reg := prometheus.NewRegistry()
+	every := httpx.Rate{Every: time.Second, Burst: 5}
+	l, err := httpx.NewRateLimiter(httpx.RateLimitConfig{
+		Groups: map[string]httpx.GroupLimits{
+			httpx.GroupRead:  {PerIP: every, PerIdentity: httpx.Rate{Every: time.Minute, Burst: 2}},
+			httpx.GroupWrite: {PerIP: every},
+			"auth":           {PerIP: every, PerCustom: httpx.Rate{Every: time.Minute, Burst: 2}},
+		},
+		MaxKeys: maxKeys,
+		Now:     clock.Now,
+	}, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l, reg
+}
+
+// TestRateLimiterPruneKeepsHeadroom: when dropping idle buckets leaves
+// the limiter above 90% of the cap, it still evicts down to 90%, so the
+// next tenth of the cap is inserted without another scan (no rescan on
+// every new key when almost nothing is idle).
+func TestRateLimiterPruneKeepsHeadroom(t *testing.T) {
+	t.Parallel()
+
+	clock := &fakeNow{now: time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)}
+	l, reg := newFloodLimiter(t, clock, 1000)
+	allow := func(prefix string, n int) {
+		for i := range n {
+			l.Allow(httpx.GroupRead, httpx.KeyIP, prefix+strconv.Itoa(i))
+		}
+	}
+	allow("idle-", 50)
+	clock.Advance(time.Hour) // the first 50 buckets are full again
+	allow("busy-", 950)
+	if keys := rateLimitKeys(t, reg); keys != 1000 {
+		t.Fatalf("%v buckets before the prune, want 1000", keys)
+	}
+	allow("new-", 1) // prune: 50 idle dropped, 950 > 900, so 50 evicted
+	evicted := func() float64 { return counterValue(t, reg, httpx.MetricRateLimitEvicted, "") }
+	if keys, ev := rateLimitKeys(t, reg), evicted(); keys != 901 || ev != 50 {
+		t.Fatalf("after the prune: %v buckets, %v evicted; want 901, 50", keys, ev)
+	}
+	allow("more-", 99) // up to the cap without another eviction
+	if keys, ev := rateLimitKeys(t, reg), evicted(); keys != 1000 || ev != 50 {
+		t.Fatalf("headroom: %v buckets, %v evicted; want 1000, 50", keys, ev)
+	}
+	allow("last-", 1)
+	if keys, ev := rateLimitKeys(t, reg), evicted(); keys != 901 || ev != 150 {
+		t.Fatalf("second prune: %v buckets, %v evicted; want 901, 150", keys, ev)
+	}
+}
+
+// TestRateLimiterEvictsAddressesFirst: a flood of new addresses evicts
+// address buckets, never the exhausted bucket of a login target (custom)
+// or of a user (identity). Otherwise a brute-force attempt could reset
+// its own target's limit by flooding from many addresses.
+func TestRateLimiterEvictsAddressesFirst(t *testing.T) {
+	t.Parallel()
+
+	clock := &fakeNow{now: time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)}
+	l, reg := newFloodLimiter(t, clock, 1000)
+	for range 2 {
+		l.Allow("auth", httpx.KeyCustom, "target-hash")
+		l.Allow(httpx.GroupRead, httpx.KeyIdentity, "user:1")
+	}
+	if ok, _ := l.Allow("auth", httpx.KeyCustom, "target-hash"); ok {
+		t.Fatal("target bucket not exhausted")
+	}
+	for i := range 20_000 {
+		l.Allow(httpx.GroupRead, httpx.KeyIP, "flood-"+strconv.Itoa(i))
+	}
+	if counterValue(t, reg, httpx.MetricRateLimitEvicted, "") == 0 {
+		t.Fatal("the flood evicted nothing")
+	}
+	if ok, _ := l.Allow("auth", httpx.KeyCustom, "target-hash"); ok {
+		t.Fatal("the flood reset the login target's bucket")
+	}
+	if ok, _ := l.Allow(httpx.GroupRead, httpx.KeyIdentity, "user:1"); ok {
+		t.Fatal("the flood reset the user's bucket")
+	}
+}
+
 func TestRateLimiterRefusesBadConfig(t *testing.T) {
 	t.Parallel()
 
@@ -621,7 +754,9 @@ func TestMetricsUseRouteTemplates(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.Get("/v1/jobs/{id}", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	r.Stream("/v1/stream", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
 	h := withClient(r)
+	do(h, http.MethodGet, "/v1/stream", nil) // a stream is not a request latency: no series
 	do(h, http.MethodGet, "/v1/jobs/4242", nil)
 	do(h, http.MethodGet, "/v1/jobs/4343", nil)
 	doRaw(r, http.MethodGet, "/v1/jobs/4444", nil, "") // no client headers: 400

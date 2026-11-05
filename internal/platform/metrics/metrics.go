@@ -30,6 +30,7 @@ const MetricBuildInfo = "koala_build_info"
 const (
 	readHeaderTimeout = 5 * time.Second
 	writeTimeout      = 30 * time.Second
+	idleTimeout       = 120 * time.Second
 	shutdownTimeout   = 5 * time.Second
 )
 
@@ -74,6 +75,7 @@ func Serve(ctx context.Context, ln net.Listener, h http.Handler, logger *slog.Lo
 		Handler:           h,
 		ReadHeaderTimeout: readHeaderTimeout,
 		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
 	}
 	served := make(chan error, 1)

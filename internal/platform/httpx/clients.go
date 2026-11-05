@@ -67,8 +67,14 @@ type clientInfo struct {
 	deviceID string
 }
 
-// ClientPlatformFrom returns the platform the client gate accepted, or ""
-// for an exempt route.
+// ClientPlatformFrom returns the platform the client gate accepted, in
+// its canonical upper-case form, or "" for an exempt route.
+//
+// The value is the client's own claim. It chooses which header rule
+// applies and may be logged or counted; it is never an authorization
+// input: a decision that depends on "this is the admin panel" or "this is
+// a mobile app" comes from the authenticated principal (token class,
+// session), not from this header (ADR-0021).
 func ClientPlatformFrom(ctx context.Context) ClientPlatform {
 	c, _ := ctx.Value(clientKey{}).(clientInfo)
 	return c.platform
@@ -133,7 +139,7 @@ func (g *clientGate) check(r *http.Request) (clientInfo, error) {
 		return clientInfo{}, nil
 	}
 	h := r.Header
-	platform := ClientPlatform(h.Get(HeaderClientPlatform))
+	platform := canonicalPlatform(h.Get(HeaderClientPlatform))
 
 	if pattern == AdminPathPrefix || strings.HasPrefix(pattern, AdminPathPrefix+"/") {
 		if platform != "" && platform != PlatformAdmin {
@@ -181,6 +187,21 @@ func (g *clientGate) check(r *http.Request) (clientInfo, error) {
 		return clientInfo{}, apperr.New(apperr.KindInvalid, CodeRequestInvalid).WithFields(fields...)
 	}
 	return clientInfo{platform: platform, deviceID: device}, nil
+}
+
+// canonicalPlatform upper-cases an ASCII header value; header values are
+// matched case-insensitively (the web client sends "web") and the
+// contract's enum is the upper-case form. A non-ASCII byte is kept as is,
+// so it can never fold into a known value (Unicode's "ı" upper-cases to
+// "I").
+func canonicalPlatform(v string) ClientPlatform {
+	b := []byte(strings.TrimSpace(v))
+	for i, c := range b {
+		if c >= 'a' && c <= 'z' {
+			b[i] = c - ('a' - 'A')
+		}
+	}
+	return ClientPlatform(b)
 }
 
 func headerField(name string, code apperr.Code) apperr.FieldError {

@@ -110,6 +110,12 @@ func TestLoadFailsClosed(t *testing.T) {
 		{"trusted proxy not an address", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=traefik"}, "KOALA_TRUSTED_PROXIES: invalid value"},
 		{"trusted proxy empty entry", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=10.0.0.1,,10.0.0.2"}, "KOALA_TRUSTED_PROXIES: invalid value"},
 		{"trusted proxy with host bits", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=10.0.0.1/8"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted proxy /0", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=0.0.0.0/0"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted IPv6 /0", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=::/0"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted proxy too wide", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=10.0.0.0/7"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted IPv6 too wide", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=2001::/16"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted mapped prefix too wide", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=::ffff:0.0.0.0/96"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted proxy with a zone", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=fe80::1%eth0"}, "KOALA_TRUSTED_PROXIES: invalid value"},
 		{"metrics addr without port", []string{"KOALA_ENV=local", "KOALA_METRICS_ADDR=localhost"}, "KOALA_METRICS_ADDR: invalid value"},
 		{"metrics on the API port", []string{"KOALA_ENV=local", "KOALA_HTTP_ADDR=:9000", "KOALA_METRICS_ADDR=127.0.0.1:9000"}, "KOALA_METRICS_ADDR: invalid value"},
 	}
@@ -128,6 +134,21 @@ func TestLoadFailsClosed(t *testing.T) {
 				t.Fatalf("Load() returned a partial config on error: %+v", cfg)
 			}
 		})
+	}
+}
+
+// An IPv4-mapped prefix is stored as its IPv4 prefix: client addresses
+// are unmapped before they are looked up.
+func TestTrustedProxiesUnmapIPv4(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load([]string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=::ffff:10.0.0.0/104,::ffff:192.0.2.7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("192.0.2.7/32")}
+	if !reflect.DeepEqual(cfg.TrustedProxies, want) {
+		t.Fatalf("TrustedProxies = %v, want %v", cfg.TrustedProxies, want)
 	}
 }
 

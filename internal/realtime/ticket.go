@@ -72,9 +72,12 @@ type TicketStore interface {
 // Contract (ADR-0022): a session that does not exist, was revoked, has
 // expired, was soft-deleted or belongs to another user or device is
 // (false, nil). An error means only that the answer is unknown (the store
-// is unreachable); it never stands for "inactive". Handshakes fail closed
-// on an error; an open connection tolerates MaxSessionCheckFailures of
-// them in a row.
+// is unreachable); it never stands for "inactive". On an error a
+// handshake is refused with 500 (Redeem has already consumed the ticket,
+// and the check after join refuses before the upgrade). An open
+// connection keeps running after a failed periodic check; the
+// MaxSessionCheckFailures-th failure in a row closes it with 1013, and a
+// successful check resets the count.
 type Sessions interface {
 	Active(ctx context.Context, p Principal) (bool, error)
 }

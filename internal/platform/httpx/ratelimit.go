@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/time/rate"
 
@@ -84,8 +83,9 @@ type RateLimitConfig struct {
 	// builds it from the contract's x-rate-limit extensions.
 	Routes map[string]string
 	// MaxKeys caps the buckets kept in memory (default 100 000). Idle
-	// buckets (full again) are dropped first; past the cap, arbitrary
-	// buckets are evicted, which resets them, and counted.
+	// buckets (full again) are dropped first; above 90% of the cap,
+	// address buckets are evicted (which resets them) before identity and
+	// custom ones, and every eviction is counted.
 	MaxKeys int
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
@@ -234,26 +234,35 @@ func (l *RateLimiter) Allow(group string, kind KeyKind, key string) (bool, time.
 }
 
 // prune drops buckets that are full again: their key has been idle long
-// enough that a new bucket would behave the same. If the cap is still
-// reached, arbitrary buckets are evicted down to 90% of it. Map order is
-// random, so under a flood of new keys most evictions hit the flood.
+// enough that a new bucket would behave the same. If more than 90% of the
+// cap is still held, buckets are evicted down to 90%: first per-address
+// buckets, and identity and custom buckets only if those alone exceed
+// it. A flood of new addresses therefore cannot reset the bucket that
+// limits a login target or a user (Java's AUTH bucket, plan §3.9). Map
+// order is random, so under a flood most evicted address buckets are the
+// flood's. The next prune is a tenth of the cap (at least
+// minRateLimitPrune) away, so a full limiter does not rescan on every new
+// key.
 func (l *RateLimiter) prune(now time.Time) {
 	for k, b := range l.buckets {
 		if b.TokensAt(now) >= float64(b.Burst()) {
 			delete(l.buckets, k)
 		}
 	}
-	if len(l.buckets) >= l.maxKeys {
-		target := l.maxKeys * 9 / 10
+	target := l.maxKeys * 9 / 10
+	for _, ipOnly := range []bool{true, false} {
 		for k := range l.buckets {
 			if len(l.buckets) <= target {
 				break
+			}
+			if ipOnly && k.kind != KeyIP {
+				continue
 			}
 			delete(l.buckets, k)
 			l.evicted.Inc()
 		}
 	}
-	l.pruneAt = min(max(minRateLimitPrune, 2*len(l.buckets)), l.maxKeys)
+	l.pruneAt = min(len(l.buckets)+max(minRateLimitPrune, l.maxKeys/10), l.maxKeys)
 }
 
 // byIP is the root-chain limiter: every request, streams and unmatched
@@ -278,13 +287,11 @@ func (l *RateLimiter) byIP(logger *slog.Logger) func(http.Handler) http.Handler 
 func (l *RateLimiter) ByIdentity(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			id := RateLimitIdentityFrom(r.Context())
-			if id != "" {
-				pattern := ""
-				if rctx := chi.RouteContext(r.Context()); rctx != nil {
-					pattern = rctx.RoutePattern()
-				}
-				if ok, wait := l.Allow(l.Group(r.Method, pattern), KeyIdentity, id); !ok {
+			// The group comes from the route looked up before routing, as
+			// for the per-address limit: both layers put a request in the
+			// same group.
+			if id := RateLimitIdentityFrom(r.Context()); id != "" {
+				if ok, wait := l.Allow(l.Group(r.Method, lookedUpRoute(r)), KeyIdentity, id); !ok {
 					writeRateLimited(w, r, logger, wait)
 					return
 				}

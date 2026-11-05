@@ -5,6 +5,7 @@ package httpx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -81,7 +82,7 @@ func NewRouter(logger *slog.Logger, health *Health, opts RouterOptions) (*Router
 		lookupRoute(root),
 		SecurityHeaders,
 		AccessLog(logger),
-		opts.Metrics.instrument,
+		opts.Metrics.instrument(rt.isStream),
 		Recover(logger),
 		CanonicalPath(logger),
 		opts.ClientIPs.middleware,
@@ -140,6 +141,17 @@ func (rt *Router) Stream(pattern string, h http.HandlerFunc) {
 }
 
 func (rt *Router) isStream(pattern string) bool { return rt.streams[pattern] }
+
+// Walk visits every registered route, streams included, with its method
+// and template (chi.Walk on the root router). Tests use it to check that
+// configuration naming routes (x-rate-limit, ExemptRoutes) names real
+// ones.
+func (rt *Router) Walk(fn chi.WalkFunc) error {
+	if err := chi.Walk(rt.root, fn); err != nil {
+		return fmt.Errorf("walk routes: %w", err)
+	}
+	return nil
+}
 
 type lookupKey struct{}
 

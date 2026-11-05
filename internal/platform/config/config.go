@@ -281,8 +281,18 @@ func (c Config) ServeEdgeErrors() error {
 	return errors.Join(errs...)
 }
 
+// Shortest accepted trusted proxy prefixes. A shorter one (a /0, a whole
+// /4) would trust X-Forwarded-For from most of the Internet, so any
+// client could pick its own address.
+const (
+	minProxyBits4 = 8
+	minProxyBits6 = 32
+)
+
 // parseProxies reads a comma-separated list of addresses and CIDR
-// prefixes. A bare address is a single-host prefix.
+// prefixes. A bare address is a single-host prefix; an IPv4-mapped IPv6
+// prefix (::ffff:10.0.0.0/104) is stored as its IPv4 prefix, since client
+// addresses are unmapped before the lookup.
 func parseProxies(v string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
 	for item := range strings.SplitSeq(v, ",") {
@@ -290,21 +300,38 @@ func parseProxies(v string) ([]netip.Prefix, error) {
 		if item == "" {
 			return nil, fmt.Errorf("%w: empty entry", errInvalidValue)
 		}
-		if p, err := netip.ParsePrefix(item); err == nil {
-			if p != p.Masked() {
-				return nil, fmt.Errorf("%w: prefix has host bits set; want a network such as 10.0.0.0/8", errInvalidValue)
+		p, err := netip.ParsePrefix(item)
+		if err != nil {
+			a, aerr := netip.ParseAddr(item)
+			if aerr != nil || a.Zone() != "" {
+				return nil, fmt.Errorf("%w: want IP addresses or CIDR prefixes, comma-separated", errInvalidValue)
 			}
-			out = append(out, p)
-			continue
+			p = netip.PrefixFrom(a, a.BitLen())
 		}
-		a, err := netip.ParseAddr(item)
-		if err != nil || a.Zone() != "" {
-			return nil, fmt.Errorf("%w: want IP addresses or CIDR prefixes, comma-separated", errInvalidValue)
+		if p != p.Masked() {
+			return nil, fmt.Errorf("%w: prefix has host bits set; want a network such as 10.0.0.0/8", errInvalidValue)
 		}
-		a = a.Unmap()
-		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+		if p.Addr().Is4In6() {
+			bits := p.Bits() - 96
+			if bits < 0 {
+				return nil, fmt.Errorf("%w: an IPv4-mapped prefix needs at least /96", errInvalidValue)
+			}
+			p = netip.PrefixFrom(p.Addr().Unmap(), bits)
+		}
+		if tooWide(p) {
+			return nil, fmt.Errorf("%w: prefix too wide; at least /%d for IPv4 and /%d for IPv6", errInvalidValue, minProxyBits4, minProxyBits6)
+		}
+		out = append(out, p)
 	}
 	return out, nil
+}
+
+// tooWide reports a prefix shorter than the minimum of its family.
+func tooWide(p netip.Prefix) bool {
+	if p.Addr().Is4() {
+		return p.Bits() < minProxyBits4
+	}
+	return p.Bits() < minProxyBits6
 }
 
 // samePort reports whether two valid host:port addresses use one port.

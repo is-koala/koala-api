@@ -288,12 +288,13 @@ func (h *Hub) heartbeat(ctx context.Context, ws *websocket.Conn, c *client, done
 }
 
 // recheckSession closes c with CloseSessionRevoked when its session ended
-// and returns the number of consecutive failed checks. A failed lookup
-// keeps the connection (logged at WARN): the next check retries, and a
-// database blip must not disconnect every client at once. After
-// MaxSessionCheckFailures failures in a row the connection is closed with
-// 1013 (try again later): the client reconnects, and a new ticket needs
-// an active session (ADR-0022).
+// and returns the number of consecutive failed checks: 0 after a
+// successful check, failures+1 after a failed one. A failed lookup is
+// logged at WARN and, below MaxSessionCheckFailures, keeps the connection:
+// a database blip must not disconnect every client at once. The failure
+// that reaches MaxSessionCheckFailures closes the connection with 1013
+// (try again later); the client reconnects, and a new ticket needs an
+// active session (ADR-0022).
 func (h *Hub) recheckSession(ctx context.Context, c *client, failures int) int {
 	err := h.checkSession(ctx, c.principal)
 	var ae *apperr.Error

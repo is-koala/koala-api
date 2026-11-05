@@ -73,21 +73,37 @@ func (m *Metrics) appVersionRejected(p ClientPlatform) {
 // request refused before routing (400 PATH_INVALID, 429) carries the route
 // the router looked up for it. A response aborted by a panic counts as a
 // 500: the client did not get the response it was promised.
-func (m *Metrics) instrument(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-		defer m.observe(ww, r, time.Now())
-		next.ServeHTTP(ww, r)
-	})
+//
+// Stream routes are left out: a WebSocket's "duration" is the life of the
+// connection, minutes to hours, and would drown the request latencies in
+// the top bucket. Realtime has its own metrics when it is wired (Faz 1
+// authn PR).
+func (m *Metrics) instrument(isStream func(pattern string) bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			defer m.observe(ww, r, time.Now(), isStream)
+			next.ServeHTTP(ww, r)
+		})
+	}
 }
 
 // observe must be deferred directly so recover() sees an aborting panic;
 // it re-raises it.
-func (m *Metrics) observe(ww middleware.WrapResponseWriter, r *http.Request, start time.Time) {
+func (m *Metrics) observe(ww middleware.WrapResponseWriter, r *http.Request, start time.Time, isStream func(string) bool) {
 	aborted := recover()
+	if route := routeOf(r); !isStream(route) {
+		m.record(ww, r, start, route, aborted != nil)
+	}
+	if aborted != nil {
+		panic(aborted)
+	}
+}
+
+func (m *Metrics) record(ww middleware.WrapResponseWriter, r *http.Request, start time.Time, route string, aborted bool) {
 	status := ww.Status()
 	switch {
-	case aborted != nil:
+	case aborted:
 		status = http.StatusInternalServerError
 	case status == 0:
 		status = http.StatusOK
@@ -96,8 +112,5 @@ func (m *Metrics) observe(ww middleware.WrapResponseWriter, r *http.Request, sta
 	if !knownMethods[method] {
 		method = "_OTHER"
 	}
-	m.duration.WithLabelValues(method, routeOf(r), strconv.Itoa(status)).Observe(time.Since(start).Seconds())
-	if aborted != nil {
-		panic(aborted)
-	}
+	m.duration.WithLabelValues(method, route, strconv.Itoa(status)).Observe(time.Since(start).Seconds())
 }

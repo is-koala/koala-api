@@ -11,8 +11,12 @@ import (
 	"strings"
 )
 
-// maxLen bounds the header value that is parsed at all.
-const maxLen = 64
+// maxLen bounds the header value that is parsed at all; maxDigits bounds
+// one number.
+const (
+	maxLen    = 64
+	maxDigits = 9
+)
 
 // Version is a parsed client version. The zero value is 0.0.0.
 type Version struct {
@@ -27,7 +31,9 @@ var ErrInvalid = errors.New("app version: want MAJOR.MINOR.PATCH, for example 1.
 
 // Parse parses s strictly: three numeric parts without leading zeros, then
 // an optional pre-release and build metadata of [0-9A-Za-z-] identifiers
-// separated by dots.
+// separated by dots. A number has at most 9 digits (Java's AppVersion
+// rule), so it never overflows. The contract's X-App-Version pattern
+// (api/components/headers.yaml) accepts exactly the same strings.
 func Parse(s string) (Version, error) {
 	if s == "" || len(s) > maxLen {
 		return Version{}, ErrInvalid
@@ -137,9 +143,10 @@ func compareIdentifier(a, b string) int {
 	}
 }
 
-// numeric parses a SemVer numeric identifier: digits, no leading zero.
+// numeric parses a SemVer numeric identifier: 1 to maxDigits digits, no
+// leading zero.
 func numeric(s string) (uint64, bool) {
-	if s == "" || (len(s) > 1 && s[0] == '0') {
+	if s == "" || len(s) > maxDigits || (len(s) > 1 && s[0] == '0') {
 		return 0, false
 	}
 	for _, c := range []byte(s) {
@@ -168,8 +175,8 @@ func validIdentifiers(s string, pre bool) bool {
 				return false
 			}
 		}
-		if pre && allDigits && len(id) > 1 && id[0] == '0' {
-			return false
+		if _, ok := numeric(id); pre && allDigits && !ok {
+			return false // leading zero or more than maxDigits digits
 		}
 	}
 	return true

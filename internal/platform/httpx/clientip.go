@@ -13,7 +13,8 @@ import (
 // Forwarded through, so a client could forge it.
 const HeaderForwardedFor = "X-Forwarded-For"
 
-// maxForwardedHops bounds how many X-Forwarded-For entries are examined.
+// maxForwardedHops bounds how many X-Forwarded-For entries are examined,
+// from the right; a client can prepend any number.
 const maxForwardedHops = 16
 
 type clientIPKey struct{}
@@ -56,10 +57,9 @@ func (c *ClientIPResolver) Resolve(r *http.Request) netip.Addr {
 	if !peer.IsValid() || !c.isTrusted(peer) {
 		return peer
 	}
-	entries := forwardedEntries(r.Header)
 	client := peer
-	for i, hops := len(entries)-1, 0; i >= 0 && hops < maxForwardedHops; i, hops = i-1, hops+1 {
-		a := parseHostAddr(entries[i])
+	for _, e := range lastForwarded(r.Header, maxForwardedHops) {
+		a := parseHostAddr(e)
 		if !a.IsValid() {
 			return client
 		}
@@ -88,13 +88,22 @@ func (c *ClientIPResolver) middleware(next http.Handler) http.Handler {
 	})
 }
 
-// forwardedEntries joins every X-Forwarded-For line in order, as RFC 9110
-// §5.3 combines repeated fields.
-func forwardedEntries(h http.Header) []string {
-	var out []string
-	for _, line := range h.Values(HeaderForwardedFor) {
-		for e := range strings.SplitSeq(line, ",") {
-			out = append(out, strings.TrimSpace(e))
+// lastForwarded returns at most n X-Forwarded-For entries, rightmost
+// first, reading the header lines from the last one backwards, as RFC 9110
+// §5.3 combines repeated fields. It never splits more of the header than
+// it returns, so a long client-written prefix costs nothing.
+func lastForwarded(h http.Header, n int) []string {
+	lines := h.Values(HeaderForwardedFor)
+	out := make([]string, 0, n)
+	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
+		line := lines[i]
+		for len(out) < n {
+			j := strings.LastIndexByte(line, ',')
+			out = append(out, strings.TrimSpace(line[j+1:]))
+			if j < 0 {
+				break
+			}
+			line = line[:j]
 		}
 	}
 	return out

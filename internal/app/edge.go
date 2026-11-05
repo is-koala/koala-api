@@ -6,12 +6,16 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
 
-// Rate limit groups (ADR-0021). An operation joins a group with the
+// Rate limit groups (ADR-0021 §5). An operation joins a group with the
 // x-rate-limit extension; without it GET, HEAD and OPTIONS are "read" and
-// every other method is "write". Per identity the limits are Java's
-// (RateLimitFilter); per address they are five times higher, because a
-// mobile carrier's NAT puts many users behind one address. auth and
-// sitemap callers have no identity.
+// every other method is "write". auth and sitemap callers have no
+// identity.
+//
+// The values are a proposal and were not measured (no production
+// traffic yet). They are derived from Java's per-IP limits
+// (RateLimitFilter): per identity mostly Java's value (read 2.5x), per
+// address mostly 5x for carrier NAT (auth 3x, sitemap 1x); the bursts are
+// new. ADR-0021's table is the single source: TestRateLimitGroups reads it.
 const (
 	groupAuth     = "auth"
 	groupUpload   = "upload"
@@ -25,8 +29,8 @@ func perMinute(n, burst int) httpx.Rate {
 	return httpx.Rate{Every: time.Minute / time.Duration(n), Burst: burst}
 }
 
-// rateLimitGroups are the production limits; TestRateLimitGroups pins
-// them to ADR-0021's table.
+// rateLimitGroups are the production limits (proposal, not measured);
+// TestRateLimitGroups compares them with ADR-0021's table.
 func rateLimitGroups() map[string]httpx.GroupLimits {
 	return map[string]httpx.GroupLimits{
 		httpx.GroupRead:  {PerIP: perMinute(600, 120), PerIdentity: perMinute(300, 60)},
