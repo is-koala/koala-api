@@ -103,7 +103,7 @@ Envantere girmeyenler:
 
 ## Personel tarafı (`authz-personel-izinleri.csv`)
 
-**Matrisin kapsamı dışındadır.** `matrix.yaml` pazaryeri ReBAC kararlarını sınar. Personel tarafı uç başına izin tablosudur (RBAC + rol DAG'ı, §5.5); Go'da `/v1/admin/**` operasyonlarının `x-authz-permission` eşlemesi ve ayrı bir izin tablosu testiyle bağlanacak. Kaynağı bu CSV'dir; satır kimlikleri `PI-nnn` (oracle'daki `ST-` settlement görevi satırlarıyla çakışmasın diye).
+**Uç izinleri matristedir (ADR-0026).** Personel tarafı uç başına izin tablosudur (RBAC + rol DAG'ı, §5.5). 25 izin `platform:koala`'nın relation'larıdır; `pairs.py` Java seed'indeki 10 rolü ve DAG'ı fikstür tuple'ı olarak yazar ve her izin için doğrudan sahibi, OWNER'ı (kapsamayla), karşı daldan bir personeli ve rolsüz personeli satır olarak üretir (çift `S01`–`S26`, 98 satır, hepsi `[go, openfga]`). Aynı satırlar veritabanında da koşar (`internal/authz/authzsql` `TestStaffMatrixOnTheDatabase`). `/v1/admin/**` operasyonlarının `x-authz-permission` eşlemesi açılışta denetlenir (`staff.NewGate`). 18 servis içi dinamik kontrol (PI-084–101) alanlarıyla gelir. Kaynağı bu CSV'dir; satır kimlikleri `PI-nnn` (oracle'daki `ST-` settlement görevi satırlarıyla çakışmasın diye).
 
 - 79 uç `@RequiresPermission` ile korunuyor, 4'ü kimlik doğrulama ucu.
 - Birden çok izin yazılmışsa hepsi gerekir (`containsAll`). Boş izin "kayıtlı personel yeter" demektir. Annotation yoksa istek fail-closed 403 alır.
