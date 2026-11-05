@@ -22,7 +22,10 @@ const (
 	ErrorCodeREQUESTBODYMALFORMED   ErrorCode = "REQUEST_BODY_MALFORMED"
 	ErrorCodeREQUESTBODYTOOLARGE    ErrorCode = "REQUEST_BODY_TOO_LARGE"
 	ErrorCodeREQUESTINVALID         ErrorCode = "REQUEST_INVALID"
+	ErrorCodeRESTORECONFLICT        ErrorCode = "RESTORE_CONFLICT"
+	ErrorCodeRESTOREPARENTDELETED   ErrorCode = "RESTORE_PARENT_DELETED"
 	ErrorCodeROUTENOTFOUND          ErrorCode = "ROUTE_NOT_FOUND"
+	ErrorCodeSOFTDELETERESTRICTED   ErrorCode = "SOFT_DELETE_RESTRICTED"
 	ErrorCodeSORTFIELDNOTALLOWED    ErrorCode = "SORT_FIELD_NOT_ALLOWED"
 )
 
@@ -63,7 +66,13 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeREQUESTINVALID:
 		return true
+	case ErrorCodeRESTORECONFLICT:
+		return true
+	case ErrorCodeRESTOREPARENTDELETED:
+		return true
 	case ErrorCodeROUTENOTFOUND:
+		return true
+	case ErrorCodeSOFTDELETERESTRICTED:
 		return true
 	case ErrorCodeSORTFIELDNOTALLOWED:
 		return true
@@ -117,6 +126,11 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 //     `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 //     başlığını zorunlu tutuyor (ADR-0019).
+//   - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
+//     varken silinemez (ADR-0013, ADR-0020).
+//   - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
+//   - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
+//     ebeveyni başka bir silmeyle hâlâ silinmiş.
 //
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -155,6 +169,11 @@ type Problem struct {
 	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 	//   başlığını zorunlu tutuyor (ADR-0019).
+	// - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
+	//   varken silinemez (ADR-0013, ADR-0020).
+	// - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
+	// - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
+	//   ebeveyni başka bir silmeyle hâlâ silinmiş.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -224,6 +243,11 @@ type ProblemField struct {
 	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 	//   başlığını zorunlu tutuyor (ADR-0019).
+	// - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
+	//   varken silinemez (ADR-0013, ADR-0020).
+	// - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
+	// - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
+	//   ebeveyni başka bir silmeyle hâlâ silinmiş.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.

@@ -77,7 +77,8 @@ func TestSoftDeleteThroughView(t *testing.T) {
 		t.Fatalf("insert through view: %v", err)
 	}
 	err := app.InTx(ctx, func(ctx context.Context, q db.Querier) error {
-		if _, err := q.Exec(ctx, "INSERT INTO example_deletions (id, reason) VALUES ($1, 'user request')", deletionID); err != nil {
+		if _, err := q.Exec(ctx, `INSERT INTO deletions (id, root_table, root_id, actor_kind, reason, created_at)
+			VALUES ($1, 'example_notes', $2, 'system', 'retention', now())`, deletionID, id); err != nil {
 			return err
 		}
 		_, err := q.Exec(ctx, "UPDATE active_example_notes SET deleted_at = now(), deletion_id = $1 WHERE id = $2", deletionID, id)
@@ -224,14 +225,21 @@ func TestRoleGrants(t *testing.T) {
 		// Base tables with an explicit decision; every other base table
 		// gets nothing for koala_app.
 		app := map[string][]string{
-			"example_deletions": {"SELECT", "INSERT"}, // record of deletions: insert-only (example)
+			"deletions": {"SELECT", "INSERT"}, // record of deletions: insert-only (0010_deletions.sql)
 		}
 		maint := map[string][]string{
-			"example_deletions": dml,
-			"example_notes":     dml,
+			"deletions": {"SELECT", "UPDATE"}, // restore stamps restored_at; never deleted (M1)
+		}
+		relations := collect[relationGrants](t, rows)
+		// A soft-deleted base table (one with an active_ view) is
+		// koala_maint's: the generated grant of softdeletegen (ADR-0020).
+		for _, r := range relations {
+			if strings.HasPrefix(r.Name, "active_") && r.Kind == "v" {
+				maint[strings.TrimPrefix(r.Name, "active_")] = dml
+			}
 		}
 		seenRiverJob := false
-		for _, r := range collect[relationGrants](t, rows) {
+		for _, r := range relations {
 			name, kind := r.Name, r.Kind
 			if r.Owner != db.RoleOwner {
 				t.Errorf("%s is owned by %s, want %s", name, r.Owner, db.RoleOwner)

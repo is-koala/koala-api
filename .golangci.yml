@@ -139,6 +139,20 @@ linters:
           deny:
             - pkg: github.com/is-koala/koala-api/internal
               desc: platform packages must not import domain packages
+        # koala_maint queries work on soft-deleted base tables (ADR-0013,
+        # ADR-0020). Their sqlc package is open only to restore, cleanup
+        # and anonymization code: the soft-delete platform, privacy and
+        # staff (and River cleanup jobs, added here with their package).
+        maint:
+          files:
+            - $all
+            - "!**/internal/platform/softdelete/**"
+            - "!**/internal/platform/db/maintdb/**"
+            - "!**/internal/privacy/**"
+            - "!**/internal/staff/**"
+          deny:
+            - pkg: github.com/is-koala/koala-api/internal/platform/db/maintdb
+              desc: koala_maint queries are for restore, cleanup and anonymization only (ADR-0013)
 
     errcheck:
       check-type-assertions: true

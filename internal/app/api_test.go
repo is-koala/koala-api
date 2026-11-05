@@ -15,6 +15,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/log"
+	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
 func newAPIRouter(tb testing.TB, env config.Env) http.Handler {
@@ -257,12 +258,13 @@ func TestBindErrorIsALoggedServerError(t *testing.T) {
 	}
 }
 
-// Every code the HTTP platform returns is in the contract's ErrorCode list,
-// from which the clients' code lists are generated (ADR-0007 madde 5).
+// Every code the platform returns (HTTP, soft-delete) is in the contract's
+// ErrorCode list, from which the clients' code lists are generated
+// (ADR-0007 madde 5).
 func TestPlatformCodesAreInTheContract(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range httpx.PlatformCodes() {
+	for _, c := range append(httpx.PlatformCodes(), softdelete.Codes()...) {
 		if !apiv1.ErrorCode(c).Valid() {
 			t.Errorf("code %s is not in api/components/problem.yaml ErrorCode", c)
 		}
