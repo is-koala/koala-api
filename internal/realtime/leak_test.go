@@ -38,6 +38,12 @@ func serverGoroutines() []string {
 			continue // the calling goroutine
 		}
 		stack := string(g)
+		if strings.Contains(stack, "testing.(*T).Parallel(") {
+			// A parallel test waiting for the sequential ones to finish
+			// owns nothing yet; its frame names the package all the same
+			// (the internal tests live in package realtime).
+			continue
+		}
 		for _, f := range leakFrames {
 			if strings.Contains(stack, f) {
 				found = append(found, stack)
