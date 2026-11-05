@@ -68,6 +68,13 @@ type TicketStore interface {
 // Sessions reports whether a session is still active on its device. A
 // ticket outlives nothing: revocation takes effect at redemption too
 // (ADR-0015 §2). Faz 1's session store implements it.
+//
+// Contract (ADR-0022): a session that does not exist, was revoked, has
+// expired, was soft-deleted or belongs to another user or device is
+// (false, nil). An error means only that the answer is unknown (the store
+// is unreachable); it never stands for "inactive". Handshakes fail closed
+// on an error; an open connection tolerates MaxSessionCheckFailures of
+// them in a row.
 type Sessions interface {
 	Active(ctx context.Context, p Principal) (bool, error)
 }

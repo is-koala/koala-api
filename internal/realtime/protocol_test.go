@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/is-koala/koala-api/internal/platform/jsontime"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
@@ -13,7 +14,8 @@ import (
 func TestWireFormatGolden(t *testing.T) {
 	t.Parallel()
 
-	at := time.Date(2026, 11, 5, 9, 30, 0, 123_000_000, time.UTC)
+	// Set in Istanbul time: the wire type writes it in UTC with Z.
+	at := jsontime.From(time.Date(2026, 11, 5, 12, 30, 0, 123_000_000, time.FixedZone("TRT", 3*60*60)))
 	tests := []struct {
 		name string
 		v    any

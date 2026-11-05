@@ -3,6 +3,7 @@ package realtime_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -15,8 +16,10 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
+	"github.com/is-koala/koala-api/internal/platform/appversion"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
@@ -115,16 +118,34 @@ type fakeSessions struct {
 	calls   map[string]int
 	// revokeAt revokes a session on its nth Active call.
 	revokeAt map[string]int
+	// script makes the next calls for a session fail (true) or succeed
+	// (false) in order; past its end, failForever decides.
+	script      map[string][]bool
+	failForever map[string]bool
+	failures    map[string]int
 }
 
 func newFakeSessions() *fakeSessions {
-	return &fakeSessions{revoked: make(map[string]bool), calls: make(map[string]int), revokeAt: make(map[string]int)}
+	return &fakeSessions{
+		revoked: make(map[string]bool), calls: make(map[string]int), revokeAt: make(map[string]int),
+		script: make(map[string][]bool), failForever: make(map[string]bool), failures: make(map[string]int),
+	}
 }
+
+var errStoreDown = errors.New("session store unreachable")
 
 func (f *fakeSessions) Active(_ context.Context, p realtime.Principal) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls[p.SessionID]++
+	fail := f.failForever[p.SessionID]
+	if steps := f.script[p.SessionID]; len(steps) > 0 {
+		fail, f.script[p.SessionID] = steps[0], steps[1:]
+	}
+	if fail {
+		f.failures[p.SessionID]++
+		return false, errStoreDown
+	}
 	if n, ok := f.revokeAt[p.SessionID]; ok && f.calls[p.SessionID] >= n {
 		f.revoked[p.SessionID] = true
 	}
@@ -145,9 +166,29 @@ func (f *fakeSessions) RevokeOnCall(session string, n int) {
 	f.revokeAt[session] = n
 }
 
-// sessionOf is the session id headerAuth gives a user on a device.
+// FailThen makes the session store fail or answer per steps, then fail on
+// every later call when forever is set.
+func (f *fakeSessions) FailThen(session string, steps []bool, forever bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.script[session] = steps
+	f.failForever[session] = forever
+}
+
+// Failures returns how many calls for session failed.
+func (f *fakeSessions) Failures(session string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.failures[session]
+}
+
+// deviceID is the X-Device-Id of a named test device. The contract asks
+// for 8 to 128 characters of [A-Za-z0-9._:-].
+func deviceID(name string) string { return name + "-0001" }
+
+// sessionOf is the session id headerAuth gives a user on a named device.
 func sessionOf(user realtime.UserID, device string) string {
-	return "session-" + string(user) + "-" + device
+	return "session-" + string(user) + "-" + deviceID(device)
 }
 
 // headerAuth authenticates REST calls by X-Test-User and X-Device-Id, in
@@ -160,7 +201,7 @@ func (headerAuth) Principal(r *http.Request) (realtime.Principal, error) {
 	if user == "" || device == "" {
 		return realtime.Principal{}, apperr.New(apperr.KindUnauthenticated, "UNAUTHENTICATED")
 	}
-	return realtime.Principal{UserID: user, SessionID: sessionOf(user, device), DeviceID: device}, nil
+	return realtime.Principal{UserID: user, SessionID: "session-" + string(user) + "-" + device, DeviceID: device}, nil
 }
 
 // envConfig configures newEnv.
@@ -186,6 +227,7 @@ func defaultEnv() envConfig {
 type env struct {
 	base      string
 	hub       *realtime.Hub
+	handler   *realtime.Handler
 	clock     *fakeClock
 	sessions  *fakeSessions
 	client    *http.Client
@@ -212,7 +254,10 @@ func newEnv(t *testing.T, cfg envConfig) *env {
 		t.Fatal(err)
 	}
 	health := httpx.NewHealth(logger)
-	router := httpx.NewRouter(logger, health)
+	router, err := httpx.NewRouter(logger, health, edgeOptions(t))
+	if err != nil {
+		t.Fatal(err)
+	}
 	handler.Mount(router)
 
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
@@ -232,9 +277,10 @@ func newEnv(t *testing.T, cfg envConfig) *env {
 	e := &env{
 		base:      "http://" + ln.Addr().String(),
 		hub:       hub,
+		handler:   handler,
 		clock:     clock,
 		sessions:  sessions,
-		client:    &http.Client{Transport: transport, Timeout: waitTimeout},
+		client:    &http.Client{Transport: nativeClient{transport}, Timeout: waitTimeout},
 		transport: transport,
 		stop:      cancel,
 		served:    served,
@@ -245,6 +291,52 @@ func newEnv(t *testing.T, cfg envConfig) *env {
 		}
 	})
 	return e
+}
+
+// edgeOptions are the router's edge rules with limits no test reaches; the
+// client gate is the production rule with minimum version testVersion.
+func edgeOptions(t *testing.T) httpx.RouterOptions {
+	t.Helper()
+	reg := prometheus.NewRegistry()
+	m, err := httpx.NewMetrics(reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlimited := httpx.Rate{Every: time.Nanosecond, Burst: 1 << 30}
+	limiter, err := httpx.NewRateLimiter(httpx.RateLimitConfig{Groups: map[string]httpx.GroupLimits{
+		httpx.GroupRead: {PerIP: unlimited}, httpx.GroupWrite: {PerIP: unlimited},
+	}}, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return httpx.RouterOptions{
+		Clients:   httpx.ClientPolicy{MinAppVersion: appversion.MustParse(testVersion)},
+		ClientIPs: httpx.NewClientIPResolver(nil),
+		RateLimit: limiter,
+		Metrics:   m,
+	}
+}
+
+// testVersion is the minimum and the test client's app version.
+const testVersion = "1.0.0"
+
+// nativeClient sends what Koala's mobile app sends on every request
+// unless the test set it: X-Client-Platform and X-App-Version. A request
+// with an Origin is a browser's and gets nothing. The device header is
+// always the test's choice.
+type nativeClient struct{ base http.RoundTripper }
+
+func (n nativeClient) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Header.Get("Origin") == "" {
+		req = req.Clone(req.Context())
+		if req.Header.Get(httpx.HeaderClientPlatform) == "" {
+			req.Header.Set(httpx.HeaderClientPlatform, string(httpx.PlatformIOS))
+		}
+		if req.Header.Get(httpx.HeaderAppVersion) == "" {
+			req.Header.Set(httpx.HeaderAppVersion, testVersion)
+		}
+	}
+	return n.base.RoundTrip(req)
 }
 
 // shutdown cancels the server and waits for Serve; it is idempotent.
@@ -270,7 +362,7 @@ func (e *env) issue(t *testing.T, user realtime.UserID, device string) (status i
 		t.Fatal(err)
 	}
 	req.Header.Set("X-Test-User", string(user))
-	req.Header.Set(realtime.HeaderDeviceID, device)
+	req.Header.Set(realtime.HeaderDeviceID, deviceID(device))
 	resp, err := e.client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -300,9 +392,10 @@ func protocols(ticket string) []string {
 	return []string{realtime.Subprotocol, realtime.TicketProtocolPrefix + ticket}
 }
 
-// deviceHeader is the handshake header of a native client on device.
+// deviceHeader is the handshake header of a native client on a named
+// device.
 func deviceHeader(device string) http.Header {
-	return http.Header{realtime.HeaderDeviceID: {device}}
+	return http.Header{realtime.HeaderDeviceID: {deviceID(device)}}
 }
 
 // dialSpec describes one handshake.

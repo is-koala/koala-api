@@ -16,11 +16,11 @@ package realtime
 
 import (
 	"encoding/json"
-	"time"
 
 	"github.com/coder/websocket"
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
+	"github.com/is-koala/koala-api/internal/platform/jsontime"
 )
 
 // Protocol identifiers. The protocol version is the WebSocket subprotocol:
@@ -75,11 +75,11 @@ type ConversationID string
 
 // Event is the server-to-client envelope. id is unique per event; clients
 // deduplicate by it and fill gaps after a reconnect from REST with
-// ?since= (ADR-0011).
+// ?since= (ADR-0011). occurredAt is written in UTC with Z by its type.
 type Event struct {
 	Type       EventType       `json:"type"`
 	ID         string          `json:"id"`
-	OccurredAt time.Time       `json:"occurredAt"`
+	OccurredAt jsontime.UTC    `json:"occurredAt"`
 	Data       json.RawMessage `json:"data"`
 }
 
@@ -135,6 +135,16 @@ const (
 	// the messaging module in Faz 4.
 	CodeConversationNotFound apperr.Code = "CONVERSATION_NOT_FOUND"
 )
+
+// Codes returns every problem and error-event code of this package; a
+// test in internal/app checks them against the contract's ErrorCode.
+func Codes() []apperr.Code {
+	return []apperr.Code{
+		CodeTicketInvalid, CodeTicketRateLimited, CodeDeviceRequired, CodeProtocolUnsupported,
+		CodeOriginForbidden, CodeDraining, CodeTooManyConnections, CodeCommandUnknown,
+		CodeCommandInvalid, CodeRateLimited, CodeConversationNotFound,
+	}
+}
 
 // CloseSessionRevoked closes the connections of a session that ended
 // (logout, revocation). It is a private-use code (RFC 6455 §7.4.2) and
