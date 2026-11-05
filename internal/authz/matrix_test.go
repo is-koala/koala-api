@@ -115,11 +115,11 @@ func hasDualCase(mx *matrix.Matrix, id string) bool {
 func TestMatrixShape(t *testing.T) {
 	t.Parallel()
 	mx := loadMatrix(t)
-	counts := map[string]int{}
+	counts := map[matrix.Engine]int{}
 	for i := range mx.Cases {
 		counts[mx.Cases[i].Engine]++
 	}
-	want := map[string]int{matrix.EngineBoth: 152, matrix.EngineGoOnly: 55, matrix.EngineSkip: 6}
+	want := map[matrix.Engine]int{matrix.EngineBoth: 152, matrix.EngineGoOnly: 55, matrix.EngineSkip: 6}
 	for engine, n := range want {
 		if counts[engine] != n {
 			t.Errorf("%s rows: %d, want %d", engine, counts[engine], n)
