@@ -67,6 +67,11 @@ test: ## Race-enabled tests in random order, no cache
 test-integration: ## Integration tests only (build tag integration, tag guards first) against PGHOST/PGPORT/PGUSER; CI only
 	scripts/test-integration.sh
 
+.PHONY: test-conformance
+test-conformance: ## Authz conformance (ADR-0024): matrix rows on the Go evaluator and on OpenFGA at FGA_API_URL; CI only
+	@grep -q '^func TestConformanceWithOpenFGA(' internal/authz/openfga_conformance_test.go || { echo "test-conformance: runner not found" >&2; exit 1; }
+	$(GO) test -tags conformance -race -count=1 -v -run '^TestConformanceWithOpenFGA$$' ./internal/authz/
+
 .PHONY: fmt
 fmt: $(GOLANGCI_LINT) ## Rewrite files with gofmt and goimports
 	$(GOLANGCI_LINT) fmt

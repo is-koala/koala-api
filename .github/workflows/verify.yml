@@ -134,3 +134,36 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           ATTEST_DIR: ${{ runner.temp }}/attest
+
+  # Authz conformance (plan §5.6-5, ADR-0014, ADR-0024): every [go, openfga]
+  # row of internal/authz/testdata/matrix.yaml runs on the Go evaluator and
+  # on a real OpenFGA server; any difference is red. In-memory datastore,
+  # playground off; the HTTP API is bound to the runner's loopback only.
+  # The image is pinned by digest (multi-arch index of v1.22.0).
+  authz-conformance:
+    name: authz-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      openfga:
+        image: openfga/openfga:v1.22.0@sha256:9cf9a20af32a40434cd3a788c429879439ee9ea9abf65c9c200ee17cd43f769e
+        command: run
+        env:
+          OPENFGA_DATASTORE_ENGINE: memory
+          OPENFGA_PLAYGROUND_ENABLED: "false"
+        ports:
+          - 127.0.0.1:8080:8080
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # The test waits for /healthz itself (up to 90 s).
+      - name: Conformance (Go evaluator vs OpenFGA)
+        run: make test-conformance
+        env:
+          FGA_API_URL: http://127.0.0.1:8080

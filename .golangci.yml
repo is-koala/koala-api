@@ -4,9 +4,11 @@ version: "2"
 
 run:
   tests: true
-  # Lint the integration tests too (make test-integration).
+  # Lint the integration and conformance tests too (make test-integration,
+  # make test-conformance).
   build-tags:
     - integration
+    - conformance
   relative-path-mode: gitroot
 
 linters:
