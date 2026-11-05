@@ -35,7 +35,7 @@ FROM user_sessions s
 LEFT JOIN active_devices d ON d.id = s.device_id
 WHERE s.user_id = $1 AND d.device_key = $2::text
   AND s.last_seen_at >= $3::timestamptz
-  AND (s.revoke_reason IS NULL OR s.revoke_reason NOT IN ('DEVICE_MISMATCH', 'REFRESH_REUSED'))
+  AND (s.revoke_reason IS NULL OR s.revoke_reason NOT IN ('DEVICE_MISMATCH', 'REFRESH_REUSED', 'USER_REVOKED'))
 `
 
 type CountRecentDeviceSessionsParams struct {
@@ -46,7 +46,8 @@ type CountRecentDeviceSessionsParams struct {
 
 // CountRecentDeviceSessions counts the user's sessions on a device seen
 // since a bound: the device is a known-good source (ADR-0025 §5). Sessions
-// ended for a stolen token or another device do not vouch for it.
+// ended for a stolen token or another device, or revoked by the user, do
+// not vouch for it.
 func (q *Queries) CountRecentDeviceSessions(ctx context.Context, arg CountRecentDeviceSessionsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countRecentDeviceSessions, arg.UserID, arg.DeviceKey, arg.Since)
 	var count int64

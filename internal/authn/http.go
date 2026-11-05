@@ -154,7 +154,7 @@ func (h *HTTP) LogoutStaff(ctx context.Context, _ apiv1.LogoutStaffRequestObject
 	if !ok {
 		return nil, errNoPrincipal
 	}
-	if err := h.staff.Logout(ctx, p); err != nil {
+	if err := h.staff.Logout(ctx, p, ClientKey(httpx.ClientIPFrom(ctx))); err != nil {
 		return nil, err
 	}
 	return apiv1.LogoutStaff204Response{}, nil
@@ -226,10 +226,10 @@ type TargetLimiter interface {
 //     accountGroup. The target is the keyed hash of the address, so one
 //     account hammered behind an office NAT does not lock out the next,
 //     and many addresses together cannot try one account fast. A
-//     marketplace device the account signed in on recently (a known-good
-//     source) is let past an empty account bucket, so an attacker cannot
-//     keep the user out by draining it; its own (target, address) bucket
-//     still applies.
+//     known-good source of the account (a marketplace device it signed in
+//     on recently, a staff address it signed in from) is let past an empty
+//     account bucket, so an attacker cannot keep the user out by draining
+//     it; its own (target, address) bucket still applies.
 //   - A refresh takes one from the bucket of its hashed token, a staff
 //     password change from the member's, both in pairGroup.
 //   - Token responses are not cached (RFC 6749 §5.1).
@@ -251,8 +251,8 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup s
 				if ok {
 					continue
 				}
-				if k.knownEmail != "" {
-					known, err := h.users.KnownDevice(ctx, k.knownEmail, httpx.DeviceIDFrom(ctx))
+				if k.known != nil {
+					known, err := k.known(ctx)
 					if err != nil {
 						return nil, err
 					}
@@ -270,24 +270,30 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup s
 type limitKey struct {
 	key     string
 	account bool
-	// knownEmail, on a marketplace account bucket, lets a known-good
-	// device of that account past it.
-	knownEmail string
+	// known, on an account bucket, reports whether the request comes from
+	// a known-good source of the account, which an empty bucket lets past.
+	known func(context.Context) (bool, error)
 }
 
 // rateLimitKeys returns the rate limit keys of an authentication request
 // (none for other operations) and whether its response carries tokens.
 func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool) {
 	addr := ClientKey(httpx.ClientIPFrom(ctx))
-	signIn := func(prefix string, target []byte, knownEmail string) []limitKey {
+	signIn := func(prefix string, target []byte, known func(context.Context) (bool, error)) []limitKey {
 		t := prefix + hex.EncodeToString(target)
-		return []limitKey{{key: t + "@" + addr}, {key: t, account: true, knownEmail: knownEmail}}
+		return []limitKey{{key: t + "@" + addr}, {key: t, account: true, known: known}}
 	}
 	switch req := request.(type) {
 	case apiv1.LoginUserRequestObject:
-		return signIn("login:user:", h.users.Target(req.Body.Email), req.Body.Email), true
+		email, device := req.Body.Email, httpx.DeviceIDFrom(ctx)
+		return signIn("login:user:", h.users.Target(email), func(ctx context.Context) (bool, error) {
+			return h.users.KnownDevice(ctx, email, device)
+		}), true
 	case apiv1.LoginStaffRequestObject:
-		return signIn("login:staff:", h.staff.Target(req.Body.Email), ""), true
+		email := req.Body.Email
+		return signIn("login:staff:", h.staff.Target(email), func(ctx context.Context) (bool, error) {
+			return h.staff.KnownSource(ctx, email, addr)
+		}), true
 	case apiv1.RefreshUserSessionRequestObject:
 		return []limitKey{{key: "refresh:user:" + hex.EncodeToString(hashOpaque(req.Body.RefreshToken))}}, true
 	case apiv1.RefreshStaffSessionRequestObject:

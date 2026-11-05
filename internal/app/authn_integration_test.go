@@ -510,6 +510,36 @@ func TestKnownDeviceSkipsTheAccountBucket(t *testing.T) {
 	}
 }
 
+// AUTH-018 (ADR-0025 §8): an address the staff member signed in from is
+// let past the account-wide bucket an attacker emptied from many
+// addresses, and its right password is accepted; a new address is not.
+func TestStaffKnownSourceSkipsTheAccountBucket(t *testing.T) {
+	t.Parallel()
+	groups := rateLimitGroups()
+	slow := func(r httpx.Rate) httpx.Rate { return httpx.Rate{Every: time.Hour, Burst: r.Burst} }
+	auth, account := groups[groupAuth], groups[groupAuthAccount]
+	auth.PerCustom, account.PerCustom = slow(auth.PerCustom), slow(account.PerCustom)
+	groups[groupAuth], groups[groupAuthAccount] = auth, account
+	a := newAuthApp(t, groups)
+	a.addStaff(t, false)
+	const office = "192.0.2.60"
+	wrong := `{"email":"` + staffEmail + `","password":"yanlış ama yeterince uzun parola"}`
+	right := `{"email":"` + staffEmail + `","password":"` + staffPw + `"}`
+	wantStatus(t, a.callFrom(t, office, http.MethodPost, "/v1/admin/auth/login", "", right), http.StatusOK, "")
+
+	// One attempt per address: the pair buckets stay full, the account
+	// bucket (one token spent by the sign-in above) runs dry.
+	for i := range account.PerCustom.Burst - 1 {
+		wantStatus(t, a.callFrom(t, fmt.Sprintf("198.51.100.%d", i+1), http.MethodPost, "/v1/admin/auth/login", "", wrong),
+			http.StatusUnauthorized, string(authn.CodeStaffLoginFailed))
+	}
+	wantStatus(t, a.callFrom(t, "203.0.113.1", http.MethodPost, "/v1/admin/auth/login", "", right),
+		http.StatusTooManyRequests, httpx.CodeRateLimited)
+	if rec := a.callFrom(t, office, http.MethodPost, "/v1/admin/auth/login", "", right); rec.Code != http.StatusOK {
+		t.Fatalf("AUTH-018: the known-good address was held back by the account bucket: %d %s", rec.Code, rec.Body)
+	}
+}
+
 // The purge runs as a River periodic job (ADR-0025 §7): the client serve
 // starts enqueues it on start and works it; ended sessions past their
 // retention are gone.

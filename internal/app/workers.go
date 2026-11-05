@@ -128,7 +128,8 @@ func newWorkerMetrics(reg prometheus.Registerer) (*workerMetrics, error) {
 // stop cancels that context first: a start still dialing the database
 // returns at once instead of holding the shutdown, and a running job is
 // canceled (the purge is idempotent; the next run finishes it). Then it
-// waits, bounded by its context, for the client to wind down.
+// waits, every wait bounded by its context, for the start loop to return
+// and the client to wind down.
 func startWorkers(ctx context.Context, client *jobs.Client, logger *slog.Logger, m *workerMetrics, retry time.Duration) func(context.Context) {
 	runCtx, cancelRun := context.WithCancel(context.WithoutCancel(ctx))
 	retryCtx, cancelRetry := context.WithCancel(ctx)
@@ -160,7 +161,13 @@ func startWorkers(ctx context.Context, client *jobs.Client, logger *slog.Logger,
 	return func(stopCtx context.Context) {
 		cancelRetry()
 		cancelRun()
-		started := <-done
+		var started bool
+		select {
+		case started = <-done:
+		case <-stopCtx.Done():
+			logger.WarnContext(stopCtx, "workers did not return from their start in time", slog.Any("error", stopCtx.Err()))
+			return
+		}
 		if !started {
 			return
 		}

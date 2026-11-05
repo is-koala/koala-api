@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -62,6 +63,9 @@ type Passwords struct {
 	// one (AUTH-001, AUTH-010).
 	dummy string
 	slots chan struct{}
+	// derivations counts argon2id derivations, for the tests that pin
+	// that refused and examined sign-ins cost the same.
+	derivations atomic.Int64
 }
 
 // NewPasswords returns a hasher with params, running at most concurrent
@@ -143,6 +147,7 @@ func (h *Passwords) pad(ctx context.Context, password string) error {
 	defer h.release()
 	salt := make([]byte, h.params.SaltLen)
 	_, _ = rand.Read(salt) // crypto/rand.Read never returns an error (Go 1.24+)
+	h.derivations.Add(1)
 	_ = argon2.IDKey([]byte(password), salt, h.params.Time, h.params.MemoryKiB, h.params.Threads, h.params.KeyLen)
 	return nil
 }
@@ -154,11 +159,22 @@ func (h *Passwords) VerifyDummy(ctx context.Context, password string) error {
 	return err
 }
 
+// VerifyDecoy pays exactly what Verify(stored, password) pays, the extra
+// derivation of a hash under old parameters included, and discards the
+// result: an attempt refused unexamined (a locked or disabled account)
+// takes the time a wrong password takes on that very hash, whether the
+// password is right or not (ADR-0025 §5–6).
+func (h *Passwords) VerifyDecoy(ctx context.Context, stored, password string) error {
+	_, _, err := h.Verify(ctx, stored, password)
+	return err
+}
+
 func (h *Passwords) verifyKey(ctx context.Context, params Params, salt, key []byte, password string) (bool, error) {
 	if err := h.acquire(ctx); err != nil {
 		return false, err
 	}
 	defer h.release()
+	h.derivations.Add(1)
 	got := argon2.IDKey([]byte(password), salt, params.Time, params.MemoryKiB, params.Threads, params.KeyLen)
 	return subtle.ConstantTimeCompare(got, key) == 1, nil
 }
@@ -179,6 +195,7 @@ func (h *Passwords) release() { <-h.slots }
 func (h *Passwords) encode(password string) string {
 	salt := make([]byte, h.params.SaltLen)
 	_, _ = rand.Read(salt) // crypto/rand.Read never returns an error (Go 1.24+)
+	h.derivations.Add(1)
 	key := argon2.IDKey([]byte(password), salt, h.params.Time, h.params.MemoryKiB, h.params.Threads, h.params.KeyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version,
 		h.params.MemoryKiB, h.params.Time, h.params.Threads,

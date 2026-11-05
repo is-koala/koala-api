@@ -35,6 +35,7 @@ scenarios:
       - internal/authn.TestLoginConcealsUnknownAddress
       - internal/app.TestLoginFailureBodiesAreIdentical
       - internal/authn.TestKnownDeviceIsNotLockedOut
+      - internal/authn.TestKnownDeviceOfAnUnknownAddressQueriesTheSessions
 
   - id: AUTH-002
     priority: P0
@@ -335,6 +336,7 @@ scenarios:
       - internal/authn.TestStaffLockout
       - internal/app.TestStaffLockBodyIsTheFailureBody
       - internal/authn.TestStaffKnownSourceIsNotBackedOff
+      - internal/authn.TestStaffKnownSourceIsStillLocked
       - internal/authn.TestStaffRefusedSignInsCostTheSame
     partial:
       phase: 8
@@ -539,10 +541,12 @@ scenarios:
       - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffRefreshAndPasswordEndpointsAreAuthToo"
       - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#oversizedChunkedAuthBodiesAreRejectedBeforeTheRequestIsBuffered"
     target: >
-      ADR-0025 §8: giriş iki kovadan jeton alır, (hedef, adres) ve hedef geneli. Hesabın son 30
-      günde oturumu olmuş cihazı (known-good device) boş hedef geneli kovadan geçer; saldırgan
-      kovayı çok adresten boşaltarak kullanıcıyı dışarıda tutamaz. (Hedef, adres) kovası ona da
+      ADR-0025 §8: giriş iki kovadan jeton alır, (hedef, adres) ve hedef geneli. Hesabın bilinen
+      iyi kaynağı (marketplace'te son 30 günde oturumu olmuş cihaz, personelde son 30 günde
+      başarıyla girilmiş adres) boş hedef geneli kovadan geçer; saldırgan kovayı çok adresten
+      boşaltarak kullanıcıyı ya da personeli dışarıda tutamaz. (Hedef, adres) kovası ona da
       uygulanır.
     go_test:
       - internal/app.TestAuthRateLimits
       - internal/app.TestKnownDeviceSkipsTheAccountBucket
+      - internal/app.TestStaffKnownSourceSkipsTheAccountBucket

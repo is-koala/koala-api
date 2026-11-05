@@ -109,7 +109,9 @@ const (
 //     unknown sources: an address the member signed in from within
 //     KnownSourceWindow ("known-good source") is exempt, so failures from
 //     elsewhere, however many, cannot keep the member out of a place they
-//     use. The address lock applies to every address, known or not.
+//     use. From a new address the backoff can be renewed for as long as
+//     the failures go on. The address lock applies to every address,
+//     known or not.
 //
 // While a lock or backoff is in force for the address every attempt is
 // refused unexamined (verified against the dummy hash) and changes
@@ -135,22 +137,27 @@ type source struct {
 	failures    int32
 	lockedUntil *time.Time
 	lastSuccess *time.Time
+	// successVersion is the account's token version at lastSuccess.
+	successVersion *int64
 }
 
 // locked reports whether the address lock holds at now.
 func (s source) locked(now time.Time) bool { return inForce(s.lockedUntil, now) }
 
-// known reports whether the member signed in from the address within
-// KnownSourceWindow before now.
-func (s source) known(now time.Time) bool {
-	return s.lastSuccess != nil && now.Sub(*s.lastSuccess) < KnownSourceWindow
+// known reports whether the address is a known-good source of an account
+// whose token version is version: the member signed in from it within
+// KnownSourceWindow before now, and no logout, password change or
+// disabling moved the version since (ADR-0025 §6).
+func (s source) known(now time.Time, version int64) bool {
+	return s.lastSuccess != nil && now.Sub(*s.lastSuccess) < KnownSourceWindow &&
+		s.successVersion != nil && *s.successVersion == version
 }
 
 // blocked reports whether a sign-in from s is refused unexamined at now:
 // its address is locked, or the account backoff holds and s is not a
 // known-good source.
-func (s source) blocked(backoffUntil *time.Time, now time.Time) bool {
-	return s.locked(now) || (inForce(backoffUntil, now) && !s.known(now))
+func (s source) blocked(backoffUntil *time.Time, now time.Time, version int64) bool {
+	return s.locked(now) || (inForce(backoffUntil, now) && !s.known(now, version))
 }
 
 // Marketplace lock (ADR-0025 §5; NIST SP 800-63B 5.2.2): every

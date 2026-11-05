@@ -699,3 +699,58 @@ func TestKnownDeviceIsNotLockedOut(t *testing.T) {
 		t.Errorf("AUTH-001: KnownDevice(another device) = %v, %v; want false", known, err)
 	}
 }
+
+// ADR-0025 §5: a session the user revoked (one of "my sessions", or all
+// the others) does not vouch for its device; one the user still has does.
+func TestRevokedSessionsDoNotMakeAKnownDevice(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.addUser(t, alice, alicePw)
+	ctx := t.Context()
+	phone := e.login(t, alice, alicePw, devicePhone)
+	web := e.login(t, alice, alicePw, deviceW1)
+	p, err := e.users.Authenticate(ctx, web.AccessToken, deviceW1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.users.RevokeSession(ctx, p, phone.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if known, err := e.users.KnownDevice(ctx, alice, devicePhone); err != nil || known {
+		t.Errorf("a device whose session the user revoked: known = %v, %v; want false", known, err)
+	}
+	if known, err := e.users.KnownDevice(ctx, alice, deviceW1); err != nil || !known {
+		t.Errorf("the device the user kept: known = %v, %v; want true", known, err)
+	}
+}
+
+// AUTH-001 (ADR-0025 §5): KnownDevice asks the same two queries for an
+// address with no account, the session count on the nil user, so the
+// rate limit's check does not answer faster for it. The session table's
+// scan counters show the second query ran.
+func TestKnownDeviceOfAnUnknownAddressQueriesTheSessions(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	ctx := t.Context()
+	scans := func() (int64, error) {
+		var n int64
+		err := e.maint.Pool().QueryRow(ctx, `
+			SELECT coalesce(seq_scan, 0) + coalesce(idx_scan, 0)
+			FROM pg_stat_user_tables WHERE relname = 'user_sessions'`).Scan(&n)
+		return n, err
+	}
+	before, err := scans()
+	if err != nil {
+		t.Fatal(err)
+	}
+	known, err := e.users.KnownDevice(ctx, nobody, devicePhone)
+	if err != nil || known {
+		t.Fatalf("AUTH-001: KnownDevice(unknown address) = %v, %v; want false", known, err)
+	}
+	// A backend reports its table statistics when it goes idle, within
+	// seconds.
+	dbtest.Eventually(t, 30*time.Second, "AUTH-001: the session query of an unknown address", func() (bool, error) {
+		n, err := scans()
+		return n > before, err
+	})
+}

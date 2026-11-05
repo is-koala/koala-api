@@ -29,6 +29,7 @@ type PasswordHasher interface {
 	Hash(ctx context.Context, password string) (string, error)
 	Verify(ctx context.Context, stored, password string) (ok, rehash bool, err error)
 	VerifyDummy(ctx context.Context, password string) error
+	VerifyDecoy(ctx context.Context, stored, password string) error
 }
 
 // RevokeHook learns of each revoked session after the revoking
@@ -124,9 +125,13 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 	}
 	locked = locked && !known
 	var ok, rehash bool
-	if found && cred.PasswordHash != nil && !locked {
+	switch {
+	case found && cred.PasswordHash != nil && !locked:
 		ok, rehash, err = s.passwords.Verify(ctx, *cred.PasswordHash, in.Password)
-	} else {
+	case found && cred.PasswordHash != nil:
+		// Locked: the cost of this very hash, result discarded.
+		err = s.passwords.VerifyDecoy(ctx, *cred.PasswordHash, in.Password)
+	default:
 		err = s.passwords.VerifyDummy(ctx, in.Password)
 	}
 	if err != nil {
@@ -244,16 +249,12 @@ func (s *Service) lockState(ctx context.Context, target []byte, now time.Time) (
 // KnownDevice reports whether deviceKey is a known-good device of the
 // account of email: one the account had a session on within
 // KnownSourceWindow (ADR-0025 §5). The rate limit lets such a device past
-// the account-wide bucket. An unknown address has no known device.
+// the account-wide bucket. An unknown address runs the same two queries,
+// the second on the nil user, so the answer's time does not tell whether
+// the address has an account.
 func (s *Service) KnownDevice(ctx context.Context, email, deviceKey string) (bool, error) {
-	if !ValidDeviceKey(deviceKey) {
-		return false, nil
-	}
 	cred, err := s.reads.GetUserCredentials(ctx, normalizeEmail(email))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false, fmt.Errorf("authn: load user credentials: %w", err)
 	}
 	return s.knownDevice(ctx, cred.ID, deviceKey, s.clock.Now())

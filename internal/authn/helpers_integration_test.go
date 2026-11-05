@@ -189,8 +189,9 @@ func wantErr(t *testing.T, err error, kind apperr.Kind, code apperr.Code) {
 // verifications (against a stored hash or the dummy) and new hashes.
 type countingHasher struct {
 	inner    *authn.Passwords
-	verifies atomic.Int64 // Verify and VerifyDummy
+	verifies atomic.Int64 // Verify, VerifyDummy and VerifyDecoy
 	dummies  atomic.Int64 // VerifyDummy only
+	decoys   atomic.Int64 // VerifyDecoy only
 	hashes   atomic.Int64
 }
 
@@ -210,17 +211,27 @@ func (c *countingHasher) VerifyDummy(ctx context.Context, p string) error {
 	return c.inner.VerifyDummy(ctx, p)
 }
 
-// cost is the argon2id work of one call: verifications against a stored
-// hash, against the dummy, and new hashes.
-type cost struct{ verifies, dummies, hashes int64 }
+func (c *countingHasher) VerifyDecoy(ctx context.Context, stored, p string) error {
+	c.verifies.Add(1)
+	c.decoys.Add(1)
+	return c.inner.VerifyDecoy(ctx, stored, p)
+}
+
+// cost is the argon2id work of one call: verifications of a stored hash
+// whose result counts, decoy verifications of a stored hash (the same
+// derivations, result discarded), verifications of the dummy, and new
+// hashes.
+type cost struct{ verifies, decoys, dummies, hashes int64 }
 
 // costOf runs f and returns the work it asked for.
 func (c *countingHasher) costOf(f func()) cost {
-	v, d, h := c.verifies.Load(), c.dummies.Load(), c.hashes.Load()
+	v, de, d, h := c.verifies.Load(), c.decoys.Load(), c.dummies.Load(), c.hashes.Load()
 	f()
+	decoys, dummies := c.decoys.Load()-de, c.dummies.Load()-d
 	return cost{
-		verifies: c.verifies.Load() - v - (c.dummies.Load() - d),
-		dummies:  c.dummies.Load() - d,
+		verifies: c.verifies.Load() - v - decoys - dummies,
+		decoys:   decoys,
+		dummies:  dummies,
 		hashes:   c.hashes.Load() - h,
 	}
 }

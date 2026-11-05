@@ -225,6 +225,116 @@ func TestStaffKnownSourceIsNotBackedOff(t *testing.T) {
 	}
 }
 
+// AUTH-011 (ADR-0025 §6): a known-good source is exempt from the account
+// backoff, not from its own address lock. Five wrong passwords from the
+// address the member signs in from lock it like any other, and the right
+// password from it is refused.
+func TestStaffKnownSourceIsStillLocked(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addStaff(t, opsEmail, authn.StaffActive, false)
+	ctx := t.Context()
+	e.staffLogin(t, opsPw, officeIP)
+	for range authn.StaffLockThreshold {
+		_, err := e.staff.Login(ctx, opsEmail, wrongPw, officeIP)
+		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
+	}
+	if e.addressLock(t, id) == nil {
+		t.Fatal("AUTH-011: five failures did not lock a known-good address")
+	}
+	_, err := e.staff.Login(ctx, opsEmail, opsPw, officeIP)
+	if apperr.From(err).Code != authn.CodeStaffLoginFailed {
+		t.Fatalf("AUTH-011: the right password from a locked known-good address: %v, want %s", err, authn.CodeStaffLoginFailed)
+	}
+}
+
+// ADR-0025 §6: a password change, a logout (every session of the account
+// ends) and disabling move the token version, which ends the known-good
+// standing of every other address; the address that asked keeps it. The
+// backoff then holds the other addresses back like any unknown one.
+func TestStaffKnownSourcesEndWithTheTokenVersion(t *testing.T) {
+	t.Parallel()
+	// backedOff fails from fresh addresses until the backoff holds.
+	backedOff := func(t *testing.T, e *env, id uuid.UUID, round int) {
+		t.Helper()
+		ctx := t.Context()
+		for i := range authn.StaffBackoffAfter {
+			_, _ = e.staff.Login(ctx, opsEmail, wrongPw, fmt.Sprintf("203.0.%d.%d", 113+round, i+1))
+		}
+		if _, until := e.lockState(t, id); !e.clock.Now().Before(derefTime(until)) {
+			t.Fatalf("no backoff: %v", until)
+		}
+	}
+	session := func(t *testing.T, e *env, client string) authn.StaffPrincipal {
+		t.Helper()
+		pair := e.staffLogin(t, opsPw, client)
+		p, err := e.staff.Authenticate(t.Context(), pair.AccessToken)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	for _, tc := range []struct {
+		name string
+		end  func(t *testing.T, e *env, id uuid.UUID, p authn.StaffPrincipal)
+	}{
+		{"password change", func(t *testing.T, e *env, _ uuid.UUID, p authn.StaffPrincipal) {
+			t.Helper()
+			if err := e.staff.ChangePassword(t.Context(), p, opsPw, newStaffPw, officeIP); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"logout", func(t *testing.T, e *env, _ uuid.UUID, p authn.StaffPrincipal) {
+			t.Helper()
+			if err := e.staff.Logout(t.Context(), p, officeIP); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"disabling", func(t *testing.T, e *env, id uuid.UUID, _ authn.StaffPrincipal) {
+			t.Helper()
+			// Staff management (koala_maint) disables an account by moving
+			// its token version with its status; re-enabled, it starts over.
+			for _, status := range []string{authn.StaffDisabled, authn.StaffActive} {
+				_, err := e.maint.Pool().Exec(t.Context(),
+					"UPDATE staff_members SET status = $2, token_version = token_version + 1 WHERE id = $1", id, status)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := newEnv(t)
+			id := e.addStaff(t, opsEmail, authn.StaffActive, false)
+			session(t, e, homeIP)
+			p := session(t, e, officeIP)
+			for _, client := range []string{homeIP, officeIP} {
+				if known, err := e.staff.KnownSource(t.Context(), opsEmail, client); err != nil || !known {
+					t.Fatalf("%s before: known = %v, %v", client, known, err)
+				}
+			}
+			tc.end(t, e, id, p)
+			if known, err := e.staff.KnownSource(t.Context(), opsEmail, homeIP); err != nil || known {
+				t.Errorf("another address after the %s: known = %v, %v; want false", tc.name, known, err)
+			}
+			backedOff(t, e, id, 0)
+			pw := opsPw
+			if tc.name == "password change" {
+				pw = newStaffPw
+			}
+			_, err := e.staff.Login(t.Context(), opsEmail, pw, homeIP)
+			if apperr.From(err).Code != authn.CodeStaffLoginFailed {
+				t.Errorf("another address under the backoff after the %s: %v, want %s", tc.name, err, authn.CodeStaffLoginFailed)
+			}
+			officeKnown := tc.name != "disabling"
+			if known, err := e.staff.KnownSource(t.Context(), opsEmail, officeIP); err != nil || known != officeKnown {
+				t.Errorf("the address that asked after the %s: known = %v, %v; want %v", tc.name, known, err, officeKnown)
+			}
+		})
+	}
+}
+
 // derefTime is *p, or the zero time.
 func derefTime(p *time.Time) time.Time {
 	if p == nil {
@@ -234,12 +344,13 @@ func derefTime(p *time.Time) time.Time {
 }
 
 // AUTH-010, AUTH-011 (ADR-0025 §6): a sign-in refused unexamined (a
-// disabled account, a locked address, the account backoff, an unknown
-// address) is verified against the dummy hash only, whether the password
-// is right or not, so its time does not tell; the right password of a
-// hash under old parameters pays no rehash there. A wrong password on an
-// open account pays one verification of the stored hash, the same work,
-// and only a success pays the rehash.
+// disabled account, a locked address, the account backoff) pays a decoy
+// verification of the stored hash, whether the password is right or not:
+// the derivations of a real one (TestDecoyPaysTheDerivationsOfTheHash),
+// the result discarded, so its time does not tell; the right password of
+// a hash under old parameters pays no rehash there. An unknown address
+// pays the dummy's. A wrong password on an open account pays one real
+// verification of the same hash, and only a success pays the rehash.
 func TestStaffRefusedSignInsCostTheSame(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -269,14 +380,14 @@ func TestStaffRefusedSignInsCostTheSame(t *testing.T) {
 		_, _ = e.staff.Login(ctx, slow, wrongPw, fmt.Sprintf("198.51.100.%d", i+1))
 	}
 
-	refused := cost{dummies: 1}
+	refused := cost{decoys: 1}
 	for _, tc := range []struct {
 		name, email, pw, client string
 		want                    cost
 	}{
 		{"AUTH-010 disabled, right password", disabled, opsPw, officeIP, refused},
 		{"AUTH-010 disabled, wrong password", disabled, wrongPw, officeIP, refused},
-		{"AUTH-010 unknown address", "p3@example.com", opsPw, officeIP, refused},
+		{"AUTH-010 unknown address", "p3@example.com", opsPw, officeIP, cost{dummies: 1}},
 		{"AUTH-011 locked address, right password", locked, opsPw, officeIP, refused},
 		{"AUTH-011 locked address, wrong password", locked, wrongPw, officeIP, refused},
 		{"AUTH-011 backoff, right password", slow, opsPw, homeIP, refused},
@@ -314,7 +425,7 @@ func TestStaffPasswordChangeIsGuarded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refused := cost{dummies: 1}
+	refused := cost{decoys: 1}
 
 	for range authn.StaffLockThreshold {
 		_, _ = e.staff.Login(ctx, opsEmail, wrongPw, homeIP)
@@ -396,7 +507,7 @@ func TestStaffLogoutAndPasswordChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.staff.Logout(ctx, p); err != nil {
+	if err := e.staff.Logout(ctx, p, officeIP); err != nil {
 		t.Fatal(err)
 	}
 	for name, pair := range map[string]authn.StaffTokenPair{"laptop": laptop, "desktop": desktop} {

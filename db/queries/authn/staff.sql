@@ -3,13 +3,13 @@
 -- login identifier, with what decides before any hashing whether the
 -- sign-in is examined at all. A DISABLED account is returned: its sign-in
 -- fails exactly like a wrong password (AUTH-010).
-SELECT id, password_hash, status, backoff_until
+SELECT id, password_hash, status, backoff_until, token_version
 FROM active_staff_members
 WHERE email = $1;
 
 -- name: GetStaffPasswordState :one
 -- GetStaffPasswordState is what a password change checks before hashing.
-SELECT password_hash, backoff_until
+SELECT password_hash, backoff_until, token_version
 FROM active_staff_members
 WHERE id = $1;
 
@@ -33,13 +33,13 @@ WHERE id = sqlc.arg(id);
 -- PeekStaffLoginSource reads the (account, address) state without a lock:
 -- the sign-in decides with it whether to verify the password at all, and
 -- reads it again under the lock before acting.
-SELECT failures, locked_until, last_success_at
+SELECT failures, locked_until, last_success_at, success_token_version
 FROM staff_login_sources
 WHERE staff_id = $1 AND client_key = $2;
 
 -- name: GetStaffLoginSource :one
 -- GetStaffLoginSource reads and locks the (account, address) state.
-SELECT failures, locked_until, last_success_at
+SELECT failures, locked_until, last_success_at, success_token_version
 FROM staff_login_sources
 WHERE staff_id = $1 AND client_key = $2
 FOR UPDATE;
@@ -54,11 +54,21 @@ SET failures = EXCLUDED.failures, locked_until = EXCLUDED.locked_until, updated_
 
 -- name: MarkStaffSourceSuccess :exec
 -- MarkStaffSourceSuccess clears the address's counter and lock and makes
--- it a known-good source (ADR-0025 §6).
-INSERT INTO staff_login_sources (staff_id, client_key, failures, locked_until, last_success_at, updated_at)
-VALUES (sqlc.arg(staff_id), sqlc.arg(client_key), 0, NULL, sqlc.arg(now)::timestamptz, sqlc.arg(now)::timestamptz)
+-- it a known-good source under the account's token version (ADR-0025 §6).
+INSERT INTO staff_login_sources (staff_id, client_key, failures, locked_until, last_success_at, success_token_version, updated_at)
+VALUES (sqlc.arg(staff_id), sqlc.arg(client_key), 0, NULL, sqlc.arg(now)::timestamptz, sqlc.arg(token_version)::bigint, sqlc.arg(now)::timestamptz)
 ON CONFLICT (staff_id, client_key) DO UPDATE
-SET failures = 0, locked_until = NULL, last_success_at = EXCLUDED.last_success_at, updated_at = EXCLUDED.updated_at;
+SET failures = 0, locked_until = NULL, last_success_at = EXCLUDED.last_success_at,
+    success_token_version = EXCLUDED.success_token_version, updated_at = EXCLUDED.updated_at;
+
+-- name: CarryStaffSource :exec
+-- CarryStaffSource keeps the address that moved the token version (a
+-- logout) a known-good source under the new version, if it was one under
+-- the old; every other address loses its standing.
+UPDATE staff_login_sources
+SET success_token_version = sqlc.arg(new_version)::bigint, updated_at = sqlc.arg(now)::timestamptz
+WHERE staff_id = sqlc.arg(staff_id) AND client_key = sqlc.arg(client_key)
+  AND success_token_version = sqlc.arg(old_version)::bigint;
 
 -- name: ResetStaffSourceFailures :exec
 -- ResetStaffSourceFailures clears the address's counter and lock, if it
@@ -83,17 +93,20 @@ UPDATE active_staff_members
 SET password_hash = sqlc.arg(password_hash)
 WHERE id = sqlc.arg(id) AND password_hash = sqlc.arg(verified_hash)::text;
 
--- name: ChangeStaffPassword :exec
+-- name: ChangeStaffPassword :one
 -- ChangeStaffPassword sets a new password: the must-change flag drops and
--- the token version moves, which ends every token issued before.
+-- the token version moves, which ends every token issued before and the
+-- known-good standing of every address.
 UPDATE active_staff_members
 SET password_hash = sqlc.arg(password_hash), must_change_password = false,
     password_changed_at = sqlc.arg(now)::timestamptz,
     token_version = token_version + 1
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id)
+RETURNING token_version;
 
--- name: BumpStaffTokenVersion :exec
-UPDATE active_staff_members SET token_version = token_version + 1 WHERE id = $1;
+-- name: BumpStaffTokenVersion :one
+UPDATE active_staff_members SET token_version = token_version + 1 WHERE id = $1
+RETURNING token_version;
 
 -- name: GetStaffMember :one
 SELECT id, email, status, must_change_password, created_at

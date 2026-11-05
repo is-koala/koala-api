@@ -120,6 +120,27 @@ paths:
       x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
       responses:
         default: {$ref: "#/components/responses/Problem"}
+    put: # koala-admin-public: refresh with a bearer (`security` must be empty)
+      operationId: putAdminAuthRefresh
+      x-authz: {action: can_read, object: thing}
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/me:
+    get: # koala-admin-self-service: an allow-listed operation without x-authz-exempt
+      operationId: getAdminMe
+      x-authz: {action: can_read, object: thing}
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/auth/password:
+    get: # koala-admin-self-service: an allow-listed operation with a permission
+      operationId: getAdminAuthPassword
+      x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
+      x-authz-permission: auth.password
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
   /v1/permission-outside-admin:
     get: # koala-admin-only-under-admin
       operationId: getPermissionOutsideAdmin

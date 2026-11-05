@@ -60,11 +60,15 @@ CREATE UNIQUE INDEX staff_members_email_key ON staff_members (email) WHERE delet
 -- A staff member's state at one client address (ADR-0025 §6). Its failure
 -- counter and lock (PCI DSS 4.0 8.3.4): StaffLockThreshold consecutive
 -- wrong passwords from the address lock the account for that address for
--- StaffLockDuration; other addresses are unaffected. Its last success:
--- for KnownSourceWindow (30 days) after it the address is a known-good
--- source, exempt from the account-wide backoff. Personal data (a client
--- address with an account); purged a day after its last change unless
--- the last success is still within the window.
+-- StaffLockDuration; other addresses are unaffected. Its last success and
+-- the account's token_version at that time: for KnownSourceWindow (30
+-- days) after it, and while the token version has not moved, the address
+-- is a known-good source, exempt from the account-wide backoff and rate
+-- bucket. Logout, a password change and disabling move the version, so
+-- they end every other address's standing; the address that asked keeps
+-- it (ADR-0025 §6). Personal data (a client address with an account);
+-- purged a day after its last change unless the last success is still
+-- within the window.
 CREATE TABLE staff_login_sources (
     staff_id uuid NOT NULL REFERENCES staff_members (id) ON DELETE CASCADE,
     -- The client address; an IPv6 client by its /64.
@@ -72,10 +76,12 @@ CREATE TABLE staff_login_sources (
     failures integer NOT NULL DEFAULT 0,
     locked_until timestamptz,
     last_success_at timestamptz,
+    success_token_version bigint,
     updated_at timestamptz NOT NULL,
     PRIMARY KEY (staff_id, client_key),
     CONSTRAINT staff_login_sources_failures_check CHECK (failures >= 0),
-    CONSTRAINT staff_login_sources_client_key_check CHECK (length(client_key) BETWEEN 1 AND 64)
+    CONSTRAINT staff_login_sources_client_key_check CHECK (length(client_key) BETWEEN 1 AND 64),
+    CONSTRAINT staff_login_sources_success_together CHECK ((last_success_at IS NULL) = (success_token_version IS NULL))
 );
 
 CREATE INDEX staff_login_sources_updated_at_idx ON staff_login_sources (updated_at);

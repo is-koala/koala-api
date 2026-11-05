@@ -12,21 +12,54 @@ import (
 	"github.com/google/uuid"
 )
 
-const bumpStaffTokenVersion = `-- name: BumpStaffTokenVersion :exec
+const bumpStaffTokenVersion = `-- name: BumpStaffTokenVersion :one
 UPDATE active_staff_members SET token_version = token_version + 1 WHERE id = $1
+RETURNING token_version
 `
 
-func (q *Queries) BumpStaffTokenVersion(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, bumpStaffTokenVersion, id)
+func (q *Queries) BumpStaffTokenVersion(ctx context.Context, id uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, bumpStaffTokenVersion, id)
+	var token_version int64
+	err := row.Scan(&token_version)
+	return token_version, err
+}
+
+const carryStaffSource = `-- name: CarryStaffSource :exec
+UPDATE staff_login_sources
+SET success_token_version = $1::bigint, updated_at = $2::timestamptz
+WHERE staff_id = $3 AND client_key = $4
+  AND success_token_version = $5::bigint
+`
+
+type CarryStaffSourceParams struct {
+	NewVersion int64
+	Now        time.Time
+	StaffID    uuid.UUID
+	ClientKey  string
+	OldVersion int64
+}
+
+// CarryStaffSource keeps the address that moved the token version (a
+// logout) a known-good source under the new version, if it was one under
+// the old; every other address loses its standing.
+func (q *Queries) CarryStaffSource(ctx context.Context, arg CarryStaffSourceParams) error {
+	_, err := q.db.Exec(ctx, carryStaffSource,
+		arg.NewVersion,
+		arg.Now,
+		arg.StaffID,
+		arg.ClientKey,
+		arg.OldVersion,
+	)
 	return err
 }
 
-const changeStaffPassword = `-- name: ChangeStaffPassword :exec
+const changeStaffPassword = `-- name: ChangeStaffPassword :one
 UPDATE active_staff_members
 SET password_hash = $1, must_change_password = false,
     password_changed_at = $2::timestamptz,
     token_version = token_version + 1
 WHERE id = $3
+RETURNING token_version
 `
 
 type ChangeStaffPasswordParams struct {
@@ -36,10 +69,13 @@ type ChangeStaffPasswordParams struct {
 }
 
 // ChangeStaffPassword sets a new password: the must-change flag drops and
-// the token version moves, which ends every token issued before.
-func (q *Queries) ChangeStaffPassword(ctx context.Context, arg ChangeStaffPasswordParams) error {
-	_, err := q.db.Exec(ctx, changeStaffPassword, arg.PasswordHash, arg.Now, arg.ID)
-	return err
+// the token version moves, which ends every token issued before and the
+// known-good standing of every address.
+func (q *Queries) ChangeStaffPassword(ctx context.Context, arg ChangeStaffPasswordParams) (int64, error) {
+	row := q.db.QueryRow(ctx, changeStaffPassword, arg.PasswordHash, arg.Now, arg.ID)
+	var token_version int64
+	err := row.Scan(&token_version)
+	return token_version, err
 }
 
 const consumeStaffRefreshToken = `-- name: ConsumeStaffRefreshToken :exec
@@ -60,7 +96,7 @@ func (q *Queries) ConsumeStaffRefreshToken(ctx context.Context, arg ConsumeStaff
 }
 
 const getStaffCredentials = `-- name: GetStaffCredentials :one
-SELECT id, password_hash, status, backoff_until
+SELECT id, password_hash, status, backoff_until, token_version
 FROM active_staff_members
 WHERE email = $1
 `
@@ -70,6 +106,7 @@ type GetStaffCredentialsRow struct {
 	PasswordHash string
 	Status       string
 	BackoffUntil *time.Time
+	TokenVersion int64
 }
 
 // GetStaffCredentials finds an active (not soft-deleted) staff member by
@@ -84,12 +121,13 @@ func (q *Queries) GetStaffCredentials(ctx context.Context, email string) (GetSta
 		&i.PasswordHash,
 		&i.Status,
 		&i.BackoffUntil,
+		&i.TokenVersion,
 	)
 	return i, err
 }
 
 const getStaffLoginSource = `-- name: GetStaffLoginSource :one
-SELECT failures, locked_until, last_success_at
+SELECT failures, locked_until, last_success_at, success_token_version
 FROM staff_login_sources
 WHERE staff_id = $1 AND client_key = $2
 FOR UPDATE
@@ -101,16 +139,22 @@ type GetStaffLoginSourceParams struct {
 }
 
 type GetStaffLoginSourceRow struct {
-	Failures      int32
-	LockedUntil   *time.Time
-	LastSuccessAt *time.Time
+	Failures            int32
+	LockedUntil         *time.Time
+	LastSuccessAt       *time.Time
+	SuccessTokenVersion *int64
 }
 
 // GetStaffLoginSource reads and locks the (account, address) state.
 func (q *Queries) GetStaffLoginSource(ctx context.Context, arg GetStaffLoginSourceParams) (GetStaffLoginSourceRow, error) {
 	row := q.db.QueryRow(ctx, getStaffLoginSource, arg.StaffID, arg.ClientKey)
 	var i GetStaffLoginSourceRow
-	err := row.Scan(&i.Failures, &i.LockedUntil, &i.LastSuccessAt)
+	err := row.Scan(
+		&i.Failures,
+		&i.LockedUntil,
+		&i.LastSuccessAt,
+		&i.SuccessTokenVersion,
+	)
 	return i, err
 }
 
@@ -142,7 +186,7 @@ func (q *Queries) GetStaffMember(ctx context.Context, id uuid.UUID) (GetStaffMem
 }
 
 const getStaffPasswordState = `-- name: GetStaffPasswordState :one
-SELECT password_hash, backoff_until
+SELECT password_hash, backoff_until, token_version
 FROM active_staff_members
 WHERE id = $1
 `
@@ -150,13 +194,14 @@ WHERE id = $1
 type GetStaffPasswordStateRow struct {
 	PasswordHash string
 	BackoffUntil *time.Time
+	TokenVersion int64
 }
 
 // GetStaffPasswordState is what a password change checks before hashing.
 func (q *Queries) GetStaffPasswordState(ctx context.Context, id uuid.UUID) (GetStaffPasswordStateRow, error) {
 	row := q.db.QueryRow(ctx, getStaffPasswordState, id)
 	var i GetStaffPasswordStateRow
-	err := row.Scan(&i.PasswordHash, &i.BackoffUntil)
+	err := row.Scan(&i.PasswordHash, &i.BackoffUntil, &i.TokenVersion)
 	return i, err
 }
 
@@ -332,27 +377,34 @@ func (q *Queries) LockStaffForSignIn(ctx context.Context, id uuid.UUID) (LockSta
 }
 
 const markStaffSourceSuccess = `-- name: MarkStaffSourceSuccess :exec
-INSERT INTO staff_login_sources (staff_id, client_key, failures, locked_until, last_success_at, updated_at)
-VALUES ($1, $2, 0, NULL, $3::timestamptz, $3::timestamptz)
+INSERT INTO staff_login_sources (staff_id, client_key, failures, locked_until, last_success_at, success_token_version, updated_at)
+VALUES ($1, $2, 0, NULL, $3::timestamptz, $4::bigint, $3::timestamptz)
 ON CONFLICT (staff_id, client_key) DO UPDATE
-SET failures = 0, locked_until = NULL, last_success_at = EXCLUDED.last_success_at, updated_at = EXCLUDED.updated_at
+SET failures = 0, locked_until = NULL, last_success_at = EXCLUDED.last_success_at,
+    success_token_version = EXCLUDED.success_token_version, updated_at = EXCLUDED.updated_at
 `
 
 type MarkStaffSourceSuccessParams struct {
-	StaffID   uuid.UUID
-	ClientKey string
-	Now       time.Time
+	StaffID      uuid.UUID
+	ClientKey    string
+	Now          time.Time
+	TokenVersion int64
 }
 
 // MarkStaffSourceSuccess clears the address's counter and lock and makes
-// it a known-good source (ADR-0025 §6).
+// it a known-good source under the account's token version (ADR-0025 §6).
 func (q *Queries) MarkStaffSourceSuccess(ctx context.Context, arg MarkStaffSourceSuccessParams) error {
-	_, err := q.db.Exec(ctx, markStaffSourceSuccess, arg.StaffID, arg.ClientKey, arg.Now)
+	_, err := q.db.Exec(ctx, markStaffSourceSuccess,
+		arg.StaffID,
+		arg.ClientKey,
+		arg.Now,
+		arg.TokenVersion,
+	)
 	return err
 }
 
 const peekStaffLoginSource = `-- name: PeekStaffLoginSource :one
-SELECT failures, locked_until, last_success_at
+SELECT failures, locked_until, last_success_at, success_token_version
 FROM staff_login_sources
 WHERE staff_id = $1 AND client_key = $2
 `
@@ -363,9 +415,10 @@ type PeekStaffLoginSourceParams struct {
 }
 
 type PeekStaffLoginSourceRow struct {
-	Failures      int32
-	LockedUntil   *time.Time
-	LastSuccessAt *time.Time
+	Failures            int32
+	LockedUntil         *time.Time
+	LastSuccessAt       *time.Time
+	SuccessTokenVersion *int64
 }
 
 // PeekStaffLoginSource reads the (account, address) state without a lock:
@@ -374,7 +427,12 @@ type PeekStaffLoginSourceRow struct {
 func (q *Queries) PeekStaffLoginSource(ctx context.Context, arg PeekStaffLoginSourceParams) (PeekStaffLoginSourceRow, error) {
 	row := q.db.QueryRow(ctx, peekStaffLoginSource, arg.StaffID, arg.ClientKey)
 	var i PeekStaffLoginSourceRow
-	err := row.Scan(&i.Failures, &i.LockedUntil, &i.LastSuccessAt)
+	err := row.Scan(
+		&i.Failures,
+		&i.LockedUntil,
+		&i.LastSuccessAt,
+		&i.SuccessTokenVersion,
+	)
 	return i, err
 }
 
