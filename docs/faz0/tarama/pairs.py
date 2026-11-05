@@ -29,10 +29,11 @@ BASIS = {
     "applicant_pool": "açık ilana başvurabilecek herkes (job#applicant_pool)",
     "participant": "sohbet katılımcısı (conversation#participant)",
     "invitee": "davet edilen (company_invitation#invitee)",
+    "inviter": "daveti gönderen (company_invitation#inviter)",
     "seat_holder": "serviste koltuğu olan işçi (shuttle#seat_holder)",
     "active_worker": "adresin göründüğü atama durumundaki işçi (job#active_worker)",
     "reviewer": "başvuru almış işveren tarafı (private_file#reviewer)",
-    "owner": "kaydın sahibi (model dışı, Scope SelfUserID)",
+    "owner": "kaydın sahibi (private_file#owner; model dışı tiplerde Scope SelfUserID)",
     "self": "kendisi (user#itself)",  # OpenFGA'da self ayrılmış sözcük
     "contact": "ortak sohbeti olan kullanıcı (user#contact)",
     "public": "herkese açık ([user:*] ya da kimliksiz)",
@@ -222,7 +223,7 @@ pair("company", "tag_talent_pool_entry", "KONTROL YOK", "üye", "", "—", "✗"
 pair("company_invitation", "read", "davet eden ∪ davet edilen ∪ şirket ADMIN'i", "= Java", "", "—", "✗",
      "company_invitation#can_read", FGA, "",
      [("user:u_invitee", "company_invitation:inv_1", A, A, "invitee"),
-      ("user:u_co_admin", "company_invitation:inv_1", A, A, "company_admin"),
+      ("user:u_co_admin", "company_invitation:inv_1", A, A, "inviter"),  # u_co_admin daveti de gönderdi; model önce inviter'ı bulur
       ("user:u_co_staff", "company_invitation:inv_1", D, D, True),
       ("user:u_stranger", "company_invitation:inv_1", D, D, True)])
 pair("company_invitation", "answer", "yalnız davet edilen", "= Java", "", "—", "✗", "company_invitation#can_answer", FGA, "",
@@ -314,7 +315,7 @@ pair("user", "read_public_profile", "kimlikli her kullanıcı (profil)", "= Java
       ("user:u_stranger", "user:u_deleted", D, D, True, {"note": "soft-delete", "jrow": "missing"})])
 pair("user", "read_cv_url", "kendisi ∪ başvuru almış işveren (projeksiyon)", "private_file#can_download", "D5", "—", "✗",
      "private_file#can_download", FGA, "",
-     [("user:u_applicant", "private_file:cv_applicant", A, A, "self"),
+     [("user:u_applicant", "private_file:cv_applicant", A, A, "owner"),  # model CV'yi private_file#owner ile verir
       ("user:u_creator", "private_file:cv_applicant", A, A, "reviewer"),
       ("user:u_stranger", "private_file:cv_applicant", D, D, False, "alan düzeyi: CV bağlantısı yok")])
 pair("private_file", "download", "sahip ∪ ROLE_ADMIN ∪ başvuru almış işveren", "sahip ∪ reviewer (ROLE_ADMIN yok)", "D5", "—", "✗",

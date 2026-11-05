@@ -43,10 +43,11 @@ basis:
   applicant_pool: "açık ilana başvurabilecek herkes (job#applicant_pool)"
   participant: "sohbet katılımcısı (conversation#participant)"
   invitee: "davet edilen (company_invitation#invitee)"
+  inviter: "daveti gönderen (company_invitation#inviter)"
   seat_holder: "serviste koltuğu olan işçi (shuttle#seat_holder)"
   active_worker: "adresin göründüğü atama durumundaki işçi (job#active_worker)"
   reviewer: "başvuru almış işveren tarafı (private_file#reviewer)"
-  owner: "kaydın sahibi (model dışı, Scope SelfUserID)"
+  owner: "kaydın sahibi (private_file#owner; model dışı tiplerde Scope SelfUserID)"
   self: "kendisi (user#itself)"
   contact: "ortak sohbeti olan kullanıcı (user#contact)"
   public: "herkese açık ([user:*] ya da kimliksiz)"
@@ -1503,7 +1504,7 @@ cases:
     subject: "user:u_co_admin"
     object: "company_invitation:inv_1"
     expect: allow
-    basis: company_admin
+    basis: inviter
     java: allow
     engine: [go, openfga]
     inventory: [AZ-063]
@@ -2140,7 +2141,7 @@ cases:
     subject: "user:u_applicant"
     object: "private_file:cv_applicant"
     expect: allow
-    basis: self
+    basis: owner
     java: allow
     engine: [go, openfga]
     inventory: [AZ-094]
