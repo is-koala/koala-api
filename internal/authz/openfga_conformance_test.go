@@ -214,7 +214,7 @@ func (c *openfgaClient) createStore(ctx context.Context, t *testing.T) {
 func (c *openfgaClient) writeModel(ctx context.Context, t *testing.T, model []byte) {
 	t.Helper()
 	// model.json is the request body as it is: openfga/language writes the
-	// proto field names OpenFGA's HTTP API reads.
+	// protobuf JSON names OpenFGA's HTTP API reads.
 	var resp map[string]any
 	c.post(ctx, t, "/stores/"+c.storeID+"/authorization-models", model, &resp)
 	for _, k := range []string{"authorization_model_id", "authorizationModelId"} {

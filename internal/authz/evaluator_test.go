@@ -28,12 +28,12 @@ import (
 //	    define can_view: viewer but not banned
 //	    define can_audit: owner and viewer
 const folderModel = `{
-  "schemaVersion": "1.1",
-  "typeDefinitions": [
+  "schema_version": "1.1",
+  "type_definitions": [
     {"type": "user"},
     {"type": "group",
      "relations": {"member": {"this": {}}},
-     "metadata": {"relations": {"member": {"directlyRelatedUserTypes": [{"type": "user"}]}}}},
+     "metadata": {"relations": {"member": {"directly_related_user_types": [{"type": "user"}]}}}},
     {"type": "folder",
      "relations": {
        "parent": {"this": {}},
@@ -46,10 +46,10 @@ const folderModel = `{
        "can_view": {"difference": {"base": {"computedUserset": {"relation": "viewer"}}, "subtract": {"computedUserset": {"relation": "banned"}}}},
        "can_audit": {"intersection": {"child": [{"computedUserset": {"relation": "owner"}}, {"computedUserset": {"relation": "viewer"}}]}}},
      "metadata": {"relations": {
-       "parent": {"directlyRelatedUserTypes": [{"type": "folder"}]},
-       "owner": {"directlyRelatedUserTypes": [{"type": "user"}]},
-       "viewer": {"directlyRelatedUserTypes": [{"type": "user"}, {"type": "user", "wildcard": {}}, {"type": "group", "relation": "member"}]},
-       "banned": {"directlyRelatedUserTypes": [{"type": "user"}]},
+       "parent": {"directly_related_user_types": [{"type": "folder"}]},
+       "owner": {"directly_related_user_types": [{"type": "user"}]},
+       "viewer": {"directly_related_user_types": [{"type": "user"}, {"type": "user", "wildcard": {}}, {"type": "group", "relation": "member"}]},
+       "banned": {"directly_related_user_types": [{"type": "user"}]},
        "can_view": {},
        "can_audit": {}}}}
   ]

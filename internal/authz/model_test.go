@@ -141,17 +141,17 @@ func TestLoadModelRejects(t *testing.T) {
 	t.Parallel()
 	const user = `{"type":"user"}`
 	doc := func(types ...string) string {
-		return `{"schemaVersion":"1.1","typeDefinitions":[` + strings.Join(types, ",") + `]}`
+		return `{"schema_version":"1.1","type_definitions":[` + strings.Join(types, ",") + `]}`
 	}
-	direct := `"metadata":{"relations":{"owner":{"directlyRelatedUserTypes":[{"type":"user"}]}}}`
+	direct := `"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]}}}`
 	tests := []struct {
 		name  string
 		model string
 	}{
 		{"not json", `{`},
-		{"unknown field", `{"schemaVersion":"1.1","typeDefinitions":[],"extra":1}`},
-		{"schema 1.2", `{"schemaVersion":"1.2","typeDefinitions":[` + user + `]}`},
-		{"condition", `{"schemaVersion":"1.1","typeDefinitions":[` + user + `],"conditions":{"c":{}}}`},
+		{"unknown field", `{"schema_version":"1.1","type_definitions":[],"extra":1}`},
+		{"schema 1.2", `{"schema_version":"1.2","type_definitions":[` + user + `]}`},
+		{"condition", `{"schema_version":"1.1","type_definitions":[` + user + `],"conditions":{"c":{}}}`},
 		{"duplicate type", doc(user, user)},
 		{"module", doc(user, `{"type":"doc","metadata":{"module":"m"}}`)},
 		{"direct without restriction", doc(user, `{"type":"doc","relations":{"owner":{"this":{}}}}`)},
@@ -160,11 +160,11 @@ func TestLoadModelRejects(t *testing.T) {
 		{"undefined computed relation", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"v":{"computedUserset":{"relation":"nope"}}},`+direct+`}`)},
 		{"empty userset", doc(user, `{"type":"doc","relations":{"owner":{}}}`)},
 		{"two rewrites", doc(user, `{"type":"doc","relations":{"owner":{"this":{},"computedUserset":{"relation":"owner"}}},`+direct+`}`)},
-		{"conditioned restriction", doc(user, `{"type":"doc","relations":{"owner":{"this":{}}},"metadata":{"relations":{"owner":{"directlyRelatedUserTypes":[{"type":"user","condition":"c"}]}}}}`)},
+		{"conditioned restriction", doc(user, `{"type":"doc","relations":{"owner":{"this":{}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user","condition":"c"}]}}}}`)},
 		{"nested but not", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"owner"}}}}]}}},`+direct+`}`)},
 		{"set operation under and", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"intersection":{"child":[{"computedUserset":{"relation":"owner"}},{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"computedUserset":{"relation":"owner"}}]}}]}}},`+direct+`}`)},
-		{"tupleset with wildcard", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"parent"}}}},"metadata":{"relations":{"parent":{"directlyRelatedUserTypes":[{"type":"doc","wildcard":{}}]}}}}`)},
-		{"tupleset parent lacks relation", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"nope"}}}},"metadata":{"relations":{"parent":{"directlyRelatedUserTypes":[{"type":"user"}]}}}}`)},
+		{"tupleset with wildcard", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"parent"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc","wildcard":{}}]}}}}`)},
+		{"tupleset parent lacks relation", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"nope"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

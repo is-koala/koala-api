@@ -17,12 +17,12 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "itself"
                 }
               },
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "contact"
                 }
               }
@@ -74,11 +74,11 @@
                 "this": {}
               },
               {
-                "tuple_to_userset": {
+                "tupleToUserset": {
                   "tupleset": {
                     "relation": "includer"
                   },
-                  "computed_userset": {
+                  "computedUserset": {
                     "relation": "assignee"
                   }
                 }
@@ -403,12 +403,12 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "admin"
                 }
               },
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "staff_member"
                 }
               }
@@ -419,17 +419,17 @@
           "this": {}
         },
         "can_manage": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "admin"
           }
         },
         "can_manage_jobs": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "member"
           }
         },
         "can_read_internal": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "member"
           }
         }
@@ -481,21 +481,21 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "inviter"
                 }
               },
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "invitee"
                 }
               },
               {
-                "tuple_to_userset": {
+                "tupleToUserset": {
                   "tupleset": {
                     "relation": "company"
                   },
-                  "computed_userset": {
+                  "computedUserset": {
                     "relation": "admin"
                   }
                 }
@@ -504,7 +504,7 @@
           }
         },
         "can_answer": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "invitee"
           }
         }
@@ -565,16 +565,16 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "individual_owner"
                 }
               },
               {
-                "tuple_to_userset": {
+                "tupleToUserset": {
                   "tupleset": {
                     "relation": "owner_company"
                   },
-                  "computed_userset": {
+                  "computedUserset": {
                     "relation": "member"
                   }
                 }
@@ -583,7 +583,7 @@
           }
         },
         "editor": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "employer"
           }
         },
@@ -591,12 +591,12 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "public_viewer"
                 }
               },
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "editor"
                 }
               }
@@ -604,36 +604,36 @@
           }
         },
         "can_edit": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "editor"
           }
         },
         "can_read_private": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "editor"
           }
         },
         "can_list_applications": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "editor"
           }
         },
         "can_apply": {
           "difference": {
             "base": {
-              "computed_userset": {
+              "computedUserset": {
                 "relation": "applicant_pool"
               }
             },
             "subtract": {
-              "computed_userset": {
+              "computedUserset": {
                 "relation": "editor"
               }
             }
           }
         },
         "can_open_conversation": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "editor"
           }
         },
@@ -641,27 +641,27 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "individual_owner"
                 }
               },
               {
-                "tuple_to_userset": {
+                "tupleToUserset": {
                   "tupleset": {
                     "relation": "owner_company"
                   },
-                  "computed_userset": {
+                  "computedUserset": {
                     "relation": "can_manage_jobs"
                   }
                 }
               },
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "active_worker"
                 }
               },
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "public_address_viewer"
                 }
               }
@@ -748,16 +748,16 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "applicant"
                 }
               },
               {
-                "tuple_to_userset": {
+                "tupleToUserset": {
                   "tupleset": {
                     "relation": "job"
                   },
-                  "computed_userset": {
+                  "computedUserset": {
                     "relation": "editor"
                   }
                 }
@@ -766,17 +766,17 @@
           }
         },
         "can_decide": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "job"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "editor"
             }
           }
         },
         "can_withdraw": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "applicant"
           }
         }
@@ -816,16 +816,16 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "worker"
                 }
               },
               {
-                "tuple_to_userset": {
+                "tupleToUserset": {
                   "tupleset": {
                     "relation": "job"
                   },
-                  "computed_userset": {
+                  "computedUserset": {
                     "relation": "editor"
                   }
                 }
@@ -834,72 +834,72 @@
           }
         },
         "can_read": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "party"
           }
         },
         "can_respond": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "worker"
           }
         },
         "can_cancel": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "party"
           }
         },
         "can_complete": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "job"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "editor"
             }
           }
         },
         "can_pay": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "job"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "editor"
             }
           }
         },
         "can_record_work": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "worker"
           }
         },
         "can_open_dispute": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "party"
           }
         },
         "can_review": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "party"
           }
         },
         "can_reveal_worker_identity": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "job"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "editor"
             }
           }
         },
         "can_select_seat": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "party"
           }
         },
         "can_board": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "worker"
           }
         }
@@ -942,21 +942,21 @@
           "this": {}
         },
         "can_read": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "assignment"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "party"
             }
           }
         },
         "can_add_evidence": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "assignment"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "party"
             }
           }
@@ -983,12 +983,12 @@
           "this": {}
         },
         "can_read": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "participant"
           }
         },
         "can_post": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "participant"
           }
         }
@@ -1017,11 +1017,11 @@
           "this": {}
         },
         "can_read": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "conversation"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "participant"
             }
           }
@@ -1029,12 +1029,12 @@
         "can_report": {
           "difference": {
             "base": {
-              "computed_userset": {
+              "computedUserset": {
                 "relation": "can_read"
               }
             },
             "subtract": {
-              "computed_userset": {
+              "computedUserset": {
                 "relation": "sender"
               }
             }
@@ -1072,17 +1072,17 @@
           "this": {}
         },
         "can_manage": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "job"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "editor"
             }
           }
         },
         "can_board": {
-          "computed_userset": {
+          "computedUserset": {
             "relation": "seat_holder"
           }
         },
@@ -1090,12 +1090,12 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "can_manage"
                 }
               },
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "seat_holder"
                 }
               }
@@ -1132,11 +1132,11 @@
           "this": {}
         },
         "can_mark_boarding": {
-          "tuple_to_userset": {
+          "tupleToUserset": {
             "tupleset": {
               "relation": "shuttle"
             },
-            "computed_userset": {
+            "computedUserset": {
               "relation": "can_manage"
             }
           }
@@ -1168,12 +1168,12 @@
           "union": {
             "child": [
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "owner"
                 }
               },
               {
-                "computed_userset": {
+                "computedUserset": {
                   "relation": "reviewer"
                 }
               }

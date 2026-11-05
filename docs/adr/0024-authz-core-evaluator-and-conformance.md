@@ -34,7 +34,7 @@ Kod üretimi, Scope'un SQL'e çevrilmesi için ayrıca değerlendirilecek (Faz 2
 - `internal/authz/model.fga` tek doğruluk kaynağıdır.
 - `internal/authz/model.json`, `openfga/language`'in (`transformer.TransformDSLToJSON`) `model.fga`'dan ürettiği OpenFGA JSON'udur. Servis bunu `//go:embed` ile gömer ve stdlib `encoding/json` ile okur. Böylece `openfga/language` servis ikilisine girmez; yalnız testler onu import eder.
 - `TestModelJSONMatchesDSL` iki dosyanın aynı modeli taşıdığını doğrular; farklıysa resmi çıktıyı log'a basar. Güncelleme: `go test ./internal/authz -run TestModelJSONMatchesDSL -update`.
-- `model.json` proto alan adlarını (snake_case) taşır; OpenFGA'nın HTTP API'si de bunları okur, dosya olduğu gibi yüklenir.
+- `model.json` `openfga/api`'nin protobuf JSON adlarını taşır (`computedUserset` ve `tupleToUserset` dışında snake_case). OpenFGA'nın HTTP API'si de bunları okur; dosya olduğu gibi yüklenir.
 - Resmi Go ayrıştırıcısı yalnız sözdizimini denetler. Anlamsal denetimi (ör. ayrılmış sözcükler) OpenFGA sunucusu model yazımında yapar; uygunluk job'u bunu her PR'da koşar.
 - Kendi DSL ayrıştırıcımız yazılmadı: tek ayrıştırıcı resmi olandır.
 

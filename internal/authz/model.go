@@ -381,9 +381,10 @@ func (rw *rewrite) contains(k rewriteKind) bool {
 	return false
 }
 
-// Wire form: OpenFGA's AuthorizationModel with proto (snake_case) field
-// names, as openfga/language writes it and OpenFGA's HTTP API reads it.
-// Only the fields of the subset are known.
+// Wire form: OpenFGA's AuthorizationModel with the protobuf JSON names of
+// openfga/api (snake_case except computedUserset and tupleToUserset), as
+// openfga/language writes it and OpenFGA's HTTP API reads it. Only the
+// fields of the subset are known.
 type wireModel struct {
 	ID              string                     `json:"id,omitempty"`
 	SchemaVersion   string                     `json:"schema_version"`
@@ -418,8 +419,8 @@ type wireRelationReference struct {
 
 type wireUserset struct {
 	This            *struct{}           `json:"this,omitempty"`
-	ComputedUserset *wireObjectRel      `json:"computed_userset,omitempty"`
-	TupleToUserset  *wireTupleToUserset `json:"tuple_to_userset,omitempty"`
+	ComputedUserset *wireObjectRel      `json:"computedUserset,omitempty"`
+	TupleToUserset  *wireTupleToUserset `json:"tupleToUserset,omitempty"`
 	Union           *wireUsersets       `json:"union,omitempty"`
 	Intersection    *wireUsersets       `json:"intersection,omitempty"`
 	Difference      *wireDifference     `json:"difference,omitempty"`
@@ -432,7 +433,7 @@ type wireObjectRel struct {
 
 type wireTupleToUserset struct {
 	Tupleset        wireObjectRel `json:"tupleset"`
-	ComputedUserset wireObjectRel `json:"computed_userset"`
+	ComputedUserset wireObjectRel `json:"computedUserset"`
 }
 
 type wireUsersets struct {
