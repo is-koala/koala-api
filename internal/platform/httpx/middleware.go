@@ -260,15 +260,20 @@ type originalBodyKey struct{}
 func BodyLimit(n int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
-			orig, ok := ctx.Value(originalBodyKey{}).(io.ReadCloser)
-			if !ok {
-				orig = r.Body
-				ctx = context.WithValue(ctx, originalBodyKey{}, orig)
-			}
-			r2 := r.WithContext(ctx)
-			r2.Body = http.MaxBytesReader(w, orig, n)
-			next.ServeHTTP(w, r2)
+			next.ServeHTTP(w, limitBody(w, r, n))
 		})
 	}
+}
+
+// limitBody returns r with its original body capped at n bytes.
+func limitBody(w http.ResponseWriter, r *http.Request, n int64) *http.Request {
+	ctx := r.Context()
+	orig, ok := ctx.Value(originalBodyKey{}).(io.ReadCloser)
+	if !ok {
+		orig = r.Body
+		ctx = context.WithValue(ctx, originalBodyKey{}, orig)
+	}
+	r2 := r.WithContext(ctx)
+	r2.Body = http.MaxBytesReader(w, orig, n)
+	return r2
 }

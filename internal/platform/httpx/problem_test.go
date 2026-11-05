@@ -9,18 +9,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
 
-// serveError runs WriteError behind the RequestID middleware so the problem
-// carries a request id, as in production.
+// serveError runs WriteError on a chi route behind the RequestID
+// middleware so the problem carries a request id and a route template, as
+// in production.
 func serveError(t *testing.T, err error) (*httptest.ResponseRecorder, *logSink) {
 	t.Helper()
 	logger, sink := newLogger()
-	h := httpx.RequestID(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux := chi.NewRouter()
+	mux.Post("/v1/job-assignments/{assignmentId}/payment-session", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, logger, err)
-	}))
+	})
+	h := httpx.RequestID(mux)
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/job-assignments/abc/payment-session?token=secret", http.NoBody)
 	req.Header.Set(httpx.HeaderRequestID, "req-123")
 	rec := httptest.NewRecorder()
@@ -31,14 +36,19 @@ func serveError(t *testing.T, err error) (*httptest.ResponseRecorder, *logSink) 
 func TestWriteErrorGoldenBody(t *testing.T) {
 	t.Parallel()
 
-	err := apperr.New(apperr.KindConflict, "PAYMENT_ATTEMPT_ACTIVE").
-		WithFields(apperr.FieldError{Pointer: "/iban", Code: "IBAN_INVALID"})
+	err := apperr.New(apperr.KindConflict, "PAYMENT_ATTEMPT_ACTIVE").WithFields(
+		apperr.FieldError{Pointer: "/iban", Code: "IBAN_INVALID"},
+		apperr.FieldError{Pointer: "", Code: "FIELD_REQUIRED"},
+		apperr.FieldError{Parameter: "limit", In: "QUERY", Code: "FIELD_OUT_OF_RANGE"},
+	)
 	rec, _ := serveError(t, err)
 
+	// instance is the route template: the path's "abc" is not echoed.
 	const want = `{"type":"https://api.iskoala.com/problems/payment-attempt-active",` +
 		`"title":"Conflict","status":409,"code":"PAYMENT_ATTEMPT_ACTIVE",` +
-		`"instance":"/v1/job-assignments/abc/payment-session","requestId":"req-123",` +
-		`"errors":[{"pointer":"/iban","code":"IBAN_INVALID"}]}`
+		`"instance":"/v1/job-assignments/{assignmentId}/payment-session","requestId":"req-123",` +
+		`"errors":[{"pointer":"/iban","code":"IBAN_INVALID"},{"pointer":"","code":"FIELD_REQUIRED"},` +
+		`{"parameter":"limit","in":"QUERY","code":"FIELD_OUT_OF_RANGE"}]}`
 	if got := rec.Body.String(); got != want {
 		t.Fatalf("body mismatch\n got: %s\nwant: %s", got, want)
 	}
@@ -66,6 +76,7 @@ func TestStatusOfEveryKind(t *testing.T) {
 		{apperr.KindUpstream, http.StatusBadGateway},
 		{apperr.KindPayloadTooLarge, http.StatusRequestEntityTooLarge},
 		{apperr.KindUnavailable, http.StatusServiceUnavailable},
+		{apperr.KindUnsupportedMediaType, http.StatusUnsupportedMediaType},
 		{apperr.KindInternal, http.StatusInternalServerError},
 		{apperr.Kind(200), http.StatusInternalServerError},
 	}

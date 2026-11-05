@@ -233,6 +233,7 @@ linters:
         - errors.Join(
         - apperr.New(
         - apperr.Wrap(
+        - .WithFields( # apperr.(*Error).WithFields copies an *apperr.Error
       # Response writer wrappers (httpx.headerWatcher) must pass the
       # underlying writer's errors through unchanged.
       # (ignore-interface-regexps is not enough: wrapcheck still reports
