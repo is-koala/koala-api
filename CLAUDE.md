@@ -14,7 +14,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 ## Kapı: CI'da koşar, yerelde ağır iş yok
 
 - Kapı iki adımdır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004, ADR-0017):
-  1. `make verify`: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`). Bu adımdaki testler DB'siz birim testleridir.
+  1. `make verify`: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`) → `sqlc vet` ve probu (`sqlc-vet`). Bu adımdaki testler DB'siz birim testleridir.
   2. `make test-integration`: service container'daki Postgres'e karşı yalnız `integration` etiketli testler. Önce etiket korumaları koşar.
 - **Bu Mac'te yerelde ağır iş yapılmaz** (Yusuf, 04.11). `go test`, `go vet`, `go build`, golangci-lint, `make verify` ve docker çalıştırılmaz. Serbest olanlar: `gofmt`, `go mod tidy`, `make fmt-check`, `make mod-check`. İş bitince `go clean -cache`.
 - PR, CI'daki `verify` yeşil olmadan merge edilmez. Kırmızı kapıyla "sonra düzeltirim" yok.
@@ -55,11 +55,14 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 ## Veri erişimi ve soft-delete (ADR-0012, ADR-0013)
 
-- Uygulama sorguları yalnız `active_<t>` view'larından okur ve yazar; temel tabloya dokunmaz. `koala_app` rolünün temel tablolarda yetkisi yok **[test: TestRoleGrants]**. `sqlc vet` kuralı Faz 1'de gelecek.
+- Uygulama sorguları yalnız `active_<t>` view'larından okur ve yazar; temel tabloya dokunmaz. `koala_app` rolünün temel tablolarda yetkisi yok **[test: TestRoleGrants]**. Uygulama sorgusunda soft-delete'li temel tablo adı `sqlc vet`'te kırmızıdır **[make verify: sqlc-vet]**.
+- Sorgular sqlc ile yazılır (ADR-0020): uygulama sorguları `db/queries/<alan>/`, `koala_maint` sorguları `db/queries/maint/` → `maintdb`. `maintdb`'yi yalnız soft-delete platformu, `privacy` ve `staff` import eder **[lint: depguard maint]**. Üretilen kod commit edilir **[make verify: gen-check]**.
+- Yeni tablo varsayılan olarak soft-delete'lidir: `CREATE TABLE`'ın altına `-- +koala soft-delete v1 <t>` yazılır, `make generate` view'ı ve GRANT'leri üretir. Tablo ve soft-delete'li tabloya giden her FK `db/softdelete.yaml`'da sınıflanır (muafiyet gerekçeli) **[test: TestCatalogMatchesDatabase]**. Silme yalnız `softdelete.Delete` ile, geri alma `softdelete.Restore` ile yapılır; kaskad trigger'la yapılmaz.
 - Sunucu girişi izin listesiyle denetlenir: üyelikleri tam olarak `{koala_app}`, güçlü özniteliği yok, kendi tablo yetkisi yok. Uymayan girişle havuz bağlantı vermez **[test]**. Sahip, bakım ve bootstrap girişleri süper kullanıcı olamaz **[test]**. `SET ROLE` güvenlik sınırı değildir (ADR-0017).
 - **Oturum düzeyinde `SET` yasaktır; yalnız `InTx` içinde `SET LOCAL` kullanılır.** Havuz her edinimde `current_user`'ı denetler, değişmişse bağlantıyı atar **[test]**. Bu yüzden PgBouncer transaction modu kullanılmaz.
-- Yeni tablo, view, dizi ya da fonksiyon kendi GRANT'iyle gelir. Fonksiyonlarda `PUBLIC` `EXECUTE` yoktur. KVKK verisi süzen view `WITH (security_barrier)` ile kurulur (ADR-0017).
-- `softdelete.yaml`'da `detach` politikalı FK kenarında yalnız `LEFT JOIN active_*` kullanılır; INNER JOIN yasak. Faz 1'de lint'le zorlanacak.
+- Yeni tablo, view, dizi ya da fonksiyon kendi GRANT'iyle gelir. Fonksiyonlarda `PUBLIC` `EXECUTE` yoktur. KVKK verisi süzen view `WITH (security_barrier)` ile kurulur (ADR-0017); katalogda `pii: true` ⇔ view'da `security_barrier` **[test]**.
+- `softdelete.yaml`'da `detach` politikalı FK kenarında yalnız `LEFT JOIN active_*` kullanılır; INNER JOIN yasak **[test: TestQueriesJoinLint]**. Elle yazılmış pgx sorguları taranmaz, incelemede bakılır.
+- GET operasyonu okuduğu tabloyu `x-resource` ile adlandırır; soft-delete'li her tablo için fikstür yazılır ve üretilmiş okuma testi (`softdeletetest.ReadTest`) koşar (ADR-0020).
 - Temel tablolara yalnız `koala_maint` rolü erişir: geri alma, temizlik, anonimleştirme. M1 tabloları (defter, kanıt) silinmez.
 
 ## API (ADR-0005, ADR-0006, ADR-0019, `docs/api-style-guide.md`)

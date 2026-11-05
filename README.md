@@ -20,7 +20,9 @@ Faz 0'daki River + goose spike'ıyla gelenler (ADR-0017):
 - `koala_owner`/`koala_app`/`koala_maint` rol modeli,
 - test başına template DB.
 
-Faz 1'de kalanlar: sqlc, metrik, sürüm kapısı (`400 APP_VERSION_UNSUPPORTED`, ADR-0019), rate limit, path normalizasyonu, River worker'larının sunucuya bağlanması, authn/authz ve soft-delete korumalarının geri kalanı.
+Faz 1'de gelenler: sqlc araç zinciri ve `sqlc vet` kuralı, soft-delete platformu (`deletions`, `active_<t>` view üreticisi, `softdelete` paketi, `db/softdelete.yaml` ve katalog testleri, JOIN lint'i, üretilmiş okuma testi çatısı; ADR-0020).
+
+Faz 1'de kalanlar: metrik, sürüm kapısı (`400 APP_VERSION_UNSUPPORTED`, ADR-0019), rate limit, path normalizasyonu, River worker'larının sunucuya bağlanması, authn/authz, temiz baseline ve seed.
 
 Plan belgesi: [`docs/plan/go-gecis-degerlendirme.md`](docs/plan/go-gecis-degerlendirme.md). Kararlar: [`docs/adr/`](docs/adr/README.md). Kodlama kuralları: [`CLAUDE.md`](CLAUDE.md).
 
@@ -42,13 +44,14 @@ Kapı iki adımdır ve GitHub Actions'ta her PR'da ve `main`'e her push'ta koşa
 6. `govulncheck`,
 7. `go test -race -shuffle=on -count=1 ./...`,
 8. spec lint (`make api-lint`): vacuum ile `api/` ve her kuralın tetiklendiğini kanıtlayan prob,
-9. `make gen-check`: `internal/apiv1` spec'ten yeniden üretilenle aynı mı.
+9. `make gen-check`: üretilen kod güncel mi: soft-delete blokları ve `sqlc.yaml` kuralı (`softdeletegen`), sqlc paketleri ve `internal/apiv1`,
+10. `make sqlc-vet`: `sqlc vet` ve `no-base-table` kuralının tetiklendiğini kanıtlayan prob (`scripts/sqlc-vet-probe.sh`).
 
 **2. `make test-integration`:** iş için başlatılan Postgres 17 service container'ına karşı yalnız `//go:build integration` etiketli testleri koşar (`scripts/test-integration.sh`).
 - Önce etiket korumaları çalışır: yanlış yazılmış ya da eksik build tag'i olan test dosyası kırmızıdır.
 - Her test, template DB'den kendi DB'sini klonlar (`internal/platform/dbtest`).
 
-Araçlar (`golangci-lint`, `govulncheck`, `vacuum`) `Makefile`'daki sabit sürümlerle `./bin`'e kaynaktan derlenir (ADR-0004).
+Araçlar (`golangci-lint`, `govulncheck`, `vacuum`, `sqlc`) `Makefile`'daki sabit sürümlerle `./bin`'e kaynaktan derlenir (ADR-0004, ADR-0020).
 
 **Paylaşılan geliştirme Mac'inde ağır iş yapılmaz.** Yerelde yalnız `make fmt-check`, `make mod-check`, `gofmt` ve `go mod tidy` çalıştırılır. Test, vet, lint ve build CI'da koşar.
 
@@ -120,9 +123,10 @@ docker build --build-arg VERSION=$(git describe --tags --always) -t koala-api .
 cmd/koala/            ince main: sinyal + app.Run
 internal/app/         elle wiring ve alt komutlar
 internal/apiv1/       spec'ten üretilmiş sunucu arayüzü (make generate; elle düzenlenmez)
-internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr, db, jobs (River), dbtest
+internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr, db (+ maintdb), jobs (River), dbtest, softdelete
+internal/tools/       geliştirme araçları: softdeletegen (make generate)
 internal/archtest/    lint'in ifade edemediği mimari testler
-db/                   goose migration'ları (db/migrations), grup rolleri (db/bootstrap); sorgular Faz 1'de
+db/                   goose migration'ları (db/migrations), grup rolleri (db/bootstrap), sqlc sorguları (db/queries), soft-delete kataloğu (softdelete.yaml)
 api/                  OpenAPI 3.1 sözleşmesi, ortak bileşenler ve spec lint kuralları
 docs/adr/             mimari karar kayıtları
 docs/plan/            Go geçiş planı
