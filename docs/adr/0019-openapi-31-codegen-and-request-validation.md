@@ -55,7 +55,10 @@ ogen denenmedi: engelleyici bir eksik çıkmadı.
   - Bu ikinci denetim, açılışta **bir kez derlenmiş** şemayla (`github.com/santhosh-tekuri/jsonschema/v6`, kin'in kullandığı derleyici, Apache-2.0) yapılır. Bağımlılık Yusuf'un 05.11 onayıyla doğrudan bağımlılık oldu.
   - Şema derlenmeden önce kin'in çözdüğü hâliyle satır içine alınır (`$ref`'ler açılır), böylece derleyici hiçbir şey indirmez.
   - Hata dönüşümü yalnız hata türünü (`kind.Required`, `kind.Type`, …) ve konumu okur; değer içeren mesajları okumaz.
-- **2020'ye özgü anahtar kullanan parametre şeması açılışta reddedilir.** Parametreyi kin içeride çözdüğü için onu yalnız kin'in istek başına derleyen yolu denetleyebilir.
+- **Açılışta reddedilenler:**
+  - 2020'ye özgü anahtar kullanan parametre şeması. Parametreyi kin içeride çözdüğü için onu yalnız kin'in istek başına derleyen yolu denetleyebilir.
+  - Gövdede `not` ya da `oneOf` altında kalan 2020'ye özgü anahtar (ör. `oneOf: [{const: A}, {const: B}]`). Önce koşan 3.0 doğrulayıcısı bu anahtarı yok sayar: `not` her değeri reddeder, `oneOf` birden çok dalla eşleşir ve geçerli gövde yanlışlıkla 400 alır. `allOf`, `anyOf` ve `if` altında yok saymak yalnız 3.0 denetimini gevşetir; derlenmiş 2020 denetimi eksik kalanı yakalar.
+- 2020 denetimi içerik tipini kin'in eşlediği gibi bulur (parametreler ve büyük-küçük harf önemsiz, joker izinli). Eşleşmeyen tip 415 döner, 500 değil.
 - kin'in istek başına derleyen 2020 yolu hiç kullanılmaz.
 
 Yerel ölçümler (`testing.Benchmark`, router + doğrulama):
@@ -144,7 +147,9 @@ RFC 9110 §15.5.22, 426 yanıtında `Upgrade` başlığını zorunlu tutar ve bu
 - vacuum'da iki sınır bulundu:
   - `field: "@key"` desteklenmiyor; anahtar kuralları `…[*]~` ile yazıldı.
   - Bazı `field` aramaları yanlış düğüme bakıyor; bu kurallar `schema` fonksiyonuyla yazıldı.
-- Hiçbir şeye eşleşmeyen kural kapıyı sessizce yeşil gösterirdi. Bu yüzden `scripts/api-lint-probe.sh`, her Koala kuralının `api/testdata/lint-probe.yaml`'da tetiklendiğini kanıtlar. Probta tip dizisi (`[T, "null"]`) vakaları da vardır.
+- Hiçbir şeye eşleşmeyen kural kapıyı sessizce yeşil gösterirdi; yanlış yerde eşleşen kural da yanlış güven verirdi. Bu yüzden `scripts/api-lint-probe.sh` iki şeyi kanıtlar:
+  - `api/testdata/lint-probe.yaml`'daki her bağımsız vakanın Koala sonucu, (kural, JSON yolu) çifti olarak `lint-probe.expect`'e birebir eşittir. Vakalar tip dizilerini (`[T, "null"]`), içeriksiz 4xx'i, `message` zarfını, `can_*` dışı eylemi, iç içe ve `allOf` içindeki açık nesneleri ve merge patch'in `$ref`'li nullable üyesini ayrı ayrı içerir.
+  - `api/testdata/lint-pass.yaml`'daki doğru biçimler hiçbir Koala sonucu üretmez. Örneğin `allOf` + `unevaluatedProperties: false` geçer.
 
 ### 14. Doğrulama middleware'i kendi kodumuz
 
@@ -156,7 +161,7 @@ RFC 9110 §15.5.22, 426 yanıtında `Upgrade` başlığını zorunlu tutar ve bu
 ## Sonuçlar
 
 - `apperr.FieldError` `Parameter` ve `In` alanlarını kazandı; `httpx.ProblemField` iki biçimi yazar.
-- Doğrulamadan sonra `r.Body` yalnız doğrulanmış değeri verir (`ValidatedValue() any`); okumak hata döner. Üretilen handler o değeri bağlar. `runtime.BindJSONBody`'nin `encoding/json`'a geri düşüşü ham baytı okuyamaz, bu yüzden ikinci ve doğrulanmamış bir decode yoktur. Bağlama başarısız olursa yanıt `400 REQUEST_BODY_MALFORMED`'dır.
+- Doğrulamadan sonra `r.Body` yalnız doğrulanmış değeri verir (`ValidatedValue() any`); okumak hata döner. Üretilen handler o değeri bağlar. `runtime.BindJSONBody`'nin `encoding/json`'a geri düşüşü ham baytı okuyamaz, bu yüzden ikinci ve doğrulanmamış bir decode yoktur. Doğrulanmış istek bağlanamazsa (Go tipi şemadan dar) bu bir sunucu açığıdır: yanıt 500'dür ve hata yalnız tipleriyle loglanır.
 - kin isteği yerinde değiştirir: gövdeyi okur, şema varsayılanlarını yazar, `r.Body`'yi değiştirir. Faz 1'in idempotency parmak izi bu yüzden ham baytlardan değil, doğrulanmış değerin kanonik JSON'undan (`json.Marshal`, anahtarlar sıralı, varsayılanlar dahil) alınır.
 - Authn middleware'i (Faz 1) doğrulamadan önce gelir; kimliksiz istek gövde biçimi hakkında bir şey öğrenmez.
 - `httpx.IdempotencyKey` hem çıplak değeri (Stripe) hem taslaktaki tırnaklı structured-field string'i kabul eder ve tırnakları soyar.

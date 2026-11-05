@@ -66,8 +66,8 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 
 - Durum alanı (`status`) `PATCH` ile değiştirilmez; geçiş her zaman alt eylemdir. FSM `domain.go`'da tablo olarak durur (CLAUDE.md).
 - **PATCH yalnız JSON Merge Patch'tir** (RFC 7396; ADR-0019). Gövdenin `Content-Type`'ı `application/merge-patch+json` olmalıdır; `application/json` `415 CONTENT_TYPE_UNSUPPORTED` döner **[lint: koala-patch-is-merge-patch]** **[test: internal/app TestPatchPingMergePatch]**. Patch şeması şu kurallara uyar:
-  - Hiçbir üye zorunlu değildir. Şema bilinmeyen üyeyi reddeder (§4) **[lint: koala-merge-patch-shape, koala-closed-request-body]**.
-  - Temizlenebilen üye nullable'dır (`type: [string, "null"]`). Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi", "null" ve "değer" üç ayrı durum kalır. Bunun için üye `x-go-type: nullable.Nullable[string]`, `x-go-type-import: {path: github.com/oapi-codegen/nullable}` ve `x-go-type-skip-optional-pointer: true` taşır **[lint: koala-merge-patch-shape]** **[test: internal/codegentest]**.
+  - Kökte hiçbir üye zorunlu değildir. Şema ve içindeki her nesne bilinmeyen üyeyi reddeder (§4) **[lint: koala-merge-patch-shape, koala-closed-request-body]**. İç içe değer nesneleri (`MoneyInput` gibi) atomiktir: tamamı gönderilir ve kendi zorunlu üyelerini korur.
+  - Temizlenebilen üye nullable'dır: düz alanda `type: [string, "null"]`, `$ref`'li alanda `oneOf: [{$ref: …}, {type: "null"}]`. Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi", "null" ve "değer" üç ayrı durum kalır. Bunun için üye `x-go-type: nullable.Nullable[…]`, `x-go-type-import: {path: github.com/oapi-codegen/nullable}` ve `x-go-type-skip-optional-pointer: true` taşır. Kural iç içe nesnelerdeki üyelere de uygulanır. Bu üç uzantı yoksa üye pointer olur ve `null` ile temizleme isteği "gönderilmedi"den ayırt edilemez, sessizce kaybolur **[lint: koala-merge-patch-nullable]** **[test: internal/codegentest]**.
   - Temizlenemeyen üye nullable değildir; ona `null` göndermek `400 FIELD_TYPE_INVALID` döner.
   - `nullable.Nullable` yalnız merge patch üyelerinde kullanılır; oapi-codegen'in global `nullable-type` seçeneği açılmaz. Gerekçe: zorunlu + nullable bir yanıt alanı `Nullable` olursa handler'ın atamayı unuttuğu değer `null` değil, sıfır değer (`""`, `0`) olarak yazılır. Pointer'da unutulan değer `null`'dır.
   - Örnek: `PATCH /v1/meta/ping` (`PingPatch`).
@@ -156,6 +156,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - Biçim hatalarının kodları `FIELD_*`'dır (`FIELD_REQUIRED`, `FIELD_UNKNOWN`, `FIELD_TYPE_INVALID`, `FIELD_FORMAT_INVALID`, `FIELD_VALUE_INVALID`, `FIELD_OUT_OF_RANGE`). Alan kuralının ihlali kendi kodunu taşır (`IBAN_INVALID`).
 - **Alan hataları** `errors[]`'tadır (ADR-0019; JSON:API `source`, Microsoft `target`):
   - Gövdedeki üye: `{pointer, code}`. `pointer` RFC 6901'dir: `/amount/currency`; gövdenin tamamı için `""`.
+  - İki biçim birbirini dışlar; şema bunu zorlar (`dependentRequired`, `not`, `if`/`then`) **[test: api TestProblemFieldIsPointerXorParameter]**.
   - Parametre: `{parameter, in, code}`. `in` değeri `QUERY`, `PATH`, `HEADER` ya da `COOKIE`'dir.
   - Tip hatası parametrede ve gövdede aynı kodu alır: `limit=abc` → `FIELD_TYPE_INVALID` **[test]**.
 - **Metin yok:**
@@ -222,7 +223,7 @@ Bu bölümün planda ya da bir ADR'de dayanağı yoktur.
   - kök spec (`api/ruleset.yaml`: Spectral'ın önerilen seti + Koala kuralları),
   - her bileşen dosyası (`api/ruleset-schemas.yaml`).
 
-  Ardından `scripts/api-lint-probe.sh`, her Koala kuralının `api/testdata/lint-probe.yaml`'da gerçekten tetiklendiğini kanıtlar. Hata kapıyı kırmızı yapar; uyarılar yalnız raporlanır.
+  Ardından `scripts/api-lint-probe.sh` iki şeyi kanıtlar. `api/testdata/lint-probe.yaml`'daki bağımsız vakaların Koala sonuçları, (kural, JSON yolu) çiftleriyle `lint-probe.expect`'e birebir eşittir; eksik ya da fazla sonuç kapıyı kırmızı yapar. `lint-pass.yaml`'daki doğru biçimler ise hiçbir Koala sonucu üretmez. Bir kural değişince iki dosya ve beklenti listesi birlikte güncellenir. Lint hatası kapıyı kırmızı yapar; uyarılar yalnız raporlanır.
 - `make generate` `internal/apiv1`'i ve `internal/codegentest`'i oapi-codegen ile üretir. Üretilen kod commit edilir. `make gen-check` eski dosyaları silip yeniden üretir ve fark varsa kırmızı olur. İkisi de `make verify`'ın parçasıdır (ADR-0019).
 - Yeni bir bileşen dosyası `api/components/`'a eklenirse iki satır eklenir:
   - `internal/apiv1/generate.go`'ya bir `go:generate` satırı,

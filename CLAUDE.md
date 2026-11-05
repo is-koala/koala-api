@@ -60,7 +60,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 ## API (ADR-0005, ADR-0006, ADR-0019, `docs/api-style-guide.md`)
 
 - Sözleşme önce: `api/openapi.yaml` (OpenAPI 3.1) ve `api/components/*.yaml` tek doğruluk kaynağıdır. Akış: spec → `make api-lint` → `make generate` → uygulama.
-- Spec kuralları stil rehberindedir ve vacuum'la zorlanır **[make verify: api-lint]**. Her kuralın tetiklendiğini `scripts/api-lint-probe.sh` kanıtlar.
+- Spec kuralları stil rehberindedir ve vacuum'la zorlanır **[make verify: api-lint]**. `scripts/api-lint-probe.sh` her kuralın bağımsız vakasını (kural, JSON yolu) beklentisiyle ve doğru biçimlerin geçtiğini kanıtlar.
 - `internal/apiv1/*.gen.go` üretilir ve commit edilir; elle düzenlenmez **[make verify: gen-check]**. `internal/codegentest` üreticinin 3.1 davranışını sabitler. Alan `http.go`'su üretilmiş `StrictServerInterface`'in kendi metotlarını uygular.
 - İstek biçimi spec'ten `httpx.ValidateRequests` ile doğrulanır; handler'da biçim kontrolü tekrar yazılmaz. Handler yalnız doğrulanmış değeri alır **[test]**. Authn doğrulamadan önce gelir.
 - `make generate` yerelde serbesttir; derleme gerektirdiği için önce yüke bakılır ve `nice -n 15` ile koşulur.
