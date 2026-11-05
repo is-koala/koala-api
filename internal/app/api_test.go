@@ -285,13 +285,13 @@ func TestBindErrorIsALoggedServerError(t *testing.T) {
 	}
 }
 
-// Every code the platform returns (HTTP, soft-delete) is in the contract's
-// ErrorCode list, from which the clients' code lists are generated
-// (ADR-0007 madde 5).
+// Every code the platform returns (HTTP, soft-delete, realtime) is in the
+// contract's ErrorCode list, from which the clients' code lists are
+// generated (ADR-0007 madde 5).
 func TestPlatformCodesAreInTheContract(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range append(httpx.PlatformCodes(), softdelete.Codes()...) {
+	for _, c := range slices.Concat(httpx.PlatformCodes(), softdelete.Codes(), realtime.Codes()) {
 		if !apiv1.ErrorCode(c).Valid() {
 			t.Errorf("code %s is not in api/components/problem.yaml ErrorCode", c)
 		}
