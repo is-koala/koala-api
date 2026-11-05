@@ -80,6 +80,17 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
 
 ## Dokploy
 
+**Ortam değişkenleri.** Tam liste README'deki "Yapılandırma" tablosundadır; bilinmeyen `KOALA_*` değişkeni açılışı durdurur. Burada yalnız adlar ve production kuralı yazılır, değer yazılmaz.
+
+| Değişken | Production | Not |
+|---|---|---|
+| `KOALA_ENV` | zorunlu (`production`) | |
+| `KOALA_DATABASE_URL` | zorunlu (`serve`) | sır; `sslmode=require`, `verify-ca` ya da `verify-full` |
+| `KOALA_MIN_APP_VERSION` | **zorunlu (`serve`)** | En düşük desteklenen mobil sürüm (semver). Yoksa `serve` açılmaz: ayarsız kapı her derlemeyi geçirirdi (ADR-0021). Mobil zorunlu güncelleme bu değeri yükselterek yapılır. |
+| `KOALA_TRUSTED_PROXIES` | **zorunlu (`serve`)** | Traefik'in (ve önünde CDN varsa onun) adresleri ya da CIDR'ları, virgülle. Yoksa `serve` açılmaz: bütün istemciler proxy'nin tek oran sınırı kovasını paylaşırdı (ADR-0021). |
+| `KOALA_METRICS_ADDR` | isteğe bağlı (`:9090`) | `/metrics`'in iç portu. Traefik'e route **edilmez**; yalnız Prometheus'un ağından erişilir. |
+| `KOALA_OWNER_DATABASE_URL`, `KOALA_BOOTSTRAP_DATABASE_URL` | yalnız `migrate`/`maint` ve `bootstrap` adımında | sır |
+
 - Konteynerin durdurma süresi `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT` toplamından uzun olmalı (README'deki formül). Varsayılanlarla toplam 40 sn olduğundan **`stop_grace_period` en az 45 sn** verilir. Smoke testi SIGTERM'den sonra 50 sn bekler ve drain'i (`/readyz` 503, `/livez` 200) yoklar.
 - Sağlık kontrolü imajın kendisindedir (`koala healthcheck`, `/livez`). Dokploy'da ayrıca HTTP sağlık kontrolü tanımlanırsa `/livez` kullanılır, `/readyz` değil: DB kesintisi konteyneri yeniden başlatmamalı.
 - Dokploy'a verilen imaj `ghcr.io/is-koala/koala-api:<sürüm>@<digest>`'tir. Hareketli etiket yoktur.
@@ -101,6 +112,7 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
   - `main`: PR zorunlu, `verify` ve `image` kontrollerinin yeşili zorunlu, force-push ve silme yasak;
   - `v*` tag'leri için ruleset: oluşturma yalnız GitHub Actions'a ve yayınlayanlara açık, silme ve güncelleme yasak;
   - `production` environment'ı ve sırların oraya taşınması.
+- [ ] **Production ortam değişkenleri.** Dokploy'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` tanımlanır (yukarıdaki tablo); ikisi yoksa `serve` açılmaz. Prometheus `KOALA_METRICS_ADDR` portunu iç ağdan kazır; port proxy'ye açılmaz.
 - [ ] **Dokploy `stop_grace_period` ≥ 45 sn.** Formül: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT` toplamından uzun; varsayılanlarla 5 + 35 = 40 sn.
 - [ ] **Webhook sırrı ve anahtarı (Faz 9).**
   - Repo **Settings → Secrets and variables → Actions** altında `DOKPLOY_DEPLOY_WEBHOOK` sırrı tanımlanır. Değeri Dokploy'daki uygulamanın HTTPS deploy webhook URL'sidir.

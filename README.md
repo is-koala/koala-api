@@ -153,6 +153,7 @@ Konteynerin durdurma süresi (`stop_grace_period`) `KOALA_SHUTDOWN_DRAIN_DELAY +
 - [ ] GHCR paketinin görünürlüğü ve erişimi: private kalır, repoya bağlanır, Dokploy için `read:packages` token'ı verilir.
 - [ ] Branch protection, `v*` tag ruleset'i ve `production` environment'ı. Free planda private repo için yok; Team planı ya da public repo gerekir.
 - [ ] Dokploy `stop_grace_period` ≥ 45 sn.
+- [ ] Production'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` (ikisi yoksa `serve` açılmaz) ve Prometheus'un `KOALA_METRICS_ADDR`'i iç ağdan kazıması.
 - [ ] Faz 9'da `DOKPLOY_DEPLOY_WEBHOOK` sırrı (HTTPS alan adı) ve `DOKPLOY_DEPLOY_ENABLED` değişkeni.
 
 Elle build gerekirse (CI ya da sunucu ortamında):

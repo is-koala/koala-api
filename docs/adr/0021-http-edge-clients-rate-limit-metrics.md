@@ -91,6 +91,8 @@ Fuzz testi (`FuzzCanonicalPath`) şu özelliği sabitler: geçen her istek hedef
 
 **Sınırlar.** Kimlik başına sınırlar Java'nın değerleridir. Adres başına sınırlar 5 katıdır, çünkü mobil operatörün NAT'ı birçok kullanıcıyı tek adresin arkasına koyar.
 
+**Değerler öneridir, ölçülmedi.** Prod trafiği yok; tablo Java'nın değerlerinden ve NAT payından türetildi. İlk gerçek trafikte `koala_http_rate_limited_total` ve 429 oranına bakılarak düzeltilir; değişiklik `internal/app/edge.go` ve `TestRateLimitGroups` ile birlikte yapılır.
+
 | Grup | Adres başına (dk / burst) | Kimlik başına | Özel anahtar | Java karşılığı |
 |---|---|---|---|---|
 | `read` | 600 / 120 | 300 / 60 | — | PUBLIC 120/dk |
