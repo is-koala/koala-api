@@ -171,7 +171,7 @@ type (
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // retentionPeriod is an ISO 8601 period of whole months or years.
-var retentionPeriod = regexp.MustCompile(`^P[1-9][0-9]*[MY]$`)
+var retentionPeriod = regexp.MustCompile(`^P[1-9]\d*[MY]$`)
 
 // MaxTableName is the longest name of a soft-deleted table: the longest
 // name derived from it, <table>_deleted_together, must fit Postgres'

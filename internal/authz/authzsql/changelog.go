@@ -36,7 +36,8 @@ func (l *ChangeLog) Record(ctx context.Context, q db.Querier, changes ...authz.R
 	if id := httpx.RequestIDFrom(ctx); id != "" {
 		requestID = &id
 	}
-	for _, ch := range changes {
+	for i := range changes {
+		ch := &changes[i]
 		var op string
 		switch ch.Op {
 		case authz.ChangeWrite:

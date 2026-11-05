@@ -109,7 +109,7 @@ func revealsOutsideProjections(fset *token.FileSet, f *ast.File) []string {
 // the projection's signature. The pii package itself is exempt.
 func TestRevealOnlyInProjections(t *testing.T) {
 	t.Parallel()
-	goFiles(t, func(fset *token.FileSet, path string, f *ast.File) {
+	goFiles(t, func(fset *token.FileSet, _ string, f *ast.File) {
 		if f.Name.Name == "pii" {
 			return
 		}

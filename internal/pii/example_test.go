@@ -13,8 +13,8 @@ import (
 // TestRevealOnlyInProjections). Without a grant for the field and the data
 // subject the answer is masked.
 func adminPhone(phone pii.Value[string], g *pii.Grant) string {
-	if clear, ok := pii.Reveal(g, phone); ok {
-		return clear
+	if shown, ok := pii.Reveal(g, phone); ok {
+		return shown
 	}
 	return pii.MaskString(phone, 4)
 }
