@@ -1,0 +1,110 @@
+# Lint probe (scripts/api-lint-probe.sh): every koala-* rule in
+# api/ruleset.yaml and api/ruleset-schemas.yaml must fire on this file at
+# least once. Each violation is labelled with its rule. Not part of the
+# contract; never referenced by api/openapi.yaml.
+openapi: 3.1.1
+info:
+  title: Lint probe
+  version: 0.0.0
+security:
+  - marketplaceBearer: []
+paths:
+  /v2/things: # koala-paths-v1
+    get:
+      operationId: listThingsV2
+      security: []
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+  /v1/Bad_Path/{Id}: # koala-paths-kebab-case
+    get:
+      operationId: Get_Thing # koala-operation-id-camel-case
+      parameters:
+        - {name: Id, in: path, required: true, schema: {type: string}}
+      # koala-operation-authz: no x-authz and no `security: []`
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean} # koala-no-envelope
+        "404": # koala-error-responses-are-problems
+          description: nf
+          content:
+            application/json:
+              schema: {type: object}
+        # koala-default-problem-response: no default
+  /v1/admin/users:
+    get:
+      operationId: listUsers
+      x-authz: {action: read, object: user}
+      # koala-admin-permission: no x-authz-permission
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+  /v1/things:
+    get:
+      operationId: listThings
+      x-authz: {action: read, object: thing}
+      x-authz-permission: thing.read # koala-admin-only-under-admin
+      deprecated: true # koala-deprecation-has-sunset
+      parameters:
+        - {name: page, in: query, schema: {type: integer, format: int32}} # koala-cursor-pagination
+        - {name: includeTotal, in: query, schema: {type: boolean}} # koala-include-total-admin-or-seo
+        - {name: sort, in: query, schema: {type: string}} # koala-sort-fields
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Thing"
+        default:
+          $ref: "#/components/responses/Problem"
+    post:
+      operationId: createThing
+      x-authz: {action: create, object: thing}
+      # koala-idempotency-key: no Idempotency-Key and no x-no-idempotency-key
+      requestBody:
+        content:
+          application/json:
+            schema: # koala-closed-request-body
+              type: object
+              properties:
+                name: {type: string}
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+components:
+  securitySchemes:
+    marketplaceBearer: {type: http, scheme: bearer}
+    adminBearer: {type: http, scheme: bearer}
+  responses:
+    Problem:
+      description: problem
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status, code]
+            properties:
+              type: {type: string}
+              title: {type: string}
+              status: {type: integer, format: int32}
+              code: {type: string}
+  schemas:
+    Thing:
+      type: object
+      properties:
+        snake_case_field: {type: string} # koala-properties-camel-case
+        state: {type: string, enum: [active]} # koala-enum-upper-snake
+        count: {type: integer} # koala-integer-format
+        legacy: {type: string, nullable: true} # koala-no-nullable-keyword
+        price: {type: number} # koala-money-not-decimal
+        commissionRate: {type: integer, format: int32} # koala-rate-in-basis-points
+        feeBps: {type: string} # koala-bps-integer
+        createdAt: {type: string} # koala-instant-is-date-time
+        birthDate: {type: string, format: date-time} # koala-calendar-date-is-date

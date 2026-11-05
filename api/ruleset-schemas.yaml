@@ -1,0 +1,106 @@
+# Spec lint (vacuum, Spectral biçimi): şema kuralları. Kök spec'te
+# (ruleset.yaml bunu extends eder) ve her components/*.yaml dosyasında
+# ayrıca koşar; böylece henüz hiçbir operasyonun kullanmadığı bileşenler de
+# denetlenir (make api-lint). Her kuralın açıklaması stil rehberindeki
+# maddeyi verir: docs/api-style-guide.md.
+rules:
+  koala-properties-camel-case:
+    description: Alan adları camelCase (stil rehberi §1, ADR-0005 madde 2).
+    severity: error
+    given: "$..properties[*]~"
+    then:
+      function: casing
+      functionOptions:
+        type: camel
+
+  koala-enum-upper-snake:
+    description: Enum değerleri UPPER_SNAKE (stil rehberi §1, ADR-0005 madde 2).
+    severity: error
+    given: "$..[?(@.type == 'string' && @.enum)].enum[*]"
+    then:
+      function: casing
+      functionOptions:
+        type: macro
+
+  koala-integer-format:
+    description: Tam sayılar int32 ya da int64 formatını açıkça yazar (stil rehberi §9).
+    severity: error
+    given: "$..[?(@.type == 'integer')]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          type: object
+          required: [format]
+          properties:
+            format:
+              enum: [int32, int64]
+
+  koala-no-nullable-keyword:
+    description: "OpenAPI 3.1'de null `type: [T, \"null\"]` ile yazılır; 3.0'ın `nullable` anahtarı kullanılmaz (stil rehberi §9)."
+    severity: error
+    given: "$..[?(@.nullable)]"
+    then:
+      field: nullable
+      function: undefined
+
+  koala-money-not-decimal:
+    description: Para alanı float ya da string ondalık değildir; Money nesnesi ya da int64 kuruştur (stil rehberi §9, ADR-0008).
+    severity: error
+    given: "$..properties[?(@property.match(/(amount|Amount|price|Price|fee|Fee|cost|Cost|balance|Balance)$/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          properties:
+            type:
+              not:
+                enum: [number, string]
+
+  koala-rate-in-basis-points:
+    description: Oran alanı yüzde ya da kesir değil, baz puandır ve adı `Bps` ile biter (stil rehberi §9, K5).
+    severity: error
+    given: "$..properties[*]~"
+    then:
+      function: pattern
+      functionOptions:
+        notMatch: "(Rate|Percent|Percentage|Ratio)$"
+
+  koala-bps-integer:
+    description: "`…Bps` alanı tam sayıdır (BasisPoints bileşeni) (stil rehberi §9)."
+    severity: error
+    given: "$..properties[?(@property.match(/Bps$/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          required: [type]
+          properties:
+            type:
+              const: integer
+
+  koala-instant-is-date-time:
+    description: "`…At` alanı RFC 3339 date-time'dır (stil rehberi §9, K11)."
+    severity: error
+    given: "$..properties[?(@property.match(/At$/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          required: [format]
+          properties:
+            format:
+              const: date-time
+
+  koala-calendar-date-is-date:
+    description: "`…On` ve `…Date` alanı RFC 3339 full-date'tir (stil rehberi §9)."
+    severity: error
+    given: "$..properties[?(@property.match(/(On|Date)$/))]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          required: [format]
+          properties:
+            format:
+              const: date
