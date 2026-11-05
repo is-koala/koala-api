@@ -1,0 +1,55 @@
+name: koala-api release tag guard
+
+# A v* tag is created by the release workflow, after its image (ADR-0023).
+# Tags it creates with GITHUB_TOKEN start no workflow, so this runs only for
+# a tag pushed by hand, and turns red unless that tag is what a release
+# would have made: annotated, on main, and with
+# ghcr.io/is-koala/koala-api:<tag> built from its commit. It cannot stop the
+# push; a red run means: delete the tag (docs/runbook/yayin.md).
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+jobs:
+  guard:
+    name: guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read # read the tag object and compare with main
+      packages: read # inspect the image
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          IMAGE: ghcr.io/is-koala/koala-api
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1 Delete it: git push --delete origin $TAG"; exit 1; }
+
+          [ "$(gh api "repos/$REPO/git/ref/tags/$TAG" --jq .object.type)" = tag ] ||
+            fail "$TAG is a lightweight tag; releases are annotated."
+
+          case "$(gh api "repos/$REPO/compare/$GITHUB_SHA...main" --jq .status)" in
+            identical | ahead) ;;
+            *) fail "$TAG points at $GITHUB_SHA, which is not on main." ;;
+          esac
+
+          if ! config="$(docker buildx imagetools inspect --format '{{json .Image}}' "$IMAGE:$TAG" 2>&1)"; then
+            echo "$config"
+            fail "$IMAGE:$TAG does not exist: a tag without its image."
+          fi
+          revision="$(jq -r '.config.Labels["org.opencontainers.image.revision"] // ""' <<<"$config")"
+          [ "$revision" = "$GITHUB_SHA" ] ||
+            fail "$IMAGE:$TAG was built from '$revision', the tag points at $GITHUB_SHA."
+          echo "$TAG: annotated, on main, image built from $GITHUB_SHA"
