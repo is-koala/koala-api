@@ -121,6 +121,9 @@ func (c *TokenClass) issue(subject, sid uuid.UUID, stv int64, amr []string) (str
 // token past its expiry is CodeTokenExpired; every other failure is
 // CodeTokenInvalid, without saying which check failed.
 func (c *TokenClass) verify(raw string) (verifiedToken, error) {
+	if raw == "" {
+		return verifiedToken{}, apperr.New(apperr.KindUnauthenticated, CodeTokenMissing)
+	}
 	invalid := apperr.New(apperr.KindUnauthenticated, CodeTokenInvalid)
 	var claims accessClaims
 	_, err := c.parser.ParseWithClaims(raw, &claims, c.key)

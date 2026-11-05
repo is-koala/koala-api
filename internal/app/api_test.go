@@ -16,7 +16,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/internal/apiv1"
+	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
+	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/log"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
@@ -37,11 +40,44 @@ func newAPIRouter(tb testing.TB, env config.Env) http.Handler {
 	tb.Helper()
 	logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
 	router, err := newRouter(context.Background(), config.Config{Env: env}, logger, httpx.NewHealth(logger),
-		prometheus.NewRegistry(), unlimitedGroups())
+		prometheus.NewRegistry(), unlimitedGroups(), testModules(tb))
 	if err != nil {
 		tb.Fatal(err)
 	}
 	return router
+}
+
+// testModules wires the modules on a pool that never connects: these
+// tests do not reach the database (integration tests wire them on
+// dbtest).
+func testModules(tb testing.TB) modules {
+	tb.Helper()
+	return testModulesOn(tb, lazyDB(tb), clock.Real{})
+}
+
+// lazyDB is a pool whose first connection would fail; nothing here opens
+// one.
+func lazyDB(tb testing.TB) *db.DB {
+	tb.Helper()
+	logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
+	database, err := db.Open(context.Background(), db.Config{
+		URL: "postgres://koala@127.0.0.1:1/koala?sslmode=disable&connect_timeout=1", Role: db.RoleApp, Logger: logger,
+	})
+	if err != nil {
+		tb.Fatal(err)
+	}
+	tb.Cleanup(database.Close)
+	return database
+}
+
+func testModulesOn(tb testing.TB, database *db.DB, clk clock.Clock) modules {
+	tb.Helper()
+	logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
+	mods, err := wireModules(context.Background(), config.Config{Env: config.EnvTest}, database, clk, logger)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return mods
 }
 
 // setClient sets the headers of a current iOS build.
@@ -285,13 +321,13 @@ func TestBindErrorIsALoggedServerError(t *testing.T) {
 	}
 }
 
-// Every code the platform returns (HTTP, soft-delete, realtime) is in the
+// Every code the platform returns (HTTP, soft-delete, realtime, authn) is in the
 // contract's ErrorCode list, from which the clients' code lists are
 // generated (ADR-0007 madde 5).
 func TestPlatformCodesAreInTheContract(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range slices.Concat(httpx.PlatformCodes(), softdelete.Codes(), realtime.Codes()) {
+	for _, c := range slices.Concat(httpx.PlatformCodes(), softdelete.Codes(), realtime.Codes(), authn.Codes()) {
 		if !apiv1.ErrorCode(c).Valid() {
 			t.Errorf("code %s is not in api/components/problem.yaml ErrorCode", c)
 		}

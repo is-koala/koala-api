@@ -1,10 +1,16 @@
 # Expected koala-* results of api/testdata/lint-probe.yaml: one line per
 # (rule, JSON path) pair, tab-separated. scripts/api-lint-probe.sh fails on
 # a missing or an unexpected pair.
-# koala-operation-authz is a oneOf whose branches use `not`: when a case
-# breaks a `not`, vacuum v0.36.2 reports it once at the operation and once
-# at its path item, so those cases have two lines.
+# koala-operation-authz and koala-admin-permission are oneOfs: when a case
+# fails a branch below the operation (a `not`, a member's constraint),
+# vacuum v0.36.2 reports it once at the operation and once at its path
+# item, so those cases have two lines.
 koala-admin-only-under-admin	$.paths['/v1/permission-outside-admin'].get
+koala-admin-permission	$.paths['/v1/admin/exempt-marketplace']
+koala-admin-permission	$.paths['/v1/admin/exempt-marketplace'].get
+koala-admin-permission	$.paths['/v1/admin/public-with-permission']
+koala-admin-permission	$.paths['/v1/admin/public-with-permission'].get
+koala-admin-permission	$.paths['/v1/admin/users']
 koala-admin-permission	$.paths['/v1/admin/users'].get
 koala-body-limit	$.paths['/v1/body-limit'].post
 koala-bps-integer	$.components.schemas['BpsNotInteger'].properties['feeBps']

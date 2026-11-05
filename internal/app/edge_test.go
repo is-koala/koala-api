@@ -122,7 +122,7 @@ func TestRateLimitRoutesAreRegistered(t *testing.T) {
 	for _, env := range []config.Env{config.EnvTest, config.EnvProduction} {
 		logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
 		router, err := newRouter(context.Background(), config.Config{Env: env}, logger,
-			httpx.NewHealth(logger), prometheus.NewRegistry(), rateLimitGroups())
+			httpx.NewHealth(logger), prometheus.NewRegistry(), rateLimitGroups(), testModules(t))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +148,7 @@ func TestWiredRouterLimitsPerAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	router, err := newRouter(context.Background(), config.Config{Env: config.EnvTest}, logger,
-		httpx.NewHealth(logger), reg, rateLimitGroups())
+		httpx.NewHealth(logger), reg, rateLimitGroups(), testModules(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestAlertRulesUseRegisteredMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	router, err := newRouter(context.Background(), config.Config{Env: config.EnvTest}, logger,
-		httpx.NewHealth(logger), reg, rateLimitGroups())
+		httpx.NewHealth(logger), reg, rateLimitGroups(), testModules(t))
 	if err != nil {
 		t.Fatal(err)
 	}

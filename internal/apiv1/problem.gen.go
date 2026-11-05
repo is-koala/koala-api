@@ -5,50 +5,88 @@ package apiv1
 
 // Defines values for ErrorCode.
 const (
-	ErrorCodeAPPVERSIONUNSUPPORTED       ErrorCode = "APP_VERSION_UNSUPPORTED"
-	ErrorCodeCONTENTTYPEUNSUPPORTED      ErrorCode = "CONTENT_TYPE_UNSUPPORTED"
-	ErrorCodeCONVERSATIONNOTFOUND        ErrorCode = "CONVERSATION_NOT_FOUND"
-	ErrorCodeCURSORINVALID               ErrorCode = "CURSOR_INVALID"
-	ErrorCodeDELETIONALREADYRESTORED     ErrorCode = "DELETION_ALREADY_RESTORED"
-	ErrorCodeDELETIONNOTFOUND            ErrorCode = "DELETION_NOT_FOUND"
-	ErrorCodeFIELDFORMATINVALID          ErrorCode = "FIELD_FORMAT_INVALID"
-	ErrorCodeFIELDOUTOFRANGE             ErrorCode = "FIELD_OUT_OF_RANGE"
-	ErrorCodeFIELDREQUIRED               ErrorCode = "FIELD_REQUIRED"
-	ErrorCodeFIELDTYPEINVALID            ErrorCode = "FIELD_TYPE_INVALID"
-	ErrorCodeFIELDUNKNOWN                ErrorCode = "FIELD_UNKNOWN"
-	ErrorCodeFIELDVALUEINVALID           ErrorCode = "FIELD_VALUE_INVALID"
-	ErrorCodeIDEMPOTENCYKEYINUSE         ErrorCode = "IDEMPOTENCY_KEY_IN_USE"
-	ErrorCodeIDEMPOTENCYKEYREQUIRED      ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
-	ErrorCodeIDEMPOTENCYKEYREUSED        ErrorCode = "IDEMPOTENCY_KEY_REUSED"
-	ErrorCodeINTERNAL                    ErrorCode = "INTERNAL"
-	ErrorCodeMETHODNOTALLOWED            ErrorCode = "METHOD_NOT_ALLOWED"
-	ErrorCodePATHINVALID                 ErrorCode = "PATH_INVALID"
-	ErrorCodeRATELIMITED                 ErrorCode = "RATE_LIMITED"
-	ErrorCodeREALTIMECOMMANDINVALID      ErrorCode = "REALTIME_COMMAND_INVALID"
-	ErrorCodeREALTIMECOMMANDUNKNOWN      ErrorCode = "REALTIME_COMMAND_UNKNOWN"
-	ErrorCodeREALTIMEDEVICEREQUIRED      ErrorCode = "REALTIME_DEVICE_REQUIRED"
-	ErrorCodeREALTIMEDRAINING            ErrorCode = "REALTIME_DRAINING"
-	ErrorCodeREALTIMEORIGINFORBIDDEN     ErrorCode = "REALTIME_ORIGIN_FORBIDDEN"
-	ErrorCodeREALTIMEPROTOCOLUNSUPPORTED ErrorCode = "REALTIME_PROTOCOL_UNSUPPORTED"
-	ErrorCodeREALTIMERATELIMITED         ErrorCode = "REALTIME_RATE_LIMITED"
-	ErrorCodeREALTIMETICKETINVALID       ErrorCode = "REALTIME_TICKET_INVALID"
-	ErrorCodeREALTIMETICKETRATELIMITED   ErrorCode = "REALTIME_TICKET_RATE_LIMITED"
-	ErrorCodeREALTIMETOOMANYCONNECTIONS  ErrorCode = "REALTIME_TOO_MANY_CONNECTIONS"
-	ErrorCodeREQUESTBODYMALFORMED        ErrorCode = "REQUEST_BODY_MALFORMED"
-	ErrorCodeREQUESTBODYTOOLARGE         ErrorCode = "REQUEST_BODY_TOO_LARGE"
-	ErrorCodeREQUESTINVALID              ErrorCode = "REQUEST_INVALID"
-	ErrorCodeRESTORECONFLICT             ErrorCode = "RESTORE_CONFLICT"
-	ErrorCodeRESTOREEXPIRED              ErrorCode = "RESTORE_EXPIRED"
-	ErrorCodeRESTOREPARENTDELETED        ErrorCode = "RESTORE_PARENT_DELETED"
-	ErrorCodeROUTENOTFOUND               ErrorCode = "ROUTE_NOT_FOUND"
-	ErrorCodeSOFTDELETERESTRICTED        ErrorCode = "SOFT_DELETE_RESTRICTED"
-	ErrorCodeSORTFIELDNOTALLOWED         ErrorCode = "SORT_FIELD_NOT_ALLOWED"
+	ErrorCodeAPPVERSIONUNSUPPORTED               ErrorCode = "APP_VERSION_UNSUPPORTED"
+	ErrorCodeAUTHACCOUNTSUSPENDED                ErrorCode = "AUTH_ACCOUNT_SUSPENDED"
+	ErrorCodeAUTHEMAILORPASSWORDMISMATCH         ErrorCode = "AUTH_EMAIL_OR_PASSWORD_MISMATCH"
+	ErrorCodeAUTHREFRESHTOKENEXPIRED             ErrorCode = "AUTH_REFRESH_TOKEN_EXPIRED"
+	ErrorCodeAUTHREFRESHTOKENINVALID             ErrorCode = "AUTH_REFRESH_TOKEN_INVALID"
+	ErrorCodeAUTHREFRESHTOKENREUSED              ErrorCode = "AUTH_REFRESH_TOKEN_REUSED"
+	ErrorCodeAUTHSESSIONNOTFOUND                 ErrorCode = "AUTH_SESSION_NOT_FOUND"
+	ErrorCodeAUTHSESSIONNOTFOUNDORINACTIVE       ErrorCode = "AUTH_SESSION_NOT_FOUND_OR_INACTIVE"
+	ErrorCodeAUTHSESSIONNOTMATCHINGCURRENTDEVICE ErrorCode = "AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE"
+	ErrorCodeAUTHTOKENEXPIRED                    ErrorCode = "AUTH_TOKEN_EXPIRED"
+	ErrorCodeAUTHTOKENINVALID                    ErrorCode = "AUTH_TOKEN_INVALID"
+	ErrorCodeAUTHTOKENMISSING                    ErrorCode = "AUTH_TOKEN_MISSING"
+	ErrorCodeCONTENTTYPEUNSUPPORTED              ErrorCode = "CONTENT_TYPE_UNSUPPORTED"
+	ErrorCodeCONVERSATIONNOTFOUND                ErrorCode = "CONVERSATION_NOT_FOUND"
+	ErrorCodeCURSORINVALID                       ErrorCode = "CURSOR_INVALID"
+	ErrorCodeDELETIONALREADYRESTORED             ErrorCode = "DELETION_ALREADY_RESTORED"
+	ErrorCodeDELETIONNOTFOUND                    ErrorCode = "DELETION_NOT_FOUND"
+	ErrorCodeFIELDFORMATINVALID                  ErrorCode = "FIELD_FORMAT_INVALID"
+	ErrorCodeFIELDOUTOFRANGE                     ErrorCode = "FIELD_OUT_OF_RANGE"
+	ErrorCodeFIELDREQUIRED                       ErrorCode = "FIELD_REQUIRED"
+	ErrorCodeFIELDTYPEINVALID                    ErrorCode = "FIELD_TYPE_INVALID"
+	ErrorCodeFIELDUNKNOWN                        ErrorCode = "FIELD_UNKNOWN"
+	ErrorCodeFIELDVALUEINVALID                   ErrorCode = "FIELD_VALUE_INVALID"
+	ErrorCodeIDEMPOTENCYKEYINUSE                 ErrorCode = "IDEMPOTENCY_KEY_IN_USE"
+	ErrorCodeIDEMPOTENCYKEYREQUIRED              ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
+	ErrorCodeIDEMPOTENCYKEYREUSED                ErrorCode = "IDEMPOTENCY_KEY_REUSED"
+	ErrorCodeINTERNAL                            ErrorCode = "INTERNAL"
+	ErrorCodeMETHODNOTALLOWED                    ErrorCode = "METHOD_NOT_ALLOWED"
+	ErrorCodePASSWORDPOLICYVIOLATION             ErrorCode = "PASSWORD_POLICY_VIOLATION"
+	ErrorCodePATHINVALID                         ErrorCode = "PATH_INVALID"
+	ErrorCodeRATELIMITED                         ErrorCode = "RATE_LIMITED"
+	ErrorCodeREALTIMECOMMANDINVALID              ErrorCode = "REALTIME_COMMAND_INVALID"
+	ErrorCodeREALTIMECOMMANDUNKNOWN              ErrorCode = "REALTIME_COMMAND_UNKNOWN"
+	ErrorCodeREALTIMEDEVICEREQUIRED              ErrorCode = "REALTIME_DEVICE_REQUIRED"
+	ErrorCodeREALTIMEDRAINING                    ErrorCode = "REALTIME_DRAINING"
+	ErrorCodeREALTIMEORIGINFORBIDDEN             ErrorCode = "REALTIME_ORIGIN_FORBIDDEN"
+	ErrorCodeREALTIMEPROTOCOLUNSUPPORTED         ErrorCode = "REALTIME_PROTOCOL_UNSUPPORTED"
+	ErrorCodeREALTIMERATELIMITED                 ErrorCode = "REALTIME_RATE_LIMITED"
+	ErrorCodeREALTIMETICKETINVALID               ErrorCode = "REALTIME_TICKET_INVALID"
+	ErrorCodeREALTIMETICKETRATELIMITED           ErrorCode = "REALTIME_TICKET_RATE_LIMITED"
+	ErrorCodeREALTIMETOOMANYCONNECTIONS          ErrorCode = "REALTIME_TOO_MANY_CONNECTIONS"
+	ErrorCodeREQUESTBODYMALFORMED                ErrorCode = "REQUEST_BODY_MALFORMED"
+	ErrorCodeREQUESTBODYTOOLARGE                 ErrorCode = "REQUEST_BODY_TOO_LARGE"
+	ErrorCodeREQUESTINVALID                      ErrorCode = "REQUEST_INVALID"
+	ErrorCodeRESTORECONFLICT                     ErrorCode = "RESTORE_CONFLICT"
+	ErrorCodeRESTOREEXPIRED                      ErrorCode = "RESTORE_EXPIRED"
+	ErrorCodeRESTOREPARENTDELETED                ErrorCode = "RESTORE_PARENT_DELETED"
+	ErrorCodeROUTENOTFOUND                       ErrorCode = "ROUTE_NOT_FOUND"
+	ErrorCodeSOFTDELETERESTRICTED                ErrorCode = "SOFT_DELETE_RESTRICTED"
+	ErrorCodeSORTFIELDNOTALLOWED                 ErrorCode = "SORT_FIELD_NOT_ALLOWED"
+	ErrorCodeSTAFFCURRENTPASSWORDMISMATCH        ErrorCode = "STAFF_CURRENT_PASSWORD_MISMATCH"
+	ErrorCodeSTAFFLOGINFAILED                    ErrorCode = "STAFF_LOGIN_FAILED"
+	ErrorCodeSTAFFPASSWORDCHANGEREQUIRED         ErrorCode = "STAFF_PASSWORD_CHANGE_REQUIRED"
+	ErrorCodeSTAFFSESSIONENDED                   ErrorCode = "STAFF_SESSION_ENDED"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
 func (e ErrorCode) Valid() bool {
 	switch e {
 	case ErrorCodeAPPVERSIONUNSUPPORTED:
+		return true
+	case ErrorCodeAUTHACCOUNTSUSPENDED:
+		return true
+	case ErrorCodeAUTHEMAILORPASSWORDMISMATCH:
+		return true
+	case ErrorCodeAUTHREFRESHTOKENEXPIRED:
+		return true
+	case ErrorCodeAUTHREFRESHTOKENINVALID:
+		return true
+	case ErrorCodeAUTHREFRESHTOKENREUSED:
+		return true
+	case ErrorCodeAUTHSESSIONNOTFOUND:
+		return true
+	case ErrorCodeAUTHSESSIONNOTFOUNDORINACTIVE:
+		return true
+	case ErrorCodeAUTHSESSIONNOTMATCHINGCURRENTDEVICE:
+		return true
+	case ErrorCodeAUTHTOKENEXPIRED:
+		return true
+	case ErrorCodeAUTHTOKENINVALID:
+		return true
+	case ErrorCodeAUTHTOKENMISSING:
 		return true
 	case ErrorCodeCONTENTTYPEUNSUPPORTED:
 		return true
@@ -81,6 +119,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeINTERNAL:
 		return true
 	case ErrorCodeMETHODNOTALLOWED:
+		return true
+	case ErrorCodePASSWORDPOLICYVIOLATION:
 		return true
 	case ErrorCodePATHINVALID:
 		return true
@@ -123,6 +163,14 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeSOFTDELETERESTRICTED:
 		return true
 	case ErrorCodeSORTFIELDNOTALLOWED:
+		return true
+	case ErrorCodeSTAFFCURRENTPASSWORDMISMATCH:
+		return true
+	case ErrorCodeSTAFFLOGINFAILED:
+		return true
+	case ErrorCodeSTAFFPASSWORDCHANGEREQUIRED:
+		return true
+	case ErrorCodeSTAFFSESSIONENDED:
 		return true
 	default:
 		return false
@@ -205,6 +253,33 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `CONVERSATION_NOT_FOUND` (olay; Faz 4'te REST'te de 404): konuşma yok ya da katılımcısı
 //     değilsiniz; ikisi ayırt edilemez (ADR-0014).
 //
+// Kimlik doğrulama kodları (ADR-0015, ADR-0025):
+//   - `AUTH_EMAIL_OR_PASSWORD_MISMATCH` (401): kayıtsız adres, yanlış parola ya da parolası
+//     olmayan hesap; üçü ayırt edilemez (AUTH-001).
+//   - `AUTH_ACCOUNT_SUSPENDED` (403): parola doğru ama hesap askıda.
+//   - `AUTH_TOKEN_MISSING` (401): korunan operasyonda `Authorization: Bearer` yok.
+//   - `AUTH_TOKEN_INVALID` (401): erişim token'ı bozuk, sahte, başka sınıfın ya da henüz geçerli değil.
+//   - `AUTH_TOKEN_EXPIRED` (401): erişim token'ının süresi doldu; istemci yeniler.
+//   - `AUTH_SESSION_NOT_FOUND_OR_INACTIVE` (401): oturum yok, kapalı ya da süresi dolmuş; kullanıcısı
+//     ya da cihazı silinmiş.
+//   - `AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE` (401): istek oturumun cihazından gelmedi; oturum
+//     kapatıldı (AUTH-004).
+//   - `AUTH_REFRESH_TOKEN_INVALID` (401): refresh token bilinmiyor ya da bozuk.
+//   - `AUTH_REFRESH_TOKEN_EXPIRED` (401): refresh token'ın boşta kalma ya da oturumun mutlak süresi
+//     doldu; oturum kapandı.
+//   - `AUTH_REFRESH_TOKEN_REUSED` (401): döndürülmüş bir refresh token yeniden geldi; oturumun
+//     tamamı kapatıldı (K12).
+//   - `AUTH_SESSION_NOT_FOUND` (404): çağıranın böyle açık bir oturumu yok; başkasınınki de aynı
+//     yanıtı alır (AUTH-016).
+//   - `PASSWORD_POLICY_VIOLATION` (400): yeni parola en az 12 karakter, en çok 72 bayt kuralına
+//     uymuyor (AUTH-009).
+//   - `STAFF_LOGIN_FAILED` (401): personel hesabı yok, parola yanlış, hesap devre dışı ya da
+//     kilitli; dördü ayırt edilemez (AUTH-010, AUTH-011).
+//   - `STAFF_SESSION_ENDED` (401): personel oturumu çıkış, parola değişimi ya da devre dışı
+//     bırakmayla sona erdi.
+//   - `STAFF_PASSWORD_CHANGE_REQUIRED` (403): hesap önce parolasını değiştirmeli (AUTH-014).
+//   - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+//
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
 // - `FIELD_UNKNOWN`: istek şemasında olmayan alan; gövdesi olmayan operasyona gövde.
@@ -272,6 +347,33 @@ type Problem struct {
 	// - `REALTIME_RATE_LIMITED` (olay): bağlantının komut oranı aşıldı.
 	// - `CONVERSATION_NOT_FOUND` (olay; Faz 4'te REST'te de 404): konuşma yok ya da katılımcısı
 	//   değilsiniz; ikisi ayırt edilemez (ADR-0014).
+	//
+	// Kimlik doğrulama kodları (ADR-0015, ADR-0025):
+	// - `AUTH_EMAIL_OR_PASSWORD_MISMATCH` (401): kayıtsız adres, yanlış parola ya da parolası
+	//   olmayan hesap; üçü ayırt edilemez (AUTH-001).
+	// - `AUTH_ACCOUNT_SUSPENDED` (403): parola doğru ama hesap askıda.
+	// - `AUTH_TOKEN_MISSING` (401): korunan operasyonda `Authorization: Bearer` yok.
+	// - `AUTH_TOKEN_INVALID` (401): erişim token'ı bozuk, sahte, başka sınıfın ya da henüz geçerli değil.
+	// - `AUTH_TOKEN_EXPIRED` (401): erişim token'ının süresi doldu; istemci yeniler.
+	// - `AUTH_SESSION_NOT_FOUND_OR_INACTIVE` (401): oturum yok, kapalı ya da süresi dolmuş; kullanıcısı
+	//   ya da cihazı silinmiş.
+	// - `AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE` (401): istek oturumun cihazından gelmedi; oturum
+	//   kapatıldı (AUTH-004).
+	// - `AUTH_REFRESH_TOKEN_INVALID` (401): refresh token bilinmiyor ya da bozuk.
+	// - `AUTH_REFRESH_TOKEN_EXPIRED` (401): refresh token'ın boşta kalma ya da oturumun mutlak süresi
+	//   doldu; oturum kapandı.
+	// - `AUTH_REFRESH_TOKEN_REUSED` (401): döndürülmüş bir refresh token yeniden geldi; oturumun
+	//   tamamı kapatıldı (K12).
+	// - `AUTH_SESSION_NOT_FOUND` (404): çağıranın böyle açık bir oturumu yok; başkasınınki de aynı
+	//   yanıtı alır (AUTH-016).
+	// - `PASSWORD_POLICY_VIOLATION` (400): yeni parola en az 12 karakter, en çok 72 bayt kuralına
+	//   uymuyor (AUTH-009).
+	// - `STAFF_LOGIN_FAILED` (401): personel hesabı yok, parola yanlış, hesap devre dışı ya da
+	//   kilitli; dördü ayırt edilemez (AUTH-010, AUTH-011).
+	// - `STAFF_SESSION_ENDED` (401): personel oturumu çıkış, parola değişimi ya da devre dışı
+	//   bırakmayla sona erdi.
+	// - `STAFF_PASSWORD_CHANGE_REQUIRED` (403): hesap önce parolasını değiştirmeli (AUTH-014).
+	// - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -371,6 +473,33 @@ type ProblemField struct {
 	// - `REALTIME_RATE_LIMITED` (olay): bağlantının komut oranı aşıldı.
 	// - `CONVERSATION_NOT_FOUND` (olay; Faz 4'te REST'te de 404): konuşma yok ya da katılımcısı
 	//   değilsiniz; ikisi ayırt edilemez (ADR-0014).
+	//
+	// Kimlik doğrulama kodları (ADR-0015, ADR-0025):
+	// - `AUTH_EMAIL_OR_PASSWORD_MISMATCH` (401): kayıtsız adres, yanlış parola ya da parolası
+	//   olmayan hesap; üçü ayırt edilemez (AUTH-001).
+	// - `AUTH_ACCOUNT_SUSPENDED` (403): parola doğru ama hesap askıda.
+	// - `AUTH_TOKEN_MISSING` (401): korunan operasyonda `Authorization: Bearer` yok.
+	// - `AUTH_TOKEN_INVALID` (401): erişim token'ı bozuk, sahte, başka sınıfın ya da henüz geçerli değil.
+	// - `AUTH_TOKEN_EXPIRED` (401): erişim token'ının süresi doldu; istemci yeniler.
+	// - `AUTH_SESSION_NOT_FOUND_OR_INACTIVE` (401): oturum yok, kapalı ya da süresi dolmuş; kullanıcısı
+	//   ya da cihazı silinmiş.
+	// - `AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE` (401): istek oturumun cihazından gelmedi; oturum
+	//   kapatıldı (AUTH-004).
+	// - `AUTH_REFRESH_TOKEN_INVALID` (401): refresh token bilinmiyor ya da bozuk.
+	// - `AUTH_REFRESH_TOKEN_EXPIRED` (401): refresh token'ın boşta kalma ya da oturumun mutlak süresi
+	//   doldu; oturum kapandı.
+	// - `AUTH_REFRESH_TOKEN_REUSED` (401): döndürülmüş bir refresh token yeniden geldi; oturumun
+	//   tamamı kapatıldı (K12).
+	// - `AUTH_SESSION_NOT_FOUND` (404): çağıranın böyle açık bir oturumu yok; başkasınınki de aynı
+	//   yanıtı alır (AUTH-016).
+	// - `PASSWORD_POLICY_VIOLATION` (400): yeni parola en az 12 karakter, en çok 72 bayt kuralına
+	//   uymuyor (AUTH-009).
+	// - `STAFF_LOGIN_FAILED` (401): personel hesabı yok, parola yanlış, hesap devre dışı ya da
+	//   kilitli; dördü ayırt edilemez (AUTH-010, AUTH-011).
+	// - `STAFF_SESSION_ENDED` (401): personel oturumu çıkış, parola değişimi ya da devre dışı
+	//   bırakmayla sona erdi.
+	// - `STAFF_PASSWORD_CHANGE_REQUIRED` (403): hesap önce parolasını değiştirmeli (AUTH-014).
+	// - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/is-koala/koala-api/api"
 	"github.com/is-koala/koala-api/internal/apiv1"
+	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/meta"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
@@ -22,7 +23,7 @@ import (
 // and the contract (client headers, trusted proxies, rate limit groups,
 // metrics on reg) and the /v1 operations.
 func newRouter(ctx context.Context, cfg config.Config, logger *slog.Logger, health *httpx.Health,
-	reg prometheus.Registerer, groups map[string]httpx.GroupLimits,
+	reg prometheus.Registerer, groups map[string]httpx.GroupLimits, mods modules,
 ) (*httpx.Router, error) {
 	spec, err := api.Load(ctx)
 	if err != nil {
@@ -57,9 +58,12 @@ func newRouter(ctx context.Context, cfg config.Config, logger *slog.Logger, heal
 	if err != nil {
 		return nil, fmt.Errorf("router: %w", err)
 	}
-	if err := mountAPI(spec, router, limiter, logger, cfg.Env); err != nil {
+	if err := mountAPI(spec, router, limiter, logger, cfg.Env, mods); err != nil {
 		return nil, err
 	}
+	// The ticket endpoint is a bounded route, the WebSocket a stream
+	// route; both authenticate themselves (realtimeAuth, the ticket).
+	mods.realtime.Mount(router)
 	return router, nil
 }
 
@@ -67,26 +71,34 @@ func newRouter(ctx context.Context, cfg config.Config, logger *slog.Logger, heal
 // validated against the embedded contract before the generated handler
 // binds it; every error leaves as a problem document (ADR-0007, ADR-0019).
 //
-// Faz 1 puts authentication in front of the per-identity rate limit and
-// validation on this group, so an unauthenticated caller learns nothing
-// about the request shape. Authentication names the caller with
-// httpx.WithRateLimitIdentity; until then ByIdentity lets every request
-// through and the per-address limit of the root chain applies alone.
-func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, logger *slog.Logger, env config.Env) error {
+// Authentication comes first on this group, then the per-identity rate
+// limit and validation, so an unauthenticated caller learns nothing about
+// the request shape (ADR-0019). Authentication names the caller with
+// httpx.WithRateLimitIdentity; a public operation has no identity and only
+// the per-address limit of the root chain applies to it. The sign-in,
+// refresh and staff password operations also take a token from their
+// target's bucket in the auth group (authn.StrictMiddleware, ADR-0021 §5).
+func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, logger *slog.Logger, env config.Env, mods modules) error {
 	validate, err := httpx.ValidateRequests(spec, logger)
 	if err != nil {
 		return fmt.Errorf("mount api: %w", err)
 	}
 	// Modules implement their part of the strict interface; wire<Module>
 	// functions compose them here as they land.
-	strict := apiv1.NewStrictHandlerWithOptions(meta.NewHandler(), nil, apiv1.StrictHTTPServerOptions{
+	authenticate, err := authn.NewMiddleware(spec, mods.users, mods.staff, logger)
+	if err != nil {
+		return fmt.Errorf("mount api: %w", err)
+	}
+	server := strictServer{Handler: meta.NewHandler(), HTTP: mods.authHTTP}
+	middlewares := []apiv1.StrictMiddlewareFunc{authn.StrictMiddleware(limiter, groupAuth)}
+	strict := apiv1.NewStrictHandlerWithOptions(server, middlewares, apiv1.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: bindError(logger),
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			httpx.WriteError(w, r, logger, err)
 		},
 	})
 	router.Group(func(g chi.Router) {
-		g.Use(limiter.ByIdentity(logger), validate)
+		g.Use(authenticate.Handler, limiter.ByIdentity(logger), validate)
 		apiv1.HandlerWithOptions(strict, apiv1.ChiServerOptions{
 			BaseRouter:       skipRoutes{Router: g, skip: devOnlyPaths(env)},
 			ErrorHandlerFunc: bindError(logger),

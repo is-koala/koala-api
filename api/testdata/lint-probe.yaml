@@ -68,6 +68,20 @@ paths:
       security: [{adminBearer: []}]
       responses:
         default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/public-with-permission:
+    get: # koala-admin-permission: a public admin operation carries no permission
+      operationId: getAdminPublicWithPermission
+      security: []
+      x-authz-permission: thing.read
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/exempt-marketplace:
+    get: # koala-admin-permission: a self-service admin operation is still adminBearer
+      operationId: getAdminExemptMarketplace
+      security: [{marketplaceBearer: []}]
+      x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
   /v1/permission-outside-admin:
     get: # koala-admin-only-under-admin
       operationId: getPermissionOutsideAdmin

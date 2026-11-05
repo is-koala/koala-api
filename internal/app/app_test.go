@@ -103,7 +103,8 @@ func TestCommandsRequireTheirDatabaseURL(t *testing.T) {
 }
 
 // TestServeNeedsEdgeVariablesInProduction: in production serve refuses to
-// start without the minimum app version and the trusted proxies, before it
+// start without the minimum app version, the trusted proxies and the two
+// token signing key rings (ADR-0025), before it
 // dials the database (the unreachable URL is never used).
 func TestServeNeedsEdgeVariablesInProduction(t *testing.T) {
 	t.Parallel()
@@ -112,7 +113,7 @@ func TestServeNeedsEdgeVariablesInProduction(t *testing.T) {
 	if code != ExitError {
 		t.Fatalf("exit = %d, want %d", code, ExitError)
 	}
-	for _, v := range []string{"KOALA_MIN_APP_VERSION", "KOALA_TRUSTED_PROXIES"} {
+	for _, v := range []string{"KOALA_MIN_APP_VERSION", "KOALA_TRUSTED_PROXIES", "KOALA_JWT_MARKETPLACE_KEYS", "KOALA_JWT_STAFF_KEYS"} {
 		if !strings.Contains(stdout, v+": required by serve in production") {
 			t.Errorf("stdout = %q, want an error naming %s", stdout, v)
 		}
@@ -173,7 +174,10 @@ func TestServeAndHealthcheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, cfg, logger, "v0.0.0-test", listeners{api: ln, metrics: metricsLn}) }()
+	database := lazyDB(t)
+	go func() {
+		done <- serve(ctx, cfg, logger, "v0.0.0-test", listeners{api: ln, metrics: metricsLn}, database)
+	}()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
