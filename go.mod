@@ -10,6 +10,7 @@ require (
 	github.com/go-chi/chi/v5 v5.5.0
 	github.com/oapi-codegen/nullable v1.2.0
 	github.com/oapi-codegen/runtime v1.8.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	golang.org/x/time v0.16.0
 )
 
@@ -21,6 +22,5 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/oasdiff/yaml v0.1.1 // indirect
 	github.com/oasdiff/yaml3 v0.0.14 // indirect
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	golang.org/x/text v0.32.0 // indirect
 )

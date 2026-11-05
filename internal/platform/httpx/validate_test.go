@@ -21,7 +21,8 @@ import (
 //   - POST /things/{id} uses no JSON Schema 2020-only keyword, so it is
 //     validated by kin-openapi's OpenAPI 3.0 validator (no per-request
 //     compile; see ValidateRequests).
-//   - POST /strict uses const and unevaluatedProperties, so it gets the
+//   - POST /strict uses const and unevaluatedProperties, so its body is
+//     also checked against the schema compiled once at start-up with the
 //     2020-12 validator. Both must report the same field errors.
 //   - POST /big raises its body limit with x-body-limit.
 const validateSpec = `
@@ -61,7 +62,7 @@ paths:
             schema:
               type: object
               allOf:
-                - {type: object, properties: {name: {type: string}}}
+                - {type: object, properties: {name: {$ref: "#/components/schemas/Name"}}}
               unevaluatedProperties: false
               required: [name, kind]
               properties:
@@ -88,6 +89,9 @@ paths:
       operationId: getPlain
       responses:
         "204": {description: ok}
+components:
+  schemas:
+    Name: {type: string, maxLength: 5}
 `
 
 const validID = "0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"
@@ -315,6 +319,60 @@ func TestValidateRequestsJSONSchema2020(t *testing.T) {
 			wantErrors: []map[string]any{bodyErr("/kind", "FIELD_VALUE_INVALID")},
 		},
 	})
+}
+
+// A parameter with a 2020-only keyword cannot be checked without kin's
+// per-request compile, so it is refused at start-up.
+func TestValidateRequestsRefuses2020ParameterSchemas(t *testing.T) {
+	t.Parallel()
+
+	spec := strings.Replace(validateSpec,
+		"{name: limit, in: query, schema: {type: integer, format: int32, minimum: 1, maximum: 100}}",
+		"{name: limit, in: query, schema: {type: integer, format: int32, const: 10}}", 1)
+	logger, _ := newLogger()
+	if _, err := httpx.ValidateRequests(loadValidateSpec(t, spec), logger); err == nil {
+		t.Fatal("a parameter schema with const was accepted")
+	}
+}
+
+// BenchmarkValidateRequests measures one valid request through the router
+// and the validator: on the 3.0 path, and on an operation whose body is
+// also checked against its precompiled JSON Schema 2020 schema.
+func BenchmarkValidateRequests(b *testing.B) {
+	logger, _ := newLogger()
+	doc, err := openapi3.NewLoader().LoadFromData([]byte(validateSpec))
+	if err != nil {
+		b.Fatal(err)
+	}
+	validate, err := httpx.ValidateRequests(doc, logger)
+	if err != nil {
+		b.Fatal(err)
+	}
+	r := httpx.NewRouter(logger, httpx.NewHealth(logger))
+	r.Group(func(g chi.Router) {
+		g.Use(validate)
+		noContent := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
+		g.Post("/things/{id}", noContent)
+		g.Post("/strict", noContent)
+	})
+	for _, bc := range []struct{ name, target, body string }{
+		{"openapi30", "/things/" + validID + "?limit=10", `{"name":"a","count":1,"kind":"THING"}`},
+		{"jsonschema2020", "/strict", `{"name":"a","kind":"THING"}`},
+	} {
+		b.Run(bc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, bc.target, strings.NewReader(bc.body))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-Key", "k")
+				rec := httptest.NewRecorder()
+				r.ServeHTTP(rec, req)
+				if rec.Code != http.StatusNoContent {
+					b.Fatalf("status %d: %s", rec.Code, rec.Body)
+				}
+			}
+		})
+	}
 }
 
 // After validation the handler gets the validated value, defaults filled

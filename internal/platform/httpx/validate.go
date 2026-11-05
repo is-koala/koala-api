@@ -56,7 +56,8 @@ var errValidatedBody = errors.New("httpx: the request body was validated; bind i
 
 type validatedRoute struct {
 	route     *routers.Route
-	bodyLimit int64 // 0: the router's limit stays
+	bodyLimit int64        // 0: the router's limit stays
+	body2020  compiled2020 // nil: no JSON Schema 2020-only keyword in the body
 }
 
 // ValidateRequests returns middleware that validates a request against its
@@ -84,20 +85,22 @@ type validatedRoute struct {
 // bytes a second time. Code that needs the body after this middleware
 // (the idempotency fingerprint) hashes the validated value, not raw bytes.
 //
-// Validator choice. kin-openapi's JSON Schema 2020-12 validator, which it
-// uses for OpenAPI 3.1 documents, compiles the schema on every request; it
-// has no cache. Its OpenAPI 3.0 validator walks the schema without
-// compiling and handles every 3.1 keyword except the 2020-only ones (const,
+// Validator. kin-openapi's JSON Schema 2020-12 validator, which it uses for
+// OpenAPI 3.1 documents, compiles the schema on every request; it has no
+// cache. Its OpenAPI 3.0 validator walks the schema without compiling and
+// checks every keyword except the 2020-only ones (const,
 // unevaluatedProperties, if/then/else, …); kin itself falls back to it for
-// schemas with $refs. So each operation is pinned at start-up: one whose
-// request schemas use a 2020-only keyword gets the 2020 validator, every
-// other one the 3.0 validator.
+// schemas with $refs. So every request goes through the 3.0 validator, and
+// an operation whose body uses a 2020-only keyword is checked a second
+// time against its schema compiled once at start-up (jsonschema/v6, the
+// compiler kin uses; ADR-0019 Karar 2). A parameter schema with a
+// 2020-only keyword is refused at start-up.
 func ValidateRequests(spec *openapi3.T, logger *slog.Logger) (func(http.Handler) http.Handler, error) {
 	if spec == nil || spec.Paths == nil {
 		return nil, errors.New("validate requests: spec has no paths")
 	}
 	// A shallow copy that only differs in the version: openapi3filter picks
-	// the 2020 validator from it and from nothing else.
+	// its validator from it and from nothing else.
 	walked := *spec
 	walked.OpenAPI = "3.0.3"
 
@@ -108,13 +111,14 @@ func ValidateRequests(spec *openapi3.T, logger *slog.Logger) (func(http.Handler)
 			if err != nil {
 				return nil, fmt.Errorf("validate requests: %s %s: %w", method, path, err)
 			}
-			doc := &walked
-			if usesJSONSchema2020(item, op) {
-				doc = spec
+			body2020, err := compileBody2020(method+" "+path, item, op)
+			if err != nil {
+				return nil, fmt.Errorf("validate requests: %s %s: %w", method, path, err)
 			}
 			routes[method+" "+path] = validatedRoute{
-				route:     &routers.Route{Spec: doc, Path: path, PathItem: item, Method: method, Operation: op},
+				route:     &routers.Route{Spec: &walked, Path: path, PathItem: item, Method: method, Operation: op},
 				bodyLimit: limit,
+				body2020:  body2020,
 			}
 		}
 	}
@@ -160,7 +164,14 @@ func ValidateRequests(spec *openapi3.T, logger *slog.Logger) (func(http.Handler)
 				return
 			}
 			if b, ok := r.Body.(interface{ ValidatedValue() any }); ok {
-				r.Body = validatedBody{value: b.ValidatedValue()}
+				value := b.ValidatedValue()
+				if vr.body2020 != nil {
+					if err := vr.body2020.validate(r.Header.Get("Content-Type"), value); err != nil {
+						WriteError(w, r, logger, err)
+						return
+					}
+				}
+				r.Body = validatedBody{value: value}
 			}
 			next.ServeHTTP(w, r)
 		})
@@ -198,31 +209,9 @@ func bodyLimit(op *openapi3.Operation) (int64, error) {
 	return int64(n), nil
 }
 
-// usesJSONSchema2020 reports whether a request schema of op uses a keyword
-// that only kin-openapi's JSON Schema 2020-12 validator checks (the same
-// list kin uses to decide its own fallback, plus nullable, whose meaning
-// differs between the two validators).
-func usesJSONSchema2020(item *openapi3.PathItem, op *openapi3.Operation) bool {
-	seen := map[*openapi3.Schema]bool{}
-	var refs openapi3.SchemaRefs
-	for _, p := range slices.Concat(item.Parameters, op.Parameters) {
-		if p != nil && p.Value != nil {
-			refs = append(refs, p.Value.Schema)
-		}
-	}
-	if op.RequestBody != nil && op.RequestBody.Value != nil {
-		for _, mt := range op.RequestBody.Value.Content {
-			refs = append(refs, mt.Schema)
-		}
-	}
-	for _, ref := range refs {
-		if ref != nil && schemaUses2020(ref.Value, seen) {
-			return true
-		}
-	}
-	return false
-}
-
+// schemaUses2020 reports whether s uses a keyword that only kin-openapi's
+// JSON Schema 2020-12 validator checks (the list kin uses to decide its own
+// fallback, plus nullable, whose meaning differs between the two).
 func schemaUses2020(s *openapi3.Schema, seen map[*openapi3.Schema]bool) bool {
 	if s == nil || seen[s] {
 		return false
@@ -283,11 +272,17 @@ func requestValidationError(err error) error {
 	case seen[outcomeMalformed] && len(fields) == 0:
 		return apperr.New(apperr.KindInvalid, CodeBodyMalformed)
 	}
+	return apperr.New(apperr.KindInvalid, CodeRequestInvalid).WithFields(sortFields(fields)...)
+}
+
+// sortFields orders field errors (body members first, then parameters)
+// and drops duplicates, so a response does not depend on map order.
+func sortFields(fields []apperr.FieldError) []apperr.FieldError {
 	slices.SortFunc(fields, func(a, b apperr.FieldError) int {
 		return strings.Compare(a.In+"\x00"+a.Pointer+a.Parameter+"\x00"+string(a.Code),
 			b.In+"\x00"+b.Pointer+b.Parameter+"\x00"+string(b.Code))
 	})
-	return apperr.New(apperr.KindInvalid, CodeRequestInvalid).WithFields(slices.Compact(fields)...)
+	return slices.Compact(fields)
 }
 
 // classify maps one validator error to field errors, or to an outcome
@@ -444,57 +439,24 @@ func keywordCode(keyword string) apperr.Code {
 	}
 }
 
-// memberError returns the field code of se and, when se is about members
-// of an object rather than the object itself, the names of those members.
-//
-// The two kin-openapi validators name missing and unknown members
-// differently: the OpenAPI 3.0 validator puts a missing member into the
-// path and names an unknown one in its message (`property "x" is
-// unsupported`); the JSON Schema 2020-12 validator reports both at the
-// object and names them in its message (`missing properties 'a', 'b'`),
-// except unevaluatedProperties, which fails a `false` schema at the member.
-// The tests pin both formats, so a kin-openapi upgrade that changes them
-// fails loudly.
+// memberError returns the field code of se and, when se is about an
+// unknown member rather than the object itself, that member's name: the
+// OpenAPI 3.0 validator puts a missing member into the path, but names an
+// unknown one only in its message (`property "x" is unsupported`). The
+// tests pin this format, so a kin-openapi upgrade that changes it fails
+// loudly.
 func memberError(se *openapi3.SchemaError) (apperr.Code, []string) {
-	switch se.SchemaField {
-	case "required":
-		return CodeFieldRequired, quotedNames(missingProps, se.Reason)
-	case "additionalProperties", "unevaluatedProperties":
-		return CodeFieldUnknown, quotedNames(extraProps, se.Reason)
-	case "properties":
+	if se.SchemaField == "properties" {
 		if m := unsupportedProp.FindStringSubmatch(se.Reason); m != nil {
 			if name, err := strconv.Unquote(m[1]); err == nil {
 				return CodeFieldUnknown, []string{name}
 			}
 		}
-	case "":
-		// unevaluatedProperties: false reports each extra member as a
-		// failed `false` schema at the member, with no keyword.
-		if strings.HasSuffix(se.Reason, "false schema") {
-			return CodeFieldUnknown, nil
-		}
 	}
 	return keywordCode(se.SchemaField), nil
 }
 
-var (
-	missingProps    = regexp.MustCompile(`missing propert(?:y|ies) (.+)$`)
-	extraProps      = regexp.MustCompile(`(?:additional|unevaluated) propert(?:y|ies) (.+) not allowed`)
-	quotedName      = regexp.MustCompile(`'((?:[^'\\]|\\.)*)'`)
-	unsupportedProp = regexp.MustCompile(`property ("(?:[^"\\]|\\.)*") is unsupported`)
-)
-
-func quotedNames(re *regexp.Regexp, reason string) []string {
-	m := re.FindStringSubmatch(reason)
-	if m == nil {
-		return nil
-	}
-	var names []string
-	for _, q := range quotedName.FindAllStringSubmatch(m[1], -1) {
-		names = append(names, strings.ReplaceAll(q[1], `\'`, `'`))
-	}
-	return names
-}
+var unsupportedProp = regexp.MustCompile(`property ("(?:[^"\\]|\\.)*") is unsupported`)
 
 func jsonPointer(tokens []string) string {
 	var sb strings.Builder

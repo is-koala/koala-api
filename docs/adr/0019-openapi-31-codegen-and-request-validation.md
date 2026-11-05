@@ -41,25 +41,33 @@ oapi-codegen v2 + OpenAPI 3.1 + chi strict server ve kin-openapi istek doğrulam
 | `oneOf` + `const` ile yazılan enum düz `string` üretiliyor. | Enum'lar `enum` ile yazılır (stil rehberi §9). |
 | `prefixItems` `[]any` üretiyor. | Kullanılmaz. |
 | kin-openapi `uuid` biçimini varsayılan olarak doğrulamıyor. | Doğrulayıcının kendi seçeneklerine uuid doğrulayıcısı verildi; kin'in global tablosuna dokunulmadı. |
-| kin-openapi'nin JSON Schema 2020-12 doğrulayıcısı şemayı **her istekte yeniden derliyor**; önbellek ya da seçenek yok. Ölçüm (`/v1/meta/ping` gövdesi, yalnız doğrulama): 45 µs ve 992 alloc; kin'in OpenAPI 3.0 doğrulayıcısıyla 2,7 µs ve 53 alloc. | Madde 2. |
+| kin-openapi'nin JSON Schema 2020-12 doğrulayıcısı şemayı **her istekte yeniden derliyor**; önbellek ya da seçenek yok. Ölçüm (`/v1/meta/ping` gövdesi, yalnız doğrulama): 45 µs ve 992 alloc; kin'in OpenAPI 3.0 doğrulayıcısıyla 2,7 µs ve 53 alloc. | Madde 2: 2020 şemaları açılışta bir kez derlenir. |
 | İki doğrulayıcı eksik ve fazla üyeyi farklı biçimde bildiriyor; 2020 doğrulayıcısı üye adını yalnız iletide veriyor. | `httpx` ikisini de `{pointer, code}`'a çeviriyor. İleti biçimi testle sabit; kin yükseltmesi biçimi değiştirirse CI kırmızı olur. |
 | Doğrulayıcı iletileri istek değerlerini içeriyor. | İletiler yanıta, log'a ve hata zincirine girmez (Madde 3). |
 | Yanıt doğrulaması middleware ile yapılamıyor (oapi-codegen #1038). | Strict server yanıt tiplerini derleme zamanında sınırlar. |
 
 ogen denenmedi: engelleyici bir eksik çıkmadı.
 
-### 2. Doğrulayıcı seçimi operasyon başına, açılışta
+### 2. Hızlı yol: 3.0 doğrulayıcısı + açılışta derlenmiş 2020 şemaları
 
-`httpx.ValidateRequests` her operasyonun istek şemalarını açılışta tarar:
-- **2020'ye özgü anahtar kullanan operasyon** 2020 doğrulayıcısını alır. Bu anahtarlar: `const`, `unevaluatedProperties`, `if`/`then`/`else`, `prefixItems`, `contains`, `dependent*`, `patternProperties`, `propertyNames`, `$defs`, `contentSchema`, `$dynamicRef`, ayrıca `nullable`.
-- **Diğer operasyonlar** OpenAPI 3.0 doğrulayıcısını alır. Bu doğrulayıcı derleme yapmaz ve 2020'ye özgü olanlar dışındaki bütün 3.1 anahtarlarını (tip dizileri, sayısal `exclusiveMinimum` dahil) uygular. kin de `$ref`'li şemalarda zaten ona düşüyor.
+- **Her istek** kin'in OpenAPI 3.0 doğrulayıcısından geçer. Bu doğrulayıcı derleme yapmaz ve 2020'ye özgü olanlar dışındaki bütün 3.1 anahtarlarını uygular (tip dizileri, sayısal `exclusiveMinimum` dahil). kin de `$ref`'li şemalarda zaten ona düşüyor. Gövdeyi çözer, varsayılanları yazar, parametreleri, içerik tipini ve biçimleri (`format`) denetler.
+- **2020'ye özgü anahtar kullanan gövde** ayrıca bir kez daha denetlenir. Bu anahtarlar: `const`, `unevaluatedProperties`, `if`/`then`/`else`, `prefixItems`, `contains`, `dependent*`, `patternProperties`, `propertyNames`, `$defs`, `contentSchema`, `$dynamicRef` ve `nullable`.
+  - Bu ikinci denetim, açılışta **bir kez derlenmiş** şemayla (`github.com/santhosh-tekuri/jsonschema/v6`, kin'in kullandığı derleyici, Apache-2.0) yapılır. Bağımlılık Yusuf'un 05.11 onayıyla doğrudan bağımlılık oldu.
+  - Şema derlenmeden önce kin'in çözdüğü hâliyle satır içine alınır (`$ref`'ler açılır), böylece derleyici hiçbir şey indirmez.
+  - Hata dönüşümü yalnız hata türünü (`kind.Required`, `kind.Type`, …) ve konumu okur; değer içeren mesajları okumaz.
+- **2020'ye özgü anahtar kullanan parametre şeması açılışta reddedilir.** Parametreyi kin içeride çözdüğü için onu yalnız kin'in istek başına derleyen yolu denetleyebilir.
+- kin'in istek başına derleyen 2020 yolu hiç kullanılmaz.
 
-Gerekçe:
-- Derlenmiş şemayı önbelleğe almak için JSON Schema derleyicisini (`santhosh-tekuri/jsonschema/v6`) doğrudan import etmek gerekir. Bu modül bugün yalnız kin'in dolaylı bağımlılığıdır; doğrudan import ADR-0003'e göre ayrı onay ister.
-- O onay gelirse 2020 operasyonları için önbellekli sarmalayıcı yazılır.
-- Bugün 2020 doğrulayıcısını alan operasyonlar istek başına derleme maliyetini öder ve bu belgelidir.
+Yerel ölçümler (`testing.Benchmark`, router + doğrulama):
 
-`BenchmarkPing` (`internal/app`) bütün yığını ölçer: router middleware'i, doğrulama, bağlama ve yanıt. Yerel ölçüm: 5,3 µs, 99 alloc.
+| Yol | Süre | Bellek | Alloc |
+|---|---|---|---|
+| Önce: kin'in 2020 yolu, yalnız doğrulama | 45 µs | 76 KB | 992 |
+| 3.0 yolu (`/things`) | 8,0 µs | 14,7 KB | 124 |
+| 3.0 + derlenmiş 2020 (`/strict`) | 6,0 µs | 12,7 KB | 102 |
+| `BenchmarkPing` (bütün yığın: router, doğrulama, bağlama, yanıt) | 6,4 µs | 12 KB | 99 |
+
+`/strict`'in `/things`'ten hızlı olmasının sebebi gövdesinin küçük olmasıdır: parametre ve format denetimi yoktur. Ölçümler `BenchmarkValidateRequests` (`internal/platform/httpx`) ve `BenchmarkPing` (`internal/app`) ile tekrarlanır.
 
 ### 3. Doğrulama hatalarının sınıflandırılması
 
@@ -142,8 +150,8 @@ RFC 9110 §15.5.22, 426 yanıtında `Upgrade` başlığını zorunlu tutar ve bu
 
 - `oapi-codegen/nethttp-middleware` onaylı listede olmadığı için alınmadı. Aynı iş `httpx.ValidateRequests`'te yapılıyor.
 - Operasyon chi'nin eşleştirdiği route şablonundan bulunur; kin'in gorilla/mux router'ı kullanılmaz.
-- Bunun üstüne şunlar eklendi: operasyon başına `x-body-limit`, doğrulayıcı seçimi, değersiz hata sınıflandırması ve yalnız doğrulanmış değeri veren gövde.
-- Toplam ~500 satırdır, yorumlar dahil (`internal/platform/httpx/validate.go`).
+- Bunun üstüne şunlar eklendi: operasyon başına `x-body-limit`, açılışta derlenen 2020 şemaları, değersiz hata sınıflandırması ve yalnız doğrulanmış değeri veren gövde.
+- Toplam ~700 satırdır, yorumlar dahil (`internal/platform/httpx/validate.go`, `jsonschema2020.go`).
 
 ## Sonuçlar
 
@@ -152,5 +160,3 @@ RFC 9110 §15.5.22, 426 yanıtında `Upgrade` başlığını zorunlu tutar ve bu
 - kin isteği yerinde değiştirir: gövdeyi okur, şema varsayılanlarını yazar, `r.Body`'yi değiştirir. Faz 1'in idempotency parmak izi bu yüzden ham baytlardan değil, doğrulanmış değerin kanonik JSON'undan (`json.Marshal`, anahtarlar sıralı, varsayılanlar dahil) alınır.
 - Authn middleware'i (Faz 1) doğrulamadan önce gelir; kimliksiz istek gövde biçimi hakkında bir şey öğrenmez.
 - `httpx.IdempotencyKey` hem çıplak değeri (Stripe) hem taslaktaki tırnaklı structured-field string'i kabul eder ve tırnakları soyar.
-- Açık sorular:
-  - `santhosh-tekuri/jsonschema/v6`'nın doğrudan bağımlılık olması onay bekliyor (Madde 2).
