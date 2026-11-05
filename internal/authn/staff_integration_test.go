@@ -200,6 +200,7 @@ func TestStaffKnownSourceIsNotBackedOff(t *testing.T) {
 
 	attack := func(round int) {
 		t.Helper()
+		ctx := t.Context()
 		// One failure per address: no address lock, only the backoff.
 		for i := range authn.StaffBackoffAfter {
 			_, err := e.staff.Login(ctx, opsEmail, wrongPw, fmt.Sprintf("203.0.%d.%d", 113+round, i+1))
