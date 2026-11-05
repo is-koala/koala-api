@@ -23,7 +23,7 @@ components:
     Limit:
       name: limit
       in: query
-      description: Sayfadaki en fazla öğe sayısı.
+      description: Sayfadaki en fazla öğe sayısı (1–100, varsayılan 20; öneri).
       schema:
         type: integer
         format: int32
@@ -56,7 +56,7 @@ components:
       in: query
       description: |
         Virgülle ayrılmış sıralama alanları; `-` öneki azalan sıradır
-        (`-startsAt,id`). Kabul edilen alanlar operasyonun `x-sort-fields`
+        (`-startsAt,id`; sözdizimi öneri). Kabul edilen alanlar operasyonun `x-sort-fields`
         listesindedir; dışındaki alan 400 `SORT_FIELD_NOT_ALLOWED` döner.
       schema:
         type: string
@@ -90,4 +90,5 @@ components:
               type: integer
               format: int64
               minimum: 0
-              description: Süzgece uyan toplam öğe sayısı; yalnız `includeTotal=true` ile gelir.
+              maximum: 9007199254740991
+              description: Süzgece uyan toplam öğe sayısı; yalnız `includeTotal=true` ile gelir. Sınır JavaScript'in güvenli tam sayısı (ADR-0019).

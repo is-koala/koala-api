@@ -1,5 +1,6 @@
 // Package apiv1 is the server side of the /v1 HTTP contract, generated from
-// api/openapi.yaml and api/components/*.yaml by oapi-codegen (ADR-0006).
+// api/openapi.yaml and api/components/*.yaml by oapi-codegen (ADR-0006,
+// ADR-0019).
 // Do not edit the *.gen.go files: change the spec and run `make generate`.
 // CI fails when the committed code is stale (`make gen-check`).
 //

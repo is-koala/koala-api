@@ -1,0 +1,71 @@
+# The OpenAPI 3.1 constructs tried in the oapi-codegen spike (ADR-0019),
+# kept as a regression test of the generator: codegen_test.go pins what each
+# construct becomes in Go. Not part of the contract.
+openapi: 3.1.1
+info:
+  title: oapi-codegen 3.1 probe
+  version: "1"
+  summary: generator regression probe
+  license: {name: MIT, identifier: MIT}
+webhooks:
+  payoutPaid:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/Payout"}
+      responses:
+        "200": {description: ok}
+paths:
+  /v1/payouts/{payoutId}:
+    get:
+      operationId: getPayout
+      parameters:
+        - {name: payoutId, in: path, required: true, schema: {type: string, format: uuid}}
+        - {name: X-Client-Platform, in: header, schema: {$ref: "#/components/schemas/Platform"}}
+        - {name: status, in: query, style: form, explode: true, schema: {type: array, items: {$ref: "#/components/schemas/Status"}}}
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Payout"}
+components:
+  schemas:
+    Platform:
+      type: string
+      enum: [IOS, WEB]
+    # A 3.1 enum written as oneOf + const: generated as a plain string.
+    Status:
+      type: string
+      oneOf:
+        - {const: PENDING, description: bekliyor}
+        - {const: PAID, description: ödendi}
+    Fee:
+      type: integer
+      format: int32
+      minimum: 0
+      maximum: 10000
+    Payout:
+      type: object
+      required: [id, status, fee, paidAt, meta]
+      properties:
+        id: {type: string, format: uuid}
+        status: {$ref: "#/components/schemas/Status", description: sibling description}
+        fee: {$ref: "#/components/schemas/Fee", maximum: 5000}
+        paidAt: {type: [string, "null"], format: date-time}
+        retries: {type: [integer, "null"], format: int32}
+        parent:
+          oneOf:
+            - {$ref: "#/components/schemas/Fee"}
+            - {type: "null"}
+        tags: {type: [array, "null"], items: {type: string}}
+        kind: {type: string, const: PAYOUT}
+        meta: {type: object, additionalProperties: {type: string}}
+        pair: {type: array, prefixItems: [{type: string}, {type: integer}]}
+      examples:
+        - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
+          status: PAID
+          fee: 1
+          paidAt: null
+          meta: {}

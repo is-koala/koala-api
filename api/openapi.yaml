@@ -1,4 +1,4 @@
-# Koala HTTP sözleşmesi: tek doğruluk kaynağı (ADR-0005, ADR-0006).
+# Koala HTTP sözleşmesi: tek doğruluk kaynağı (ADR-0005, ADR-0006, ADR-0019).
 # Kurallar docs/api-style-guide.md'de, makinece zorlanan kısmı
 # api/ruleset.yaml'da (make api-lint). Sunucu kodu internal/apiv1'e
 # `make generate` ile üretilir; elle düzenlenmez.
@@ -17,8 +17,10 @@ info:
     - Zamanlar RFC 3339'dur.
     - Listeler cursor ile sayfalanır.
     - Platform başlıkları (`X-Request-Id`, `X-Device-Id`, `X-App-Version`,
-      `X-Client-Platform`) her istekte geçerlidir ve operasyonlarda tek tek
-      listelenmez; tanımları `components/headers.yaml`'dadır.
+      `X-Client-Platform`) her istekte geçerlidir ve operasyonlarda listelenmez;
+      tanımları `components/headers.yaml`'dadır, zorunluluklarını middleware zorlar.
+    - Dosyalar API'den geçmez: istemci presigned URL ile doğrudan nesne deposuna
+      yükler (ADR-0019).
   contact:
     name: Koala
     url: https://iskoala.com
@@ -50,7 +52,8 @@ paths:
       description: |
         Sözleşme duman testi: istek gövdesi spec'e göre doğrulanır ve aynen geri
         döner. Yan etkisi yoktur. Ortak para ve problem bileşenlerinin uçtan uca
-        çalıştığını gösterir (ADR-0006 "Spike sonucu").
+        çalıştığını gösterir (ADR-0019). **Üretim ortamında bağlanmaz**
+        (`KOALA_ENV=production`'da 404); ilk gerçek operasyon gelince silinecek.
       security: []
       x-no-idempotency-key: Yan etkisi yok; aynı gövde her zaman aynı yanıtı verir.
       requestBody:
@@ -71,8 +74,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
-        "426":
-          $ref: "#/components/responses/UpgradeRequired"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         default:
@@ -103,7 +106,7 @@ components:
       required: [amount]
       properties:
         amount:
-          $ref: "./components/money.yaml#/components/schemas/Money"
+          $ref: "./components/money.yaml#/components/schemas/MoneyInput"
           description: Geri döndürülecek tutar.
           examples: [{amount: 15000, currency: TRY}]
         note:
@@ -135,7 +138,13 @@ components:
   # ErrorCode'dadır.
   responses:
     BadRequest:
-      description: İstek sözleşmeye uymuyor (`REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`, …).
+      description: |
+        İstek sözleşmeye uymuyor (`REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`, …) ya da
+        istemci sürümü desteklenmiyor (`APP_VERSION_UNSUPPORTED`; o zaman
+        `X-Minimum-App-Version` döner).
+      headers:
+        X-Minimum-App-Version:
+          $ref: "./components/headers.yaml#/components/headers/XMinimumAppVersion"
       content:
         application/problem+json:
           schema:
@@ -176,11 +185,8 @@ components:
         application/problem+json:
           schema:
             $ref: "./components/problem.yaml#/components/schemas/Problem"
-    UpgradeRequired:
-      description: İstemci sürümü desteklenmiyor (`APP_VERSION_UNSUPPORTED`).
-      headers:
-        X-Minimum-App-Version:
-          $ref: "./components/headers.yaml#/components/headers/XMinimumAppVersion"
+    UnsupportedMediaType:
+      description: Gövdenin `Content-Type`'ı desteklenmiyor (`CONTENT_TYPE_UNSUPPORTED`).
       content:
         application/problem+json:
           schema:

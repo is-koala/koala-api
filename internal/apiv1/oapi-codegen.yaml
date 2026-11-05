@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.2/configuration-schema.json
 # Root spec: request/response types, chi router glue and the strict server
-# interface (ADR-0006). Component files are generated into this same package
+# interface (ADR-0006, ADR-0019). Component files are generated into this same package
 # by oapi-codegen-components.yaml; "-" maps their $refs to this package.
 package: apiv1
 output: server.gen.go

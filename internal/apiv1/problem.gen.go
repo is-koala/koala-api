@@ -6,6 +6,7 @@ package apiv1
 // Defines values for ErrorCode.
 const (
 	ErrorCodeAPPVERSIONUNSUPPORTED  ErrorCode = "APP_VERSION_UNSUPPORTED"
+	ErrorCodeCONTENTTYPEUNSUPPORTED ErrorCode = "CONTENT_TYPE_UNSUPPORTED"
 	ErrorCodeCURSORINVALID          ErrorCode = "CURSOR_INVALID"
 	ErrorCodeFIELDFORMATINVALID     ErrorCode = "FIELD_FORMAT_INVALID"
 	ErrorCodeFIELDOUTOFRANGE        ErrorCode = "FIELD_OUT_OF_RANGE"
@@ -29,6 +30,8 @@ const (
 func (e ErrorCode) Valid() bool {
 	switch e {
 	case ErrorCodeAPPVERSIONUNSUPPORTED:
+		return true
+	case ErrorCodeCONTENTTYPEUNSUPPORTED:
 		return true
 	case ErrorCodeCURSORINVALID:
 		return true
@@ -69,29 +72,56 @@ func (e ErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for ProblemFieldIn.
+const (
+	ProblemFieldInCOOKIE ProblemFieldIn = "COOKIE"
+	ProblemFieldInHEADER ProblemFieldIn = "HEADER"
+	ProblemFieldInPATH   ProblemFieldIn = "PATH"
+	ProblemFieldInQUERY  ProblemFieldIn = "QUERY"
+)
+
+// Valid indicates whether the value is a known member of the ProblemFieldIn enum.
+func (e ProblemFieldIn) Valid() bool {
+	switch e {
+	case ProblemFieldInCOOKIE:
+		return true
+	case ProblemFieldInHEADER:
+		return true
+	case ProblemFieldInPATH:
+		return true
+	case ProblemFieldInQUERY:
+		return true
+	default:
+		return false
+	}
+}
+
 // ErrorCode Stabil, makinece okunur hata kodu (UPPER_SNAKE). Bir kodun anlamı hiç değişmez;
 // yeni kod eklemek geriye uyumludur. İstemciler bilmedikleri kodu genel hata olarak
 // gösterir. Servis yeni bir kod döndürmeden önce kod bu listeye eklenir
 // (CLAUDE.md "Hatalar"); istemcilerin kod listesi buradan üretilir (ADR-0007 madde 5).
 //
 // Problem kodları (`Problem.code`):
-// - `INTERNAL` (500): sınıflandırılmamış hata; sebep yalnız log'da.
-// - `ROUTE_NOT_FOUND` (404): bilinmeyen yol.
-// - `METHOD_NOT_ALLOWED` (405): yol var, metot yok; `Allow` başlığı döner.
-// - `REQUEST_BODY_TOO_LARGE` (413): gövde route'un sınırını aşıyor.
-// - `REQUEST_INVALID` (400): istek sözleşmeye uymuyor; ayrıntı `errors`'ta.
-// - `REQUEST_BODY_MALFORMED` (400): gövde JSON olarak çözülemiyor.
-// - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
-// - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
-// - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
-// - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
-// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
-// - `APP_VERSION_UNSUPPORTED` (426): `X-App-Version` en düşük sürümün altında.
+//   - `INTERNAL` (500): sınıflandırılmamış hata; sebep yalnız log'da.
+//   - `ROUTE_NOT_FOUND` (404): bilinmeyen yol.
+//   - `METHOD_NOT_ALLOWED` (405): yol var, metot yok; `Allow` başlığı döner.
+//   - `REQUEST_BODY_TOO_LARGE` (413): gövde operasyonun sınırını aşıyor.
+//   - `CONTENT_TYPE_UNSUPPORTED` (415): gövdenin `Content-Type`'ı operasyonun kabul ettiklerinden değil.
+//   - `REQUEST_INVALID` (400): istek sözleşmeye uymuyor; ayrıntı `errors`'ta.
+//   - `REQUEST_BODY_MALFORMED` (400): gövde yok ya da JSON olarak çözülemiyor.
+//   - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
+//   - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
+//   - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
+//   - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
+//   - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
+//   - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
+//     `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
+//     başlığını zorunlu tutuyor (ADR-0019).
 //
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
-// - `FIELD_UNKNOWN`: istek şemasında olmayan alan.
-// - `FIELD_TYPE_INVALID`: JSON tipi yanlış.
+// - `FIELD_UNKNOWN`: istek şemasında olmayan alan; gövdesi olmayan operasyona gövde.
+// - `FIELD_TYPE_INVALID`: JSON ya da parametre tipi yanlış.
 // - `FIELD_FORMAT_INVALID`: `format` (date-time, uuid, …) uymuyor.
 // - `FIELD_VALUE_INVALID`: enum, const, pattern ya da bileşik şema uymuyor.
 // - `FIELD_OUT_OF_RANGE`: sayı, uzunluk ya da öğe sayısı sınır dışında.
@@ -102,7 +132,7 @@ type ErrorCode string
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"PAYMENT_ATTEMPT_ACTIVE","errors":[{"code":"IBAN_INVALID","pointer":"/iban"}],"instance":"/v1/job-assignments/abc/payment-session","requestId":"req-123","status":409,"title":"Conflict","type":"https://api.iskoala.com/problems/payment-attempt-active"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type Problem struct {
 	// Code Stabil, makinece okunur hata kodu (UPPER_SNAKE). Bir kodun anlamı hiç değişmez;
 	// yeni kod eklemek geriye uyumludur. İstemciler bilmedikleri kodu genel hata olarak
@@ -113,31 +143,36 @@ type Problem struct {
 	// - `INTERNAL` (500): sınıflandırılmamış hata; sebep yalnız log'da.
 	// - `ROUTE_NOT_FOUND` (404): bilinmeyen yol.
 	// - `METHOD_NOT_ALLOWED` (405): yol var, metot yok; `Allow` başlığı döner.
-	// - `REQUEST_BODY_TOO_LARGE` (413): gövde route'un sınırını aşıyor.
+	// - `REQUEST_BODY_TOO_LARGE` (413): gövde operasyonun sınırını aşıyor.
+	// - `CONTENT_TYPE_UNSUPPORTED` (415): gövdenin `Content-Type`'ı operasyonun kabul ettiklerinden değil.
 	// - `REQUEST_INVALID` (400): istek sözleşmeye uymuyor; ayrıntı `errors`'ta.
-	// - `REQUEST_BODY_MALFORMED` (400): gövde JSON olarak çözülemiyor.
+	// - `REQUEST_BODY_MALFORMED` (400): gövde yok ya da JSON olarak çözülemiyor.
 	// - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
 	// - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
 	// - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
 	// - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
 	// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
-	// - `APP_VERSION_UNSUPPORTED` (426): `X-App-Version` en düşük sürümün altında.
+	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
+	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
+	//   başlığını zorunlu tutuyor (ADR-0019).
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
-	// - `FIELD_UNKNOWN`: istek şemasında olmayan alan.
-	// - `FIELD_TYPE_INVALID`: JSON tipi yanlış.
+	// - `FIELD_UNKNOWN`: istek şemasında olmayan alan; gövdesi olmayan operasyona gövde.
+	// - `FIELD_TYPE_INVALID`: JSON ya da parametre tipi yanlış.
 	// - `FIELD_FORMAT_INVALID`: `format` (date-time, uuid, …) uymuyor.
 	// - `FIELD_VALUE_INVALID`: enum, const, pattern ya da bileşik şema uymuyor.
 	// - `FIELD_OUT_OF_RANGE`: sayı, uzunluk ya da öğe sayısı sınır dışında.
 	Code ErrorCode `json:"code"`
 
-	// Errors Alan hataları. Yalnız alan düzeyinde hata varsa bulunur.
+	// Errors Alan ve parametre hataları. Yalnız alan düzeyinde hata varsa bulunur.
 	Errors *[]ProblemField `json:"errors,omitempty"`
 
-	// Instance İsteğin yolu; query string yazılmaz.
+	// Instance Eşleşen route şablonu (`/v1/jobs/{jobId}`). Yol parametresinin değeri
+	// yazılmaz; eşleşmeyen istekte (404 `ROUTE_NOT_FOUND`) alan yoktur (ADR-0019).
 	//
-	// Examples: /v1/job-assignments/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10/payment-session
+	//
+	// Examples: /v1/meta/ping
 	Instance *string `json:"instance,omitempty"`
 
 	// RequestID Yanıttaki `X-Request-Id` ile aynı değer.
@@ -145,21 +180,26 @@ type Problem struct {
 	// Examples: req-123
 	RequestID *string `json:"requestId,omitempty"`
 
-	// Status Examples: 409
+	// Status Examples: 400
 	Status int32 `json:"status"`
 
-	// Title HTTP durumunun standart adı (`Conflict`). Görüntülemek için değil.
+	// Title HTTP durumunun standart adı (`Bad Request`). Görüntülemek için değil.
 	//
-	// Examples: Conflict
+	// Examples: Bad Request
 	Title string `json:"title"`
 
 	// Type `https://api.iskoala.com/problems/<code-kebab>`; `code`'dan türetilir.
 	//
-	// Examples: https://api.iskoala.com/problems/payment-attempt-active
+	// Examples: https://api.iskoala.com/problems/request-invalid
 	Type string `json:"type"`
 }
 
-// ProblemField Tek bir alanın hatası.
+// ProblemField Tek bir alanın ya da parametrenin hatası (ADR-0019). Gövdedeki üye `pointer`
+// ile (RFC 6901; `""` gövdenin tamamı), parametre `parameter` + `in` ile
+// gösterilir; ikisi birlikte bulunmaz. JSON:API'nin `source.pointer` /
+// `source.parameter` ayrımıyla aynı.
+//
+// Examples: {"code":"FIELD_REQUIRED","pointer":"/amount/currency"}, {"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}
 type ProblemField struct {
 	// Code Stabil, makinece okunur hata kodu (UPPER_SNAKE). Bir kodun anlamı hiç değişmez;
 	// yeni kod eklemek geriye uyumludur. İstemciler bilmedikleri kodu genel hata olarak
@@ -170,30 +210,41 @@ type ProblemField struct {
 	// - `INTERNAL` (500): sınıflandırılmamış hata; sebep yalnız log'da.
 	// - `ROUTE_NOT_FOUND` (404): bilinmeyen yol.
 	// - `METHOD_NOT_ALLOWED` (405): yol var, metot yok; `Allow` başlığı döner.
-	// - `REQUEST_BODY_TOO_LARGE` (413): gövde route'un sınırını aşıyor.
+	// - `REQUEST_BODY_TOO_LARGE` (413): gövde operasyonun sınırını aşıyor.
+	// - `CONTENT_TYPE_UNSUPPORTED` (415): gövdenin `Content-Type`'ı operasyonun kabul ettiklerinden değil.
 	// - `REQUEST_INVALID` (400): istek sözleşmeye uymuyor; ayrıntı `errors`'ta.
-	// - `REQUEST_BODY_MALFORMED` (400): gövde JSON olarak çözülemiyor.
+	// - `REQUEST_BODY_MALFORMED` (400): gövde yok ya da JSON olarak çözülemiyor.
 	// - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
 	// - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
 	// - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
 	// - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
 	// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
-	// - `APP_VERSION_UNSUPPORTED` (426): `X-App-Version` en düşük sürümün altında.
+	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
+	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
+	//   başlığını zorunlu tutuyor (ADR-0019).
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
-	// - `FIELD_UNKNOWN`: istek şemasında olmayan alan.
-	// - `FIELD_TYPE_INVALID`: JSON tipi yanlış.
+	// - `FIELD_UNKNOWN`: istek şemasında olmayan alan; gövdesi olmayan operasyona gövde.
+	// - `FIELD_TYPE_INVALID`: JSON ya da parametre tipi yanlış.
 	// - `FIELD_FORMAT_INVALID`: `format` (date-time, uuid, …) uymuyor.
 	// - `FIELD_VALUE_INVALID`: enum, const, pattern ya da bileşik şema uymuyor.
 	// - `FIELD_OUT_OF_RANGE`: sayı, uzunluk ya da öğe sayısı sınır dışında.
 	Code ErrorCode `json:"code"`
 
-	// Pointer Gövdedeki alan için RFC 6901 JSON pointer (`/amount/currency`; `""` gövdenin
-	// tamamı). Parametre için `<in>:<ad>` (`query:limit`, `header:Idempotency-Key`,
-	// `path:id`).
+	// In Parametrenin yeri (OpenAPI `in`, UPPER_SNAKE enum kuralıyla).
+	In *ProblemFieldIn `json:"in,omitempty"`
+
+	// Parameter Parametrenin adı (`limit`, `Idempotency-Key`).
 	//
+	// Examples: limit
+	Parameter *string `json:"parameter,omitempty"`
+
+	// Pointer Gövdedeki üyenin RFC 6901 JSON pointer'ı.
 	//
-	// Examples: /amount/currency, query:limit
-	Pointer string `json:"pointer"`
+	// Examples: /amount/currency
+	Pointer *string `json:"pointer,omitempty"`
 }
+
+// ProblemFieldIn Parametrenin yeri (OpenAPI `in`, UPPER_SNAKE enum kuralıyla).
+type ProblemFieldIn string

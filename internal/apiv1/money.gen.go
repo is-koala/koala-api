@@ -18,8 +18,8 @@ func (e CurrencyCode) Valid() bool {
 	}
 }
 
-// BasisPoints Oran, baz puan olarak: 1 bp = %0,01; 1250 = %12,5; 10000 = %100.
-// Oran alanlarının adı `Bps` ile biter (`commissionBps`).
+// BasisPoints Oran, baz puan olarak: 1 bp = %0,01; 1250 = %12,5; 10000 = %100 (K5).
+// Oran alanlarının adı `Bps` ile biter (`commissionBps`; öneri).
 //
 // Examples: 1250
 type BasisPoints = int32
@@ -33,7 +33,23 @@ type CurrencyCode string
 //
 // Examples: {"amount":15000,"currency":"TRY"}
 type Money struct {
-	// Amount En küçük birimde tutar (kuruş). İşaret alanın anlamına bağlıdır; çoğu alan `minimum: 0` ile daraltır.
+	// Amount En küçük birimde tutar (kuruş). Sınır JavaScript'in güvenli tam sayı
+	// aralığıdır (±2^53-1), web istemcisi tutarı kayıpsız okusun diye
+	// (ADR-0019). İşaret alanın anlamına bağlıdır.
+	//
+	//
+	// Examples: 15000
+	Amount int64 `json:"amount"`
+
+	// Currency ISO 4217 alfabetik kod. v1'de yalnız TRY.
+	Currency CurrencyCode `json:"currency"`
+}
+
+// MoneyInput Money'nin istek varyantı; alanları aynıdır, bilinmeyen alanı reddeder.
+//
+// Examples: {"amount":15000,"currency":"TRY"}
+type MoneyInput struct {
+	// Amount En küçük birimde tutar (kuruş); sınır JavaScript'in güvenli tam sayı aralığı.
 	//
 	// Examples: 15000
 	Amount int64 `json:"amount"`

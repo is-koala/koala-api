@@ -45,7 +45,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	// Faz 1: open the pgx pool here and pass its Ping as a readiness check.
 	health := httpx.NewHealth(logger)
 	router := httpx.NewRouter(logger, health)
-	if err := mountAPI(ctx, router, logger); err != nil {
+	if err := mountAPI(ctx, router, logger, cfg.Env); err != nil {
 		return err
 	}
 

@@ -12,7 +12,7 @@ type CountedCursorPage struct {
 	// PrevCursor Önceki sayfanın cursor'ı.
 	PrevCursor *string `json:"prevCursor"`
 
-	// Total Süzgece uyan toplam öğe sayısı; yalnız `includeTotal=true` ile gelir.
+	// Total Süzgece uyan toplam öğe sayısı; yalnız `includeTotal=true` ile gelir. Sınır JavaScript'in güvenli tam sayısı (ADR-0019).
 	Total *int64 `json:"total,omitempty"`
 }
 

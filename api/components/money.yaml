@@ -1,5 +1,10 @@
 # Para ve oran (ADR-0008, K5). Tutar en küçük birimde (kuruş) tam sayıdır;
 # float ya da string ondalık kullanılmaz.
+#
+# Money yanıtta, MoneyInput istekte kullanılır: istek şemaları bilinmeyen
+# alanı reddeder (additionalProperties: false), yanıt şemaları reddetmez ki
+# yanıta alan eklemek kırıcı olmasın (stil rehberi §2, §4). İki şemanın
+# alanları aynıdır; api.TestMoneyVariantsMatch bunu denetler.
 openapi: 3.1.1
 info:
   title: Koala ortak bileşenleri - para
@@ -13,12 +18,35 @@ components:
         (TRY için kuruş) tam sayıdır. `{"amount": 15000, "currency": "TRY"}` 150,00 TL'dir.
         İstemci tutarı float'a çevirmeden gösterir.
       required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: |
+            En küçük birimde tutar (kuruş). Sınır JavaScript'in güvenli tam sayı
+            aralığıdır (±2^53-1), web istemcisi tutarı kayıpsız okusun diye
+            (ADR-0019). İşaret alanın anlamına bağlıdır.
+          examples: [15000]
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+      examples:
+        - amount: 15000
+          currency: TRY
+
+    MoneyInput:
+      type: object
+      description: Money'nin istek varyantı; alanları aynıdır, bilinmeyen alanı reddeder.
+      required: [amount, currency]
       additionalProperties: false
       properties:
         amount:
           type: integer
           format: int64
-          description: "En küçük birimde tutar (kuruş). İşaret alanın anlamına bağlıdır; çoğu alan `minimum: 0` ile daraltır."
+          minimum: -9007199254740991
+          maximum: 9007199254740991
+          description: En küçük birimde tutar (kuruş); sınır JavaScript'in güvenli tam sayı aralığı.
           examples: [15000]
         currency:
           $ref: "#/components/schemas/CurrencyCode"
@@ -35,8 +63,8 @@ components:
       type: integer
       format: int32
       description: |
-        Oran, baz puan olarak: 1 bp = %0,01; 1250 = %12,5; 10000 = %100.
-        Oran alanlarının adı `Bps` ile biter (`commissionBps`).
+        Oran, baz puan olarak: 1 bp = %0,01; 1250 = %12,5; 10000 = %100 (K5).
+        Oran alanlarının adı `Bps` ile biter (`commissionBps`; öneri).
       minimum: 0
       maximum: 10000
       examples: [1250]

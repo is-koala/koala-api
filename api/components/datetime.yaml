@@ -8,13 +8,14 @@ components:
     Timestamp:
       type: string
       format: date-time
+      pattern: "Z$"
       description: |
-        Anlık zaman, RFC 3339, UTC ve `Z` ile (`2026-08-27T06:30:00Z`). Sunucu
-        her zaman UTC yazar; istemci gönderirken ofsetli değer de verebilir.
-        Alan adı `At` ile biter (`createdAt`).
+        Anlık zaman, RFC 3339, UTC ve `Z` ile (`2026-08-27T06:30:00Z`; K11). Ofsetli
+        değer kabul edilmez: hem sunucu hem istemci UTC yazar. Alan adı `At` ile
+        biter (`createdAt`).
       examples: ["2026-08-27T06:30:00Z"]
 
-    LocalDateTime:
+    OffsetDateTime:
       type: string
       format: date-time
       description: |

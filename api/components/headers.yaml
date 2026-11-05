@@ -1,9 +1,9 @@
 # Ortak başlıklar (ADR-0005 madde 6-7, plan §4.1-6, §4.1-7).
 #
 # Platform başlıkları (X-Request-Id, X-Device-Id, X-App-Version,
-# X-Client-Platform) middleware'de zorlanır ve operasyonlara tek tek
-# yazılmaz; burada tek yerde tanımlıdır ki istemciler tip ve sabit üretsin
-# (docs/api-style-guide.md "Başlıklar"). Idempotency-Key operasyona özgüdür:
+# X-Client-Platform) middleware'de zorlanır ve operasyonlara yazılmaz;
+# zorunlulukları middleware testleri kanıtlar. Burada tek yerde tanımlıdırlar
+# ki istemciler tip ve sabit üretsin (docs/api-style-guide.md §10). Idempotency-Key operasyona özgüdür:
 # gerektiren her POST onu parameters'ta referanslar.
 openapi: 3.1.1
 info:
@@ -18,16 +18,16 @@ components:
       description: |
         İsteğin tekil anahtarı (IETF draft-ietf-httpapi-idempotency-key-header).
         İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
-        aynısını gönderir. Aynı anahtar farklı gövdeyle gelirse 422
+        aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
+        structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
+        (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
         `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
         `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
         saklanır.
       schema:
         type: string
-        minLength: 8
-        maxLength: 255
-        pattern: "^[A-Za-z0-9_.:-]+$"
-        examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        pattern: '^([A-Za-z0-9_.:-]{8,255}|"[A-Za-z0-9_.:-]{8,255}")$'
+        examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10, '"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"']
 
     XRequestId:
       name: X-Request-Id
@@ -56,8 +56,8 @@ components:
       in: header
       description: |
         İstemci sürümü (semver). En düşük desteklenen sürümün altındaysa yanıt
-        426 `APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` olur. Kapı `/v1`
-        dışında da çalışır.
+        400 `APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` olur (426 değil,
+        ADR-0019). Kapı `/v1` dışında da çalışır.
       schema:
         type: string
         pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$"
@@ -66,7 +66,7 @@ components:
     XClientPlatform:
       name: X-Client-Platform
       in: header
-      description: İstemcinin platformu.
+      description: İstemcinin platformu (değerler öneri).
       schema:
         $ref: "#/components/schemas/ClientPlatform"
 
@@ -76,7 +76,7 @@ components:
       schema:
         type: string
     XMinimumAppVersion:
-      description: Desteklenen en düşük istemci sürümü (426 ile döner).
+      description: Desteklenen en düşük istemci sürümü (400 `APP_VERSION_UNSUPPORTED` ile döner).
       schema:
         type: string
     RetryAfter:

@@ -21,7 +21,7 @@ type PingRequest struct {
 	// Amount Geri döndürülecek tutar.
 	//
 	// Examples: {"amount":15000,"currency":"TRY"}
-	Amount Money `json:"amount"`
+	Amount MoneyInput `json:"amount"`
 
 	// Note İsteğe bağlı not; null gönderilebilir.
 	//
@@ -47,7 +47,7 @@ type PingResponse struct {
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"PAYMENT_ATTEMPT_ACTIVE","errors":[{"code":"IBAN_INVALID","pointer":"/iban"}],"instance":"/v1/job-assignments/abc/payment-session","requestId":"req-123","status":409,"title":"Conflict","type":"https://api.iskoala.com/problems/payment-attempt-active"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type BadRequest = Problem
 
 // InternalError RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -55,7 +55,7 @@ type BadRequest = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"PAYMENT_ATTEMPT_ACTIVE","errors":[{"code":"IBAN_INVALID","pointer":"/iban"}],"instance":"/v1/job-assignments/abc/payment-session","requestId":"req-123","status":409,"title":"Conflict","type":"https://api.iskoala.com/problems/payment-attempt-active"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type InternalError = Problem
 
 // PayloadTooLarge RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -63,7 +63,7 @@ type InternalError = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"PAYMENT_ATTEMPT_ACTIVE","errors":[{"code":"IBAN_INVALID","pointer":"/iban"}],"instance":"/v1/job-assignments/abc/payment-session","requestId":"req-123","status":409,"title":"Conflict","type":"https://api.iskoala.com/problems/payment-attempt-active"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type PayloadTooLarge = Problem
 
 // TooManyRequests RFC 9457 problem belgesi; medya tipi `application/problem+json`.
@@ -71,16 +71,16 @@ type PayloadTooLarge = Problem
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"PAYMENT_ATTEMPT_ACTIVE","errors":[{"code":"IBAN_INVALID","pointer":"/iban"}],"instance":"/v1/job-assignments/abc/payment-session","requestId":"req-123","status":409,"title":"Conflict","type":"https://api.iskoala.com/problems/payment-attempt-active"}
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
 type TooManyRequests = Problem
 
-// UpgradeRequired RFC 9457 problem belgesi; medya tipi `application/problem+json`.
+// UnsupportedMediaType RFC 9457 problem belgesi; medya tipi `application/problem+json`.
 // `detail` alanı yoktur: kullanıcıya gösterilecek metni istemci `code`'dan
 // üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
 // istemci bilmediği alanı yok sayar.
 //
-// Examples: {"code":"PAYMENT_ATTEMPT_ACTIVE","errors":[{"code":"IBAN_INVALID","pointer":"/iban"}],"instance":"/v1/job-assignments/abc/payment-session","requestId":"req-123","status":409,"title":"Conflict","type":"https://api.iskoala.com/problems/payment-attempt-active"}
-type UpgradeRequired = Problem
+// Examples: {"code":"REQUEST_INVALID","errors":[{"code":"FIELD_REQUIRED","pointer":"/amount/currency"},{"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}],"instance":"/v1/meta/ping","requestId":"req-123","status":400,"title":"Bad Request","type":"https://api.iskoala.com/problems/request-invalid"}
+type UnsupportedMediaType = Problem
 
 // PingJSONRequestBody defines body for Ping for application/json ContentType.
 type PingJSONRequestBody = PingRequest
@@ -245,7 +245,14 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	return r
 }
 
-type BadRequestApplicationProblemPlusJSONResponse Problem
+type BadRequestResponseHeaders struct {
+	XMinimumAppVersion *string
+}
+type BadRequestApplicationProblemPlusJSONResponse struct {
+	Body Problem
+
+	Headers BadRequestResponseHeaders
+}
 
 type InternalErrorApplicationProblemPlusJSONResponse Problem
 
@@ -260,14 +267,7 @@ type TooManyRequestsApplicationProblemPlusJSONResponse struct {
 	Headers TooManyRequestsResponseHeaders
 }
 
-type UpgradeRequiredResponseHeaders struct {
-	XMinimumAppVersion *string
-}
-type UpgradeRequiredApplicationProblemPlusJSONResponse struct {
-	Body Problem
-
-	Headers UpgradeRequiredResponseHeaders
-}
+type UnsupportedMediaTypeApplicationProblemPlusJSONResponse Problem
 
 type PingRequestObject struct {
 	Body *PingJSONRequestBody
@@ -298,10 +298,13 @@ type Ping400ApplicationProblemPlusJSONResponse struct {
 func (response Ping400ApplicationProblemPlusJSONResponse) VisitPingResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
 	w.WriteHeader(400)
 	_, err := buf.WriteTo(w)
 	return err
@@ -323,21 +326,18 @@ func (response Ping413ApplicationProblemPlusJSONResponse) VisitPingResponse(w ht
 	return err
 }
 
-type Ping426ApplicationProblemPlusJSONResponse struct {
-	UpgradeRequiredApplicationProblemPlusJSONResponse
+type Ping415ApplicationProblemPlusJSONResponse struct {
+	UnsupportedMediaTypeApplicationProblemPlusJSONResponse
 }
 
-func (response Ping426ApplicationProblemPlusJSONResponse) VisitPingResponse(w http.ResponseWriter) error {
+func (response Ping415ApplicationProblemPlusJSONResponse) VisitPingResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
-	if response.Headers.XMinimumAppVersion != nil {
-		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
-	}
-	w.WriteHeader(426)
+	w.WriteHeader(415)
 	_, err := buf.WriteTo(w)
 	return err
 }

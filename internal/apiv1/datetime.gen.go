@@ -19,21 +19,21 @@ type Date = openapi_types.Date
 // Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
 type ID = openapi_types.UUID
 
-// LocalDateTime Yerel anlamı olan zaman (ilan başlangıcı gibi), RFC 3339, kaynağın saat
+// OffsetDateTime Yerel anlamı olan zaman (ilan başlangıcı gibi), RFC 3339, kaynağın saat
 // diliminin ofsetiyle (`2026-08-27T09:30:00+03:00`). Saat dilimi aynı nesnede
 // `timeZone` alanında taşınır. Alan adı `At` ile biter (`startsAt`).
 //
 // Examples: 2026-08-27T09:30:00+03:00
-type LocalDateTime = time.Time
+type OffsetDateTime = time.Time
 
 // TimeZone IANA saat dilimi adı. Varsayılan `Europe/Istanbul`.
 //
 // Examples: Europe/Istanbul
 type TimeZone = string
 
-// Timestamp Anlık zaman, RFC 3339, UTC ve `Z` ile (`2026-08-27T06:30:00Z`). Sunucu
-// her zaman UTC yazar; istemci gönderirken ofsetli değer de verebilir.
-// Alan adı `At` ile biter (`createdAt`).
+// Timestamp Anlık zaman, RFC 3339, UTC ve `Z` ile (`2026-08-27T06:30:00Z`; K11). Ofsetli
+// değer kabul edilmez: hem sunucu hem istemci UTC yazar. Alan adı `At` ile
+// biter (`createdAt`).
 //
 // Examples: 2026-08-27T06:30:00Z
 type Timestamp = time.Time
