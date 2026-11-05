@@ -30,7 +30,7 @@ Java hataları (oracle'da Java davranışı kalır, Go hedefi ayrı kolonda):
 | §5.4'te karşılığı yok (✗) | 24 |
 | Bilinçli olarak model dışı (dış) | 21 |
 | Önerilen DSL'de karşılığı olmayan çift | 0 (model dışı olanlar `go:<kural>`) |
-| Matris ([`internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml)) | 213 satır; 21'inde Java hedeften farklı. `skip` olmayan her çiftte ≥1 izin ve ≥1 ret; istisna C54 (hedefte izinli pazaryeri öznesi yok). C37 `skip`. `java_conceal` envanterin `gizleme_404` kolonundan türetilir. |
+| Matris ([`internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml)) | 214 satır; 21'inde Java hedeften farklı. `skip` olmayan her çiftte ≥1 izin ve ≥1 ret; istisna C54 (hedefte izinli pazaryeri öznesi yok). C37 `skip`. `java_conceal` envanterin `gizleme_404` kolonundan türetilir. |
 
 "Uyum" kolonu §5.4'ün **mevcut** modelini hedefe göre değerlendirir. Önerilen DSL (aşağıda) bütün ReBAC çiftlerini karşılar.
 

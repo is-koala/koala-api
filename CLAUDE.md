@@ -13,11 +13,13 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 ## Kapı: CI'da koşar, yerelde ağır iş yok
 
-- Kapı iki adımdır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004, ADR-0017):
-  1. `make verify`: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`) → `sqlc vet` ve probu (`sqlc-vet`). Bu adımdaki testler DB'siz birim testleridir.
-  2. `make test-integration`: service container'daki Postgres'e karşı yalnız `integration` etiketli testler. Önce etiket korumaları koşar.
+- Kapı `.github/workflows/verify.yml`'in dört job'udur ve **yalnız GitHub Actions'ta** koşar (ADR-0004, ADR-0017, ADR-0023, ADR-0024):
+  1. `verify` (`make verify`): gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`) → `sqlc vet` ve probu (`sqlc-vet`). Bu job'daki testler DB'siz birim testleridir.
+  2. `integration` (`make test-integration`): service container'daki Postgres'e karşı yalnız `integration` etiketli testler. Önce etiket korumaları koşar.
+  3. `image`: imaj derlenir, duman testi ve yayın yolu koşar (ADR-0023).
+  4. `authz-conformance` (`make test-conformance`): `conformance` etiketli koşucu, authz matrisini Go değerlendiricisine ve service container'daki OpenFGA'ya koşturur; fark kırmızıdır.
 - **Bu Mac'te yerelde ağır iş yapılmaz** (Yusuf, 04.11). `go test`, `go vet`, `go build`, golangci-lint, `make verify` ve docker çalıştırılmaz. Serbest olanlar: `gofmt`, `go mod tidy`, `make fmt-check`, `make mod-check`. İş bitince `go clean -cache`.
-- PR, CI'daki `verify` yeşil olmadan merge edilmez. Kırmızı kapıyla "sonra düzeltirim" yok.
+- PR, workflow'un bütün job'ları yeşil olmadan merge edilmez. Kırmızı kapıyla "sonra düzeltirim" yok.
 - `//nolint` yalnız linter adı ve gerekçeyle yazılır: `//nolint:wrapcheck // neden` **[lint: nolintlint]**. Gerekçesiz susturma yerine kodu düzelt.
 - Araç sürümleri `Makefile`'da sabittir. Go sürümü desteklenen en yeni Go'dur (`go.mod` `toolchain`); Go, Dockerfile imajı ve golangci-lint birlikte yükseltilir.
 

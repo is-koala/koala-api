@@ -1,7 +1,8 @@
 # TASLAK — internal/authz/testdata/matrix.yaml (plan §5.6-3, ADR-0014)
 #
-# Faz 0 başlangıç taslağı. Go değerlendiricisi ve OpenFGA uygunluk koşucusu (§5.6-5)
-# henüz yok. Üretici: docs/faz0/tarama/pairs.py; elle düzenlemeyin, betiği güncelleyin.
+# Faz 0 başlangıç taslağı. Koşucular (§5.6-5, ADR-0024): Go değerlendiricisi
+# internal/authz/matrix_test.go, gerçek OpenFGA internal/authz/openfga_conformance_test.go.
+# Üretici: docs/faz0/tarama/pairs.py; elle düzenlemeyin, betiği güncelleyin.
 #
 # Alanlar
 #   action   : <nesne_tipi>.<karar eylemi>; relation karşılığı `actions:` haritasında.
@@ -42,11 +43,12 @@ basis:
   applicant_pool: "açık ilana başvurabilecek herkes (job#applicant_pool)"
   participant: "sohbet katılımcısı (conversation#participant)"
   invitee: "davet edilen (company_invitation#invitee)"
+  inviter: "daveti gönderen (company_invitation#inviter)"
   seat_holder: "serviste koltuğu olan işçi (shuttle#seat_holder)"
   active_worker: "adresin göründüğü atama durumundaki işçi (job#active_worker)"
   reviewer: "başvuru almış işveren tarafı (private_file#reviewer)"
-  owner: "kaydın sahibi (model dışı, Scope SelfUserID)"
-  self: "kendisi (user#self)"
+  owner: "kaydın sahibi (private_file#owner; model dışı tiplerde Scope SelfUserID)"
+  self: "kendisi (user#itself)"
   contact: "ortak sohbeti olan kullanıcı (user#contact)"
   public: "herkese açık ([user:*] ya da kimliksiz)"
   attribute_is_employer: "öznitelik: kullanıcı işveren ve kimliği doğrulanmış"
@@ -133,6 +135,7 @@ fixtures:
     user:u_worker: {type: user, note: "asg_ind, asg_co, asg_orphan, asg_pending, asg_done işçisi; conv_ind katılımcısı; seat_w"}
     user:u_creator: {type: user, note: "bireysel işveren; job_ind ve job_closed sahibi; tmpl_c sahibi"}
     user:u_co_admin: {type: user, note: "co_1 ADMIN"}
+    user:u_co_admin2: {type: user, note: "co_1'in ikinci ADMIN'i; inv_1'i göndermedi"}
     user:u_co_staff: {type: user, note: "co_1 STAFF; job_co'yu açan"}
     user:u_co_former: {type: user, note: "co_1'den çıkarılmış eski yetkili; job_co_orphan'ı açan"}
     user:u_other_co_admin: {type: user, note: "co_2 ADMIN; co_1 ile ilişkisi yok"}
@@ -190,6 +193,7 @@ fixtures:
     user:u_worker: {type: user, attrs: {"is_employer": false}}
     user:u_creator: {type: user, attrs: {"is_employer": true}}
     user:u_co_admin: {type: user, attrs: {"is_employer": true}}
+    user:u_co_admin2: {type: user, attrs: {"is_employer": true}}
     user:u_co_staff: {type: user, attrs: {"is_employer": true}}
     user:u_co_former: {type: user, attrs: {"is_employer": true}}
     user:u_other_co_admin: {type: user, attrs: {"is_employer": true}}
@@ -201,8 +205,11 @@ fixtures:
     user:u_deleted: {type: user, attrs: {"is_employer": false, "deleted": true}}
   tuples:
     - "company:co_1#admin@user:u_co_admin"
+    - "company:co_1#admin@user:u_co_admin2"
     - "company:co_1#staff_member@user:u_co_staff"
     - "company:co_2#admin@user:u_other_co_admin"
+    - "company:co_1#viewer@user:*"
+    - "company:co_2#viewer@user:*"
     - "job:job_ind#individual_owner@user:u_creator"
     - "job:job_ind#creator@user:u_creator"
     - "job:job_ind#public_viewer@user:*"
@@ -258,8 +265,8 @@ fixtures:
     - "private_file:cv_applicant#reviewer@company:co_1#member"
     - "user:u_worker#public_viewer@user:*"
     - "user:u_applicant#public_viewer@user:*"
-    - "user:u_worker#self@user:u_worker"
-    - "user:u_creator#self@user:u_creator"
+    - "user:u_worker#itself@user:u_worker"
+    - "user:u_creator#itself@user:u_creator"
     - "user:u_worker#contact@user:u_creator"
     - "user:u_creator#contact@user:u_worker"
 
@@ -1500,12 +1507,23 @@ cases:
     subject: "user:u_co_admin"
     object: "company_invitation:inv_1"
     expect: allow
-    basis: company_admin
+    basis: inviter
     java: allow
     engine: [go, openfga]
     inventory: [AZ-063]
     source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStrangerCannotTellTheInvitationFromAMissingOne"]
   - id: AZM-107
+    pair: C29
+    action: company_invitation.read
+    subject: "user:u_co_admin2"
+    object: "company_invitation:inv_1"
+    expect: allow
+    basis: company_admin
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-063]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStrangerCannotTellTheInvitationFromAMissingOne"]
+  - id: AZM-108
     pair: C29
     action: company_invitation.read
     subject: "user:u_co_staff"
@@ -1517,7 +1535,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-063]
     source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStrangerCannotTellTheInvitationFromAMissingOne"]
-  - id: AZM-108
+  - id: AZM-109
     pair: C29
     action: company_invitation.read
     subject: "user:u_stranger"
@@ -1529,7 +1547,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-063]
     source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStrangerCannotTellTheInvitationFromAMissingOne"]
-  - id: AZM-109
+  - id: AZM-110
     pair: C30
     action: company_invitation.answer
     subject: "user:u_invitee"
@@ -1540,7 +1558,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-062]
     source: ["src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
-  - id: AZM-110
+  - id: AZM-111
     pair: C30
     action: company_invitation.answer
     subject: "user:u_co_admin"
@@ -1552,7 +1570,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-062]
     source: ["src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
-  - id: AZM-111
+  - id: AZM-112
     pair: C30
     action: company_invitation.answer
     subject: "user:u_stranger"
@@ -1564,7 +1582,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-062]
     source: ["src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
-  - id: AZM-112
+  - id: AZM-113
     pair: C31
     action: job_application.decide
     subject: "user:u_creator"
@@ -1575,7 +1593,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-045, AZ-046]
     source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
-  - id: AZM-113
+  - id: AZM-114
     pair: C31
     action: job_application.decide
     subject: "user:u_co_admin"
@@ -1586,7 +1604,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-045, AZ-046]
     source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
-  - id: AZM-114
+  - id: AZM-115
     pair: C31
     action: job_application.decide
     subject: "user:u_applicant"
@@ -1598,7 +1616,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-045, AZ-046]
     source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
-  - id: AZM-115
+  - id: AZM-116
     pair: C31
     action: job_application.decide
     subject: "user:u_co_former"
@@ -1611,7 +1629,7 @@ cases:
     note: "D1 ile Java aynı karar"
     inventory: [AZ-045, AZ-046]
     source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
-  - id: AZM-116
+  - id: AZM-117
     pair: C31
     action: job_application.decide
     subject: "user:u_stranger"
@@ -1623,7 +1641,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-045, AZ-046]
     source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
-  - id: AZM-117
+  - id: AZM-118
     pair: C32
     action: job_application.withdraw
     subject: "user:u_applicant"
@@ -1634,7 +1652,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-047]
     source: []
-  - id: AZM-118
+  - id: AZM-119
     pair: C32
     action: job_application.withdraw
     subject: "user:u_creator"
@@ -1646,7 +1664,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-047]
     source: []
-  - id: AZM-119
+  - id: AZM-120
     pair: C32
     action: job_application.withdraw
     subject: "user:u_stranger"
@@ -1658,7 +1676,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-047]
     source: []
-  - id: AZM-120
+  - id: AZM-121
     pair: C33
     action: job_application.list
     subject: "user:u_creator"
@@ -1669,7 +1687,7 @@ cases:
     engine: go_only
     inventory: [AZ-118]
     source: ["src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "src/test/java/com/exskylab/koala/webAPI/ReceivedApplicationsIT.java#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
-  - id: AZM-121
+  - id: AZM-122
     pair: C33
     action: job_application.list
     subject: "user:u_co_admin"
@@ -1680,7 +1698,7 @@ cases:
     engine: go_only
     inventory: [AZ-118]
     source: ["src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "src/test/java/com/exskylab/koala/webAPI/ReceivedApplicationsIT.java#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
-  - id: AZM-122
+  - id: AZM-123
     pair: C33
     action: job_application.list
     subject: "user:u_co_former"
@@ -1693,7 +1711,7 @@ cases:
     note: "liste süzgeci"
     inventory: [AZ-118]
     source: ["src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "src/test/java/com/exskylab/koala/webAPI/ReceivedApplicationsIT.java#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
-  - id: AZM-123
+  - id: AZM-124
     pair: C33
     action: job_application.list
     subject: "user:u_stranger"
@@ -1706,7 +1724,7 @@ cases:
     note: "liste süzgeci"
     inventory: [AZ-118]
     source: ["src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "src/test/java/com/exskylab/koala/webAPI/ReceivedApplicationsIT.java#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
-  - id: AZM-124
+  - id: AZM-125
     pair: C34
     action: conversation.read
     subject: "user:u_worker"
@@ -1717,7 +1735,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-064, AZ-065, AZ-066, AZ-067, AZ-069]
     source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/ConversationMessagingIT.java#anAfterFromAnotherConversationLooksExactlyLikeAnUnknownOne", "src/test/java/com/exskylab/koala/webAPI/ConversationMessagingIT.java#anOutsiderMarkingReadGetsTheSameNotFoundAndLeavesNoStamp", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#markingSomeoneElsesConversationReadLooksExactlyLikeMarkingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesConversationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesSingleConversationLooksExactlyLikeReadingOneThatDoesNotExist"]
-  - id: AZM-125
+  - id: AZM-126
     pair: C34
     action: conversation.read
     subject: "user:u_stranger"
@@ -1729,7 +1747,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-064, AZ-065, AZ-066, AZ-067, AZ-069]
     source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/ConversationMessagingIT.java#anAfterFromAnotherConversationLooksExactlyLikeAnUnknownOne", "src/test/java/com/exskylab/koala/webAPI/ConversationMessagingIT.java#anOutsiderMarkingReadGetsTheSameNotFoundAndLeavesNoStamp", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#markingSomeoneElsesConversationReadLooksExactlyLikeMarkingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesConversationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesSingleConversationLooksExactlyLikeReadingOneThatDoesNotExist"]
-  - id: AZM-126
+  - id: AZM-127
     pair: C35
     action: conversation.post
     subject: "user:u_creator"
@@ -1740,7 +1758,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
     source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
-  - id: AZM-127
+  - id: AZM-128
     pair: C35
     action: conversation.post
     subject: "user:u_stranger"
@@ -1752,7 +1770,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
     source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
-  - id: AZM-128
+  - id: AZM-129
     pair: C35
     action: conversation.post
     subject: "user:u_blocked"
@@ -1765,7 +1783,7 @@ cases:
     note: "engelleme ön süzgeci"
     inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
     source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
-  - id: AZM-129
+  - id: AZM-130
     pair: C36
     action: conversation.subscribe
     subject: "user:u_worker"
@@ -1776,7 +1794,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-074]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#anOutsiderCannotSubscribeToSomeoneElsesConversation", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#subscribingToAConversationThatDoesNotExistIsRefused"]
-  - id: AZM-130
+  - id: AZM-131
     pair: C36
     action: conversation.subscribe
     subject: "user:u_stranger"
@@ -1789,7 +1807,7 @@ cases:
     note: "WS abonelik reddi"
     inventory: [AZ-074]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#anOutsiderCannotSubscribeToSomeoneElsesConversation", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#subscribingToAConversationThatDoesNotExistIsRefused"]
-  - id: AZM-131
+  - id: AZM-132
     pair: C37
     action: conversation.publish_to_topic
     subject: "user:u_worker"
@@ -1801,7 +1819,7 @@ cases:
     note: "K4: istemciden yayın yok"
     inventory: [AZ-077]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#framesOtherThanConnectAndSubscribePassThroughUntouched"]
-  - id: AZM-132
+  - id: AZM-133
     pair: C37
     action: conversation.publish_to_topic
     subject: "user:u_stranger"
@@ -1813,7 +1831,7 @@ cases:
     note: "Java açığı (doğrulanmadı)"
     inventory: [AZ-077]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#framesOtherThanConnectAndSubscribePassThroughUntouched"]
-  - id: AZM-133
+  - id: AZM-134
     pair: C38
     action: conversation.list
     subject: "user:u_worker"
@@ -1824,7 +1842,7 @@ cases:
     engine: go_only
     inventory: [AZ-120]
     source: []
-  - id: AZM-134
+  - id: AZM-135
     pair: C38
     action: conversation.list
     subject: "user:u_stranger"
@@ -1837,7 +1855,7 @@ cases:
     note: "liste süzgeci"
     inventory: [AZ-120]
     source: []
-  - id: AZM-135
+  - id: AZM-136
     pair: C39
     action: message.report
     subject: "user:u_worker"
@@ -1848,7 +1866,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-080]
     source: ["src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#aNonParticipantCannotReportAnExistingMessage", "src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
-  - id: AZM-136
+  - id: AZM-137
     pair: C39
     action: message.report
     subject: "user:u_stranger"
@@ -1860,7 +1878,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-080]
     source: ["src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#aNonParticipantCannotReportAnExistingMessage", "src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
-  - id: AZM-137
+  - id: AZM-138
     pair: C39
     action: message.report
     subject: "user:u_creator"
@@ -1873,24 +1891,13 @@ cases:
     note: "gönderen kendi mesajını raporlayamaz (REPORT_CANNOT_REPORT_SELF; envanterde iş kuralı, ayrı satır yok)"
     inventory: [AZ-080]
     source: ["src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#aNonParticipantCannotReportAnExistingMessage", "src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
-  - id: AZM-138
+  - id: AZM-139
     pair: C40
     action: dispute.read
     subject: "user:u_worker"
     object: "dispute:dsp_ind"
     expect: allow
     basis: worker
-    java: allow
-    engine: [go, openfga]
-    inventory: [AZ-082, AZ-083, AZ-084]
-    source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotDownloadEvidence", "src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotListEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist"]
-  - id: AZM-139
-    pair: C40
-    action: dispute.read
-    subject: "user:u_creator"
-    object: "dispute:dsp_ind"
-    expect: allow
-    basis: individual_owner
     java: allow
     engine: [go, openfga]
     inventory: [AZ-082, AZ-083, AZ-084]
@@ -1898,6 +1905,17 @@ cases:
   - id: AZM-140
     pair: C40
     action: dispute.read
+    subject: "user:u_creator"
+    object: "dispute:dsp_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-082, AZ-083, AZ-084]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotDownloadEvidence", "src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotListEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist"]
+  - id: AZM-141
+    pair: C40
+    action: dispute.read
     subject: "user:u_stranger"
     object: "dispute:dsp_ind"
     expect: deny
@@ -1907,7 +1925,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-082, AZ-083, AZ-084]
     source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotDownloadEvidence", "src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotListEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist"]
-  - id: AZM-141
+  - id: AZM-142
     pair: C41
     action: dispute.add_evidence
     subject: "user:u_worker"
@@ -1918,7 +1936,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-081]
     source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotAttachEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#attachingEvidenceToSomeoneElsesDisputeLooksExactlyLikeAttachingToOneThatDoesNotExist"]
-  - id: AZM-142
+  - id: AZM-143
     pair: C41
     action: dispute.add_evidence
     subject: "user:u_stranger"
@@ -1930,7 +1948,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-081]
     source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotAttachEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#attachingEvidenceToSomeoneElsesDisputeLooksExactlyLikeAttachingToOneThatDoesNotExist"]
-  - id: AZM-143
+  - id: AZM-144
     pair: C42
     action: shuttle.manage
     subject: "user:u_creator"
@@ -1941,22 +1959,10 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-085, AZ-086, AZ-087]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent"]
-  - id: AZM-144
-    pair: C42
-    action: shuttle.manage
-    subject: "user:u_worker"
-    object: "shuttle:shuttle_ind"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
-    engine: [go, openfga]
-    inventory: [AZ-085, AZ-086, AZ-087]
-    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent"]
   - id: AZM-145
     pair: C42
     action: shuttle.manage
-    subject: "user:u_stranger"
+    subject: "user:u_worker"
     object: "shuttle:shuttle_ind"
     expect: deny
     conceal: true
@@ -1966,6 +1972,18 @@ cases:
     inventory: [AZ-085, AZ-086, AZ-087]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent"]
   - id: AZM-146
+    pair: C42
+    action: shuttle.manage
+    subject: "user:u_stranger"
+    object: "shuttle:shuttle_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-085, AZ-086, AZ-087]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent"]
+  - id: AZM-147
     pair: C43
     action: shuttle.board
     subject: "user:u_worker"
@@ -1976,7 +1994,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-088, AZ-089]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aSeatMovedOffTheScannedShuttleWhileTheScanWaitsForItsLockIsConcealed", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard"]
-  - id: AZM-147
+  - id: AZM-148
     pair: C43
     action: shuttle.board
     subject: "user:u_stranger"
@@ -1988,7 +2006,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-088, AZ-089]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aSeatMovedOffTheScannedShuttleWhileTheScanWaitsForItsLockIsConcealed", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard"]
-  - id: AZM-148
+  - id: AZM-149
     pair: C44
     action: shuttle.read_details
     subject: "user:u_creator"
@@ -1999,7 +2017,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-116]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aPendingAssignmentCannotPickASeatAndACancelledWorkerSeesOnlyDistrictLevelStops", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#thePlateAndDriverShowOnlyOnTheShuttleTheWorkerPicked", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theWorkerPicksASeatAndSeesTheDriverOnlyOnThatShuttle"]
-  - id: AZM-149
+  - id: AZM-150
     pair: C44
     action: shuttle.read_details
     subject: "user:u_worker"
@@ -2010,7 +2028,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-116]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aPendingAssignmentCannotPickASeatAndACancelledWorkerSeesOnlyDistrictLevelStops", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#thePlateAndDriverShowOnlyOnTheShuttleTheWorkerPicked", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theWorkerPicksASeatAndSeesTheDriverOnlyOnThatShuttle"]
-  - id: AZM-150
+  - id: AZM-151
     pair: C44
     action: shuttle.read_details
     subject: "user:u_worker"
@@ -2023,7 +2041,7 @@ cases:
     note: "alan düzeyi: plaka/şoför gizli"
     inventory: [AZ-116]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aPendingAssignmentCannotPickASeatAndACancelledWorkerSeesOnlyDistrictLevelStops", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#thePlateAndDriverShowOnlyOnTheShuttleTheWorkerPicked", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theWorkerPicksASeatAndSeesTheDriverOnlyOnThatShuttle"]
-  - id: AZM-151
+  - id: AZM-152
     pair: C45
     action: seat_assignment.mark_boarding
     subject: "user:u_creator"
@@ -2034,7 +2052,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-090]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theMarkingRulesAreValidatedAtTheBoundary"]
-  - id: AZM-152
+  - id: AZM-153
     pair: C45
     action: seat_assignment.mark_boarding
     subject: "user:u_stranger"
@@ -2046,7 +2064,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-090]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theMarkingRulesAreValidatedAtTheBoundary"]
-  - id: AZM-153
+  - id: AZM-154
     pair: C45
     action: seat_assignment.mark_boarding
     subject: "user:u_worker"
@@ -2058,7 +2076,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-090]
     source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theMarkingRulesAreValidatedAtTheBoundary"]
-  - id: AZM-154
+  - id: AZM-155
     pair: C46
     action: user.read_public
     subject: "user:u_stranger"
@@ -2069,7 +2087,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131]
     source: []
-  - id: AZM-155
+  - id: AZM-156
     pair: C46
     action: user.read_public
     subject: "anonymous"
@@ -2081,7 +2099,7 @@ cases:
     note: "kimliksiz okuma"
     inventory: [AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131]
     source: []
-  - id: AZM-156
+  - id: AZM-157
     pair: C46
     action: user.read_public
     subject: "user:u_stranger"
@@ -2094,7 +2112,7 @@ cases:
     note: "soft-delete: public_viewer tuple'ı silinmiş"
     inventory: [AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131]
     source: []
-  - id: AZM-157
+  - id: AZM-158
     pair: C47
     action: user.read_public_profile
     subject: "user:u_stranger"
@@ -2105,7 +2123,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-125]
     source: []
-  - id: AZM-158
+  - id: AZM-159
     pair: C47
     action: user.read_public_profile
     subject: "anonymous"
@@ -2118,7 +2136,7 @@ cases:
     note: "profil kimlik ister"
     inventory: [AZ-125]
     source: []
-  - id: AZM-159
+  - id: AZM-160
     pair: C47
     action: user.read_public_profile
     subject: "user:u_stranger"
@@ -2131,18 +2149,18 @@ cases:
     note: "soft-delete"
     inventory: [AZ-125]
     source: []
-  - id: AZM-160
+  - id: AZM-161
     pair: C48
     action: user.read_cv_url
     subject: "user:u_applicant"
     object: "private_file:cv_applicant"
     expect: allow
-    basis: self
+    basis: owner
     java: allow
     engine: [go, openfga]
     inventory: [AZ-094]
     source: ["src/test/java/com/exskylab/koala/business/concretes/EmployerSurfaceRulesTest.java#aStrangerDoesNotSeeTheCvLink"]
-  - id: AZM-161
+  - id: AZM-162
     pair: C48
     action: user.read_cv_url
     subject: "user:u_creator"
@@ -2153,7 +2171,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-094]
     source: ["src/test/java/com/exskylab/koala/business/concretes/EmployerSurfaceRulesTest.java#aStrangerDoesNotSeeTheCvLink"]
-  - id: AZM-162
+  - id: AZM-163
     pair: C48
     action: user.read_cv_url
     subject: "user:u_stranger"
@@ -2166,7 +2184,7 @@ cases:
     note: "alan düzeyi: CV bağlantısı yok"
     inventory: [AZ-094]
     source: ["src/test/java/com/exskylab/koala/business/concretes/EmployerSurfaceRulesTest.java#aStrangerDoesNotSeeTheCvLink"]
-  - id: AZM-163
+  - id: AZM-164
     pair: C49
     action: private_file.download
     subject: "user:u_applicant"
@@ -2177,7 +2195,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-093]
     source: ["src/test/java/com/exskylab/koala/business/concretes/CvAccessRulesTest.java#anEmployerWithNoApplicationFromThatWorkerCannot", "src/test/java/com/exskylab/koala/webAPI/StorageDownloadRulesTest.java#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
-  - id: AZM-164
+  - id: AZM-165
     pair: C49
     action: private_file.download
     subject: "user:u_co_staff"
@@ -2188,7 +2206,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-093]
     source: ["src/test/java/com/exskylab/koala/business/concretes/CvAccessRulesTest.java#anEmployerWithNoApplicationFromThatWorkerCannot", "src/test/java/com/exskylab/koala/webAPI/StorageDownloadRulesTest.java#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
-  - id: AZM-165
+  - id: AZM-166
     pair: C49
     action: private_file.download
     subject: "user:u_stranger"
@@ -2200,7 +2218,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-093]
     source: ["src/test/java/com/exskylab/koala/business/concretes/CvAccessRulesTest.java#anEmployerWithNoApplicationFromThatWorkerCannot", "src/test/java/com/exskylab/koala/webAPI/StorageDownloadRulesTest.java#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
-  - id: AZM-166
+  - id: AZM-167
     pair: C49
     action: private_file.download
     subject: "user:u_mkt_admin"
@@ -2212,7 +2230,7 @@ cases:
     note: "D5: pazaryeri ROLE_ADMIN baypası kalkar"
     inventory: [AZ-093]
     source: ["src/test/java/com/exskylab/koala/business/concretes/CvAccessRulesTest.java#anEmployerWithNoApplicationFromThatWorkerCannot", "src/test/java/com/exskylab/koala/webAPI/StorageDownloadRulesTest.java#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
-  - id: AZM-167
+  - id: AZM-168
     pair: C50
     action: user.read_presence
     subject: "user:u_creator"
@@ -2223,7 +2241,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-078, AZ-079]
     source: []
-  - id: AZM-168
+  - id: AZM-169
     pair: C50
     action: user.read_presence
     subject: "user:u_stranger"
@@ -2235,7 +2253,7 @@ cases:
     note: "Java açığı"
     inventory: [AZ-078, AZ-079]
     source: []
-  - id: AZM-169
+  - id: AZM-170
     pair: C50
     action: user.read_presence
     subject: "anonymous"
@@ -2248,7 +2266,7 @@ cases:
     note: "kimlik doğrulaması yok"
     inventory: [AZ-078, AZ-079]
     source: []
-  - id: AZM-170
+  - id: AZM-171
     pair: C51
     action: user.watch_presence
     subject: "user:u_worker"
@@ -2259,7 +2277,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-075]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfAStrangerCannotBeWatched", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfSomeoneYouTalkToMayBeWatched"]
-  - id: AZM-171
+  - id: AZM-172
     pair: C51
     action: user.watch_presence
     subject: "user:u_creator"
@@ -2270,7 +2288,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-075]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfAStrangerCannotBeWatched", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfSomeoneYouTalkToMayBeWatched"]
-  - id: AZM-172
+  - id: AZM-173
     pair: C51
     action: user.watch_presence
     subject: "user:u_stranger"
@@ -2282,7 +2300,7 @@ cases:
     engine: [go, openfga]
     inventory: [AZ-075]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfAStrangerCannotBeWatched", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfSomeoneYouTalkToMayBeWatched"]
-  - id: AZM-173
+  - id: AZM-174
     pair: C52
     action: user.create_individual_job
     subject: "user:u_creator"
@@ -2293,7 +2311,7 @@ cases:
     engine: go_only
     inventory: [AZ-044]
     source: []
-  - id: AZM-174
+  - id: AZM-175
     pair: C52
     action: user.create_individual_job
     subject: "user:u_worker"
@@ -2305,7 +2323,7 @@ cases:
     engine: go_only
     inventory: [AZ-044]
     source: []
-  - id: AZM-175
+  - id: AZM-176
     pair: C53
     action: image.delete
     subject: "user:u_stranger"
@@ -2313,24 +2331,24 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-095]
-    source: []
-  - id: AZM-176
-    pair: C53
-    action: image.delete
-    subject: "user:u_worker"
-    object: "image:img_x"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: false
     engine: go_only
     inventory: [AZ-095]
     source: []
   - id: AZM-177
     pair: C53
     action: image.delete
+    subject: "user:u_worker"
+    object: "image:img_x"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: go_only
+    inventory: [AZ-095]
+    source: []
+  - id: AZM-178
+    pair: C53
+    action: image.delete
     subject: "user:u_mkt_admin"
     object: "image:img_x"
     expect: deny
@@ -2340,7 +2358,7 @@ cases:
     note: "D5"
     inventory: [AZ-095]
     source: []
-  - id: AZM-178
+  - id: AZM-179
     pair: C54
     action: platform.read_actuator
     subject: "user:u_mkt_admin"
@@ -2352,7 +2370,7 @@ cases:
     note: "D5"
     inventory: [AZ-117]
     source: []
-  - id: AZM-179
+  - id: AZM-180
     pair: C54
     action: platform.read_actuator
     subject: "user:u_worker"
@@ -2364,7 +2382,7 @@ cases:
     engine: go_only
     inventory: [AZ-117]
     source: []
-  - id: AZM-180
+  - id: AZM-181
     pair: C55
     action: experience.write
     subject: "user:u_worker"
@@ -2372,22 +2390,22 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-096, AZ-097]
-    source: ["src/test/java/com/exskylab/koala/business/concretes/WorkerToolsRulesTest.java#nobodyCanEditSomeoneElsesExperience"]
-  - id: AZM-181
-    pair: C55
-    action: experience.write
-    subject: "user:u_stranger"
-    object: "experience:exp_w"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
     engine: go_only
     inventory: [AZ-096, AZ-097]
     source: ["src/test/java/com/exskylab/koala/business/concretes/WorkerToolsRulesTest.java#nobodyCanEditSomeoneElsesExperience"]
   - id: AZM-182
+    pair: C55
+    action: experience.write
+    subject: "user:u_stranger"
+    object: "experience:exp_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-096, AZ-097]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/WorkerToolsRulesTest.java#nobodyCanEditSomeoneElsesExperience"]
+  - id: AZM-183
     pair: C56
     action: education.write
     subject: "user:u_worker"
@@ -2395,22 +2413,22 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-098, AZ-099]
-    source: ["src/test/java/com/exskylab/koala/business/concretes/ProfileEndpointRulesTest.java#nobodyCanEditSomeoneElsesEducation"]
-  - id: AZM-183
-    pair: C56
-    action: education.write
-    subject: "user:u_stranger"
-    object: "education:edu_w"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
     engine: go_only
     inventory: [AZ-098, AZ-099]
     source: ["src/test/java/com/exskylab/koala/business/concretes/ProfileEndpointRulesTest.java#nobodyCanEditSomeoneElsesEducation"]
   - id: AZM-184
+    pair: C56
+    action: education.write
+    subject: "user:u_stranger"
+    object: "education:edu_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-098, AZ-099]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ProfileEndpointRulesTest.java#nobodyCanEditSomeoneElsesEducation"]
+  - id: AZM-185
     pair: C57
     action: job_alert.write
     subject: "user:u_worker"
@@ -2418,22 +2436,22 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-100, AZ-101]
-    source: []
-  - id: AZM-185
-    pair: C57
-    action: job_alert.write
-    subject: "user:u_stranger"
-    object: "job_alert:alert_w"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
     engine: go_only
     inventory: [AZ-100, AZ-101]
     source: []
   - id: AZM-186
+    pair: C57
+    action: job_alert.write
+    subject: "user:u_stranger"
+    object: "job_alert:alert_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-100, AZ-101]
+    source: []
+  - id: AZM-187
     pair: C58
     action: bank_account.write
     subject: "user:u_worker"
@@ -2441,22 +2459,22 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-102, AZ-103, AZ-104]
-    source: ["src/test/java/com/exskylab/koala/webAPI/BankAccountIT.java#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"]
-  - id: AZM-187
-    pair: C58
-    action: bank_account.write
-    subject: "user:u_stranger"
-    object: "bank_account:bank_w"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
     engine: go_only
     inventory: [AZ-102, AZ-103, AZ-104]
     source: ["src/test/java/com/exskylab/koala/webAPI/BankAccountIT.java#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"]
   - id: AZM-188
+    pair: C58
+    action: bank_account.write
+    subject: "user:u_stranger"
+    object: "bank_account:bank_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-102, AZ-103, AZ-104]
+    source: ["src/test/java/com/exskylab/koala/webAPI/BankAccountIT.java#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"]
+  - id: AZM-189
     pair: C59
     action: device.write
     subject: "user:u_worker"
@@ -2464,22 +2482,22 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-107]
-    source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#renamingADeviceShowsUpInTheListAndTheDetailButNotForStrangers"]
-  - id: AZM-189
-    pair: C59
-    action: device.write
-    subject: "user:u_stranger"
-    object: "device:dev_w"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
     engine: go_only
     inventory: [AZ-107]
     source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#renamingADeviceShowsUpInTheListAndTheDetailButNotForStrangers"]
   - id: AZM-190
+    pair: C59
+    action: device.write
+    subject: "user:u_stranger"
+    object: "device:dev_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-107]
+    source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#renamingADeviceShowsUpInTheListAndTheDetailButNotForStrangers"]
+  - id: AZM-191
     pair: C60
     action: availability_exception.write
     subject: "user:u_worker"
@@ -2487,22 +2505,22 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-110]
-    source: []
-  - id: AZM-191
-    pair: C60
-    action: availability_exception.write
-    subject: "user:u_stranger"
-    object: "availability_exception:avex_w"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
     engine: go_only
     inventory: [AZ-110]
     source: []
   - id: AZM-192
+    pair: C60
+    action: availability_exception.write
+    subject: "user:u_stranger"
+    object: "availability_exception:avex_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-110]
+    source: []
+  - id: AZM-193
     pair: C61
     action: job_template.read
     subject: "user:u_creator"
@@ -2510,22 +2528,22 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-105]
-    source: ["src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesJobTemplateLooksExactlyLikeReadingOneThatDoesNotExist"]
-  - id: AZM-193
-    pair: C61
-    action: job_template.read
-    subject: "user:u_stranger"
-    object: "job_template:tmpl_c"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
     engine: go_only
     inventory: [AZ-105]
     source: ["src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesJobTemplateLooksExactlyLikeReadingOneThatDoesNotExist"]
   - id: AZM-194
+    pair: C61
+    action: job_template.read
+    subject: "user:u_stranger"
+    object: "job_template:tmpl_c"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-105]
+    source: ["src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesJobTemplateLooksExactlyLikeReadingOneThatDoesNotExist"]
+  - id: AZM-195
     pair: C62
     action: job_template.write
     subject: "user:u_creator"
@@ -2536,7 +2554,7 @@ cases:
     engine: go_only
     inventory: [AZ-106]
     source: []
-  - id: AZM-195
+  - id: AZM-196
     pair: C62
     action: job_template.write
     subject: "user:u_stranger"
@@ -2548,7 +2566,7 @@ cases:
     engine: go_only
     inventory: [AZ-106]
     source: []
-  - id: AZM-196
+  - id: AZM-197
     pair: C63
     action: session.read
     subject: "user:u_worker"
@@ -2556,22 +2574,22 @@ cases:
     expect: allow
     basis: owner
     java: allow
-    engine: go_only
-    inventory: [AZ-108]
-    source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#someoneElsesSessionLooksExactlyLikeAMissingOne"]
-  - id: AZM-197
-    pair: C63
-    action: session.read
-    subject: "user:u_stranger"
-    object: "session:ses_w"
-    expect: deny
-    conceal: true
-    java: deny
-    java_conceal: true
     engine: go_only
     inventory: [AZ-108]
     source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#someoneElsesSessionLooksExactlyLikeAMissingOne"]
   - id: AZM-198
+    pair: C63
+    action: session.read
+    subject: "user:u_stranger"
+    object: "session:ses_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-108]
+    source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#someoneElsesSessionLooksExactlyLikeAMissingOne"]
+  - id: AZM-199
     pair: C64
     action: session.write
     subject: "user:u_worker"
@@ -2582,7 +2600,7 @@ cases:
     engine: go_only
     inventory: [AZ-109]
     source: ["src/test/java/com/exskylab/koala/business/concretes/MyWorkRulesTest.java#aSessionBelongingToSomeoneElseCannotBeRevoked"]
-  - id: AZM-199
+  - id: AZM-200
     pair: C64
     action: session.write
     subject: "user:u_stranger"
@@ -2594,7 +2612,7 @@ cases:
     engine: go_only
     inventory: [AZ-109]
     source: ["src/test/java/com/exskylab/koala/business/concretes/MyWorkRulesTest.java#aSessionBelongingToSomeoneElseCannotBeRevoked"]
-  - id: AZM-200
+  - id: AZM-201
     pair: C65
     action: user_verification.confirm
     subject: "user:u_worker"
@@ -2605,7 +2623,7 @@ cases:
     engine: go_only
     inventory: [AZ-111]
     source: []
-  - id: AZM-201
+  - id: AZM-202
     pair: C65
     action: user_verification.confirm
     subject: "user:u_stranger"
@@ -2617,7 +2635,7 @@ cases:
     engine: go_only
     inventory: [AZ-111]
     source: []
-  - id: AZM-202
+  - id: AZM-203
     pair: C66
     action: notification.mark_read
     subject: "user:u_worker"
@@ -2628,7 +2646,7 @@ cases:
     engine: go_only
     inventory: [AZ-112]
     source: ["src/test/java/com/exskylab/koala/business/concretes/NotificationFeedRulesTest.java#someoneElsesNotificationIsNotMarkedRead"]
-  - id: AZM-203
+  - id: AZM-204
     pair: C66
     action: notification.mark_read
     subject: "user:u_stranger"
@@ -2640,7 +2658,7 @@ cases:
     note: "Java 200 döner ama değişiklik yapmaz"
     inventory: [AZ-112]
     source: ["src/test/java/com/exskylab/koala/business/concretes/NotificationFeedRulesTest.java#someoneElsesNotificationIsNotMarkedRead"]
-  - id: AZM-204
+  - id: AZM-205
     pair: C67
     action: notification.mark_opened
     subject: "anonymous"
@@ -2651,7 +2669,7 @@ cases:
     engine: go_only
     inventory: [AZ-132]
     source: []
-  - id: AZM-205
+  - id: AZM-206
     pair: C67
     action: notification.mark_opened
     subject: "anonymous"
@@ -2664,7 +2682,7 @@ cases:
     note: "var olmayan bildirim; yetki değil"
     inventory: [AZ-132]
     source: []
-  - id: AZM-206
+  - id: AZM-207
     pair: C68
     action: address_search_session.use
     subject: "user:u_worker"
@@ -2675,7 +2693,7 @@ cases:
     engine: go_only
     inventory: [AZ-114, AZ-115]
     source: ["src/test/java/com/exskylab/koala/business/concretes/AddressSearchManagerTest.java#providerProofCannotBeUsedByAnotherUser"]
-  - id: AZM-207
+  - id: AZM-208
     pair: C68
     action: address_search_session.use
     subject: "user:u_stranger"
@@ -2687,7 +2705,7 @@ cases:
     engine: go_only
     inventory: [AZ-114, AZ-115]
     source: ["src/test/java/com/exskylab/koala/business/concretes/AddressSearchManagerTest.java#providerProofCannotBeUsedByAnotherUser"]
-  - id: AZM-208
+  - id: AZM-209
     pair: C69
     action: payment_attempt.complete_callback
     subject: "anonymous"
@@ -2698,7 +2716,7 @@ cases:
     engine: skip
     inventory: [AZ-133]
     source: []
-  - id: AZM-209
+  - id: AZM-210
     pair: C69
     action: payment_attempt.complete_callback
     subject: "anonymous"
@@ -2711,7 +2729,7 @@ cases:
     note: "bilinmeyen token"
     inventory: [AZ-133]
     source: []
-  - id: AZM-210
+  - id: AZM-211
     pair: C70
     action: payment_attempt.read_outcome
     subject: "anonymous"
@@ -2722,7 +2740,7 @@ cases:
     engine: skip
     inventory: [AZ-134]
     source: []
-  - id: AZM-211
+  - id: AZM-212
     pair: C70
     action: payment_attempt.read_outcome
     subject: "anonymous"
@@ -2735,7 +2753,7 @@ cases:
     note: "bilinmeyen token başarısız sonuç sayfasına yönlenir"
     inventory: [AZ-134]
     source: []
-  - id: AZM-212
+  - id: AZM-213
     pair: C71
     action: realtime_destination.subscribe
     subject: "user:u_worker"
@@ -2746,7 +2764,7 @@ cases:
     engine: go_only
     inventory: [AZ-076]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#anUnknownDestinationIsRefusedRatherThanSilentlyAllowed"]
-  - id: AZM-213
+  - id: AZM-214
     pair: C71
     action: realtime_destination.subscribe
     subject: "user:u_worker"

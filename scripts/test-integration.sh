@@ -8,7 +8,9 @@
 # never runs:
 #   - every *_integration_test.go starts with exactly `//go:build integration`;
 #   - no other test file has a build constraint (a misspelled tag would
-#     hide the file from both runs);
+#     hide the file from both runs), except *_conformance_test.go, which
+#     starts with exactly `//go:build conformance` and runs in the
+#     authz-conformance job (make test-conformance, ADR-0024);
 #   - a test file that uses dbtest is an *_integration_test.go file.
 set -euo pipefail
 
@@ -28,8 +30,14 @@ done
 while IFS= read -r f; do
 	case "$f" in
 	*_integration_test.go) ;;
+	*_conformance_test.go)
+		if [ "$(head -n 1 "$f")" != "//go:build conformance" ]; then
+			echo "test-integration: $f: first line must be //go:build conformance" >&2
+			status=1
+		fi
+		;;
 	*)
-		echo "test-integration: $f: build constraint in a test file that is not *_integration_test.go" >&2
+		echo "test-integration: $f: build constraint in a test file that is not *_integration_test.go or *_conformance_test.go" >&2
 		status=1
 		;;
 	esac

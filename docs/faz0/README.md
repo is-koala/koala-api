@@ -7,7 +7,7 @@ Bu klasörde Java `koala-backend`'deki dağınık yetki kontrollerinin envanteri
 | [`authz-envanteri.csv`](authz-envanteri.csv) | Pazaryeri tarafı, kaynak düzeyi yetki noktaları: **134 satır** (`AZ-nnn`) |
 | [`authz-personel-izinleri.csv`](authz-personel-izinleri.csv) | Personel tarafı: 83 `/admin` ucunun izni ve 18 servis içi dinamik kontrol, **101 satır** (`PI-nnn`) |
 | [`authz-ciftleri.md`](authz-ciftleri.md) | Satırların `(nesne tipi, eylem)` çiftlerine indirgenmesi (**71 çift**), §5.4 modeline eşleme, ürün kararları D1–D5, önerilen DSL |
-| [`../../internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml) | Matris **taslağı**: 213 satır; fikstürler, tuple'lar, `actions:` haritası, `basis` sözlüğü, `java` / `expect` ayrımı, `engine` |
+| [`../../internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml) | Matris **taslağı**: 214 satır; fikstürler, tuple'lar, `actions:` haritası, `basis` sözlüğü, `java` / `expect` ayrımı, `engine` |
 | [`tarama/`](tarama/) | Envanteri, matrisi ve oracle tablolarını üreten betikler |
 
 İlgili teslimler: senaryo kataloğu [`test/scenarios/`](../../test/scenarios/), oracle [`testdata/oracle/`](../../testdata/oracle/), Iyzico vektörleri [`testdata/iyzico/`](../../testdata/iyzico/).

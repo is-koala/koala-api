@@ -24,15 +24,35 @@ permissions:
   contents: read
 
 jobs:
+  # The gate is every job of this workflow (CLAUDE.md): verify,
+  # integration, image and authz-conformance; a PR merges only when all of
+  # them are green.
   verify:
     name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Postgres for the integration tests (ADR-0017). The
-    # runner starts it and waits for the health check before the first
-    # step. Same major version as the Java backend (17). trust auth: no password
-    # value exists anywhere; the port is bound to the runner's loopback only.
-    # Tests create their own databases and logins (ADR-0017).
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Reads the toolchain line of go.mod (go1.27.3).
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Verify
+        run: make verify
+
+  # Integration tests (ADR-0017) in their own job, next to verify. Postgres:
+  # the runner starts it and waits for the health check before the first
+  # step. Same major version as the Java backend (17). trust auth: no
+  # password value exists anywhere; the port is bound to the runner's
+  # loopback only. Tests create their own databases and logins.
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17.11@sha256:3b0cda93be7c8dba2ed484d19393d93845dc3dafb88973e248ba8e6d99d784e1
@@ -50,13 +70,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # Reads the toolchain line of go.mod (go1.27.3).
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-
-      - name: Verify
-        run: make verify
 
       - name: Integration tests
         run: make test-integration
@@ -134,3 +150,36 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           ATTEST_DIR: ${{ runner.temp }}/attest
+
+  # Authz conformance (plan §5.6-5, ADR-0014, ADR-0024): every [go, openfga]
+  # row of internal/authz/testdata/matrix.yaml runs on the Go evaluator and
+  # on a real OpenFGA server; any difference is red. In-memory datastore,
+  # playground off; the HTTP API is bound to the runner's loopback only.
+  # The image is pinned by digest (multi-arch index of v1.22.0).
+  authz-conformance:
+    name: authz-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      openfga:
+        image: openfga/openfga:v1.22.0@sha256:9cf9a20af32a40434cd3a788c429879439ee9ea9abf65c9c200ee17cd43f769e
+        command: run
+        env:
+          OPENFGA_DATASTORE_ENGINE: memory
+          OPENFGA_PLAYGROUND_ENABLED: "false"
+        ports:
+          - 127.0.0.1:8080:8080
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      # The test waits for /healthz itself (up to 90 s).
+      - name: Conformance (Go evaluator vs OpenFGA)
+        run: make test-conformance
+        env:
+          FGA_API_URL: http://127.0.0.1:8080

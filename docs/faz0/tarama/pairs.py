@@ -29,11 +29,12 @@ BASIS = {
     "applicant_pool": "açık ilana başvurabilecek herkes (job#applicant_pool)",
     "participant": "sohbet katılımcısı (conversation#participant)",
     "invitee": "davet edilen (company_invitation#invitee)",
+    "inviter": "daveti gönderen (company_invitation#inviter)",
     "seat_holder": "serviste koltuğu olan işçi (shuttle#seat_holder)",
     "active_worker": "adresin göründüğü atama durumundaki işçi (job#active_worker)",
     "reviewer": "başvuru almış işveren tarafı (private_file#reviewer)",
-    "owner": "kaydın sahibi (model dışı, Scope SelfUserID)",
-    "self": "kendisi (user#self)",
+    "owner": "kaydın sahibi (private_file#owner; model dışı tiplerde Scope SelfUserID)",
+    "self": "kendisi (user#itself)",  # OpenFGA'da self ayrılmış sözcük
     "contact": "ortak sohbeti olan kullanıcı (user#contact)",
     "public": "herkese açık ([user:*] ya da kimliksiz)",
     "attribute_is_employer": "öznitelik: kullanıcı işveren ve kimliği doğrulanmış",
@@ -222,7 +223,8 @@ pair("company", "tag_talent_pool_entry", "KONTROL YOK", "üye", "", "—", "✗"
 pair("company_invitation", "read", "davet eden ∪ davet edilen ∪ şirket ADMIN'i", "= Java", "", "—", "✗",
      "company_invitation#can_read", FGA, "",
      [("user:u_invitee", "company_invitation:inv_1", A, A, "invitee"),
-      ("user:u_co_admin", "company_invitation:inv_1", A, A, "company_admin"),
+      ("user:u_co_admin", "company_invitation:inv_1", A, A, "inviter"),  # u_co_admin daveti de gönderdi; model önce inviter'ı bulur
+      ("user:u_co_admin2", "company_invitation:inv_1", A, A, "company_admin"),  # admin from company dalı: daveti göndermemiş ADMIN
       ("user:u_co_staff", "company_invitation:inv_1", D, D, True),
       ("user:u_stranger", "company_invitation:inv_1", D, D, True)])
 pair("company_invitation", "answer", "yalnız davet edilen", "= Java", "", "—", "✗", "company_invitation#can_answer", FGA, "",
@@ -314,7 +316,7 @@ pair("user", "read_public_profile", "kimlikli her kullanıcı (profil)", "= Java
       ("user:u_stranger", "user:u_deleted", D, D, True, {"note": "soft-delete", "jrow": "missing"})])
 pair("user", "read_cv_url", "kendisi ∪ başvuru almış işveren (projeksiyon)", "private_file#can_download", "D5", "—", "✗",
      "private_file#can_download", FGA, "",
-     [("user:u_applicant", "private_file:cv_applicant", A, A, "self"),
+     [("user:u_applicant", "private_file:cv_applicant", A, A, "owner"),  # model CV'yi private_file#owner ile verir
       ("user:u_creator", "private_file:cv_applicant", A, A, "reviewer"),
       ("user:u_stranger", "private_file:cv_applicant", D, D, False, "alan düzeyi: CV bağlantısı yok")])
 pair("private_file", "download", "sahip ∪ ROLE_ADMIN ∪ başvuru almış işveren", "sahip ∪ reviewer (ROLE_ADMIN yok)", "D5", "—", "✗",
@@ -389,6 +391,7 @@ USERS = {
     "u_worker": dict(is_employer=False, note="asg_ind, asg_co, asg_orphan, asg_pending, asg_done işçisi; conv_ind katılımcısı; seat_w"),
     "u_creator": dict(is_employer=True, note="bireysel işveren; job_ind ve job_closed sahibi; tmpl_c sahibi"),
     "u_co_admin": dict(is_employer=True, note="co_1 ADMIN"),
+    "u_co_admin2": dict(is_employer=True, note="co_1'in ikinci ADMIN'i; inv_1'i göndermedi"),
     "u_co_staff": dict(is_employer=True, note="co_1 STAFF; job_co'yu açan"),
     "u_co_former": dict(is_employer=True, note="co_1'den çıkarılmış eski yetkili; job_co_orphan'ı açan"),
     "u_other_co_admin": dict(is_employer=True, note="co_2 ADMIN; co_1 ile ilişkisi yok"),
@@ -448,8 +451,9 @@ OBJECTS = {
 for u, ua in USERS.items():                    # kullanıcılar nesne olarak da çözülür (başlık sözleşmesi)
     OBJECTS[f"user:{u}"] = {k: v for k, v in ua.items() if k != "note"}
 TUPLES = [
-    "company:co_1#admin@user:u_co_admin", "company:co_1#staff_member@user:u_co_staff",
+    "company:co_1#admin@user:u_co_admin", "company:co_1#admin@user:u_co_admin2", "company:co_1#staff_member@user:u_co_staff",
     "company:co_2#admin@user:u_other_co_admin",
+    "company:co_1#viewer@user:*", "company:co_2#viewer@user:*",          # C24: her şirkette yazılır
     "job:job_ind#individual_owner@user:u_creator", "job:job_ind#creator@user:u_creator",
     "job:job_ind#public_viewer@user:*", "job:job_ind#applicant_pool@user:*", "job:job_ind#active_worker@user:u_worker",
     "job:job_closed#individual_owner@user:u_creator", "job:job_closed#creator@user:u_creator",
@@ -480,7 +484,7 @@ TUPLES = [
     "private_file:cv_applicant#owner@user:u_applicant", "private_file:cv_applicant#reviewer@user:u_creator",
     "private_file:cv_applicant#reviewer@company:co_1#member",
     "user:u_worker#public_viewer@user:*", "user:u_applicant#public_viewer@user:*",
-    "user:u_worker#self@user:u_worker", "user:u_creator#self@user:u_creator",
+    "user:u_worker#itself@user:u_worker", "user:u_creator#itself@user:u_creator",
     "user:u_worker#contact@user:u_creator", "user:u_creator#contact@user:u_worker",
 ]
 
@@ -639,8 +643,9 @@ def main():
 
 HEADER = '''# TASLAK — internal/authz/testdata/matrix.yaml (plan §5.6-3, ADR-0014)
 #
-# Faz 0 başlangıç taslağı. Go değerlendiricisi ve OpenFGA uygunluk koşucusu (§5.6-5)
-# henüz yok. Üretici: docs/faz0/tarama/pairs.py; elle düzenlemeyin, betiği güncelleyin.
+# Faz 0 başlangıç taslağı. Koşucular (§5.6-5, ADR-0024): Go değerlendiricisi
+# internal/authz/matrix_test.go, gerçek OpenFGA internal/authz/openfga_conformance_test.go.
+# Üretici: docs/faz0/tarama/pairs.py; elle düzenlemeyin, betiği güncelleyin.
 #
 # Alanlar
 #   action   : <nesne_tipi>.<karar eylemi>; relation karşılığı `actions:` haritasında.
