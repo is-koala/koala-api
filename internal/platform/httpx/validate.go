@@ -85,10 +85,11 @@ func ValidateRequests(spec *openapi3.T, logger *slog.Logger) (func(http.Handler)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			rctx := chi.RouteContext(r.Context())
-			pattern := ""
-			if rctx != nil {
-				pattern = rctx.RoutePattern()
+			if rctx == nil {
+				WriteError(w, r, logger, errors.New("validate requests: no chi route context"))
+				return
 			}
+			pattern := rctx.RoutePattern()
 			route, ok := routes[r.Method+" "+pattern]
 			if !ok {
 				// A route without an operation is a wiring bug: fail closed.

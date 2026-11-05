@@ -40,10 +40,10 @@ func mountAPI(ctx context.Context, router chi.Router, logger *slog.Logger) error
 			httpx.WriteError(w, r, logger, err)
 		},
 	})
-	router.Group(func(r chi.Router) {
-		r.Use(validate)
+	router.Group(func(g chi.Router) {
+		g.Use(validate)
 		apiv1.HandlerWithOptions(strict, apiv1.ChiServerOptions{
-			BaseRouter: r,
+			BaseRouter: g,
 			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 				httpx.WriteError(w, r, logger, apperr.Wrap(err, apperr.KindInvalid, httpx.CodeRequestInvalid))
 			},

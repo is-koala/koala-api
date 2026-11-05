@@ -83,14 +83,13 @@ func TestValidateRequests(t *testing.T) {
 
 	h := newValidateRouter(t)
 	tests := []struct {
-		name        string
-		target      string
-		contentType string
-		key         string
-		body        string
-		wantStatus  int
-		wantCode    string
-		wantErrors  []map[string]string
+		name       string
+		target     string
+		header     map[string]string // overrides; "" removes the header
+		body       string
+		wantStatus int
+		wantCode   string
+		wantErrors []map[string]string
 	}{
 		{
 			name:       "valid, null in a type array",
@@ -136,7 +135,7 @@ func TestValidateRequests(t *testing.T) {
 		{
 			name:       "parameters",
 			target:     "/things/not-a-uuid?limit=500",
-			key:        "-",
+			header:     map[string]string{"X-Key": ""},
 			body:       `{"name":"a","count":1}`,
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "REQUEST_INVALID",
@@ -154,13 +153,13 @@ func TestValidateRequests(t *testing.T) {
 			wantErrors: []map[string]string{{"pointer": "", "code": "FIELD_REQUIRED"}},
 		},
 		{
-			name:        "wrong content type",
-			target:      "/things/" + validID,
-			contentType: "text/plain",
-			body:        `{"name":"a","count":1}`,
-			wantStatus:  http.StatusBadRequest,
-			wantCode:    "REQUEST_INVALID",
-			wantErrors:  []map[string]string{{"pointer": "header:Content-Type", "code": "FIELD_VALUE_INVALID"}},
+			name:       "wrong content type",
+			target:     "/things/" + validID,
+			header:     map[string]string{"Content-Type": "text/plain"},
+			body:       `{"name":"a","count":1}`,
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "REQUEST_INVALID",
+			wantErrors: []map[string]string{{"pointer": "header:Content-Type", "code": "FIELD_VALUE_INVALID"}},
 		},
 		{
 			name:       "malformed JSON",
@@ -182,13 +181,14 @@ func TestValidateRequests(t *testing.T) {
 			t.Parallel()
 
 			req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, tt.target, strings.NewReader(tt.body))
-			ct := tt.contentType
-			if ct == "" {
-				ct = "application/json"
-			}
-			req.Header.Set("Content-Type", ct)
-			if tt.key != "-" {
-				req.Header.Set("X-Key", "k")
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Key", "k")
+			for k, v := range tt.header {
+				if v == "" {
+					req.Header.Del(k)
+				} else {
+					req.Header.Set(k, v)
+				}
 			}
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
