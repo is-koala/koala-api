@@ -1,10 +1,10 @@
 {
-  "schemaVersion": "1.1",
-  "typeDefinitions": [
+  "schema_version": "1.1",
+  "type_definitions": [
     {
       "type": "user",
       "relations": {
-        "self": {
+        "itself": {
           "this": {}
         },
         "contact": {
@@ -17,12 +17,12 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
-                  "relation": "self"
+                "computed_userset": {
+                  "relation": "itself"
                 }
               },
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "contact"
                 }
               }
@@ -32,22 +32,22 @@
       },
       "metadata": {
         "relations": {
-          "self": {
-            "directlyRelatedUserTypes": [
+          "itself": {
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
             ]
           },
           "contact": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
             ]
           },
           "public_viewer": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user",
                 "wildcard": {}
@@ -74,11 +74,11 @@
                 "this": {}
               },
               {
-                "tupleToUserset": {
+                "tuple_to_userset": {
                   "tupleset": {
                     "relation": "includer"
                   },
-                  "computedUserset": {
+                  "computed_userset": {
                     "relation": "assignee"
                   }
                 }
@@ -90,14 +90,14 @@
       "metadata": {
         "relations": {
           "includer": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role"
               }
             ]
           },
           "assignee": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff"
               }
@@ -188,7 +188,7 @@
       "metadata": {
         "relations": {
           "audit_read": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -196,7 +196,7 @@
             ]
           },
           "badge_manage": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -204,7 +204,7 @@
             ]
           },
           "bank_account_verify": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -212,7 +212,7 @@
             ]
           },
           "category_manage": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -220,7 +220,7 @@
             ]
           },
           "company_approve": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -228,7 +228,7 @@
             ]
           },
           "content_moderate": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -236,7 +236,7 @@
             ]
           },
           "dispute_resolve": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -244,7 +244,7 @@
             ]
           },
           "finance_read": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -252,7 +252,7 @@
             ]
           },
           "flag_manage": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -260,7 +260,7 @@
             ]
           },
           "identity_review": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -268,7 +268,7 @@
             ]
           },
           "job_read": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -276,7 +276,7 @@
             ]
           },
           "note_read": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -284,7 +284,7 @@
             ]
           },
           "note_write": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -292,7 +292,7 @@
             ]
           },
           "payment_read": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -300,7 +300,7 @@
             ]
           },
           "payment_refund": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -308,7 +308,7 @@
             ]
           },
           "payout_reconcile": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -316,7 +316,7 @@
             ]
           },
           "payout_release": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -324,7 +324,7 @@
             ]
           },
           "role_manage": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -332,7 +332,7 @@
             ]
           },
           "settings_manage": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -340,7 +340,7 @@
             ]
           },
           "staff_manage": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -348,7 +348,7 @@
             ]
           },
           "staff_read": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -356,7 +356,7 @@
             ]
           },
           "user_deletion_manage": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -364,7 +364,7 @@
             ]
           },
           "user_read": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -372,7 +372,7 @@
             ]
           },
           "user_read_pii": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -380,7 +380,7 @@
             ]
           },
           "user_role_manage": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "staff_role",
                 "relation": "assignee"
@@ -403,12 +403,12 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "admin"
                 }
               },
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "staff_member"
                 }
               }
@@ -419,17 +419,17 @@
           "this": {}
         },
         "can_manage": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "admin"
           }
         },
         "can_manage_jobs": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "member"
           }
         },
         "can_read_internal": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "member"
           }
         }
@@ -437,14 +437,14 @@
       "metadata": {
         "relations": {
           "admin": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
             ]
           },
           "staff_member": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
@@ -452,7 +452,7 @@
           },
           "member": {},
           "viewer": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user",
                 "wildcard": {}
@@ -481,21 +481,21 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "inviter"
                 }
               },
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "invitee"
                 }
               },
               {
-                "tupleToUserset": {
+                "tuple_to_userset": {
                   "tupleset": {
                     "relation": "company"
                   },
-                  "computedUserset": {
+                  "computed_userset": {
                     "relation": "admin"
                   }
                 }
@@ -504,7 +504,7 @@
           }
         },
         "can_answer": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "invitee"
           }
         }
@@ -512,21 +512,21 @@
       "metadata": {
         "relations": {
           "company": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "company"
               }
             ]
           },
           "inviter": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
             ]
           },
           "invitee": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
@@ -565,16 +565,16 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "individual_owner"
                 }
               },
               {
-                "tupleToUserset": {
+                "tuple_to_userset": {
                   "tupleset": {
                     "relation": "owner_company"
                   },
-                  "computedUserset": {
+                  "computed_userset": {
                     "relation": "member"
                   }
                 }
@@ -583,7 +583,7 @@
           }
         },
         "editor": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "employer"
           }
         },
@@ -591,12 +591,12 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "public_viewer"
                 }
               },
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "editor"
                 }
               }
@@ -604,36 +604,36 @@
           }
         },
         "can_edit": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "editor"
           }
         },
         "can_read_private": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "editor"
           }
         },
         "can_list_applications": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "editor"
           }
         },
         "can_apply": {
           "difference": {
             "base": {
-              "computedUserset": {
+              "computed_userset": {
                 "relation": "applicant_pool"
               }
             },
             "subtract": {
-              "computedUserset": {
+              "computed_userset": {
                 "relation": "editor"
               }
             }
           }
         },
         "can_open_conversation": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "editor"
           }
         },
@@ -641,27 +641,27 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "individual_owner"
                 }
               },
               {
-                "tupleToUserset": {
+                "tuple_to_userset": {
                   "tupleset": {
                     "relation": "owner_company"
                   },
-                  "computedUserset": {
+                  "computed_userset": {
                     "relation": "can_manage_jobs"
                   }
                 }
               },
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "active_worker"
                 }
               },
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "public_address_viewer"
                 }
               }
@@ -672,28 +672,28 @@
       "metadata": {
         "relations": {
           "owner_company": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "company"
               }
             ]
           },
           "creator": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
             ]
           },
           "individual_owner": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
             ]
           },
           "public_viewer": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user",
                 "wildcard": {}
@@ -701,7 +701,7 @@
             ]
           },
           "applicant_pool": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user",
                 "wildcard": {}
@@ -709,14 +709,14 @@
             ]
           },
           "active_worker": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
             ]
           },
           "public_address_viewer": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user",
                 "wildcard": {}
@@ -748,16 +748,16 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "applicant"
                 }
               },
               {
-                "tupleToUserset": {
+                "tuple_to_userset": {
                   "tupleset": {
                     "relation": "job"
                   },
-                  "computedUserset": {
+                  "computed_userset": {
                     "relation": "editor"
                   }
                 }
@@ -766,17 +766,17 @@
           }
         },
         "can_decide": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "job"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "editor"
             }
           }
         },
         "can_withdraw": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "applicant"
           }
         }
@@ -784,14 +784,14 @@
       "metadata": {
         "relations": {
           "job": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "job"
               }
             ]
           },
           "applicant": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
@@ -816,16 +816,16 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "worker"
                 }
               },
               {
-                "tupleToUserset": {
+                "tuple_to_userset": {
                   "tupleset": {
                     "relation": "job"
                   },
-                  "computedUserset": {
+                  "computed_userset": {
                     "relation": "editor"
                   }
                 }
@@ -834,72 +834,72 @@
           }
         },
         "can_read": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "party"
           }
         },
         "can_respond": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "worker"
           }
         },
         "can_cancel": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "party"
           }
         },
         "can_complete": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "job"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "editor"
             }
           }
         },
         "can_pay": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "job"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "editor"
             }
           }
         },
         "can_record_work": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "worker"
           }
         },
         "can_open_dispute": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "party"
           }
         },
         "can_review": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "party"
           }
         },
         "can_reveal_worker_identity": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "job"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "editor"
             }
           }
         },
         "can_select_seat": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "party"
           }
         },
         "can_board": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "worker"
           }
         }
@@ -907,14 +907,14 @@
       "metadata": {
         "relations": {
           "job": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "job"
               }
             ]
           },
           "worker": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
@@ -942,21 +942,21 @@
           "this": {}
         },
         "can_read": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "assignment"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "party"
             }
           }
         },
         "can_add_evidence": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "assignment"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "party"
             }
           }
@@ -965,7 +965,7 @@
       "metadata": {
         "relations": {
           "assignment": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "job_assignment"
               }
@@ -983,12 +983,12 @@
           "this": {}
         },
         "can_read": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "participant"
           }
         },
         "can_post": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "participant"
           }
         }
@@ -996,7 +996,7 @@
       "metadata": {
         "relations": {
           "participant": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
@@ -1017,11 +1017,11 @@
           "this": {}
         },
         "can_read": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "conversation"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "participant"
             }
           }
@@ -1029,12 +1029,12 @@
         "can_report": {
           "difference": {
             "base": {
-              "computedUserset": {
+              "computed_userset": {
                 "relation": "can_read"
               }
             },
             "subtract": {
-              "computedUserset": {
+              "computed_userset": {
                 "relation": "sender"
               }
             }
@@ -1044,14 +1044,14 @@
       "metadata": {
         "relations": {
           "conversation": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "conversation"
               }
             ]
           },
           "sender": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
@@ -1072,17 +1072,17 @@
           "this": {}
         },
         "can_manage": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "job"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "editor"
             }
           }
         },
         "can_board": {
-          "computedUserset": {
+          "computed_userset": {
             "relation": "seat_holder"
           }
         },
@@ -1090,12 +1090,12 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "can_manage"
                 }
               },
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "seat_holder"
                 }
               }
@@ -1106,14 +1106,14 @@
       "metadata": {
         "relations": {
           "job": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "job"
               }
             ]
           },
           "seat_holder": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
@@ -1132,11 +1132,11 @@
           "this": {}
         },
         "can_mark_boarding": {
-          "tupleToUserset": {
+          "tuple_to_userset": {
             "tupleset": {
               "relation": "shuttle"
             },
-            "computedUserset": {
+            "computed_userset": {
               "relation": "can_manage"
             }
           }
@@ -1145,7 +1145,7 @@
       "metadata": {
         "relations": {
           "shuttle": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "shuttle"
               }
@@ -1168,12 +1168,12 @@
           "union": {
             "child": [
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "owner"
                 }
               },
               {
-                "computedUserset": {
+                "computed_userset": {
                   "relation": "reviewer"
                 }
               }
@@ -1184,14 +1184,14 @@
       "metadata": {
         "relations": {
           "owner": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               }
             ]
           },
           "reviewer": {
-            "directlyRelatedUserTypes": [
+            "directly_related_user_types": [
               {
                 "type": "user"
               },

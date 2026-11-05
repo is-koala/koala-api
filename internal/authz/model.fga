@@ -8,14 +8,15 @@ model
 
 type user
   relations
-    # Written for every user: user:X#self@user:X.
-    define self: [user]
+    # Written for every user: user:X#itself@user:X. ("self" is reserved
+    # in OpenFGA.)
+    define itself: [user]
     # Written both ways when two users get a conversation.
     define contact: [user]
     # Profile and public data (C46, C47); deleted with the user.
     define public_viewer: [user:*]
     # REST and WS share the rule (C50, C51).
-    define can_see_presence: self or contact
+    define can_see_presence: itself or contact
 
 # staff_members; no FK to users (ADR-0014).
 type staff

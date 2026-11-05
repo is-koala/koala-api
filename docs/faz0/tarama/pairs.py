@@ -33,7 +33,7 @@ BASIS = {
     "active_worker": "adresin göründüğü atama durumundaki işçi (job#active_worker)",
     "reviewer": "başvuru almış işveren tarafı (private_file#reviewer)",
     "owner": "kaydın sahibi (model dışı, Scope SelfUserID)",
-    "self": "kendisi (user#self)",
+    "self": "kendisi (user#itself)",  # OpenFGA'da self ayrılmış sözcük
     "contact": "ortak sohbeti olan kullanıcı (user#contact)",
     "public": "herkese açık ([user:*] ya da kimliksiz)",
     "attribute_is_employer": "öznitelik: kullanıcı işveren ve kimliği doğrulanmış",
@@ -481,7 +481,7 @@ TUPLES = [
     "private_file:cv_applicant#owner@user:u_applicant", "private_file:cv_applicant#reviewer@user:u_creator",
     "private_file:cv_applicant#reviewer@company:co_1#member",
     "user:u_worker#public_viewer@user:*", "user:u_applicant#public_viewer@user:*",
-    "user:u_worker#self@user:u_worker", "user:u_creator#self@user:u_creator",
+    "user:u_worker#itself@user:u_worker", "user:u_creator#itself@user:u_creator",
     "user:u_worker#contact@user:u_creator", "user:u_creator#contact@user:u_worker",
 ]
 

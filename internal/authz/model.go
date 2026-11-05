@@ -381,12 +381,13 @@ func (rw *rewrite) contains(k rewriteKind) bool {
 	return false
 }
 
-// Wire form: OpenFGA's AuthorizationModel as protojson writes it
-// (lowerCamelCase). Only the fields of the subset are known.
+// Wire form: OpenFGA's AuthorizationModel with proto (snake_case) field
+// names, as openfga/language writes it and OpenFGA's HTTP API reads it.
+// Only the fields of the subset are known.
 type wireModel struct {
 	ID              string                     `json:"id,omitempty"`
-	SchemaVersion   string                     `json:"schemaVersion"`
-	TypeDefinitions []wireType                 `json:"typeDefinitions"`
+	SchemaVersion   string                     `json:"schema_version"`
+	TypeDefinitions []wireType                 `json:"type_definitions"`
 	Conditions      map[string]json.RawMessage `json:"conditions,omitempty"`
 }
 
@@ -399,13 +400,13 @@ type wireType struct {
 type wireTypeMetadata struct {
 	Relations  map[string]wireRelationMetadata `json:"relations,omitempty"`
 	Module     string                          `json:"module,omitempty"`
-	SourceInfo json.RawMessage                 `json:"sourceInfo,omitempty"`
+	SourceInfo json.RawMessage                 `json:"source_info,omitempty"`
 }
 
 type wireRelationMetadata struct {
-	DirectlyRelatedUserTypes []wireRelationReference `json:"directlyRelatedUserTypes,omitempty"`
+	DirectlyRelatedUserTypes []wireRelationReference `json:"directly_related_user_types,omitempty"`
 	Module                   string                  `json:"module,omitempty"`
-	SourceInfo               json.RawMessage         `json:"sourceInfo,omitempty"`
+	SourceInfo               json.RawMessage         `json:"source_info,omitempty"`
 }
 
 type wireRelationReference struct {
@@ -417,8 +418,8 @@ type wireRelationReference struct {
 
 type wireUserset struct {
 	This            *struct{}           `json:"this,omitempty"`
-	ComputedUserset *wireObjectRel      `json:"computedUserset,omitempty"`
-	TupleToUserset  *wireTupleToUserset `json:"tupleToUserset,omitempty"`
+	ComputedUserset *wireObjectRel      `json:"computed_userset,omitempty"`
+	TupleToUserset  *wireTupleToUserset `json:"tuple_to_userset,omitempty"`
 	Union           *wireUsersets       `json:"union,omitempty"`
 	Intersection    *wireUsersets       `json:"intersection,omitempty"`
 	Difference      *wireDifference     `json:"difference,omitempty"`
@@ -431,7 +432,7 @@ type wireObjectRel struct {
 
 type wireTupleToUserset struct {
 	Tupleset        wireObjectRel `json:"tupleset"`
-	ComputedUserset wireObjectRel `json:"computedUserset"`
+	ComputedUserset wireObjectRel `json:"computed_userset"`
 }
 
 type wireUsersets struct {

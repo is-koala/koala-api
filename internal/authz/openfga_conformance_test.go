@@ -213,14 +213,10 @@ func (c *openfgaClient) createStore(ctx context.Context, t *testing.T) {
 
 func (c *openfgaClient) writeModel(ctx context.Context, t *testing.T, model []byte) {
 	t.Helper()
-	// model.json carries protojson's lowerCamelCase field names; OpenFGA's
-	// HTTP gateway reads proto (snake_case) names and drops the others.
-	var doc any
-	if err := json.Unmarshal(model, &doc); err != nil {
-		t.Fatal(err)
-	}
+	// model.json is the request body as it is: openfga/language writes the
+	// proto field names OpenFGA's HTTP API reads.
 	var resp map[string]any
-	c.post(ctx, t, "/stores/"+c.storeID+"/authorization-models", mustJSON(t, snakeKeys(doc)), &resp)
+	c.post(ctx, t, "/stores/"+c.storeID+"/authorization-models", model, &resp)
 	for _, k := range []string{"authorization_model_id", "authorizationModelId"} {
 		if id, ok := resp[k].(string); ok && id != "" {
 			c.modelID = id
@@ -265,38 +261,4 @@ func (c *openfgaClient) check(ctx context.Context, t *testing.T, user, relation,
 		return false
 	}
 	return *resp.Allowed
-}
-
-// snakeKeys renames every object key from lowerCamelCase to snake_case.
-// Type and relation names in the model are already snake_case, so only
-// the protojson field names change.
-func snakeKeys(v any) any {
-	switch v := v.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(v))
-		for k, e := range v {
-			out[snake(k)] = snakeKeys(e)
-		}
-		return out
-	case []any:
-		out := make([]any, len(v))
-		for i, e := range v {
-			out[i] = snakeKeys(e)
-		}
-		return out
-	default:
-		return v
-	}
-}
-
-func snake(s string) string {
-	var b strings.Builder
-	for _, r := range s {
-		if r >= 'A' && r <= 'Z' {
-			b.WriteByte('_')
-			r += 'a' - 'A'
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }

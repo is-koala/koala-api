@@ -34,6 +34,8 @@ Kod üretimi, Scope'un SQL'e çevrilmesi için ayrıca değerlendirilecek (Faz 2
 - `internal/authz/model.fga` tek doğruluk kaynağıdır.
 - `internal/authz/model.json`, `openfga/language`'in (`transformer.TransformDSLToJSON`) `model.fga`'dan ürettiği OpenFGA JSON'udur. Servis bunu `//go:embed` ile gömer ve stdlib `encoding/json` ile okur. Böylece `openfga/language` servis ikilisine girmez; yalnız testler onu import eder.
 - `TestModelJSONMatchesDSL` iki dosyanın aynı modeli taşıdığını doğrular; farklıysa resmi çıktıyı log'a basar. Güncelleme: `go test ./internal/authz -run TestModelJSONMatchesDSL -update`.
+- `model.json` proto alan adlarını (snake_case) taşır; OpenFGA'nın HTTP API'si de bunları okur, dosya olduğu gibi yüklenir.
+- Resmi Go ayrıştırıcısı yalnız sözdizimini denetler. Anlamsal denetimi (ör. ayrılmış sözcükler) OpenFGA sunucusu model yazımında yapar; uygunluk job'u bunu her PR'da koşar.
 - Kendi DSL ayrıştırıcımız yazılmadı: tek ayrıştırıcı resmi olandır.
 
 ### 3. Alt küme ve "sınırlı `and` / `but not`"
@@ -89,6 +91,7 @@ Politika matrisin `conceal` kolonuna karşı test edilir. Dört satır istisnad�
 | Yer | Faz 0 önerisi | Bu PR | Gerekçe |
 |---|---|---|---|
 | `message` | `can_report: participant from conversation but not sender` | `can_read: participant from conversation`, `can_report: can_read but not sender` | Aynı karar. `can_read` gizleme politikasının görünürlük ilişkisi (C39: gönderen 403, yabancı 404). |
+| `user` | `self: [user]`, `can_see_presence: self or contact` | `itself: [user]`, `can_see_presence: itself or contact` | `self` OpenFGA'da ayrılmış sözcük: `openfga/language` kabul ediyor, sunucu modeli reddediyor ("self and this are reserved keywords"). Matris tuple'ları da `itself` oldu. |
 | `platform` | `user_read_pii` + "… §5.4'teki gibi" | 25 izinin hepsi, `[staff_role#assignee]` | Personel CSV'sindeki 25 izin, nokta yerine alt çizgiyle (§5.4). |
 | Yorumlar | Satır sonu `#` yorumları | Yorumlar kendi satırında, `define`/`type` öncesinde | OpenFGA dilbilgisi yorumu yalnız bu konumlarda kabul ediyor. |
 

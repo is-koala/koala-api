@@ -13,7 +13,7 @@ import (
 // while the evaluator reports another, equally valid one first.
 var basisExceptions = map[string]string{
 	"AZM-106": "u_co_admin is both the inviter and a company admin; the union lists inviter first",
-	"AZM-160": "the matrix names user#self; the model grants the CV through private_file#owner",
+	"AZM-160": "the matrix names user#itself; the model grants the CV through private_file#owner",
 }
 
 // concealExceptions are deny rows whose caller does not reject, so
