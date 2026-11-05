@@ -39,7 +39,8 @@ const (
 // needs, streams included, belongs in the root chain here.
 type Router struct {
 	chi.Router
-	root *chi.Mux
+	root   *chi.Mux
+	logger *slog.Logger
 }
 
 // NewRouter returns the root router with the platform middleware chain
@@ -69,7 +70,7 @@ func NewRouter(logger *slog.Logger, health *Health) *Router {
 	bounded.Head(PathLivez, health.Live)
 	bounded.Get(PathReadyz, health.Ready)
 	bounded.Head(PathReadyz, health.Ready)
-	return &Router{Router: bounded, root: root}
+	return &Router{Router: bounded, root: root, logger: logger}
 }
 
 // ServeHTTP serves every request through the root chain.
@@ -82,8 +83,20 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // so the handler owns its deadlines. http.Server.Shutdown neither closes
 // nor waits for hijacked connections; their owner goes into
 // ServerOptions.Streams.
+//
+// The pattern answers every method: GET reaches h, the rest get 405 with
+// Allow: GET. Registering GET alone would let other methods fall through
+// to a bounded Mount on an enclosing prefix (for example "/v1") and come
+// back as that sub-router's 404.
 func (rt *Router) Stream(pattern string, h http.HandlerFunc) {
-	rt.root.Get(pattern, h)
+	rt.root.HandleFunc(pattern, func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			WriteProblem(w, rt.logger, req, NewProblem(req, http.StatusMethodNotAllowed, CodeMethodNotAllowed))
+			return
+		}
+		h(w, req)
+	})
 }
 
 var probeMethods = [...]string{ //nolint:gochecknoglobals // read-only method list

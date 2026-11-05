@@ -60,6 +60,36 @@ func TestStreamRouteSkipsRequestBounds(t *testing.T) {
 	}
 }
 
+// TestStreamRouteUnderMountedPrefix: a stream route inside a prefix that a
+// module mounted keeps its own 405 instead of falling through to the
+// sub-router's 404, and the sub-router still serves its own paths.
+func TestStreamRouteUnderMountedPrefix(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := newLogger()
+	r := httpx.NewRouter(logger, httpx.NewHealth(logger))
+	sub := chi.NewRouter()
+	sub.Get("/jobs", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	r.Mount("/v1", sub)
+	r.Stream("/v1/realtime", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) })
+
+	tests := []struct {
+		method string
+		target string
+		want   int
+	}{
+		{http.MethodGet, "/v1/realtime", http.StatusTeapot},
+		{http.MethodPost, "/v1/realtime", http.StatusMethodNotAllowed},
+		{http.MethodDelete, "/v1/realtime", http.StatusMethodNotAllowed},
+		{http.MethodGet, "/v1/jobs", http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		if rec := do(r, tt.method, tt.target, nil); rec.Code != tt.want {
+			t.Errorf("%s %s = %d, want %d", tt.method, tt.target, rec.Code, tt.want)
+		}
+	}
+}
+
 // fakeStream records the shutdown calls Serve makes.
 type fakeStream struct {
 	err       error
@@ -91,8 +121,8 @@ func TestServerDrainsAndShutsDownStreams(t *testing.T) {
 	streamErr := errors.New("stream stuck")
 	fs := newFakeStream(streamErr)
 	ts := startTestServer(t, httpx.ServerOptions{
-		DrainDelay:      300 * time.Millisecond,
-		ShutdownTimeout: time.Second,
+		DrainDelay:      time.Second,
+		ShutdownTimeout: 2 * time.Second,
 		Streams:         []httpx.Stream{fs},
 	})
 

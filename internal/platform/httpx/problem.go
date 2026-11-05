@@ -79,6 +79,8 @@ func NewProblem(r *http.Request, status int, code apperr.Code) Problem {
 
 // WriteError renders err as a problem document. Server-side failures
 // (5xx) are logged with their cause; the cause never reaches the client.
+// KindUnavailable (503) is logged at WARN: it is an expected refusal, for
+// example during the shutdown drain, not a failure.
 //
 // A *http.MaxBytesError (body over BodyLimit) becomes 413
 // REQUEST_BODY_TOO_LARGE, so handlers can return the decode error as is.
@@ -100,7 +102,11 @@ func WriteError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err
 	}
 	status := StatusOf(kind)
 	if status >= http.StatusInternalServerError {
-		logger.ErrorContext(r.Context(), "request failed",
+		level := slog.LevelError
+		if kind == apperr.KindUnavailable {
+			level = slog.LevelWarn
+		}
+		logger.LogAttrs(r.Context(), level, "request failed",
 			slog.String("kind", kind.String()),
 			slog.String("code", string(code)),
 			slog.Any("error", err))

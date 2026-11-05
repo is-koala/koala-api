@@ -227,8 +227,9 @@ func SecurityHeaders(next http.Handler) http.Handler {
 }
 
 // Timeout bounds each request's context to d. NewRouter applies
-// RequestTimeout, which is shorter than the server's WriteTimeout so that
-// handlers and database calls give up before net/http cuts the connection.
+// RequestTimeout to every route except Router.Stream routes; it is shorter
+// than the server's WriteTimeout so that handlers and database calls give
+// up before net/http cuts the connection.
 func Timeout(d time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +240,8 @@ func Timeout(d time.Duration) func(http.Handler) http.Handler {
 	}
 }
 
-// DefaultBodyLimit is the request body cap NewRouter applies to every route.
+// DefaultBodyLimit is the request body cap NewRouter applies to every route
+// except Router.Stream routes.
 const DefaultBodyLimit int64 = 1 << 20 // 1 MiB
 
 type originalBodyKey struct{}
@@ -252,8 +254,9 @@ type originalBodyKey struct{}
 //
 // Reading past n fails with *http.MaxBytesError, which WriteError maps to
 // 413 REQUEST_BODY_TOO_LARGE; handlers return the decode error as is. The
-// check is on read, not on Content-Length, because the router-wide default
-// runs before routing and cannot know a route's raised limit.
+// check is on read, not on Content-Length: the default and a route's raised
+// limit are both in the chain, and only the innermost one may decide, which
+// the shared original body makes possible.
 func BodyLimit(n int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
