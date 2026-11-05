@@ -67,21 +67,25 @@ ADR-0014 Karar 2'deki alt küme şöyle daraltılır: `[type]`, `[type:*]`, `[ty
 ### 4. Değerlendirme kuralları
 
 - **Derinlik.** Sorulan ilişkinin altındaki her yeni `object#relation` araması bir seviyedir. 24 seviye çözülür, 25. seviye `ErrResolutionTooComplex` ile reddedilir. Sınırın değeri OpenFGA'nın varsayılanından (25) alındı ve yerelde testle sabittir.
-  - **Bu sınır OpenFGA'nınkiyle tam eşdeğer değildir.** OpenFGA her dispatch'te bir seviye düşer, ama özyinelemeli `from` için seviye düşürmeyen hızlı yolları var.
-  - Önbellekten (aşağıda) gelen bir sonuç için derinlik yeniden denetlenmez: aynı `object#relation`'a daha derinden ulaşan ikinci yol, sınırı aşsa da saklı sonucu alır. Bu kararı değiştirmez. Önbelleğe yalnız hatasız sonuç girer ve aynı Check içindeki ilk çözüm zaten sınırın içindedir; sınır aşımı her iki tarafta da ret verir.
-  - Sınır vakaları gerçek OpenFGA'ya karşı da koşar (aşağıda, "Sunucuya karşı").
+  - **Bu sınır OpenFGA'nınkiyle eşdeğer değildir.** Sunucu, özyinelemeli `from` zincirini sınırın ötesinde de çözüyor (aşağıdaki tablo). Yerel sınır daha katıdır: fazlasını reddeder.
+  - Önbellekten (aşağıda) gelen bir sonuç için derinlik yeniden denetlenmez: aynı `object#relation`'a daha derinden ulaşan ikinci yol, sınırı aşsa da saklı sonucu alır. Bu kararı değiştirmez. Önbelleğe yalnız hatasız sonuç girer ve aynı Check içindeki ilk çözüm zaten sınırın içindedir; sınır aşımı ret verir.
 - **Döngü.** Kendi yolunda tekrar karşılaşılan bir ilişki izin vermez. Döngü, sonuçta ayrı bir işaretle taşınır.
-  - `but not`'un çıkarılan tarafında döngü varsa dışlama kanıtlanamaz; yerel karar **ret**tir. OpenFGA'nın CycleDetected kuralı da budur.
+  - `but not`'un çıkarılan tarafında döngü varsa dışlama yanlışlanamaz; yerel karar **ret**tir. Bu bilinçli bir fail-closed tercihtir. OpenFGA v1.22.0 burada izin veriyor (aşağıdaki tablo); "OpenFGA gibi" iddiası bu vakada yoktur.
   - `or`'da başka bir dal izin veriyorsa döngü önemsizdir.
-- **Sunucuya karşı.** Döngü ve derinlik vakaları (klasör modeli: yalın döngü, tabanda döngü, `but not` altında döngü, en derin zincir, bir seviye fazlası) `TestConformanceFolderModel`'de gerçek OpenFGA'ya karşı da koşar.
-  - Davranışı belgelenmiş vakalarda iki motorun aynı sonucu vermesi beklenir.
-  - Sunucunun davranışı belirsiz olan vakalarda (`but not` altında döngü, zincir sınırı) Go'nun sonucu doğrulanır; OpenFGA'nın sonucu log'a yazılır ve aşağıdaki tabloda tutulur. Bu vakalar için "OpenFGA gibi" iddiası yoktur.
+- **Sunucuya karşı.** Döngü ve derinlik vakaları (klasör modeli) `TestConformanceFolderModel`'de gerçek OpenFGA'ya karşı da koşar. Her vakada iki motorun cevabı da doğrulanır. Farklı oldukları yerde fark sabitlenmiştir: iki taraftan biri değişirse CI kırmızıdır.
 
   | Vaka | Go | OpenFGA v1.22.0 |
   |---|---|---|
-  | `but not` altında döngü | ret | (gözlem) |
-  | 24 seviyelik zincir | izin | (gözlem) |
-  | 25 seviyelik zincir | `resolution_too_complex` | (gözlem) |
+  | doğrudan, `from`, `and`, mirasla `but not` | aynı | aynı |
+  | yalın döngü | ret | ret |
+  | tabanda döngü, başka dal izinli | izin | izin |
+  | `but not`'un çıkarılan tarafında döngü | **ret** | **izin** |
+  | 24 seviyelik zincir | izin | izin |
+  | 25 seviyelik zincir | **`resolution_too_complex` (ret)** | **izin** |
+
+  - İki fark da Go'nun daha katı olduğu yöndedir: yerel değerlendirici izin vermediği yerde OpenFGA izin veriyor; tersi yok.
+  - Bugünkü modelde ikisi de kararı etkilemez. `but not`'un çıkarılan tarafı (`job#editor`, `message#sender`) özyinelemeli değildir. Tek özyineleme, rol DAG'ındaki `staff_role#assignee`'dir; onun derinliği rol sayısıyla sınırlıdır.
+  - Geçiş günü dark mode (Karar 10) bu farkları sayaçta gösterir. Hangisinin doğru kaynak olacağına o gün karar verilir.
 - **Tekrar çözüm yok.** Bir Check boyunca her `object#relation` en fazla bir kez çözülür; döngüsüz ve hatasız sonuçlar saklanır. Elmas biçimli rol grafiği (iki rolün içerdiği bir rol) üstel değil doğrusal okuma yapar. Bu da testle sabittir.
 - **Tip kısıtları.** Değerlendirici, ilişkinin tip kısıtına uymayan tuple'ı yok sayar (OpenFGA gibi). Eski bir modelden kalan tuple yetki vermez.
 - **Kimlikler.** Nesne kimlikleri, tip ve ilişki adları OpenFGA'nın desenlerine uyar (`openfga/language` doğrulama kuralları). Uymayan nesneyle Check reddedilir; uymayan tuple ayrıştırılmaz.

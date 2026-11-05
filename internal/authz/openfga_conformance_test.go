@@ -322,15 +322,16 @@ func goOutcome(d authz.Decision, err error) string {
 }
 
 // folderCase runs the folder model's cycle and depth rules (ADR-0024 §4)
-// on both engines, each case in its own store.
+// on both engines, each case in its own store. Both answers are asserted;
+// where goWant and fgaWant differ, the difference is a documented one
+// (Go is stricter, fail-closed), pinned so that a change on either side
+// is noticed.
 type folderCase struct {
 	name     string
 	tuples   []string
 	relation authz.Action
 	goWant   string
-	// fgaWant is OpenFGA's expected answer. Empty: the answer is logged,
-	// not asserted (observed; ADR-0024 §4 records the result).
-	fgaWant string
+	fgaWant  string
 }
 
 // folderChain is f0 -> f1 -> ... -> fn by parent with alice owning fn:
@@ -360,9 +361,10 @@ func TestConformanceFolderModel(t *testing.T) {
 		{"intersection", []string{"folder:f#owner@user:alice"}, "can_audit", "allow", "allow"},
 		{"cycle grants nothing", cycle, "viewer", "deny", "deny"},
 		{"cycle under the base still grants", append([]string{"folder:f#viewer@user:alice"}, cycle...), "viewer", "allow", "allow"},
-		{"cycle under but not", append([]string{"folder:f#viewer@user:alice"}, cycle...), "can_view", "deny", ""},
-		{"deepest chain", folderChain(deepest), "viewer", "allow", ""},
-		{"one level deeper", folderChain(deepest + 1), "viewer", "error:resolution_too_complex", ""},
+		// Documented differences (ADR-0024 §4), observed on v1.22.0.
+		{"cycle under but not", append([]string{"folder:f#viewer@user:alice"}, cycle...), "can_view", "deny", "allow"},
+		{"deepest chain", folderChain(deepest), "viewer", "allow", "allow"},
+		{"one level deeper", folderChain(deepest + 1), "viewer", "error:resolution_too_complex", "allow"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -388,7 +390,7 @@ func TestConformanceFolderModel(t *testing.T) {
 			if got != tc.goWant {
 				t.Errorf("Go: %s, want %s", got, tc.goWant)
 			}
-			if tc.fgaWant != "" && remote != tc.fgaWant {
+			if remote != tc.fgaWant {
 				t.Errorf("OpenFGA: %s, want %s", remote, tc.fgaWant)
 			}
 		})

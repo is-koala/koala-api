@@ -159,8 +159,9 @@ func TestEvaluatorRewrites(t *testing.T) {
 		{"difference excludes", []string{"folder:f#viewer@user:alice", "folder:f#banned@user:alice"}, "can_view", false, ""},
 		{"difference excludes inherited", []string{"folder:f#viewer@user:alice", "folder:f#parent@folder:p", "folder:p#banned@user:alice"}, "can_view", false, ""},
 		{"difference excludes wildcard viewer", []string{"folder:f#viewer@user:*", "folder:f#banned@user:alice"}, "can_view", false, ""},
-		// OpenFGA's CycleDetected: a cycle under the subtract side cannot
-		// prove the exclusion false, so the check denies.
+		// A cycle under the subtract side cannot prove the exclusion
+		// false, so the check denies (fail-closed; OpenFGA v1.22 allows,
+		// ADR-0024 §4).
 		{"cycle under but not denies", []string{"folder:f#viewer@user:alice", "folder:f#parent@folder:p", "folder:p#parent@folder:f"}, "can_view", false, ""},
 		{"cycle under the base still grants", []string{"folder:f#viewer@user:alice", "folder:f#parent@folder:p", "folder:p#parent@folder:f"}, "viewer", true, "folder:f#viewer@user:alice"},
 		{"intersection reports every path", []string{"folder:f#owner@user:alice"}, "can_audit", true, "folder:f#can_audit > folder:f#owner@user:alice & folder:f#can_audit > folder:f#viewer > folder:f#owner@user:alice"},
@@ -188,7 +189,9 @@ func TestEvaluatorRewrites(t *testing.T) {
 }
 
 // TestEvaluatorDepthLimit pins the limit's exact value: 24 nested lookups
-// below the asked relation resolve, the 25th fails (OpenFGA's 25).
+// below the asked relation resolve, the 25th fails (the value of
+// OpenFGA's default limit; the server itself goes further on recursive
+// chains, ADR-0024 §4).
 func TestEvaluatorDepthLimit(t *testing.T) {
 	t.Parallel()
 	// chain(n): f0 -> f1 -> ... -> fn by parent, alice owns fn. Resolving

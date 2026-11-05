@@ -8,11 +8,13 @@ import (
 	"slices"
 )
 
-// MaxResolutionDepth is OpenFGA's default resolution limit
-// (OPENFGA_RESOLVE_NODE_LIMIT). Every lookup of a further object#relation
-// (computed userset, tuple-to-userset, userset tuple) is one level below
-// the asked relation; a check may go 24 levels deep and the 25th fails
-// with ErrResolutionTooComplex.
+// MaxResolutionDepth is the local resolution limit, taken from OpenFGA's
+// default (OPENFGA_RESOLVE_NODE_LIMIT). Every lookup of a further
+// object#relation (computed userset, tuple-to-userset, userset tuple) is
+// one level below the asked relation; a check may go 24 levels deep and
+// the 25th fails with ErrResolutionTooComplex. It is stricter than an
+// OpenFGA server, which resolves recursive "from" chains past it
+// (ADR-0024 §4; pinned in the conformance runner).
 const MaxResolutionDepth = 25
 
 // ErrResolutionTooComplex is returned when a check needs more than
@@ -98,8 +100,9 @@ func (e *Evaluator) CheckBatch(ctx context.Context, s Subject, a Action, objs []
 type outcome struct {
 	allowed bool
 	// cycle: not allowed because the resolution met a relation already on
-	// its own path (OpenFGA's CycleDetected). A cycle denies wherever it
-	// appears, including under the subtract side of "but not".
+	// its own path. A cycle denies wherever it appears, including under
+	// the subtract side of "but not", where an OpenFGA server allows
+	// (fail-closed on purpose; ADR-0024 §4).
 	cycle bool
 	paths Basis
 }
@@ -220,7 +223,8 @@ func (r *resolver) rewrite(ctx context.Context, o Object, rd *relationDef, rw *r
 		case err != nil:
 			return outcome{}, err
 		case sub.cycle:
-			// The exclusion cannot be decided: deny, as OpenFGA does.
+			// The exclusion cannot be proved false: deny (fail-closed;
+			// OpenFGA v1.22 allows here, ADR-0024 §4).
 			return outcome{cycle: true}, nil
 		case sub.allowed:
 			return outcome{}, nil

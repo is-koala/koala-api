@@ -32,9 +32,10 @@
 //
 // Evaluator interprets the model over a TupleReader, the way OpenFGA and
 // SpiceDB interpret theirs: direct tuples, computed usersets,
-// tuple-to-userset, union, intersection and exclusion, with OpenFGA's
-// resolution depth limit and cycle rule (a cycle denies, also under "but
-// not"). It visits rewrites in model order and tuples in sorted order, so
+// tuple-to-userset, union, intersection and exclusion. It is stricter than
+// an OpenFGA server in two documented places (ADR-0024 §4): a cycle denies
+// also under "but not", and the depth limit of 25 also stops recursive
+// "from" chains. It visits rewrites in model order and tuples in sorted order, so
 // a decision and its Basis are deterministic, and it resolves each
 // object#relation once per check. The tuple source is an interface on purpose:
 // tests use an in-memory source (authztest), and domain tables get typed
