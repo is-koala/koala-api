@@ -384,6 +384,15 @@ func TestRefreshRotation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Registered after the pool's Close, so it runs first: a failing
+		// test releases the lock and the connection instead of hanging
+		// the pool's Close until the package times out.
+		t.Cleanup(func() { _ = hold.Rollback(context.Background()) })
+		// The app role ends a transaction idle for 10 s, which would let
+		// the refreshes through early on a loaded runner.
+		if _, err := hold.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout = 0"); err != nil {
+			t.Fatal(err)
+		}
 		hash := sha256.Sum256([]byte(pair.RefreshToken))
 		if _, err := hold.Exec(ctx, "SELECT 1 FROM user_refresh_tokens WHERE token_hash = $1 FOR UPDATE", hash[:]); err != nil {
 			t.Fatal(err)
@@ -391,16 +400,26 @@ func TestRefreshRotation(t *testing.T) {
 		results := make([]authn.TokenPair, 2)
 		errs := make([]error, 2)
 		var wg sync.WaitGroup
+		waiting := func() (int, error) {
+			var n int
+			err := e.db.Pool().QueryRow(ctx, `
+				SELECT count(*) FROM pg_stat_activity
+				WHERE datname = current_database() AND wait_event_type = 'Lock'
+				  AND query LIKE '%FROM user_refresh_tokens rt%'`).Scan(&n)
+			return n, err
+		}
 		for i := range results {
 			wg.Go(func() {
 				results[i], errs[i] = e.users.Refresh(ctx, pair.RefreshToken, deviceW1)
 			})
+			last := -1
 			dbtest.Eventually(t, 10*time.Second, "refresh waiting on the token's lock", func() (bool, error) {
-				var waiting int
-				err := e.db.Pool().QueryRow(ctx, `
-					SELECT count(*) FROM pg_stat_activity
-					WHERE datname = current_database() AND wait_event_type = 'Lock'`).Scan(&waiting)
-				return waiting == i+1, err
+				n, err := waiting()
+				if err == nil && n != last {
+					t.Logf("%d refreshes waiting, want %d", n, i+1)
+					last = n
+				}
+				return n == i+1, err
 			})
 		}
 		if err := hold.Rollback(ctx); err != nil {

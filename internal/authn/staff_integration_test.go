@@ -20,11 +20,12 @@ const (
 	homeIP     = "198.51.100.7"
 )
 
-func (e *env) staffLogin(t *testing.T, email, password, client string) authn.StaffTokenPair {
+// staffLogin signs the ops member in from client.
+func (e *env) staffLogin(t *testing.T, password, client string) authn.StaffTokenPair {
 	t.Helper()
-	pair, err := e.staff.Login(t.Context(), email, password, client)
+	pair, err := e.staff.Login(t.Context(), opsEmail, password, client)
 	if err != nil {
-		t.Fatalf("staff Login(%s from %s) = %v", email, client, err)
+		t.Fatalf("staff Login(%s from %s) = %v", opsEmail, client, err)
 	}
 	return pair
 }
@@ -42,12 +43,13 @@ func (e *env) lockState(t *testing.T, id uuid.UUID) (int32, *time.Time) {
 	return n, until
 }
 
-// addressLock reads the (member, address) lock, nil when there is none.
-func (e *env) addressLock(t *testing.T, id uuid.UUID, client string) *time.Time {
+// addressLock reads the member's lock for the office address, nil when
+// there is none.
+func (e *env) addressLock(t *testing.T, id uuid.UUID) *time.Time {
 	t.Helper()
 	var until *time.Time
 	err := e.db.Pool().QueryRow(t.Context(),
-		"SELECT max(locked_until) FROM staff_login_locks WHERE staff_id = $1 AND client_key = $2", id, client).Scan(&until)
+		"SELECT max(locked_until) FROM staff_login_locks WHERE staff_id = $1 AND client_key = $2", id, officeIP).Scan(&until)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,11 +105,11 @@ func TestStaffLockout(t *testing.T) {
 	for i := 1; i <= authn.StaffLockThreshold; i++ {
 		_, err := e.staff.Login(ctx, opsEmail, wrongPw, officeIP)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
-		if i < authn.StaffLockThreshold && e.addressLock(t, id, officeIP) != nil {
+		if i < authn.StaffLockThreshold && e.addressLock(t, id) != nil {
 			t.Fatalf("AUTH-011: locked after %d failures", i)
 		}
 	}
-	locked := e.addressLock(t, id, officeIP)
+	locked := e.addressLock(t, id)
 	if locked == nil || !locked.Equal(epoch.Add(authn.StaffLockDuration)) {
 		t.Fatalf("AUTH-011: lock = %v, want %s", locked, epoch.Add(authn.StaffLockDuration))
 	}
@@ -119,7 +121,7 @@ func TestStaffLockout(t *testing.T) {
 	for _, pw := range []string{opsPw, wrongPw} {
 		_, err := e.staff.Login(ctx, opsEmail, pw, officeIP)
 		wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
-		if until := e.addressLock(t, id, officeIP); until == nil || !until.Equal(*locked) {
+		if until := e.addressLock(t, id); until == nil || !until.Equal(*locked) {
 			t.Errorf("AUTH-011: an attempt while locked moved the lock to %v", until)
 		}
 	}
@@ -128,14 +130,14 @@ func TestStaffLockout(t *testing.T) {
 	}
 
 	// The lock is the address's: the member signs in from home.
-	e.staffLogin(t, opsEmail, opsPw, homeIP)
+	e.staffLogin(t, opsPw, homeIP)
 	if n, until := e.lockState(t, id); n != 0 || until != nil {
 		t.Errorf("AUTH-011: account counter after a success = %d, %v", n, until)
 	}
 
 	e.clock.Advance(authn.StaffLockDuration)
-	e.staffLogin(t, opsEmail, opsPw, officeIP)
-	if until := e.addressLock(t, id, officeIP); until != nil {
+	e.staffLogin(t, opsPw, officeIP)
+	if until := e.addressLock(t, id); until != nil {
 		t.Errorf("AUTH-011: the office lock survived a success: %v", until)
 	}
 }
@@ -177,7 +179,7 @@ func TestStaffBackoff(t *testing.T) {
 	}
 
 	e.clock.Advance(authn.StaffBackoffMax)
-	e.staffLogin(t, opsEmail, opsPw, homeIP)
+	e.staffLogin(t, opsPw, homeIP)
 	if n, until := e.lockState(t, id); n != 0 || until != nil {
 		t.Errorf("after a success: counter %d, backoff %v", n, until)
 	}
@@ -193,7 +195,7 @@ func TestStaffTokens(t *testing.T) {
 	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	e.addUser(t, alice, alicePw)
 	ctx := t.Context()
-	pair := e.staffLogin(t, opsEmail, opsPw, officeIP)
+	pair := e.staffLogin(t, opsPw, officeIP)
 	userPair := e.login(t, alice, alicePw, deviceW1)
 
 	if _, err := e.staff.Authenticate(ctx, pair.AccessToken); err != nil {
@@ -227,8 +229,8 @@ func TestStaffLogoutAndPasswordChange(t *testing.T) {
 	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	ctx := t.Context()
 
-	laptop := e.staffLogin(t, opsEmail, opsPw, officeIP)
-	desktop := e.staffLogin(t, opsEmail, opsPw, homeIP)
+	laptop := e.staffLogin(t, opsPw, officeIP)
+	desktop := e.staffLogin(t, opsPw, homeIP)
 	p, err := e.staff.Authenticate(ctx, laptop.AccessToken)
 	if err != nil {
 		t.Fatal(err)
@@ -245,8 +247,8 @@ func TestStaffLogoutAndPasswordChange(t *testing.T) {
 		}
 	}
 
-	again := e.staffLogin(t, opsEmail, opsPw, officeIP)
-	other := e.staffLogin(t, opsEmail, opsPw, homeIP)
+	again := e.staffLogin(t, opsPw, officeIP)
+	other := e.staffLogin(t, opsPw, homeIP)
 	p, err = e.staff.Authenticate(ctx, again.AccessToken)
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +276,7 @@ func TestStaffLogoutAndPasswordChange(t *testing.T) {
 	}
 	_, err = e.staff.Login(ctx, opsEmail, opsPw, officeIP)
 	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
-	e.staffLogin(t, opsEmail, newStaffPw, officeIP)
+	e.staffLogin(t, newStaffPw, officeIP)
 }
 
 // A wrong current password counts like a wrong sign-in password; the
@@ -284,7 +286,7 @@ func TestStaffPasswordGuessingEndsTheSession(t *testing.T) {
 	e := newEnv(t)
 	id := e.addStaff(t, opsEmail, authn.StaffActive, false)
 	ctx := t.Context()
-	pair := e.staffLogin(t, opsEmail, opsPw, officeIP)
+	pair := e.staffLogin(t, opsPw, officeIP)
 	p, err := e.staff.Authenticate(ctx, pair.AccessToken)
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +299,7 @@ func TestStaffPasswordGuessingEndsTheSession(t *testing.T) {
 			t.Fatalf("after %d wrong current passwords: session ended = %v", i, ended)
 		}
 	}
-	if e.addressLock(t, id, officeIP) == nil {
+	if e.addressLock(t, id) == nil {
 		t.Error("the address is not locked")
 	}
 	_, err = e.staff.Login(ctx, opsEmail, opsPw, officeIP)
@@ -313,7 +315,7 @@ func TestStaffMustChangeFlag(t *testing.T) {
 	e.addStaff(t, opsEmail, authn.StaffActive, true)
 	ctx := t.Context()
 
-	first := e.staffLogin(t, opsEmail, opsPw, officeIP)
+	first := e.staffLogin(t, opsPw, officeIP)
 	if !first.MustChangePassword {
 		t.Fatal("AUTH-014: new account signed in without the must-change flag")
 	}
@@ -324,7 +326,7 @@ func TestStaffMustChangeFlag(t *testing.T) {
 	if err := e.staff.ChangePassword(ctx, p, opsPw, newStaffPw, officeIP); err != nil {
 		t.Fatal(err)
 	}
-	if second := e.staffLogin(t, opsEmail, newStaffPw, officeIP); second.MustChangePassword {
+	if second := e.staffLogin(t, newStaffPw, officeIP); second.MustChangePassword {
 		t.Error("AUTH-014: flag still set after the change")
 	}
 }
@@ -337,7 +339,7 @@ func TestStaffRefreshReuse(t *testing.T) {
 	e.addStaff(t, opsEmail, authn.StaffActive, false)
 	ctx := t.Context()
 
-	first := e.staffLogin(t, opsEmail, opsPw, officeIP)
+	first := e.staffLogin(t, opsPw, officeIP)
 	second, err := e.staff.Refresh(ctx, first.RefreshToken)
 	if err != nil {
 		t.Fatal(err)
