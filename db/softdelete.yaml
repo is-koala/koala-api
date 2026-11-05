@@ -25,6 +25,41 @@
 # here. `make generate` writes sqlc.yaml's no-base-table rule from it.
 
 tables:
+  users:
+    class: soft_delete
+    pii: true
+  devices:
+    class: soft_delete
+    pii: true
+  staff_members:
+    class: soft_delete
+    pii: true
+  user_sessions:
+    class: M2
+    reason: >-
+      Device-bound marketplace sessions (ADR-0025). Revoked or expired rows
+      are hard-deleted by the purge job; a session never comes back.
+  user_refresh_tokens:
+    class: M2
+    reason: >-
+      SHA-256 of rotating refresh tokens; purged with their session. Consumed
+      rows stay until then, for reuse detection (K12).
+  login_attempts:
+    class: M2
+    reason: >-
+      Sign-in attempt log for security review; target is a hash, purged
+      after its retention.
+  staff_sessions:
+    class: M2
+    reason: Staff sessions (ADR-0025); hard-deleted after they end.
+  staff_refresh_tokens:
+    class: M2
+    reason: SHA-256 of rotating staff refresh tokens; purged with their session.
+  realtime_tickets:
+    class: M2
+    reason: >-
+      Single-use WebSocket tickets that live 60 seconds (ADR-0018); redeemed
+      by DELETE, the rest purged.
   deletions:
     class: M1
     reason: >-
@@ -48,4 +83,24 @@ tables:
     class: M3
     reason: River's queue settings (ADR-0010).
 
-edges: []
+edges:
+  # A user's devices go with the user.
+  - child: devices
+    column: user_id
+    parent: users
+    policy: cascade
+  # Sessions are M2 and cannot cascade. A session of a deleted user or
+  # device is dead: the session check reaches both parents by LEFT JOIN
+  # and requires them active (ADR-0025).
+  - child: user_sessions
+    column: user_id
+    parent: users
+    policy: detach
+  - child: user_sessions
+    column: device_id
+    parent: devices
+    policy: detach
+  - child: staff_sessions
+    column: staff_id
+    parent: staff_members
+    policy: detach
