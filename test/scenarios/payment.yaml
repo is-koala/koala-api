@@ -1,0 +1,617 @@
+# Ödeme, emanet, payout, iade ve iptal cezası senaryoları.
+# Biçim: test/scenarios/README.md. Kaynak: Java origin/main (okundu, koşturulmadı).
+# Kaynak yolları src/test/java'ya göreli; kod kaynakları src/main/java/... ile yazılır.
+
+domain: payment
+id_prefix: PAY
+version: 0
+scenarios:
+
+  - id: PAY-001
+    priority: P0
+    title: Doğrulanmış başarılı ödeme emaneti açar
+    rule: >
+      Sağlayıcı sonucu deneme kimliğiyle, anlık görüntüyle, 3DS (mdStatus=1) ve fraud onayıyla
+      (fraudStatus=1) eşleşirse deneme SUCCEEDED olur, atama HELD_IN_ESCROW'a geçer ve ücret kırılımı
+      atamaya yazılır.
+    given:
+      - "Atama CONFIRMED, ödeme durumu PENDING_COLLECTION"
+      - "Ödeme denemesi INITIATED; işçi payı 1.000,00 TL, komisyon oranı 750 bps (%7,5), toplam 1.075,00 TL"
+      - "Sağlayıcı sonucu: paymentStatus=SUCCESS, mdStatus=1, fraudStatus=1, fiyatlar 1.075,00 TL, alt üye payı 1.000,00 TL, tek kalem"
+    when:
+      - "Sağlayıcı geri dönüşü (callback) gelir; sistem sonucu sağlayıcıdan kendisi sorgular"
+    then:
+      - "Deneme SUCCEEDED; tamamlanma zamanı yazılır, sonraki doğrulama zamanı boşalır"
+      - "Atamanın ödeme durumu HELD_IN_ESCROW"
+      - "Atamaya işçi payı 1.000,00 TL, komisyon 75,00 TL, oran 750 bps, toplam 1.075,00 TL yazılır"
+      - "Ödendi olayı, ödeme kaydı yazıldıktan SONRA yayımlanır (ekip sohbeti ve doğrudan sohbet açılır)"
+    decision: K5
+    target: >
+      K5: tutarlar int64 kuruş (işçi payı 100000, komisyon 7500, toplam 107500), oran baz puan (750).
+      Java oranı ondalık (0.075) saklar; eşitlik testi bps karşılığıyla yapılır.
+    oracle: testdata/oracle/reconcile.csv
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulCallbackMovesTheAssignmentIntoEscrowAndRecordsTheBreakdown"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#thePaidEventIsPublishedOnlyAfterThePaymentRowIsSaved"
+      - "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#settlingThePaymentBuildsTheCrewAndOpensTheDirectConversation"
+    go_test: null
+
+  - id: PAY-002
+    priority: P0
+    title: Aynı geri dönüş iki kez işlenmez
+    rule: >
+      SUCCEEDED ya da FAILED deneme son durumdadır. Aynı token'la gelen ikinci geri dönüş sağlayıcıya
+      gitmez ve hiçbir şeyi değiştirmez. Kullanıcı aynı sonuç sayfasına yönlenir.
+    given:
+      - "Deneme SUCCEEDED, atama HELD_IN_ESCROW"
+    when:
+      - "Aynı token'la ikinci geri dönüş gelir"
+      - "Aynı token'la sonucu yalnız okuyan (durumu değiştirmeyen) bir sorgu yapılır"
+    then:
+      - "Sağlayıcıya sorgu yapılmaz"
+      - "Deneme ve atama değişmez; ikinci ödendi olayı yayımlanmaz"
+      - "Sonuç okuması kayıtlı sonucu döndürür, bekleyen denemeyi mutabakata sokmaz"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#theSameCallbackArrivingTwiceIsProcessedOnlyOnce"
+      - "src/test/java/com/exskylab/koala/webAPI/PaymentCallbackIT.java#aSecondPostAfterSuccessRedirectsToTheSameResultWithoutAskingTheProvider"
+      - "src/test/java/com/exskylab/koala/webAPI/PaymentCallbackIT.java#theGetReplayIsPublicAndReflectsTheRecordedOutcomeWithoutConsumingTheToken"
+      - "src/test/java/com/exskylab/koala/webAPI/PaymentCallbackIT.java#aPendingAttemptReplayedOverGetIsNotReconciledAndDoesNotReachTheProvider"
+    go_test: null
+
+  - id: PAY-003
+    priority: P0
+    title: 3D Secure doğrulanmadıysa emanet açılmaz
+    rule: >
+      mdStatus 1 değilse (0, 2…, ya da hiç yoksa) para çekilmiş olsa bile emanet açılmaz. Deneme
+      VERIFY_PENDING kalır, sebep "3DS doğrulaması başarısız" olur ve mutabakata planlanır.
+      mdStatus kontrolü fraud kontrolünden önce gelir.
+    given:
+      - "Atama CONFIRMED / PENDING_COLLECTION; deneme INITIATED"
+      - "Sağlayıcı sonucu SUCCESS, anlık görüntü eşleşiyor, mdStatus ∈ {0, 2, 3, 4, yok}"
+    when:
+      - "Geri dönüş gelir"
+    then:
+      - "Deneme VERIFY_PENDING, sebep payment.3ds.verification.failed, sonraki doğrulama zamanı dolu"
+      - "Atama PENDING_COLLECTION kalır; ödendi olayı yok"
+      - "fraudStatus=0 da gelse IN_REVIEW'a değil VERIFY_PENDING'e düşer"
+      - "Kritik geri dönüş metriği artar"
+    oracle: testdata/oracle/reconcile.csv
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentWhoseThreeDSecureVerificationFailedNeverOpensEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#everyMdStatusOtherThanOneRemainsPendingVerification"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAbsentMdStatusRemainsPendingRatherThanBeingAssumedVerified"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aFailedVerificationOutranksTheFraudReviewHold"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSecondCallbackOnAVerificationFailureStillDoesNotOpenEscrow"
+    go_test: null
+
+  - id: PAY-004
+    priority: P0
+    title: Fraud kararı emaneti yönetir
+    rule: >
+      fraudStatus=-1 ise deneme FAILED olur. 0 ise deneme IN_REVIEW olur, emanet açılmaz ve sağlayıcı
+      kimlikleri kilitlenir. Değer yoksa ya da bilinmiyorsa deneme VERIFY_PENDING kalır.
+      Yalnız 1 emaneti açar.
+    given:
+      - "Sağlayıcı sonucu SUCCESS, mdStatus=1, anlık görüntü eşleşiyor"
+    when:
+      - "Geri dönüş fraudStatus ∈ {-1, 0, yok, 7} ile gelir"
+    then:
+      - "-1 → deneme FAILED (sebep payment.fraud.review), atama ödeme durumu FAILED (yeniden ödeme mümkün)"
+      - "0 → deneme IN_REVIEW, paymentId ve paymentTransactionId kaydedilir, atama PENDING_COLLECTION"
+      - "yok / 7 → deneme VERIFY_PENDING (payment.verification.pending)"
+      - "IN_REVIEW'dan sonraki sorguda sağlayıcı kimlikleri değişmişse emanet açılmaz"
+    oracle: testdata/oracle/reconcile.csv
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentRejectedByFraudFiltersFails"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentUnderFraudReviewDoesNotOpenEscrowYet"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAbsentFraudDecisionRemainsPendingInsteadOfOpeningEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anUnknownFraudDecisionRemainsPendingInsteadOfOpeningEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#providerIdentifiersCannotChangeAfterFraudReview"
+    go_test: null
+
+  - id: PAY-005
+    priority: P0
+    title: Anlık görüntüyle eşleşmeyen başarılı sonuç emaneti açmaz
+    rule: >
+      Başarılı sonuçta şu alanlardan biri anlık görüntüden farklıysa deneme VERIFY_PENDING'de bloke
+      kalır: fiyat, ödenen fiyat, kalem sayısı (1), kalem kimliği (ilan), kalem fiyatları, alt üye payı,
+      alt üye anahtarı, işlem kimliği. Ödeme FAILED da sayılmaz. (Para birimi bu adımda değil, kimlik
+      adımında kontrol edilir: PAY-006.)
+    given:
+      - "Toplam 1.075,00 TL, işçi payı 1.000,00 TL, alt üye anahtarı K1"
+    when:
+      - "Sağlayıcı SUCCESS döner ama ödenen fiyat 1.074,99 TL ya da alt üye anahtarı K2"
+    then:
+      - "Deneme VERIFY_PENDING, sebep payment.verification.pending; emanet açılmaz"
+      - "Atama PENDING_COLLECTION kalır; tutar uyuşmazlığı metriği artar"
+      - "İstemciye sağlayıcı ayrıntısı değil yalnız mesaj anahtarı döner"
+    oracle: testdata/oracle/reconcile.csv
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aShortPaymentIsRefusedInsteadOfSettled"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulPaymentForAnotherSubmerchantNeverOpensEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#theRejectionReasonIsAMessageKeySoNoProviderDetailReachesTheClient"
+    go_test: null
+
+  - id: PAY-006
+    priority: P0
+    title: Başka denemeye ait sonuç bu denemeyi sonlandıramaz
+    rule: >
+      Sonucun conversationId, token, basketId (atama), para birimi ya da paymentId değeri denemeyle
+      eşleşmiyorsa (kimlik adımı, fiyat ve 3DS kontrollerinden önce) sonuç, sonuç FAILURE olsa bile denemeyi FAILED yapamaz. Deneme VERIFY_PENDING'de
+      bloke kalır.
+    given:
+      - "Deneme INITIATED, conversationId=C1"
+    when:
+      - "Sağlayıcı conversationId=C2 ile FAILURE ya da SUCCESS döner"
+      - "Sağlayıcı SUCCESS döner ama para birimi USD"
+    then:
+      - "Deneme VERIFY_PENDING; atama değişmez"
+    oracle: testdata/oracle/reconcile.csv
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aMismatchedProviderConversationStaysBlockedForReconciliation"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aDeclineForAnotherConversationCannotTerminallyFailThisAttempt"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#everyAttemptGetsItsOwnConversationId"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPaymentInAnotherCurrencyIsRefused"
+    go_test: null
+
+  - id: PAY-007
+    priority: P0
+    title: Sağlayıcı hatası belirsizdir; mutabakat 8 denemede durur
+    rule: >
+      Sonuç sorgusu hata verirse deneme VERIFY_PENDING kalır ve üstel geri çekilmeyle yeniden sorgulanır
+      (1 dk, 2 dk, 4 dk… tavan 6 sa). 8. denemede otomatik mutabakat durur, deneme VERIFY_PENDING
+      kalır, sonraki zaman boşalır ve manuel inceleme sayacı artar. Belirsiz deneme yeni ödeme
+      olarak yeniden başlatılamaz.
+    given:
+      - "Deneme INITIATED, doğrulama denemesi 0"
+    when:
+      - "Sağlayıcı sorgusu 8 kez üst üste hata verir"
+      - "İşveren bu arada yeni ödeme oturumu ister"
+    then:
+      - "Her başarısızlıkta deneme sayısı artar; ilk 7'de sonraki zaman dolu"
+      - "8. başarısızlıkta sonraki zaman boş, deneme VERIFY_PENDING (aktif) kalır"
+      - "Yeni ödeme oturumu reddedilir: aktif deneme var"
+      - "Bekleyen bir deneme sonraki sorguda SUCCESS dönerse normal yoldan emanet açılır"
+    error: PAYMENT_ATTEMPT_IN_PROGRESS
+    oracle: testdata/oracle/reconcile.csv
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aProviderVerificationErrorRemainsActiveUntilReconciled"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#automaticReconciliationStopsAfterTheConfiguredBoundButRemainsActiveForManualReview"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#anAmbiguousProviderErrorCannotBeRetriedAsANewPayment"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aDueAmbiguousAttemptCanBeReconciledToSuccess"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aPendingThreeDsResultCanLaterBeReconciledToSuccess"
+    go_test: null
+
+  - id: PAY-008
+    priority: P0
+    title: Artık tahsil edilemeyen atamaya gelen başarılı ödeme manuel incelemeye düşer
+    rule: >
+      Sonuç her açıdan doğrulanmış ama atama artık ödeme kabul etmiyorsa (CONFIRMED değil ya da ödeme
+      durumu PENDING_COLLECTION/FAILED değil) emanet açılmaz. Deneme VERIFY_PENDING olur ve otomatik
+      mutabakat dışında kalır.
+    given:
+      - "Atama CANCELLED; deneme INITIATED"
+    when:
+      - "Sağlayıcı tam doğrulanmış SUCCESS döner"
+    then:
+      - "Deneme VERIFY_PENDING, sebep payment.verification.pending, sonraki doğrulama zamanı boş"
+      - "Atama değişmez; emanet açılmaz"
+    oracle: testdata/oracle/reconcile.csv
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aSuccessfulProviderResultForACancelledAssignmentRequiresManualReview"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentCallbackTest.java#aTerminallyFailedAttemptCannotLaterOpenEscrow"
+    go_test: null
+
+  - id: PAY-009
+    priority: P0
+    title: Bir atamada en fazla bir aktif ödeme denemesi
+    rule: >
+      INITIATED, VERIFY_PENDING ve IN_REVIEW aktif durumlardır. Bir atamada bunlardan en fazla biri
+      olabilir. Eşzamanlı iki ödeme oturumu isteğinden biri deneme açar, öteki çakışma alır.
+      Başarısız (FAILED) deneme yeni denemeyi engellemez.
+    given:
+      - "Atama CONFIRMED / PENDING_COLLECTION, aktif deneme yok"
+    when:
+      - "İşveren aynı anda iki ödeme oturumu ister"
+      - "Sonra ilk deneme FAILED olur ve işveren yeniden dener"
+    then:
+      - "Tek deneme kaydı oluşur; ikinci istek çakışma alır"
+      - "Veritabanı kısıtı, uygulama kilidi atlansa bile ikinci aktif satırı reddeder"
+      - "FAILED'dan sonraki yeni deneme kabul edilir"
+    error: PAYMENT_ATTEMPT_IN_PROGRESS
+    source:
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#databaseAllowsOnlyOneActiveAttemptPerAssignment"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#twoConcurrentReservationsProduceOneAttemptAndOneConflict"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#theIndexRejectsASecondActiveRowWhenTwoInsertsSkipTheAssignmentLock"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#aFailedAttemptDoesNotBlockTheEmployerFromTryingAgain"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#theIndexGuardsExactlyTheStatusSetJavaTreatsAsActive"
+    go_test: null
+
+  - id: PAY-010
+    priority: P0
+    title: Deneme sağlayıcıdan önce rezerve edilir; alt üye oluşturmadaki her hata denemeyi başarısız yapar
+    rule: >
+      Ödeme oturumunda deneme, sağlayıcıya gidilmeden önce ayrı bir işlemde kaydedilir ve commit edilir.
+      İşçinin alt üye kaydı yoksa önce alt üye oluşturulur; bu adımdaki HER hata (kesin ret, ağ ya da 5xx
+      belirsizliği dahil) denemeyi FAILED yapar, çünkü henüz ödeme formu açılmamıştır.
+    given:
+      - "Atama CONFIRMED / PENDING_COLLECTION; işçinin alt üye kaydı yok"
+    when:
+      - "İşveren ödeme oturumu başlatır"
+      - "Alt üye oluşturma sağlayıcıda hata verir (kesin ret ya da zaman aşımı)"
+    then:
+      - "Önce deneme INITIATED olarak kaydedilir, sonra sağlayıcı çağrılır"
+      - "Alt üye hatasında deneme FAILED olur; ödeme formu açılmaz"
+      - "Bekleyen bir deneme varken yeni sağlayıcı oturumu ya da alt üye oluşturulmaz"
+      - "İşçinin IBAN'ı doğrulanmamış olsa da alt üye oluşturulur"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/JobAssignmentManager.java:305-319"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theAttemptIsReservedBeforeAnyExternalSubmerchantOrCheckoutCall"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aPendingAttemptStopsBeforeAnotherProviderSessionOrSubmerchantIsCreated"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#anUnverifiedWorkerIbanStillCreatesTheSubmerchant"
+    go_test: null
+
+  - id: PAY-011
+    priority: P0
+    title: Komisyon işçi payına eklenir; kuruş HALF_UP
+    rule: >
+      İşçi payı 2 basamağa HALF_UP yuvarlanır. Komisyon = yuvarlanmış pay × oran, 2 basamağa HALF_UP.
+      Toplam = pay + komisyon. Kuruş kaybolmaz ve uydurulmaz. Oran çalışma zamanı ayarından okunur;
+      daha önce fiyatlanmış kayıt kendi oranını korur.
+    given:
+      - "Komisyon oranı %7,5 (varsayılan 0.075)"
+    when:
+      - "İşçi payı 1.000,00 TL olan ilan fiyatlanır"
+      - "Oran %10 iken 0,05 TL fiyatlanır"
+      - "Oran %12'ye çekilir"
+    then:
+      - "1.000,00 → komisyon 75,00, toplam 1.075,00"
+      - "0,05 → komisyon 0,01 (0,005 yukarı), toplam 0,06"
+      - "Yeni oran yeniden başlatmadan uygulanır; eski atamaların oranı değişmez"
+      - "0 ya da negatif pay reddedilir"
+    oracle: testdata/oracle/commission.csv
+    source:
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#theBreakdownAddsUpToTheChargedTotal"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#halfKurusRoundsUpNotDown"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionCalculatorTest.java#roundingNeverLosesOrInventsKurus"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionRateRuntimeIT.java#aStoredRateAppliesWithoutARestart"
+      - "src/test/java/com/exskylab/koala/core/helpers/CommissionRateRuntimeIT.java#rowsPricedBeforeTheChangeKeepTheRateTheyWereChargedWith"
+    go_test: null
+
+  - id: PAY-012
+    priority: P0
+    title: İşveren tamamlayınca emanet işçiye çıkar
+    rule: >
+      İşveren tarafı (ilan sahibi ya da şirket yetkilisi) işi tamamladığında ve atama HELD_IN_ESCROW'da
+      olduğunda emanet çıkışı başlar. Çıkış kuralları:
+      - açık uyuşmazlık yoksa çıkış yapılır;
+      - işçinin birincil IBAN'ı olmalı, doğrulanmış olması gerekmez;
+      - payout PENDING açılır ve sağlayıcı onayı (APPROVE) kuyruğa girer;
+      - atama RELEASED_TO_WORKER olur.
+      Çıkış kuyruğa giremezse tamamlama da geri alınır.
+    given:
+      - "Atama IN_PROGRESS, HELD_IN_ESCROW; işçi payı 1.000,00 TL; işçinin birincil IBAN'ı var"
+    when:
+      - "İşveren işi tamamlar"
+    then:
+      - "Atama COMPLETED, ödeme durumu RELEASED_TO_WORKER"
+      - "Payout PENDING, tutar 1.000,00 TL, hedef birincil IBAN, çıkış kaynağı kaydedilir"
+      - "APPROVE settlement görevi PENDING olarak kuyruğa girer; sağlayıcı satır içinde çağrılmaz"
+      - "Birincil IBAN yoksa tamamlama reddedilir ve hiçbir şey değişmez"
+    error: PAYOUT_WORKER_IBAN_NOT_VERIFIED
+    source:
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#theEmployerCompletingTheWorkReleasesTheEscrowToTheWorker"
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aCompanyAdminCompletingTheWorkReleasesTheEscrowToo"
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aWorkerWithoutAPrimaryIbanBlocksTheCompletionLoudly"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#moneyIsReleasedToThePrimaryIbanEvenWhenOwnershipIsUnproven"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#releasingTheEscrowQueuesTheProviderApprovalInsteadOfCallingItInline"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#releaseIsNotReportedWhenItCannotBeQueued"
+    go_test: null
+
+  - id: PAY-013
+    priority: P0
+    title: Aynı atama iki kez ödenmez
+    rule: >
+      Bir atama için en fazla bir payout vardır. İkinci çıkış isteği mevcut payout'u döndürür. Aynı
+      ödeme için aynı settlement işlemi (APPROVE, DISAPPROVE ya da REFUND) iki kez kuyruğa girmez.
+    given:
+      - "Atama RELEASED_TO_WORKER, payout P1 var"
+    when:
+      - "Çıkış ikinci kez istenir (personel, otomatik tamamlama ya da ikinci tamamlama)"
+    then:
+      - "Yeni payout oluşmaz; P1 döner"
+      - "APPROVE görevi tekrar kuyruğa girmez"
+      - "İkinci tamamlama reddedilir ve payout'a dokunmaz"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#theSameAssignmentIsNeverPaidOutTwice"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#queueingTwiceForTheSamePaymentReusesTheTask"
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#aSecondCompletionIsRefusedAndDoesNotTouchThePayout"
+    go_test: null
+
+  - id: PAY-014
+    priority: P0
+    title: Açık uyuşmazlık emaneti dondurur
+    rule: >
+      Atamada açık uyuşmazlık varsa emanet işçiye çıkmaz ve işverene iade edilmez. İşveren tamamlaması
+      işi COMPLETED yapar ama para emanette kalır.
+    given:
+      - "Atama IN_PROGRESS, HELD_IN_ESCROW; açık uyuşmazlık var"
+    when:
+      - "İşveren işi tamamlar"
+      - "Personel ya da iptal akışı iade ister"
+    then:
+      - "Atama COMPLETED; ödeme durumu HELD_IN_ESCROW kalır; payout oluşmaz"
+      - "İade reddedilir"
+    error: DISPUTE_BLOCKS_RELEASE
+    decision: D4
+    target: >
+      D4: açık uyuşmazlık varken atama elle de otomatik de tamamlanamaz. Go'da işveren tamamlaması
+      reddedilir ve atama durumu değişmez (Java işi COMPLETED yapıp parayı emanette bırakıyor).
+    oracle: testdata/oracle/assignment-transitions.csv
+    source:
+      - "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#anOpenDisputeLeavesTheMoneyInEscrowButStillCompletesTheWork"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#anOpenDisputeFreezesTheEscrow"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#anActiveDisputeFreezesAnEmployerRefund"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#theDisputeGatedReleaseSkipsQuietlyWhileADisputeIsOpen"
+    go_test: null
+
+  - id: PAY-015
+    priority: P0
+    title: Sağlayıcı onayı gelince payout tamamlanmış sayılır (Java) — K2 farkı
+    rule: >
+      APPROVE görevi başarılı olunca payout'a sağlayıcı referansı yazılır. Referans olarak yanıttaki
+      işlem kimliği kullanılır, o yoksa kuyruğa alınan işlem kimliği. Payout doğrudan COMPLETED olur
+      (Java). Görev 8 denemede başarılı olamazsa payout FAILED olur.
+    given:
+      - "Payout PENDING; APPROVE görevi PENDING, işlem kimliği T1"
+    when:
+      - "Settlement işleyicisi görevi çalıştırır; sağlayıcı onaylar (yanıt kimliği var ya da yok)"
+    then:
+      - "Görev SUCCEEDED"
+      - "Payout COMPLETED; sağlayıcı referansı ve ekstre referansı = yanıt kimliği ya da T1; tamamlanma zamanı yazılır"
+      - "Başarısız çalıştırmada görev PENDING kalır, geri çekilme 1 dk'dan katlanır (tavan 6 sa); 8. başarısızlıkta görev FAILED ve payout FAILED"
+    decision: K2
+    target: >
+      K2 (Stripe Connect modeli): sağlayıcı onayı payout'u COMPLETED değil IN_TRANSIT yapar. PAID
+      yalnız banka ekstresi mutabakatıyla yazılır. PAID'den sonra iade gelirse RETURNED olur.
+      FAILED ve CANCELED de durum olarak vardır. Go bu senaryoda Java'dan bilinçli olarak ayrılır.
+    oracle: testdata/oracle/payout-transitions.csv
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#aSuccessfulRunClosesTheTaskAndSettlesThePayoutFromTheProviderApproval"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#anApprovalWithoutAResponseIdStillSettlesFromTheQueuedTransaction"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#aFailedRunStaysPendingAndBacksOff"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#theTaskGivesUpAfterTheAttemptLimit"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#givingUpOnAnApprovalMarksThePayoutFailed"
+      - "src/main/java/com/exskylab/koala/business/concretes/SettlementManager.java:199-219"
+    go_test: null
+
+  - id: PAY-016
+    priority: P0
+    title: İade tutarı tahsilatı aşamaz; kısmi iade işçi payını da bloke eder
+    rule: >
+      İade yalnız emanetteki atamada yapılır. Tutar verilmezse tahsil edilen tutarın tamamı iade
+      edilir. Tutar 0'dan büyük ve tahsilattan küçük ya da eşit olmalıdır.
+      - Tam iadede yalnız REFUND kuyruğa girer.
+      - Kısmi iadede REFUND ile birlikte DISAPPROVE da kuyruğa girer; alıkonan kısım işçiye aktarılmaz.
+      Atama REFUNDED olur. Serbest bırakılmış para iade edilemez.
+    given:
+      - "Atama HELD_IN_ESCROW, tahsil edilen 1.075,00 TL"
+    when:
+      - "1.075,00 TL (ya da tutarsız) iade istenir"
+      - "537,50 TL iade istenir"
+      - "1.075,01 TL iade istenir"
+    then:
+      - "Tam iade: iade PENDING 1.075,00 TL, yalnız REFUND görevi; atama REFUNDED"
+      - "Kısmi iade: iade PENDING 537,50 TL, REFUND + DISAPPROVE görevleri; atama REFUNDED"
+      - "Fazla tutar reddedilir; RELEASED_TO_WORKER atamada iade reddedilir"
+      - "REFUND görevi çalışmadan önce iade PROCESSING olur; başarılıysa COMPLETED; DISAPPROVE payout'a ve iadeye dokunmaz"
+    error: PAYOUT_INVALID_REFUND_AMOUNT
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aRefundCannotExceedWhatWasCharged"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#omittingTheAmountRefundsTheFullCharge"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aFullRefundNeedsNoDisapprovalBecauseTheLineIsReversed"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#aPartialRefundAlsoBlocksTheWorkerShareOnWhatIsKept"
+      - "src/test/java/com/exskylab/koala/business/concretes/PayoutReleaseTest.java#alreadyReleasedMoneyCannotBeRefunded"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#aRefundBecomesProcessingBeforeTheProviderCall"
+      - "src/test/java/com/exskylab/koala/business/concretes/SettlementRetryTest.java#aDisapprovalNeverTouchesThePayoutOrTheRefund"
+    go_test: null
+
+  - id: PAY-017
+    priority: P0
+    title: İptal cezası yalnız işverene, 24 saat penceresiyle
+    rule: >
+      İşçi iptal ederse ceza 0 olur. İşveren iptalinde ceza oranı bildirim süresine göre belirlenir:
+      - iş başladıktan sonra (süre ≤ 0) %100;
+      - 24 saat ya da daha fazla kala %0 (sınır tam saat olarak, 24 saat dahil serbest);
+      - arada %50.
+      Ceza = tahsilat × oran (2 basamak, HALF_UP). İade = tahsilat − ceza. Bildirim süresi ilanın
+      duvar saatine göre Europe/Istanbul'da ölçülür. Emanette para yoksa iade 0 olur.
+    given:
+      - "Atama emanette, tahsil edilen 1.075,00 TL; serbest pencere 24 sa, geç iptal oranı 0.50"
+    when:
+      - "İşveren işe 48 sa / 24 sa / 3 sa / -10 dk kala iptal eder; ya da işçi iptal eder"
+    then:
+      - "48 sa ve 24 sa → ceza 0,00, iade 1.075,00"
+      - "3 sa → ceza 537,50, iade 537,50 (kısmi iade + DISAPPROVE)"
+      - "-10 dk → ceza 1.075,00, iade 0,00 (iade kaydı oluşmaz)"
+      - "İşçi iptali → ceza 0,00, iade 1.075,00"
+      - "Ceza + iade her zaman tahsilata eşittir"
+      - "Java'da -10 dk iptalinde iade 0 olduğundan iade kaydı oluşmaz ve para emanette kalır"
+    decision: Java hatası (ceza alıcısı); karar 05.11
+    target: >
+      Karar: geç iptal cezası iptal edilen tarafa gider. İşveren iptal ettiyse ceza işçiye geçer, iade
+      kısmı işverene döner; işçi iptal ettiyse politikadaki ceza (bugün 0) uygulanır. Yuvarlama sonucu
+      iade 0 çıkarsa tahsilatın tamamı ceza sayılır ve işçiye geçer; para emanette kalmaz. 3 sa örneğinde
+      537,50 işverene iade, 537,50 işçiye. Platform komisyonu kendi kuralına göre kesilir (Faz 6).
+    oracle: testdata/oracle/cancellation-fee.csv
+    source:
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#anEmployerCancellingInsideTheWindowPaysHalf"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#exactlyAtTheWindowBoundaryTheCancellationIsStillFree"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#anEmployerCancellingAfterTheStartForfeitsEverything"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#aWorkerCancellingNeverCostsTheEmployerAnything"
+      - "src/test/java/com/exskylab/koala/core/helpers/CancellationPolicyTest.java#theNoticeIsMeasuredAgainstTheJobsWallClockZone"
+      - "src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aLateEmployerCancellationRefundsOnlyThePartLeftAfterTheFee"
+    go_test: null
+
+  - id: PAY-018
+    priority: P1
+    title: Sağlayıcıya hiç ulaşmayan başlatma 15 dakika sonra manuel mutabakata alınır
+    rule: >
+      Token'ı olmayan ve 15 dakikadan eski INITIATED deneme VERIFY_PENDING olur; sebep
+      payment.initiation.abandoned olur. Deneme aktif kalır ve yeni ödemeyi engellemeye devam eder.
+      Süpürme sağlayıcıya sorgu yapmaz ve atama kilidini alır. Token almış ya da pencere içindeki
+      denemeye dokunulmaz.
+    given:
+      - "Deneme INITIATED, token yok, 16 dk önce oluşturuldu"
+      - "Başka deneme INITIATED, token yok, 5 dk önce"
+      - "Başka deneme INITIATED, token var, 1 saat önce"
+    when:
+      - "Doğrulama zamanlayıcısı süpürmeyi çalıştırır"
+    then:
+      - "Yalnız ilk deneme VERIFY_PENDING (payment.initiation.abandoned); terk metriği artar"
+      - "İkinci ve üçüncü denemeye dokunulmaz"
+      - "Atama için yeni ödeme oturumu hâlâ reddedilir"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationAbandonedBeforeTheProviderCallIsSweptIntoManualReconciliation"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationStillInsideTheCheckoutWindowIsLeftAlone"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentMonitoringTest.java#anInitiationThatReachedTheProviderIsNeverSwept"
+      - "src/test/java/com/exskylab/koala/dataAccess/ActivePaymentAttemptConstraintIT.java#anAbandonedInitiationKeepsBlockingPaymentAndTheSweepOnlyMakesItVisible"
+    go_test: null
+
+  - id: PAY-019
+    priority: P1
+    title: Ödenmemiş atama iş başlamadan iptal edilir; açık deneme varken dokunulmaz
+    rule: >
+      CONFIRMED olup emanette ya da serbest bırakılmış parası olmayan atama, iş başlamak üzereyken
+      sistem tarafından iptal edilir. İptal işverene yazılır, ceza ve iade 0 olur, para hareketi
+      olmaz. Açık (süpürülmüş dahil) ödeme denemesi varken atamaya dokunulmaz. İşlem ikinci kez
+      çalışırsa hiçbir şey olmaz.
+    given:
+      - "Atama CONFIRMED, PENDING_COLLECTION ya da FAILED; işin başlamasına ayardaki süreden (varsayılan 6 sa) az kaldı"
+    when:
+      - "Ödenmemiş atama süresi işi çalışır"
+    then:
+      - "Atama CANCELLED; iptal kaydı: taraf EMPLOYER, oran 0, ceza 0,00, iade 0,00, sebep cancellation.payment.not.collected"
+      - "İki taraf bilgilendirilir"
+      - "Aktif deneme varsa atama değişmez; HELD_IN_ESCROW ya da PENDING_CONFIRMATION atamaya dokunulmaz"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anUnpaidAssignmentIsCancelledWhenTheJobIsAboutToStart"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anAssignmentWithAnOpenPaymentAttemptIsNeverBlamedOnTheEmployerWithZeroRefund"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#aSweptInitiationStillCountsAsAnOpenAttemptForTheExpiryJob"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#anAssignmentWithMoneyInEscrowIsLeftAlone"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#theExpiryIsRecordedAgainstTheEmployerWithNoMoneyMoving"
+      - "src/test/java/com/exskylab/koala/business/concretes/UnpaidExpiryRulesTest.java#aSecondRunOverTheSameAssignmentDoesNothing"
+    go_test: null
+
+  - id: PAY-020
+    priority: P1
+    title: Ekstre satırıyla payout mutabakatı
+    rule: >
+      Yalnız PROCESSING payout ekstre kanıtıyla COMPLETED yapılabilir. Kanıtın sağlayıcı referansı,
+      tutarı ve para birimi payout'la eşleşmeli, ödeme tarihi payout'tan önce olmamalıdır. Bir ekstre
+      satırı tek bir payout'u kapatır. Aynı satır aynı payout'a ikinci kez bildirilirse sonuç
+      değişmez. Farklı bir satır bildirilirse reddedilir. Sağlayıcı referansı olmayan payout
+      mutabakata değil yükseltmeye gider.
+    given:
+      - "Payout PROCESSING, sağlayıcı referansı R1, tutar 1.000,00 TL"
+    when:
+      - "Personel (payout.reconcile izniyle) R1, 1.000,00 TL, TRY ve ekstre satırı S1 bildirir"
+      - "Aynı S1 tekrar bildirilir; sonra S2 bildirilir"
+      - "Başka bir payout için S1 bildirilir"
+    then:
+      - "Payout COMPLETED, ekstre referansı S1, mutabakatı yapan personel kaydedilir"
+      - "S1 tekrarı → değişiklik yok; S2 → çakışma"
+      - "S1 başka payout'ta → çakışma (veritabanı tekilliği)"
+      - "Tutar ya da referans uyuşmazlığında payout PROCESSING kalır"
+    decision: K2
+    target: "K2'de bu adım payout'u IN_TRANSIT'ten PAID'e geçirir. Hangi Iyzico raporunun PAID'i kanıtladığı sandbox'ta doğrulanacak."
+    oracle: testdata/oracle/payout-transitions.csv
+    source:
+      - "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#theWorkerSeesTheirPayoutAsCompletedOnceTheStatementLineIsReported"
+      - "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#reportingTheSameStatementLineTwiceStillLeavesOneCompletedPayout"
+      - "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#aSecondStatementLineOnACompletedPayoutIsRefused"
+      - "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#evidenceThatDoesNotMatchTheSnapshotLeavesThePayoutProcessing"
+      - "src/test/java/com/exskylab/koala/dataAccess/PayoutSettlementReconciliationIT.java#oneStatementLineCannotSettleTwoPayoutsEvenWhenTheWritesTrulyOverlap"
+      - "src/test/java/com/exskylab/koala/dataAccess/PayoutSettlementReconciliationIT.java#aPayoutWithoutAProviderReferenceIsEscalatedRatherThanSettled"
+    go_test: null
+
+  - id: PAY-021
+    priority: P0
+    title: Ödeme formu başlatılamazsa kesin ret başarısız, belirsizlik bekleyen olur
+    rule: >
+      Alt üye hazır olduktan sonra ödeme formu başlatılırken sağlayıcı kesin ret verirse deneme FAILED
+      olur. Ağ hatası, 5xx/408/429 ya da token kaydedilememesi gibi belirsiz durumlarda deneme
+      VERIFY_PENDING olur ve mutabakata bırakılır; para çekilmiş olabilir, deneme başarısız sayılmaz.
+    given:
+      - "Deneme INITIATED; işçinin alt üye kaydı var"
+    when:
+      - "Ödeme formu başlatma isteği sağlayıcıdan kesin retle döner"
+      - "Ödeme formu başlatma isteği zaman aşımına uğrar ya da sağlayıcı 5xx döner"
+      - "Form açılır ama token kaydı yazılamaz"
+    then:
+      - "Kesin ret → deneme FAILED"
+      - "Belirsiz yanıt → deneme VERIFY_PENDING; yeni ödeme oturumu aktif deneme yüzünden reddedilir"
+      - "Token kaydı yazılamazsa → deneme VERIFY_PENDING"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/JobAssignmentManager.java:340-362"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#anExplicitProviderRejectionFailsTheReservedAttemptInsteadOfLeavingItAmbiguous"
+      - "src/test/java/com/exskylab/koala/core/utilities/payment/IyzicoProtocolTest.java#aFiveHundredResponseRemainsAmbiguousInsteadOfBecomingAProviderRejection"
+    go_test: null
+
+  - id: PAY-022
+    priority: P0
+    title: Atama tamamlanmadan uyuşmazlık çözülürse emanet kazanan tarafa gider
+    rule: >
+      Personel, atama tamamlanmadan açılmış uyuşmazlığı çözer. İşçi lehine çözüm emaneti işçiye
+      serbest bırakır ve atamayı "çözümle tamamlandı" olarak kapatır. İşveren lehine çözüm tahsilatın
+      tamamını iade eder ve atamayı iptal eder. Atama zaten tamamlanmışsa (emanet uyuşmazlık yüzünden
+      bekliyorsa) işveren lehine çözüm iade yapar ama atama tamamlanmış kalır.
+    given:
+      - "Atama IN_PROGRESS, ödeme durumu HELD_IN_ESCROW, açık uyuşmazlık var; işçinin birincil IBAN'ı var"
+      - "Personel uyuşmazlık çözme ve ilgili para iznine sahip"
+    when:
+      - "Personel uyuşmazlığı işçi lehine çözer"
+      - "Ayrı bir örnekte personel uyuşmazlığı işveren lehine çözer"
+      - "Ayrı bir örnekte atama COMPLETED ve emanette beklerken uyuşmazlık işveren lehine çözülür"
+    then:
+      - "Java: işçi lehine çözüm, atama tamamlanmadığı için PAYOUT_NOT_READY_FOR_RELEASE ile reddedilir ve uyuşmazlık açık kalır"
+      - "Java: işveren lehine çözümde iade yapılır, atama durumu değişmez"
+      - "Uyuşmazlık RESOLVED olur ve çözen personel kaydedilir"
+    decision: karar 05.11 (Upwork pratiği)
+    target: >
+      İşçi lehine: emanet işçiye serbest bırakılır (payout PENDING), atama COMPLETED olur ve
+      tamamlanma nedeni uyuşmazlık çözümüdür. İşveren lehine ve atama tamamlanmamışsa: tam iade, atama
+      CANCELLED. Atama zaten COMPLETED ise: tam iade, atama COMPLETED kalır; COMPLETED'dan CANCELLED'a
+      geçiş yoktur.
+    oracle: testdata/oracle/assignment-transitions.csv
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/DisputeManager.java:133-176"
+      - "src/test/java/com/exskylab/koala/business/concretes/DisputeResolutionAuthorizationTest.java#staffHoldingTheReleasePermissionResolvesAndMovesTheMoney"
+      - "src/test/java/com/exskylab/koala/business/concretes/DisputeResolutionAuthorizationTest.java#staffHoldingTheRefundPermissionResolvesAndRefundsTheEmployer"
+    go_test: null
+
+  - id: PAY-023
+    priority: P0
+    title: Ödeme oturumunda yetki kontrolü durum kontrolünden önce yapılır
+    rule: >
+      Ödeme oturumu yalnız atamanın işvereni tarafından başlatılır: bireysel ilanda ilan sahibi,
+      şirket ilanında şirketin güncel üyesi (D1). Yetkisi olmayan biri, atamanın ödeme durumu ne olursa
+      olsun aynı reddi alır; ödeme durumunu öğrenemez.
+    given:
+      - "Atama CONFIRMED / HELD_IN_ESCROW (zaten ödenmiş)"
+    when:
+      - "Atamayla ilişkisi olmayan bir kullanıcı ödeme oturumu ister"
+      - "İşçi kendi ataması için ödeme oturumu ister"
+    then:
+      - "Java: durum kontrolü önce geldiği için yabancı 'ödeme için hazır değil' çakışmasını alır (durum sızar)"
+      - "Java: ödenmemiş atamada yabancı ve işçi yetki hatası alır"
+    decision: Java hatası (yetki sırası); D1
+    target: >
+      Karar: yetki kontrolü önce yapılır. Yabancı ve işçi, atamanın ödeme durumundan bağımsız olarak
+      var olmayan atamayla aynı reddi alır.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/JobAssignmentManager.java:249-278"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aStrangerCannotInitiatePaymentForAnIndividualJob"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theWorkerCannotInitiatePaymentForTheirOwnAssignment"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob"
+    go_test: null

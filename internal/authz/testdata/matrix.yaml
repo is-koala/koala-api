@@ -1,0 +1,2760 @@
+# TASLAK — internal/authz/testdata/matrix.yaml (plan §5.6-3, ADR-0014)
+#
+# Faz 0 başlangıç taslağı. Go değerlendiricisi ve OpenFGA uygunluk koşucusu (§5.6-5)
+# henüz yok. Üretici: docs/faz0/tarama/pairs.py; elle düzenlemeyin, betiği güncelleyin.
+#
+# Alanlar
+#   action   : <nesne_tipi>.<karar eylemi>; relation karşılığı `actions:` haritasında.
+#              `go:<kural>` = model dışı Go kuralı (sahiplik, öznitelik, protokol).
+#   subject  : "anonymous" ya da "user:<id>"; fixtures.subjects içinde çözülür.
+#   object   : "<tip>:<id>"; fixtures.objects içinde çözülür. Kullanıcılar (user:<id>)
+#              hem subjects hem objects altında listelenir.
+#   tuples   : "<nesne>#<relation>@<özne>"; özne fixtures.objects'teki bir nesne,
+#              "<nesne>#<relation>" kullanıcı kümesi ya da "user:*" jokeri (her kimlikli
+#              kullanıcı; fikstür değildir, anonymous'u kapsamaz).
+#   expect   : Go HEDEF kararı (allow | deny); karar kaydı D1-D5 uygulanmış.
+#   basis    : allow satırında kararın dayanağı; değer `basis:` sözlüğünden.
+#   conceal  : deny satırında ZORUNLU; true = var olmayan kaynakla bayt bayt aynı 404.
+#   java     : Java'nın bugünkü kararı (origin/main). java_conceal Java'nın ret biçimi;
+#              docs/faz0/authz-envanteri.csv `gizleme_404` kolonundan türetilir.
+#   engine   : [go, openfga] iki değerlendiricide de koşar · go_only yalnız Go
+#              (ön süzgeç, öznitelik, sahiplik, Scope) · skip koşmaz (gerekçe çiftte).
+#   source   : bağlayan Java testi (src/test/java/...#metot); boşsa bulunamadı.
+#
+# Kapsam: pazaryeri tarafı. Personel RBAC (uç izni + 18 dinamik kontrol) kapsam dışı;
+# kaynağı docs/faz0/authz-personel-izinleri.csv (docs/faz0/README.md).
+# OpenFGA'ya yüklenecek tuple'lar `fixtures.tuples` listesindedir; soft-delete'li
+# nesnelerin (deleted: true) tuple'ı yoktur, Check false döner (§5.7).
+
+version: 0
+status: draft
+engines:          # izin verilen engine değerleri
+  - [go, openfga]
+  - go_only
+  - skip
+
+basis:
+  worker: "atamanın işçisi (job_assignment#worker)"
+  individual_owner: "bireysel ilanın sahibi (job#individual_owner)"
+  company_member: "ilanın şirketinin üyesi, ADMIN ya da STAFF (company#member)"
+  company_admin: "şirket ADMIN'i (company#admin)"
+  applicant: "başvuru sahibi (job_application#applicant)"
+  applicant_pool: "açık ilana başvurabilecek herkes (job#applicant_pool)"
+  participant: "sohbet katılımcısı (conversation#participant)"
+  invitee: "davet edilen (company_invitation#invitee)"
+  seat_holder: "serviste koltuğu olan işçi (shuttle#seat_holder)"
+  active_worker: "adresin göründüğü atama durumundaki işçi (job#active_worker)"
+  reviewer: "başvuru almış işveren tarafı (private_file#reviewer)"
+  owner: "kaydın sahibi (model dışı, Scope SelfUserID)"
+  self: "kendisi (user#self)"
+  contact: "ortak sohbeti olan kullanıcı (user#contact)"
+  public: "herkese açık ([user:*] ya da kimliksiz)"
+  attribute_is_employer: "öznitelik: kullanıcı işveren ve kimliği doğrulanmış"
+  capability_url: "tahmin edilemez kimlik taşıyan URL"
+  provider_token: "sağlayıcı ödeme token'ı"
+  user_destination: "kullanıcının kendi WS kuyruğu"
+
+actions:
+  job_assignment.read: "job_assignment#can_read"
+  job_assignment.respond: "job_assignment#can_respond"
+  job_assignment.complete: "job_assignment#can_complete"
+  job_assignment.pay: "job_assignment#can_pay"
+  job_assignment.cancel: "job_assignment#can_cancel"
+  job_assignment.record_work: "job_assignment#can_record_work"
+  job_assignment.open_dispute: "job_assignment#can_open_dispute"
+  job_assignment.review: "job_assignment#can_review"
+  job_assignment.reveal_worker_identity: "job_assignment#can_reveal_worker_identity"
+  job_assignment.select_seat: "job_assignment#can_select_seat"
+  job_assignment.issue_boarding_qr: "job_assignment#can_board"
+  job_assignment.list: "Scope(job_assignment#can_read)"
+  job.read: "job#can_view"
+  job.read_employer_view: "job#can_edit"
+  job.read_exact_address: "job#can_read_exact_address"
+  job.edit: "job#can_edit"
+  job.read_private: "job#can_read_private"
+  job.list_applications: "job#can_list_applications"
+  job.cancel: "job#can_edit"
+  job.close: "job#can_edit"
+  job.apply: "job#can_apply"
+  job.open_conversation: "job#can_open_conversation"
+  job.copy_as_template: "job#can_edit"
+  company.read: "company#viewer"
+  company.read_member_view: "company#can_read_internal"
+  company.manage: "company#can_manage"
+  company.create_job: "company#can_manage_jobs"
+  company.tag_talent_pool_entry: "company#can_manage_jobs"
+  company_invitation.read: "company_invitation#can_read"
+  company_invitation.answer: "company_invitation#can_answer"
+  job_application.decide: "job_application#can_decide"
+  job_application.withdraw: "job_application#can_withdraw"
+  job_application.list: "Scope(job_application#can_read)"
+  conversation.read: "conversation#can_read"
+  conversation.post: "conversation#can_post"
+  conversation.subscribe: "conversation#can_read"
+  conversation.publish_to_topic: "go:protocol_no_client_publish"
+  conversation.list: "Scope(conversation#can_read)"
+  message.report: "message#can_report"
+  dispute.read: "dispute#can_read"
+  dispute.add_evidence: "dispute#can_add_evidence"
+  shuttle.manage: "shuttle#can_manage"
+  shuttle.board: "shuttle#can_board"
+  shuttle.read_details: "shuttle#can_read_details"
+  seat_assignment.mark_boarding: "seat_assignment#can_mark_boarding"
+  user.read_public: "user#public_viewer"
+  user.read_public_profile: "user#public_viewer"
+  user.read_cv_url: "private_file#can_download"
+  private_file.download: "private_file#can_download"
+  user.read_presence: "user#can_see_presence"
+  user.watch_presence: "user#can_see_presence"
+  user.create_individual_job: "go:attribute_is_employer"
+  image.delete: "go:owner"
+  platform.read_actuator: "go:no_marketplace_admin"
+  experience.write: "go:owner"
+  education.write: "go:owner"
+  job_alert.write: "go:owner"
+  bank_account.write: "go:owner"
+  device.write: "go:owner"
+  availability_exception.write: "go:owner"
+  job_template.read: "go:owner"
+  job_template.write: "go:owner"
+  session.read: "go:owner"
+  session.write: "go:owner"
+  user_verification.confirm: "go:owner"
+  notification.mark_read: "go:owner"
+  notification.mark_opened: "go:capability_url"
+  address_search_session.use: "go:owner"
+  payment_attempt.complete_callback: "go:provider_token"
+  payment_attempt.read_outcome: "go:provider_token"
+  realtime_destination.subscribe: "go:ws_destination"
+
+fixtures:
+  subjects:
+    anonymous: {type: anonymous}
+    user:u_worker: {type: user, note: "asg_ind, asg_co, asg_orphan, asg_pending, asg_done işçisi; conv_ind katılımcısı; seat_w"}
+    user:u_creator: {type: user, note: "bireysel işveren; job_ind ve job_closed sahibi; tmpl_c sahibi"}
+    user:u_co_admin: {type: user, note: "co_1 ADMIN"}
+    user:u_co_staff: {type: user, note: "co_1 STAFF; job_co'yu açan"}
+    user:u_co_former: {type: user, note: "co_1'den çıkarılmış eski yetkili; job_co_orphan'ı açan"}
+    user:u_other_co_admin: {type: user, note: "co_2 ADMIN; co_1 ile ilişkisi yok"}
+    user:u_applicant: {type: user, note: "app_ind, app_co, app_orphan sahibi; cv_applicant sahibi"}
+    user:u_invitee: {type: user, note: "inv_1 ile co_1'e davet edilen"}
+    user:u_blocked: {type: user, note: "u_worker'ın engellediği kullanıcı; conv_blocked katılımcısı"}
+    user:u_stranger: {type: user, note: "hiçbir nesneyle ilişkisi yok; img_x'i yükleyen"}
+    user:u_mkt_admin: {type: user, note: "pazaryeri ROLE_ADMIN (D5: yetki vermez)"}
+    user:u_deleted: {type: user, note: "soft-delete edilmiş kullanıcı; tuple'ı yok"}
+  objects:
+    platform:koala: {type: platform, attrs: {}}
+    company:co_1: {type: company, attrs: {"approval": "APPROVED"}}
+    company:co_2: {type: company, attrs: {"approval": "APPROVED"}}
+    job:job_ind: {type: job, attrs: {"employer_type": "INDIVIDUAL", "status": "OPEN"}}
+    job:job_closed: {type: job, attrs: {"employer_type": "INDIVIDUAL", "status": "CLOSED"}}
+    job:job_co: {type: job, attrs: {"employer_type": "COMPANY", "status": "OPEN", "address_public": false}}
+    job:job_co_public_addr: {type: job, attrs: {"employer_type": "COMPANY", "status": "OPEN", "address_public": true}}
+    job:job_co_orphan: {type: job, attrs: {"employer_type": "COMPANY", "status": "OPEN", "address_public": false}}
+    job:job_deleted: {type: job, attrs: {"employer_type": "INDIVIDUAL", "status": "OPEN", "deleted": true}}
+    job_application:app_ind: {type: job_application, attrs: {"status": "APPLIED"}}
+    job_application:app_co: {type: job_application, attrs: {"status": "APPLIED"}}
+    job_application:app_orphan: {type: job_application, attrs: {"status": "APPLIED"}}
+    job_assignment:asg_ind: {type: job_assignment, attrs: {"status": "CONFIRMED", "payment_status": "HELD_IN_ESCROW"}}
+    job_assignment:asg_pending: {type: job_assignment, attrs: {"status": "PENDING_CONFIRMATION", "payment_status": null}}
+    job_assignment:asg_done: {type: job_assignment, attrs: {"status": "COMPLETED", "payment_status": "RELEASED_TO_WORKER"}}
+    job_assignment:asg_co: {type: job_assignment, attrs: {"status": "CONFIRMED", "payment_status": "HELD_IN_ESCROW"}}
+    job_assignment:asg_orphan: {type: job_assignment, attrs: {"status": "CONFIRMED", "payment_status": "PENDING_COLLECTION"}}
+    job_assignment:asg_deleted: {type: job_assignment, attrs: {"status": "CONFIRMED", "payment_status": "HELD_IN_ESCROW", "deleted": true}}
+    dispute:dsp_ind: {type: dispute, attrs: {"status": "OPEN"}}
+    conversation:conv_ind: {type: conversation, attrs: {"kind": "DIRECT"}}
+    conversation:conv_blocked: {type: conversation, attrs: {"kind": "DIRECT", "blocked_pair": ["user:u_worker", "user:u_blocked"]}}
+    message:msg_ind: {type: message, attrs: {}}
+    company_invitation:inv_1: {type: company_invitation, attrs: {"status": "PENDING"}}
+    shuttle:shuttle_ind: {type: shuttle, attrs: {}}
+    shuttle:shuttle_other: {type: shuttle, attrs: {}}
+    seat_assignment:seat_w: {type: seat_assignment, attrs: {}}
+    private_file:cv_applicant: {type: private_file, attrs: {"kind": "CV"}}
+    image:img_x: {type: image, attrs: {"owner": "user:u_stranger"}}
+    experience:exp_w: {type: experience, attrs: {"owner": "user:u_worker"}}
+    education:edu_w: {type: education, attrs: {"owner": "user:u_worker"}}
+    job_alert:alert_w: {type: job_alert, attrs: {"owner": "user:u_worker"}}
+    bank_account:bank_w: {type: bank_account, attrs: {"owner": "user:u_worker"}}
+    device:dev_w: {type: device, attrs: {"owner": "user:u_worker"}}
+    availability_exception:avex_w: {type: availability_exception, attrs: {"owner": "user:u_worker"}}
+    job_template:tmpl_c: {type: job_template, attrs: {"owner": "user:u_creator"}}
+    session:ses_w: {type: session, attrs: {"owner": "user:u_worker", "active": true}}
+    user_verification:ver_w: {type: user_verification, attrs: {"owner": "user:u_worker"}}
+    notification:notif_w: {type: notification, attrs: {"owner": "user:u_worker", "channel": "EMAIL", "delivered": true}}
+    notification:notif_missing: {type: notification, attrs: {"exists": false}}
+    address_search_session:addr_w: {type: address_search_session, attrs: {"owner": "user:u_worker"}}
+    payment_attempt:pay_valid: {type: payment_attempt, attrs: {"provider_token": "known"}}
+    payment_attempt:pay_unknown: {type: payment_attempt, attrs: {"provider_token": "unknown"}}
+    realtime_destination:queue_own: {type: realtime_destination, attrs: {"destination": "/user/queue/notifications"}}
+    realtime_destination:topic_unknown: {type: realtime_destination, attrs: {"destination": "/topic/admin/secrets"}}
+    user:u_worker: {type: user, attrs: {"is_employer": false}}
+    user:u_creator: {type: user, attrs: {"is_employer": true}}
+    user:u_co_admin: {type: user, attrs: {"is_employer": true}}
+    user:u_co_staff: {type: user, attrs: {"is_employer": true}}
+    user:u_co_former: {type: user, attrs: {"is_employer": true}}
+    user:u_other_co_admin: {type: user, attrs: {"is_employer": true}}
+    user:u_applicant: {type: user, attrs: {"is_employer": false}}
+    user:u_invitee: {type: user, attrs: {"is_employer": false}}
+    user:u_blocked: {type: user, attrs: {"is_employer": false}}
+    user:u_stranger: {type: user, attrs: {"is_employer": false}}
+    user:u_mkt_admin: {type: user, attrs: {"is_employer": false, "marketplace_role": "ROLE_ADMIN"}}
+    user:u_deleted: {type: user, attrs: {"is_employer": false, "deleted": true}}
+  tuples:
+    - "company:co_1#admin@user:u_co_admin"
+    - "company:co_1#staff_member@user:u_co_staff"
+    - "company:co_2#admin@user:u_other_co_admin"
+    - "job:job_ind#individual_owner@user:u_creator"
+    - "job:job_ind#creator@user:u_creator"
+    - "job:job_ind#public_viewer@user:*"
+    - "job:job_ind#applicant_pool@user:*"
+    - "job:job_ind#active_worker@user:u_worker"
+    - "job:job_closed#individual_owner@user:u_creator"
+    - "job:job_closed#creator@user:u_creator"
+    - "job:job_closed#public_viewer@user:*"
+    - "job:job_co#owner_company@company:co_1"
+    - "job:job_co#creator@user:u_co_staff"
+    - "job:job_co#public_viewer@user:*"
+    - "job:job_co#applicant_pool@user:*"
+    - "job:job_co#active_worker@user:u_worker"
+    - "job:job_co_public_addr#owner_company@company:co_1"
+    - "job:job_co_public_addr#public_viewer@user:*"
+    - "job:job_co_public_addr#public_address_viewer@user:*"
+    - "job:job_co_orphan#owner_company@company:co_1"
+    - "job:job_co_orphan#creator@user:u_co_former"
+    - "job:job_co_orphan#public_viewer@user:*"
+    - "job:job_co_orphan#applicant_pool@user:*"
+    - "job_application:app_ind#job@job:job_ind"
+    - "job_application:app_ind#applicant@user:u_applicant"
+    - "job_application:app_co#job@job:job_co"
+    - "job_application:app_co#applicant@user:u_applicant"
+    - "job_application:app_orphan#job@job:job_co_orphan"
+    - "job_application:app_orphan#applicant@user:u_applicant"
+    - "job_assignment:asg_ind#job@job:job_ind"
+    - "job_assignment:asg_ind#worker@user:u_worker"
+    - "job_assignment:asg_pending#job@job:job_ind"
+    - "job_assignment:asg_pending#worker@user:u_worker"
+    - "job_assignment:asg_done#job@job:job_ind"
+    - "job_assignment:asg_done#worker@user:u_worker"
+    - "job_assignment:asg_co#job@job:job_co"
+    - "job_assignment:asg_co#worker@user:u_worker"
+    - "job_assignment:asg_orphan#job@job:job_co_orphan"
+    - "job_assignment:asg_orphan#worker@user:u_worker"
+    - "dispute:dsp_ind#assignment@job_assignment:asg_ind"
+    - "conversation:conv_ind#participant@user:u_creator"
+    - "conversation:conv_ind#participant@user:u_worker"
+    - "conversation:conv_blocked#participant@user:u_worker"
+    - "conversation:conv_blocked#participant@user:u_blocked"
+    - "message:msg_ind#conversation@conversation:conv_ind"
+    - "message:msg_ind#sender@user:u_creator"
+    - "company_invitation:inv_1#company@company:co_1"
+    - "company_invitation:inv_1#inviter@user:u_co_admin"
+    - "company_invitation:inv_1#invitee@user:u_invitee"
+    - "shuttle:shuttle_ind#job@job:job_ind"
+    - "shuttle:shuttle_ind#seat_holder@user:u_worker"
+    - "shuttle:shuttle_other#job@job:job_ind"
+    - "seat_assignment:seat_w#shuttle@shuttle:shuttle_ind"
+    - "private_file:cv_applicant#owner@user:u_applicant"
+    - "private_file:cv_applicant#reviewer@user:u_creator"
+    - "private_file:cv_applicant#reviewer@company:co_1#member"
+    - "user:u_worker#public_viewer@user:*"
+    - "user:u_applicant#public_viewer@user:*"
+    - "user:u_worker#self@user:u_worker"
+    - "user:u_creator#self@user:u_creator"
+    - "user:u_worker#contact@user:u_creator"
+    - "user:u_creator#contact@user:u_worker"
+
+cases:
+  - id: AZM-001
+    pair: C01
+    action: job_assignment.read
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotReadTheTimesheet", "src/test/java/com/exskylab/koala/business/concretes/PaymentAccessRulesTest.java#aStrangerCannotSeeTheAttempts", "src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#anOutsiderGetsTheConcealedNotFoundResponse", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-002
+    pair: C01
+    action: job_assignment.read
+    subject: "user:u_co_staff"
+    object: "job_assignment:asg_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotReadTheTimesheet", "src/test/java/com/exskylab/koala/business/concretes/PaymentAccessRulesTest.java#aStrangerCannotSeeTheAttempts", "src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#anOutsiderGetsTheConcealedNotFoundResponse", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-003
+    pair: C01
+    action: job_assignment.read
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotReadTheTimesheet", "src/test/java/com/exskylab/koala/business/concretes/PaymentAccessRulesTest.java#aStrangerCannotSeeTheAttempts", "src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#anOutsiderGetsTheConcealedNotFoundResponse", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-004
+    pair: C01
+    action: job_assignment.read
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotReadTheTimesheet", "src/test/java/com/exskylab/koala/business/concretes/PaymentAccessRulesTest.java#aStrangerCannotSeeTheAttempts", "src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#anOutsiderGetsTheConcealedNotFoundResponse", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-005
+    pair: C01
+    action: job_assignment.read
+    subject: "user:u_other_co_admin"
+    object: "job_assignment:asg_co"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotReadTheTimesheet", "src/test/java/com/exskylab/koala/business/concretes/PaymentAccessRulesTest.java#aStrangerCannotSeeTheAttempts", "src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#anOutsiderGetsTheConcealedNotFoundResponse", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-006
+    pair: C01
+    action: job_assignment.read
+    subject: "user:u_co_former"
+    object: "job_assignment:asg_orphan"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotReadTheTimesheet", "src/test/java/com/exskylab/koala/business/concretes/PaymentAccessRulesTest.java#aStrangerCannotSeeTheAttempts", "src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#anOutsiderGetsTheConcealedNotFoundResponse", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-007
+    pair: C01
+    action: job_assignment.read
+    subject: "user:u_worker"
+    object: "job_assignment:asg_deleted"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    note: "soft-delete: tuple'lar silinmiş, Check false"
+    inventory: [AZ-001, AZ-006, AZ-009, AZ-012, AZ-014, AZ-018]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotReadTheTimesheet", "src/test/java/com/exskylab/koala/business/concretes/PaymentAccessRulesTest.java#aStrangerCannotSeeTheAttempts", "src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#anOutsiderGetsTheConcealedNotFoundResponse", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesAssignmentLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesCancellationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesTimesheetLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed"]
+  - id: AZM-008
+    pair: C02
+    action: job_assignment.respond
+    subject: "user:u_worker"
+    object: "job_assignment:asg_pending"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-002]
+    source: ["src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#respondingToSomeoneElsesPendingAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#respondingToSomeoneElsesTerminalAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist"]
+  - id: AZM-009
+    pair: C02
+    action: job_assignment.respond
+    subject: "user:u_creator"
+    object: "job_assignment:asg_pending"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-002]
+    source: ["src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#respondingToSomeoneElsesPendingAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#respondingToSomeoneElsesTerminalAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist"]
+  - id: AZM-010
+    pair: C02
+    action: job_assignment.respond
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_pending"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-002]
+    source: ["src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#respondingToSomeoneElsesPendingAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#respondingToSomeoneElsesTerminalAssignmentLooksExactlyLikeRespondingToOneThatDoesNotExist"]
+  - id: AZM-011
+    pair: C03
+    action: job_assignment.complete
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-003]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#onlyTheEmployerCanMarkTheWorkComplete", "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#theWorkerCannotCompleteTheirOwnAssignment", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-012
+    pair: C03
+    action: job_assignment.complete
+    subject: "user:u_co_admin"
+    object: "job_assignment:asg_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-003]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#onlyTheEmployerCanMarkTheWorkComplete", "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#theWorkerCannotCompleteTheirOwnAssignment", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-013
+    pair: C03
+    action: job_assignment.complete
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-003]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#onlyTheEmployerCanMarkTheWorkComplete", "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#theWorkerCannotCompleteTheirOwnAssignment", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-014
+    pair: C03
+    action: job_assignment.complete
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-003]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#onlyTheEmployerCanMarkTheWorkComplete", "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#theWorkerCannotCompleteTheirOwnAssignment", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-015
+    pair: C03
+    action: job_assignment.complete
+    subject: "user:u_co_former"
+    object: "job_assignment:asg_orphan"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-003]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#onlyTheEmployerCanMarkTheWorkComplete", "src/test/java/com/exskylab/koala/webAPI/AssignmentCompletionIT.java#theWorkerCannotCompleteTheirOwnAssignment", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#completingSomeoneElsesAssignmentLooksExactlyLikeCompletingOneThatDoesNotExist"]
+  - id: AZM-016
+    pair: C04
+    action: job_assignment.pay
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-004, AZ-005]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aStrangerCannotInitiatePaymentForAnIndividualJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theWorkerCannotInitiatePaymentForTheirOwnAssignment"]
+  - id: AZM-017
+    pair: C04
+    action: job_assignment.pay
+    subject: "user:u_co_staff"
+    object: "job_assignment:asg_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-004, AZ-005]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aStrangerCannotInitiatePaymentForAnIndividualJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theWorkerCannotInitiatePaymentForTheirOwnAssignment"]
+  - id: AZM-018
+    pair: C04
+    action: job_assignment.pay
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-004, AZ-005]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aStrangerCannotInitiatePaymentForAnIndividualJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theWorkerCannotInitiatePaymentForTheirOwnAssignment"]
+  - id: AZM-019
+    pair: C04
+    action: job_assignment.pay
+    subject: "user:u_co_former"
+    object: "job_assignment:asg_orphan"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "D1 ile Java aynı karar"
+    inventory: [AZ-004, AZ-005]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aStrangerCannotInitiatePaymentForAnIndividualJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theWorkerCannotInitiatePaymentForTheirOwnAssignment"]
+  - id: AZM-020
+    pair: C04
+    action: job_assignment.pay
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-004, AZ-005]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aStrangerCannotInitiatePaymentForAnIndividualJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob", "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theWorkerCannotInitiatePaymentForTheirOwnAssignment"]
+  - id: AZM-021
+    pair: C05
+    action: job_assignment.cancel
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-007, AZ-008]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotCancelSomeoneElsesAssignment", "src/test/java/com/exskylab/koala/business/concretes/CancellationPreviewTest.java#someoneWhoIsNotAPartyGetsNotFound", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#cancellingSomeoneElsesAssignmentLooksExactlyLikeCancellingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#previewingSomeoneElsesCancellationLooksExactlyLikePreviewingOneThatDoesNotExist"]
+  - id: AZM-022
+    pair: C05
+    action: job_assignment.cancel
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-007, AZ-008]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotCancelSomeoneElsesAssignment", "src/test/java/com/exskylab/koala/business/concretes/CancellationPreviewTest.java#someoneWhoIsNotAPartyGetsNotFound", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#cancellingSomeoneElsesAssignmentLooksExactlyLikeCancellingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#previewingSomeoneElsesCancellationLooksExactlyLikePreviewingOneThatDoesNotExist"]
+  - id: AZM-023
+    pair: C05
+    action: job_assignment.cancel
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-007, AZ-008]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotCancelSomeoneElsesAssignment", "src/test/java/com/exskylab/koala/business/concretes/CancellationPreviewTest.java#someoneWhoIsNotAPartyGetsNotFound", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#cancellingSomeoneElsesAssignmentLooksExactlyLikeCancellingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#previewingSomeoneElsesCancellationLooksExactlyLikePreviewingOneThatDoesNotExist"]
+  - id: AZM-024
+    pair: C05
+    action: job_assignment.cancel
+    subject: "user:u_co_former"
+    object: "job_assignment:asg_orphan"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-007, AZ-008]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotCancelSomeoneElsesAssignment", "src/test/java/com/exskylab/koala/business/concretes/CancellationPreviewTest.java#someoneWhoIsNotAPartyGetsNotFound", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#cancellingSomeoneElsesAssignmentLooksExactlyLikeCancellingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#previewingSomeoneElsesCancellationLooksExactlyLikePreviewingOneThatDoesNotExist"]
+  - id: AZM-025
+    pair: C06
+    action: job_assignment.record_work
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-010, AZ-011]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#onlyTheWorkerCanCheckIn", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#checkingIntoSomeoneElsesAssignmentLooksExactlyLikeCheckingIntoOneThatDoesNotExist"]
+  - id: AZM-026
+    pair: C06
+    action: job_assignment.record_work
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-010, AZ-011]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#onlyTheWorkerCanCheckIn", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#checkingIntoSomeoneElsesAssignmentLooksExactlyLikeCheckingIntoOneThatDoesNotExist"]
+  - id: AZM-027
+    pair: C06
+    action: job_assignment.record_work
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-010, AZ-011]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#onlyTheWorkerCanCheckIn", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#checkingIntoSomeoneElsesAssignmentLooksExactlyLikeCheckingIntoOneThatDoesNotExist"]
+  - id: AZM-028
+    pair: C07
+    action: job_assignment.open_dispute
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-013]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotOpenADispute"]
+  - id: AZM-029
+    pair: C07
+    action: job_assignment.open_dispute
+    subject: "user:u_co_admin"
+    object: "job_assignment:asg_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-013]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotOpenADispute"]
+  - id: AZM-030
+    pair: C07
+    action: job_assignment.open_dispute
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-013]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AssignmentOperationsAuthorizationTest.java#aStrangerCannotOpenADispute"]
+  - id: AZM-031
+    pair: C08
+    action: job_assignment.review
+    subject: "user:u_worker"
+    object: "job_assignment:asg_done"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-015]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ReviewRulesTest.java#aStrangerCannotReviewSomeoneElsesJob", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#reviewingSomeoneElsesAssignmentLooksExactlyLikeReviewingOneThatDoesNotExist"]
+  - id: AZM-032
+    pair: C08
+    action: job_assignment.review
+    subject: "user:u_creator"
+    object: "job_assignment:asg_done"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-015]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ReviewRulesTest.java#aStrangerCannotReviewSomeoneElsesJob", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#reviewingSomeoneElsesAssignmentLooksExactlyLikeReviewingOneThatDoesNotExist"]
+  - id: AZM-033
+    pair: C08
+    action: job_assignment.review
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_done"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-015]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ReviewRulesTest.java#aStrangerCannotReviewSomeoneElsesJob", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#reviewingSomeoneElsesAssignmentLooksExactlyLikeReviewingOneThatDoesNotExist"]
+  - id: AZM-034
+    pair: C09
+    action: job_assignment.reveal_worker_identity
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-016, AZ-017]
+    source: ["src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aContactOfAnotherCompanySeesTheAssignmentAsMissing", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#anOutsiderSeesTheAssignmentAsMissing", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#theWorkerCannotReadTheirOwnIdentityThroughTheEmployerEndpoint"]
+  - id: AZM-035
+    pair: C09
+    action: job_assignment.reveal_worker_identity
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-016, AZ-017]
+    source: ["src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aContactOfAnotherCompanySeesTheAssignmentAsMissing", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#anOutsiderSeesTheAssignmentAsMissing", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#theWorkerCannotReadTheirOwnIdentityThroughTheEmployerEndpoint"]
+  - id: AZM-036
+    pair: C09
+    action: job_assignment.reveal_worker_identity
+    subject: "user:u_other_co_admin"
+    object: "job_assignment:asg_co"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-016, AZ-017]
+    source: ["src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aContactOfAnotherCompanySeesTheAssignmentAsMissing", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#anOutsiderSeesTheAssignmentAsMissing", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#theWorkerCannotReadTheirOwnIdentityThroughTheEmployerEndpoint"]
+  - id: AZM-037
+    pair: C09
+    action: job_assignment.reveal_worker_identity
+    subject: "user:u_creator"
+    object: "job_assignment:asg_pending"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    note: "HIRED değil: ön süzgeç"
+    inventory: [AZ-016, AZ-017]
+    source: ["src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aContactOfAnotherCompanySeesTheAssignmentAsMissing", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#anOutsiderSeesTheAssignmentAsMissing", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#theWorkerCannotReadTheirOwnIdentityThroughTheEmployerEndpoint"]
+  - id: AZM-038
+    pair: C10
+    action: job_assignment.select_seat
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-019, AZ-091, AZ-092]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theEmployerMayPickTheSeatOnBehalfOfTheWorkerAndCapacityCannotDropBelowSeats"]
+  - id: AZM-039
+    pair: C10
+    action: job_assignment.select_seat
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-019, AZ-091, AZ-092]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theEmployerMayPickTheSeatOnBehalfOfTheWorkerAndCapacityCannotDropBelowSeats"]
+  - id: AZM-040
+    pair: C10
+    action: job_assignment.select_seat
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-019, AZ-091, AZ-092]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aFullShuttleRefusesTheNextSeatAndAForeignShuttleIsConcealed", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theEmployerMayPickTheSeatOnBehalfOfTheWorkerAndCapacityCannotDropBelowSeats"]
+  - id: AZM-041
+    pair: C11
+    action: job_assignment.issue_boarding_qr
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-020, AZ-021]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theEmployerScansTheWorkerQrOfEitherDirection"]
+  - id: AZM-042
+    pair: C11
+    action: job_assignment.issue_boarding_qr
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-020, AZ-021]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theEmployerScansTheWorkerQrOfEitherDirection"]
+  - id: AZM-043
+    pair: C11
+    action: job_assignment.issue_boarding_qr
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-020, AZ-021]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theEmployerScansTheWorkerQrOfEitherDirection"]
+  - id: AZM-044
+    pair: C12
+    action: job_assignment.list
+    subject: "user:u_creator"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-119]
+    source: []
+  - id: AZM-045
+    pair: C12
+    action: job_assignment.list
+    subject: "user:u_worker"
+    object: "job_assignment:asg_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: go_only
+    inventory: [AZ-119]
+    source: []
+  - id: AZM-046
+    pair: C12
+    action: job_assignment.list
+    subject: "user:u_co_admin"
+    object: "job_assignment:asg_co"
+    expect: allow
+    basis: company_member
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "D2: tekil okuyabildiğini listede de görür"
+    inventory: [AZ-119]
+    source: []
+  - id: AZM-047
+    pair: C12
+    action: job_assignment.list
+    subject: "user:u_stranger"
+    object: "job_assignment:asg_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "liste süzgeci: satır listede yok"
+    inventory: [AZ-119]
+    source: []
+  - id: AZM-048
+    pair: C13
+    action: job.read
+    subject: "anonymous"
+    object: "job:job_ind"
+    expect: allow
+    basis: public
+    java: allow
+    engine: go_only
+    inventory: [AZ-121, AZ-122]
+    source: []
+  - id: AZM-049
+    pair: C13
+    action: job.read
+    subject: "user:u_stranger"
+    object: "job:job_ind"
+    expect: allow
+    basis: public
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-121, AZ-122]
+    source: []
+  - id: AZM-050
+    pair: C13
+    action: job.read
+    subject: "user:u_stranger"
+    object: "job:job_closed"
+    expect: allow
+    basis: public
+    java: allow
+    engine: [go, openfga]
+    note: "D3"
+    inventory: [AZ-121, AZ-122]
+    source: []
+  - id: AZM-051
+    pair: C13
+    action: job.read
+    subject: "user:u_stranger"
+    object: "job:job_deleted"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    note: "soft-delete: public_viewer tuple'ı silinmiş"
+    inventory: [AZ-121, AZ-122]
+    source: []
+  - id: AZM-052
+    pair: C14
+    action: job.read_employer_view
+    subject: "user:u_co_admin"
+    object: "job:job_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    note: "detay"
+    inventory: [AZ-041, AZ-042]
+    source: []
+  - id: AZM-053
+    pair: C14
+    action: job.read_employer_view
+    subject: "user:u_co_admin"
+    object: "job:job_co"
+    expect: allow
+    basis: company_member
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "D2: arama listesinde de editor görünümü"
+    inventory: [AZ-041, AZ-042]
+    source: []
+  - id: AZM-054
+    pair: C14
+    action: job.read_employer_view
+    subject: "user:u_creator"
+    object: "job:job_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-041, AZ-042]
+    source: []
+  - id: AZM-055
+    pair: C14
+    action: job.read_employer_view
+    subject: "user:u_stranger"
+    object: "job:job_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "alan düzeyi: herkese açık görünüm"
+    inventory: [AZ-041, AZ-042]
+    source: []
+  - id: AZM-056
+    pair: C15
+    action: job.read_exact_address
+    subject: "user:u_creator"
+    object: "job:job_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-043]
+    source: ["src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anIndividualJobCannotRevealItsExactAddressToEveryone", "src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "src/test/java/com/exskylab/koala/webAPI/JobAddressVisibilityIT.java#anUnrelatedUserReceivesOnlyTheApproximateAddress"]
+  - id: AZM-057
+    pair: C15
+    action: job.read_exact_address
+    subject: "user:u_worker"
+    object: "job:job_ind"
+    expect: allow
+    basis: active_worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-043]
+    source: ["src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anIndividualJobCannotRevealItsExactAddressToEveryone", "src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "src/test/java/com/exskylab/koala/webAPI/JobAddressVisibilityIT.java#anUnrelatedUserReceivesOnlyTheApproximateAddress"]
+  - id: AZM-058
+    pair: C15
+    action: job.read_exact_address
+    subject: "user:u_stranger"
+    object: "job:job_co_public_addr"
+    expect: allow
+    basis: public
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-043]
+    source: ["src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anIndividualJobCannotRevealItsExactAddressToEveryone", "src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "src/test/java/com/exskylab/koala/webAPI/JobAddressVisibilityIT.java#anUnrelatedUserReceivesOnlyTheApproximateAddress"]
+  - id: AZM-059
+    pair: C15
+    action: job.read_exact_address
+    subject: "user:u_co_admin"
+    object: "job:job_co"
+    expect: allow
+    basis: company_member
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "D1 (karar 05.11): şirket ilanının adresi iş yeri bilgisidir, can_manage_jobs üyeleri görür. Java yalnız ilanı açana gösteriyor: CompanyJobListingRulesTest#theSameJobIsExactForTheContactWhoOpenedItAndApproximateForTheOther"
+    inventory: [AZ-043]
+    source: ["src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anIndividualJobCannotRevealItsExactAddressToEveryone", "src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "src/test/java/com/exskylab/koala/webAPI/JobAddressVisibilityIT.java#anUnrelatedUserReceivesOnlyTheApproximateAddress"]
+  - id: AZM-060
+    pair: C15
+    action: job.read_exact_address
+    subject: "user:u_stranger"
+    object: "job:job_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "alan düzeyi: maskeli adres"
+    inventory: [AZ-043]
+    source: ["src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anIndividualJobCannotRevealItsExactAddressToEveryone", "src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "src/test/java/com/exskylab/koala/webAPI/JobAddressVisibilityIT.java#anUnrelatedUserReceivesOnlyTheApproximateAddress"]
+  - id: AZM-061
+    pair: C15
+    action: job.read_exact_address
+    subject: "user:u_co_former"
+    object: "job:job_co_orphan"
+    expect: deny
+    conceal: false
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-043]
+    source: ["src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anIndividualJobCannotRevealItsExactAddressToEveryone", "src/test/java/com/exskylab/koala/core/helpers/JobAddressVisibilityTest.java#anUnrelatedViewerReceivesOnlyAnApproximateAddress", "src/test/java/com/exskylab/koala/webAPI/JobAddressVisibilityIT.java#anUnrelatedUserReceivesOnlyTheApproximateAddress"]
+  - id: AZM-062
+    pair: C16
+    action: job.edit
+    subject: "user:u_creator"
+    object: "job:job_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-063
+    pair: C16
+    action: job.edit
+    subject: "user:u_co_admin"
+    object: "job:job_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-064
+    pair: C16
+    action: job.edit
+    subject: "user:u_worker"
+    object: "job:job_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-065
+    pair: C16
+    action: job.edit
+    subject: "user:u_stranger"
+    object: "job:job_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-066
+    pair: C16
+    action: job.edit
+    subject: "user:u_co_former"
+    object: "job:job_co_orphan"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-067
+    pair: C17
+    action: job.read_private
+    subject: "user:u_co_staff"
+    object: "job:job_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-028, AZ-030]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#theWorkerAndAnOutsiderGetTheConcealedNotFoundForTheJobsAssignments", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesJobAssignmentsLooksExactlyLikeListingOnesOfAJobThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-068
+    pair: C17
+    action: job.read_private
+    subject: "user:u_worker"
+    object: "job:job_co"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-028, AZ-030]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#theWorkerAndAnOutsiderGetTheConcealedNotFoundForTheJobsAssignments", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesJobAssignmentsLooksExactlyLikeListingOnesOfAJobThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-069
+    pair: C17
+    action: job.read_private
+    subject: "user:u_stranger"
+    object: "job:job_co"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-028, AZ-030]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#theWorkerAndAnOutsiderGetTheConcealedNotFoundForTheJobsAssignments", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesJobAssignmentsLooksExactlyLikeListingOnesOfAJobThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-070
+    pair: C17
+    action: job.read_private
+    subject: "user:u_co_former"
+    object: "job:job_co_orphan"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-028, AZ-030]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AssignmentReadIT.java#theWorkerAndAnOutsiderGetTheConcealedNotFoundForTheJobsAssignments", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesJobAssignmentsLooksExactlyLikeListingOnesOfAJobThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStrangerCannotTellTheJobFromOneThatDoesNotExist"]
+  - id: AZM-071
+    pair: C18
+    action: job.list_applications
+    subject: "user:u_creator"
+    object: "job:job_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-033, AZ-034]
+    source: []
+  - id: AZM-072
+    pair: C18
+    action: job.list_applications
+    subject: "user:u_co_admin"
+    object: "job:job_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-033, AZ-034]
+    source: []
+  - id: AZM-073
+    pair: C18
+    action: job.list_applications
+    subject: "user:u_co_former"
+    object: "job:job_co_orphan"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "D1 ile Java aynı karar"
+    inventory: [AZ-033, AZ-034]
+    source: []
+  - id: AZM-074
+    pair: C18
+    action: job.list_applications
+    subject: "user:u_stranger"
+    object: "job:job_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-033, AZ-034]
+    source: []
+  - id: AZM-075
+    pair: C19
+    action: job.cancel
+    subject: "user:u_creator"
+    object: "job:job_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-025]
+    source: []
+  - id: AZM-076
+    pair: C19
+    action: job.cancel
+    subject: "user:u_worker"
+    object: "job:job_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-025]
+    source: []
+  - id: AZM-077
+    pair: C19
+    action: job.cancel
+    subject: "user:u_co_former"
+    object: "job:job_co_orphan"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-025]
+    source: []
+  - id: AZM-078
+    pair: C20
+    action: job.close
+    subject: "user:u_co_staff"
+    object: "job:job_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-026]
+    source: []
+  - id: AZM-079
+    pair: C20
+    action: job.close
+    subject: "user:u_stranger"
+    object: "job:job_co"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-026]
+    source: []
+  - id: AZM-080
+    pair: C20
+    action: job.close
+    subject: "user:u_co_former"
+    object: "job:job_co_orphan"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-026]
+    source: []
+  - id: AZM-081
+    pair: C21
+    action: job.apply
+    subject: "user:u_applicant"
+    object: "job:job_ind"
+    expect: allow
+    basis: applicant_pool
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-035, AZ-036]
+    source: []
+  - id: AZM-082
+    pair: C21
+    action: job.apply
+    subject: "user:u_creator"
+    object: "job:job_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-035, AZ-036]
+    source: []
+  - id: AZM-083
+    pair: C21
+    action: job.apply
+    subject: "user:u_co_staff"
+    object: "job:job_co"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-035, AZ-036]
+    source: []
+  - id: AZM-084
+    pair: C21
+    action: job.apply
+    subject: "user:u_applicant"
+    object: "job:job_closed"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "D3: kapanmış ilan başvuruya kapalı"
+    inventory: [AZ-035, AZ-036]
+    source: []
+  - id: AZM-085
+    pair: C22
+    action: job.open_conversation
+    subject: "user:u_creator"
+    object: "job:job_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-037, AZ-038, AZ-039]
+    source: ["açma doğrulanmadı)", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotOpenAConversationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anOutsiderStillGetsTheSameNotFoundBeforeAndAfterPayment", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#nobodyCanOpenTheConversationBeforeTheEmployerPays"]
+  - id: AZM-086
+    pair: C22
+    action: job.open_conversation
+    subject: "user:u_stranger"
+    object: "job:job_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-037, AZ-038, AZ-039]
+    source: ["açma doğrulanmadı)", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotOpenAConversationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anOutsiderStillGetsTheSameNotFoundBeforeAndAfterPayment", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#nobodyCanOpenTheConversationBeforeTheEmployerPays"]
+  - id: AZM-087
+    pair: C22
+    action: job.open_conversation
+    subject: "user:u_blocked"
+    object: "job:job_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "engelleme ön süzgeci"
+    inventory: [AZ-037, AZ-038, AZ-039]
+    source: ["açma doğrulanmadı)", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotOpenAConversationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anOutsiderStillGetsTheSameNotFoundBeforeAndAfterPayment", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#nobodyCanOpenTheConversationBeforeTheEmployerPays"]
+  - id: AZM-088
+    pair: C22
+    action: job.open_conversation
+    subject: "user:u_co_former"
+    object: "job:job_co_orphan"
+    expect: deny
+    conceal: false
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-037, AZ-038, AZ-039]
+    source: ["açma doğrulanmadı)", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotOpenAConversationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anOutsiderStillGetsTheSameNotFoundBeforeAndAfterPayment", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#nobodyCanOpenTheConversationBeforeTheEmployerPays"]
+  - id: AZM-089
+    pair: C23
+    action: job.copy_as_template
+    subject: "user:u_co_staff"
+    object: "job:job_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-040]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/WorkerToolsRulesTest.java#aTemplateCannotBeMadeFromSomeoneElsesJob"]
+  - id: AZM-090
+    pair: C23
+    action: job.copy_as_template
+    subject: "user:u_stranger"
+    object: "job:job_co"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-040]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/WorkerToolsRulesTest.java#aTemplateCannotBeMadeFromSomeoneElsesJob"]
+  - id: AZM-091
+    pair: C23
+    action: job.copy_as_template
+    subject: "user:u_co_former"
+    object: "job:job_co_orphan"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik"
+    inventory: [AZ-040]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/WorkerToolsRulesTest.java#aTemplateCannotBeMadeFromSomeoneElsesJob"]
+  - id: AZM-092
+    pair: C24
+    action: company.read
+    subject: "user:u_stranger"
+    object: "company:co_1"
+    expect: allow
+    basis: public
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-123, AZ-124]
+    source: []
+  - id: AZM-093
+    pair: C24
+    action: company.read
+    subject: "anonymous"
+    object: "company:co_1"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "kimlik doğrulaması yok"
+    inventory: [AZ-123, AZ-124]
+    source: []
+  - id: AZM-094
+    pair: C25
+    action: company.read_member_view
+    subject: "user:u_co_staff"
+    object: "company:co_1"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-057, AZ-058, AZ-060]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anOutsiderCannotReadTheContactList", "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#onlyTheCompanysOwnPeopleReadWhyItWasRejected", "src/test/java/com/exskylab/koala/webAPI/CompanyJobListingIT.java#aUserWhoIsNotAContactOfTheCompanyIsForbidden"]
+  - id: AZM-095
+    pair: C25
+    action: company.read_member_view
+    subject: "user:u_co_admin"
+    object: "company:co_1"
+    expect: allow
+    basis: company_admin
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-057, AZ-058, AZ-060]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anOutsiderCannotReadTheContactList", "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#onlyTheCompanysOwnPeopleReadWhyItWasRejected", "src/test/java/com/exskylab/koala/webAPI/CompanyJobListingIT.java#aUserWhoIsNotAContactOfTheCompanyIsForbidden"]
+  - id: AZM-096
+    pair: C25
+    action: company.read_member_view
+    subject: "user:u_stranger"
+    object: "company:co_1"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-057, AZ-058, AZ-060]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anOutsiderCannotReadTheContactList", "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#onlyTheCompanysOwnPeopleReadWhyItWasRejected", "src/test/java/com/exskylab/koala/webAPI/CompanyJobListingIT.java#aUserWhoIsNotAContactOfTheCompanyIsForbidden"]
+  - id: AZM-097
+    pair: C25
+    action: company.read_member_view
+    subject: "user:u_other_co_admin"
+    object: "company:co_1"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-057, AZ-058, AZ-060]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anOutsiderCannotReadTheContactList", "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#onlyTheCompanysOwnPeopleReadWhyItWasRejected", "src/test/java/com/exskylab/koala/webAPI/CompanyJobListingIT.java#aUserWhoIsNotAContactOfTheCompanyIsForbidden"]
+  - id: AZM-098
+    pair: C26
+    action: company.manage
+    subject: "user:u_co_admin"
+    object: "company:co_1"
+    expect: allow
+    basis: company_admin
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#onlyACompanyAdminCanEditTheCompany", "src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#anOutsiderCannotListTheInvitations", "src/test/java/com/exskylab/koala/business/concretes/CompanyInvitationSendingRulesTest.java#aNonAdminCannotTellTheCompanyFromAMissingOne", "src/test/java/com/exskylab/koala/business/concretes/GalleryRulesTest.java#removingAnImageThatIsNotInTheGalleryIsNotFound", "src/test/java/com/exskylab/koala/webAPI/CompanyAddressUpdateIT.java#aStaffContactGetsTheSameNotFoundAsBeforeAndTheAddressStays", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStaffContactCannotTellTheInvitationListFromAMissingCompany"]
+  - id: AZM-099
+    pair: C26
+    action: company.manage
+    subject: "user:u_co_staff"
+    object: "company:co_1"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#onlyACompanyAdminCanEditTheCompany", "src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#anOutsiderCannotListTheInvitations", "src/test/java/com/exskylab/koala/business/concretes/CompanyInvitationSendingRulesTest.java#aNonAdminCannotTellTheCompanyFromAMissingOne", "src/test/java/com/exskylab/koala/business/concretes/GalleryRulesTest.java#removingAnImageThatIsNotInTheGalleryIsNotFound", "src/test/java/com/exskylab/koala/webAPI/CompanyAddressUpdateIT.java#aStaffContactGetsTheSameNotFoundAsBeforeAndTheAddressStays", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStaffContactCannotTellTheInvitationListFromAMissingCompany"]
+  - id: AZM-100
+    pair: C26
+    action: company.manage
+    subject: "user:u_stranger"
+    object: "company:co_1"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#onlyACompanyAdminCanEditTheCompany", "src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#anOutsiderCannotListTheInvitations", "src/test/java/com/exskylab/koala/business/concretes/CompanyInvitationSendingRulesTest.java#aNonAdminCannotTellTheCompanyFromAMissingOne", "src/test/java/com/exskylab/koala/business/concretes/GalleryRulesTest.java#removingAnImageThatIsNotInTheGalleryIsNotFound", "src/test/java/com/exskylab/koala/webAPI/CompanyAddressUpdateIT.java#aStaffContactGetsTheSameNotFoundAsBeforeAndTheAddressStays", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStaffContactCannotTellTheInvitationListFromAMissingCompany"]
+  - id: AZM-101
+    pair: C27
+    action: company.create_job
+    subject: "user:u_co_staff"
+    object: "company:co_1"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-059]
+    source: []
+  - id: AZM-102
+    pair: C27
+    action: company.create_job
+    subject: "user:u_stranger"
+    object: "company:co_1"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-059]
+    source: []
+  - id: AZM-103
+    pair: C28
+    action: company.tag_talent_pool_entry
+    subject: "user:u_co_admin"
+    object: "company:co_1"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-113]
+    source: []
+  - id: AZM-104
+    pair: C28
+    action: company.tag_talent_pool_entry
+    subject: "user:u_stranger"
+    object: "company:co_1"
+    expect: deny
+    conceal: false
+    java: allow
+    engine: [go, openfga]
+    note: "Java açığı"
+    inventory: [AZ-113]
+    source: []
+  - id: AZM-105
+    pair: C29
+    action: company_invitation.read
+    subject: "user:u_invitee"
+    object: "company_invitation:inv_1"
+    expect: allow
+    basis: invitee
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-063]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStrangerCannotTellTheInvitationFromAMissingOne"]
+  - id: AZM-106
+    pair: C29
+    action: company_invitation.read
+    subject: "user:u_co_admin"
+    object: "company_invitation:inv_1"
+    expect: allow
+    basis: company_admin
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-063]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStrangerCannotTellTheInvitationFromAMissingOne"]
+  - id: AZM-107
+    pair: C29
+    action: company_invitation.read
+    subject: "user:u_co_staff"
+    object: "company_invitation:inv_1"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-063]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStrangerCannotTellTheInvitationFromAMissingOne"]
+  - id: AZM-108
+    pair: C29
+    action: company_invitation.read
+    subject: "user:u_stranger"
+    object: "company_invitation:inv_1"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-063]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation", "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#aStrangerCannotTellTheInvitationFromAMissingOne"]
+  - id: AZM-109
+    pair: C30
+    action: company_invitation.answer
+    subject: "user:u_invitee"
+    object: "company_invitation:inv_1"
+    expect: allow
+    basis: invitee
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-062]
+    source: ["src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
+  - id: AZM-110
+    pair: C30
+    action: company_invitation.answer
+    subject: "user:u_co_admin"
+    object: "company_invitation:inv_1"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-062]
+    source: ["src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
+  - id: AZM-111
+    pair: C30
+    action: company_invitation.answer
+    subject: "user:u_stranger"
+    object: "company_invitation:inv_1"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-062]
+    source: ["src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"]
+  - id: AZM-112
+    pair: C31
+    action: job_application.decide
+    subject: "user:u_creator"
+    object: "job_application:app_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-045, AZ-046]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
+  - id: AZM-113
+    pair: C31
+    action: job_application.decide
+    subject: "user:u_co_admin"
+    object: "job_application:app_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-045, AZ-046]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
+  - id: AZM-114
+    pair: C31
+    action: job_application.decide
+    subject: "user:u_applicant"
+    object: "job_application:app_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-045, AZ-046]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
+  - id: AZM-115
+    pair: C31
+    action: job_application.decide
+    subject: "user:u_co_former"
+    object: "job_application:app_orphan"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    note: "D1 ile Java aynı karar"
+    inventory: [AZ-045, AZ-046]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
+  - id: AZM-116
+    pair: C31
+    action: job_application.decide
+    subject: "user:u_stranger"
+    object: "job_application:app_co"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-045, AZ-046]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerCannotAcceptAnApplicationOnSomeoneElsesJob", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aStrangerLearnsNothingFromTheStateOfAnAnsweredCompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#aUserWhoIsNotAContactCannotRespondToACompanyJobApplication", "src/test/java/com/exskylab/koala/business/concretes/JobApplicationAuthorizationTest.java#theApplicantCannotAcceptTheirOwnApplication", "src/test/java/com/exskylab/koala/webAPI/ApplicationDecisionIT.java#anOutsiderCannotTellAnAnsweredApplicationFromAMissingOne"]
+  - id: AZM-117
+    pair: C32
+    action: job_application.withdraw
+    subject: "user:u_applicant"
+    object: "job_application:app_ind"
+    expect: allow
+    basis: applicant
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-047]
+    source: []
+  - id: AZM-118
+    pair: C32
+    action: job_application.withdraw
+    subject: "user:u_creator"
+    object: "job_application:app_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-047]
+    source: []
+  - id: AZM-119
+    pair: C32
+    action: job_application.withdraw
+    subject: "user:u_stranger"
+    object: "job_application:app_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-047]
+    source: []
+  - id: AZM-120
+    pair: C33
+    action: job_application.list
+    subject: "user:u_creator"
+    object: "job_application:app_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-118]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "src/test/java/com/exskylab/koala/webAPI/ReceivedApplicationsIT.java#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
+  - id: AZM-121
+    pair: C33
+    action: job_application.list
+    subject: "user:u_co_admin"
+    object: "job_application:app_co"
+    expect: allow
+    basis: company_member
+    java: allow
+    engine: go_only
+    inventory: [AZ-118]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "src/test/java/com/exskylab/koala/webAPI/ReceivedApplicationsIT.java#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
+  - id: AZM-122
+    pair: C33
+    action: job_application.list
+    subject: "user:u_co_former"
+    object: "job_application:app_orphan"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "liste süzgeci"
+    inventory: [AZ-118]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "src/test/java/com/exskylab/koala/webAPI/ReceivedApplicationsIT.java#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
+  - id: AZM-123
+    pair: C33
+    action: job_application.list
+    subject: "user:u_stranger"
+    object: "job_application:app_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "liste süzgeci"
+    inventory: [AZ-118]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#aStrangerWithNoMembershipIsScopedToNoCompanyAtAll", "src/test/java/com/exskylab/koala/business/concretes/ReceivedApplicationsAuthorizationTest.java#theScopePredicateGrantsCreatorsOnlyIndividualJobsAndContactsOnlyCompanyJobs", "src/test/java/com/exskylab/koala/webAPI/ReceivedApplicationsIT.java#theCreatorSeesEveryApplicationOnHisIndividualAndCompanyJobsAndNothingElse"]
+  - id: AZM-124
+    pair: C34
+    action: conversation.read
+    subject: "user:u_worker"
+    object: "conversation:conv_ind"
+    expect: allow
+    basis: participant
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-064, AZ-065, AZ-066, AZ-067, AZ-069]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/ConversationMessagingIT.java#anAfterFromAnotherConversationLooksExactlyLikeAnUnknownOne", "src/test/java/com/exskylab/koala/webAPI/ConversationMessagingIT.java#anOutsiderMarkingReadGetsTheSameNotFoundAndLeavesNoStamp", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#markingSomeoneElsesConversationReadLooksExactlyLikeMarkingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesConversationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesSingleConversationLooksExactlyLikeReadingOneThatDoesNotExist"]
+  - id: AZM-125
+    pair: C34
+    action: conversation.read
+    subject: "user:u_stranger"
+    object: "conversation:conv_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-064, AZ-065, AZ-066, AZ-067, AZ-069]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/ConversationMessagingIT.java#anAfterFromAnotherConversationLooksExactlyLikeAnUnknownOne", "src/test/java/com/exskylab/koala/webAPI/ConversationMessagingIT.java#anOutsiderMarkingReadGetsTheSameNotFoundAndLeavesNoStamp", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#markingSomeoneElsesConversationReadLooksExactlyLikeMarkingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesConversationLooksExactlyLikeReadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesSingleConversationLooksExactlyLikeReadingOneThatDoesNotExist"]
+  - id: AZM-126
+    pair: C35
+    action: conversation.post
+    subject: "user:u_creator"
+    object: "conversation:conv_ind"
+    expect: allow
+    basis: participant
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
+  - id: AZM-127
+    pair: C35
+    action: conversation.post
+    subject: "user:u_stranger"
+    object: "conversation:conv_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
+  - id: AZM-128
+    pair: C35
+    action: conversation.post
+    subject: "user:u_blocked"
+    object: "conversation:conv_blocked"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "engelleme ön süzgeci"
+    inventory: [AZ-068, AZ-070, AZ-071, AZ-072, AZ-073]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aBlockedUserCannotSendAMessageInEitherDirection", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aFormerOfficerWithoutAnAssignmentCannotWriteInTheCrew", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aLegacyDirectConversationWithoutAnAssignmentIsReadOnly", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aRefundedWorkerStillListedInTheCrewCannotWriteThereAnyMore", "src/test/java/com/exskylab/koala/business/concretes/MessagingAuthorizationTest.java#aStrangerCannotReadOrWriteInAConversation", "src/test/java/com/exskylab/koala/webAPI/MessagingPaymentGateIT.java#anUnpaidWorkerSittingInTheCrewIsRefusedWithPaymentRequired"]
+  - id: AZM-129
+    pair: C36
+    action: conversation.subscribe
+    subject: "user:u_worker"
+    object: "conversation:conv_ind"
+    expect: allow
+    basis: participant
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-074]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#anOutsiderCannotSubscribeToSomeoneElsesConversation", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#subscribingToAConversationThatDoesNotExistIsRefused"]
+  - id: AZM-130
+    pair: C36
+    action: conversation.subscribe
+    subject: "user:u_stranger"
+    object: "conversation:conv_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "WS abonelik reddi"
+    inventory: [AZ-074]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#anOutsiderCannotSubscribeToSomeoneElsesConversation", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#subscribingToAConversationThatDoesNotExistIsRefused"]
+  - id: AZM-131
+    pair: C37
+    action: conversation.publish_to_topic
+    subject: "user:u_worker"
+    object: "conversation:conv_ind"
+    expect: deny
+    conceal: false
+    java: allow
+    engine: skip
+    note: "K4: istemciden yayın yok"
+    inventory: [AZ-077]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#framesOtherThanConnectAndSubscribePassThroughUntouched"]
+  - id: AZM-132
+    pair: C37
+    action: conversation.publish_to_topic
+    subject: "user:u_stranger"
+    object: "conversation:conv_ind"
+    expect: deny
+    conceal: false
+    java: allow
+    engine: skip
+    note: "Java açığı (doğrulanmadı)"
+    inventory: [AZ-077]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#framesOtherThanConnectAndSubscribePassThroughUntouched"]
+  - id: AZM-133
+    pair: C38
+    action: conversation.list
+    subject: "user:u_worker"
+    object: "conversation:conv_ind"
+    expect: allow
+    basis: participant
+    java: allow
+    engine: go_only
+    inventory: [AZ-120]
+    source: []
+  - id: AZM-134
+    pair: C38
+    action: conversation.list
+    subject: "user:u_stranger"
+    object: "conversation:conv_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "liste süzgeci"
+    inventory: [AZ-120]
+    source: []
+  - id: AZM-135
+    pair: C39
+    action: message.report
+    subject: "user:u_worker"
+    object: "message:msg_ind"
+    expect: allow
+    basis: participant
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-080]
+    source: ["src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#aNonParticipantCannotReportAnExistingMessage", "src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
+  - id: AZM-136
+    pair: C39
+    action: message.report
+    subject: "user:u_stranger"
+    object: "message:msg_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-080]
+    source: ["src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#aNonParticipantCannotReportAnExistingMessage", "src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
+  - id: AZM-137
+    pair: C39
+    action: message.report
+    subject: "user:u_creator"
+    object: "message:msg_ind"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "gönderen kendi mesajını raporlayamaz (REPORT_CANNOT_REPORT_SELF; envanterde iş kuralı, ayrı satır yok)"
+    inventory: [AZ-080]
+    source: ["src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#aNonParticipantCannotReportAnExistingMessage", "src/test/java/com/exskylab/koala/webAPI/MessageReportIT.java#membershipInAnotherConversationDoesNotAuthorizeTheMessage"]
+  - id: AZM-138
+    pair: C40
+    action: dispute.read
+    subject: "user:u_worker"
+    object: "dispute:dsp_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-082, AZ-083, AZ-084]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotDownloadEvidence", "src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotListEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist"]
+  - id: AZM-139
+    pair: C40
+    action: dispute.read
+    subject: "user:u_creator"
+    object: "dispute:dsp_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-082, AZ-083, AZ-084]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotDownloadEvidence", "src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotListEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist"]
+  - id: AZM-140
+    pair: C40
+    action: dispute.read
+    subject: "user:u_stranger"
+    object: "dispute:dsp_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-082, AZ-083, AZ-084]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotDownloadEvidence", "src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotListEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#downloadingSomeoneElsesDisputeEvidenceLooksExactlyLikeDownloadingOneThatDoesNotExist", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#listingSomeoneElsesDisputeEvidenceLooksExactlyLikeListingOneThatDoesNotExist"]
+  - id: AZM-141
+    pair: C41
+    action: dispute.add_evidence
+    subject: "user:u_worker"
+    object: "dispute:dsp_ind"
+    expect: allow
+    basis: worker
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-081]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotAttachEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#attachingEvidenceToSomeoneElsesDisputeLooksExactlyLikeAttachingToOneThatDoesNotExist"]
+  - id: AZM-142
+    pair: C41
+    action: dispute.add_evidence
+    subject: "user:u_stranger"
+    object: "dispute:dsp_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-081]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/DisputeEvidenceRulesTest.java#aStrangerCannotAttachEvidence", "src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#attachingEvidenceToSomeoneElsesDisputeLooksExactlyLikeAttachingToOneThatDoesNotExist"]
+  - id: AZM-143
+    pair: C42
+    action: shuttle.manage
+    subject: "user:u_creator"
+    object: "shuttle:shuttle_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-085, AZ-086, AZ-087]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent"]
+  - id: AZM-144
+    pair: C42
+    action: shuttle.manage
+    subject: "user:u_worker"
+    object: "shuttle:shuttle_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-085, AZ-086, AZ-087]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent"]
+  - id: AZM-145
+    pair: C42
+    action: shuttle.manage
+    subject: "user:u_stranger"
+    object: "shuttle:shuttle_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-085, AZ-086, AZ-087]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaticQrIsFlaggedAndRotatingTheKeyRevokesEveryEarlierQr", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theBoardingListCarriesLiveSeatsOnlyWithTheirDecidingEvent"]
+  - id: AZM-146
+    pair: C43
+    action: shuttle.board
+    subject: "user:u_worker"
+    object: "shuttle:shuttle_ind"
+    expect: allow
+    basis: seat_holder
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-088, AZ-089]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aSeatMovedOffTheScannedShuttleWhileTheScanWaitsForItsLockIsConcealed", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard"]
+  - id: AZM-147
+    pair: C43
+    action: shuttle.board
+    subject: "user:u_stranger"
+    object: "shuttle:shuttle_ind"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-088, AZ-089]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aSeatMovedOffTheScannedShuttleWhileTheScanWaitsForItsLockIsConcealed", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#aStaleTokenIs400AndOnlyJobPartiesLearnWhyTheyCannotBoard"]
+  - id: AZM-148
+    pair: C44
+    action: shuttle.read_details
+    subject: "user:u_creator"
+    object: "shuttle:shuttle_ind"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-116]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aPendingAssignmentCannotPickASeatAndACancelledWorkerSeesOnlyDistrictLevelStops", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#thePlateAndDriverShowOnlyOnTheShuttleTheWorkerPicked", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theWorkerPicksASeatAndSeesTheDriverOnlyOnThatShuttle"]
+  - id: AZM-149
+    pair: C44
+    action: shuttle.read_details
+    subject: "user:u_worker"
+    object: "shuttle:shuttle_ind"
+    expect: allow
+    basis: seat_holder
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-116]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aPendingAssignmentCannotPickASeatAndACancelledWorkerSeesOnlyDistrictLevelStops", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#thePlateAndDriverShowOnlyOnTheShuttleTheWorkerPicked", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theWorkerPicksASeatAndSeesTheDriverOnlyOnThatShuttle"]
+  - id: AZM-150
+    pair: C44
+    action: shuttle.read_details
+    subject: "user:u_worker"
+    object: "shuttle:shuttle_other"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "alan düzeyi: plaka/şoför gizli"
+    inventory: [AZ-116]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aPendingAssignmentCannotPickASeatAndACancelledWorkerSeesOnlyDistrictLevelStops", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#thePlateAndDriverShowOnlyOnTheShuttleTheWorkerPicked", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#theWorkerPicksASeatAndSeesTheDriverOnlyOnThatShuttle"]
+  - id: AZM-151
+    pair: C45
+    action: seat_assignment.mark_boarding
+    subject: "user:u_creator"
+    object: "seat_assignment:seat_w"
+    expect: allow
+    basis: individual_owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-090]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theMarkingRulesAreValidatedAtTheBoundary"]
+  - id: AZM-152
+    pair: C45
+    action: seat_assignment.mark_boarding
+    subject: "user:u_stranger"
+    object: "seat_assignment:seat_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-090]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theMarkingRulesAreValidatedAtTheBoundary"]
+  - id: AZM-153
+    pair: C45
+    action: seat_assignment.mark_boarding
+    subject: "user:u_worker"
+    object: "seat_assignment:seat_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-090]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theMarkingRulesAreValidatedAtTheBoundary"]
+  - id: AZM-154
+    pair: C46
+    action: user.read_public
+    subject: "user:u_stranger"
+    object: "user:u_worker"
+    expect: allow
+    basis: public
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131]
+    source: []
+  - id: AZM-155
+    pair: C46
+    action: user.read_public
+    subject: "anonymous"
+    object: "user:u_worker"
+    expect: allow
+    basis: public
+    java: allow
+    engine: go_only
+    note: "kimliksiz okuma"
+    inventory: [AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131]
+    source: []
+  - id: AZM-156
+    pair: C46
+    action: user.read_public
+    subject: "user:u_stranger"
+    object: "user:u_deleted"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    note: "soft-delete: public_viewer tuple'ı silinmiş"
+    inventory: [AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131]
+    source: []
+  - id: AZM-157
+    pair: C47
+    action: user.read_public_profile
+    subject: "user:u_stranger"
+    object: "user:u_worker"
+    expect: allow
+    basis: public
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-125]
+    source: []
+  - id: AZM-158
+    pair: C47
+    action: user.read_public_profile
+    subject: "anonymous"
+    object: "user:u_worker"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "profil kimlik ister"
+    inventory: [AZ-125]
+    source: []
+  - id: AZM-159
+    pair: C47
+    action: user.read_public_profile
+    subject: "user:u_stranger"
+    object: "user:u_deleted"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    note: "soft-delete"
+    inventory: [AZ-125]
+    source: []
+  - id: AZM-160
+    pair: C48
+    action: user.read_cv_url
+    subject: "user:u_applicant"
+    object: "private_file:cv_applicant"
+    expect: allow
+    basis: self
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-094]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/EmployerSurfaceRulesTest.java#aStrangerDoesNotSeeTheCvLink"]
+  - id: AZM-161
+    pair: C48
+    action: user.read_cv_url
+    subject: "user:u_creator"
+    object: "private_file:cv_applicant"
+    expect: allow
+    basis: reviewer
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-094]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/EmployerSurfaceRulesTest.java#aStrangerDoesNotSeeTheCvLink"]
+  - id: AZM-162
+    pair: C48
+    action: user.read_cv_url
+    subject: "user:u_stranger"
+    object: "private_file:cv_applicant"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "alan düzeyi: CV bağlantısı yok"
+    inventory: [AZ-094]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/EmployerSurfaceRulesTest.java#aStrangerDoesNotSeeTheCvLink"]
+  - id: AZM-163
+    pair: C49
+    action: private_file.download
+    subject: "user:u_applicant"
+    object: "private_file:cv_applicant"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-093]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CvAccessRulesTest.java#anEmployerWithNoApplicationFromThatWorkerCannot", "src/test/java/com/exskylab/koala/webAPI/StorageDownloadRulesTest.java#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
+  - id: AZM-164
+    pair: C49
+    action: private_file.download
+    subject: "user:u_co_staff"
+    object: "private_file:cv_applicant"
+    expect: allow
+    basis: reviewer
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-093]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CvAccessRulesTest.java#anEmployerWithNoApplicationFromThatWorkerCannot", "src/test/java/com/exskylab/koala/webAPI/StorageDownloadRulesTest.java#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
+  - id: AZM-165
+    pair: C49
+    action: private_file.download
+    subject: "user:u_stranger"
+    object: "private_file:cv_applicant"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: [AZ-093]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CvAccessRulesTest.java#anEmployerWithNoApplicationFromThatWorkerCannot", "src/test/java/com/exskylab/koala/webAPI/StorageDownloadRulesTest.java#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
+  - id: AZM-166
+    pair: C49
+    action: private_file.download
+    subject: "user:u_mkt_admin"
+    object: "private_file:cv_applicant"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: [go, openfga]
+    note: "D5: pazaryeri ROLE_ADMIN baypası kalkar"
+    inventory: [AZ-093]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/CvAccessRulesTest.java#anEmployerWithNoApplicationFromThatWorkerCannot", "src/test/java/com/exskylab/koala/webAPI/StorageDownloadRulesTest.java#aPrivateFileIsRefusedWhenItBelongsToSomeoneElse"]
+  - id: AZM-167
+    pair: C50
+    action: user.read_presence
+    subject: "user:u_creator"
+    object: "user:u_worker"
+    expect: allow
+    basis: contact
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-078, AZ-079]
+    source: []
+  - id: AZM-168
+    pair: C50
+    action: user.read_presence
+    subject: "user:u_stranger"
+    object: "user:u_worker"
+    expect: deny
+    conceal: false
+    java: allow
+    engine: [go, openfga]
+    note: "Java açığı"
+    inventory: [AZ-078, AZ-079]
+    source: []
+  - id: AZM-169
+    pair: C50
+    action: user.read_presence
+    subject: "anonymous"
+    object: "user:u_worker"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "kimlik doğrulaması yok"
+    inventory: [AZ-078, AZ-079]
+    source: []
+  - id: AZM-170
+    pair: C51
+    action: user.watch_presence
+    subject: "user:u_worker"
+    object: "user:u_worker"
+    expect: allow
+    basis: self
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-075]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfAStrangerCannotBeWatched", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfSomeoneYouTalkToMayBeWatched"]
+  - id: AZM-171
+    pair: C51
+    action: user.watch_presence
+    subject: "user:u_creator"
+    object: "user:u_worker"
+    expect: allow
+    basis: contact
+    java: allow
+    engine: [go, openfga]
+    inventory: [AZ-075]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfAStrangerCannotBeWatched", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfSomeoneYouTalkToMayBeWatched"]
+  - id: AZM-172
+    pair: C51
+    action: user.watch_presence
+    subject: "user:u_stranger"
+    object: "user:u_worker"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [AZ-075]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfAStrangerCannotBeWatched", "src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#presenceOfSomeoneYouTalkToMayBeWatched"]
+  - id: AZM-173
+    pair: C52
+    action: user.create_individual_job
+    subject: "user:u_creator"
+    object: "user:u_creator"
+    expect: allow
+    basis: attribute_is_employer
+    java: allow
+    engine: go_only
+    inventory: [AZ-044]
+    source: []
+  - id: AZM-174
+    pair: C52
+    action: user.create_individual_job
+    subject: "user:u_worker"
+    object: "user:u_worker"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    inventory: [AZ-044]
+    source: []
+  - id: AZM-175
+    pair: C53
+    action: image.delete
+    subject: "user:u_stranger"
+    object: "image:img_x"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-095]
+    source: []
+  - id: AZM-176
+    pair: C53
+    action: image.delete
+    subject: "user:u_worker"
+    object: "image:img_x"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: go_only
+    inventory: [AZ-095]
+    source: []
+  - id: AZM-177
+    pair: C53
+    action: image.delete
+    subject: "user:u_mkt_admin"
+    object: "image:img_x"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: go_only
+    note: "D5"
+    inventory: [AZ-095]
+    source: []
+  - id: AZM-178
+    pair: C54
+    action: platform.read_actuator
+    subject: "user:u_mkt_admin"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: allow
+    engine: go_only
+    note: "D5"
+    inventory: [AZ-117]
+    source: []
+  - id: AZM-179
+    pair: C54
+    action: platform.read_actuator
+    subject: "user:u_worker"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    inventory: [AZ-117]
+    source: []
+  - id: AZM-180
+    pair: C55
+    action: experience.write
+    subject: "user:u_worker"
+    object: "experience:exp_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-096, AZ-097]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/WorkerToolsRulesTest.java#nobodyCanEditSomeoneElsesExperience"]
+  - id: AZM-181
+    pair: C55
+    action: experience.write
+    subject: "user:u_stranger"
+    object: "experience:exp_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-096, AZ-097]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/WorkerToolsRulesTest.java#nobodyCanEditSomeoneElsesExperience"]
+  - id: AZM-182
+    pair: C56
+    action: education.write
+    subject: "user:u_worker"
+    object: "education:edu_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-098, AZ-099]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ProfileEndpointRulesTest.java#nobodyCanEditSomeoneElsesEducation"]
+  - id: AZM-183
+    pair: C56
+    action: education.write
+    subject: "user:u_stranger"
+    object: "education:edu_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-098, AZ-099]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/ProfileEndpointRulesTest.java#nobodyCanEditSomeoneElsesEducation"]
+  - id: AZM-184
+    pair: C57
+    action: job_alert.write
+    subject: "user:u_worker"
+    object: "job_alert:alert_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-100, AZ-101]
+    source: []
+  - id: AZM-185
+    pair: C57
+    action: job_alert.write
+    subject: "user:u_stranger"
+    object: "job_alert:alert_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-100, AZ-101]
+    source: []
+  - id: AZM-186
+    pair: C58
+    action: bank_account.write
+    subject: "user:u_worker"
+    object: "bank_account:bank_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-102, AZ-103, AZ-104]
+    source: ["src/test/java/com/exskylab/koala/webAPI/BankAccountIT.java#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"]
+  - id: AZM-187
+    pair: C58
+    action: bank_account.write
+    subject: "user:u_stranger"
+    object: "bank_account:bank_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-102, AZ-103, AZ-104]
+    source: ["src/test/java/com/exskylab/koala/webAPI/BankAccountIT.java#deletingAnotherUsersAccountLooksExactlyLikeAMissingAccount"]
+  - id: AZM-188
+    pair: C59
+    action: device.write
+    subject: "user:u_worker"
+    object: "device:dev_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-107]
+    source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#renamingADeviceShowsUpInTheListAndTheDetailButNotForStrangers"]
+  - id: AZM-189
+    pair: C59
+    action: device.write
+    subject: "user:u_stranger"
+    object: "device:dev_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-107]
+    source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#renamingADeviceShowsUpInTheListAndTheDetailButNotForStrangers"]
+  - id: AZM-190
+    pair: C60
+    action: availability_exception.write
+    subject: "user:u_worker"
+    object: "availability_exception:avex_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-110]
+    source: []
+  - id: AZM-191
+    pair: C60
+    action: availability_exception.write
+    subject: "user:u_stranger"
+    object: "availability_exception:avex_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-110]
+    source: []
+  - id: AZM-192
+    pair: C61
+    action: job_template.read
+    subject: "user:u_creator"
+    object: "job_template:tmpl_c"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-105]
+    source: ["src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesJobTemplateLooksExactlyLikeReadingOneThatDoesNotExist"]
+  - id: AZM-193
+    pair: C61
+    action: job_template.read
+    subject: "user:u_stranger"
+    object: "job_template:tmpl_c"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-105]
+    source: ["src/test/java/com/exskylab/koala/webAPI/ExistenceConcealmentIT.java#readingSomeoneElsesJobTemplateLooksExactlyLikeReadingOneThatDoesNotExist"]
+  - id: AZM-194
+    pair: C62
+    action: job_template.write
+    subject: "user:u_creator"
+    object: "job_template:tmpl_c"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-106]
+    source: []
+  - id: AZM-195
+    pair: C62
+    action: job_template.write
+    subject: "user:u_stranger"
+    object: "job_template:tmpl_c"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-106]
+    source: []
+  - id: AZM-196
+    pair: C63
+    action: session.read
+    subject: "user:u_worker"
+    object: "session:ses_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-108]
+    source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#someoneElsesSessionLooksExactlyLikeAMissingOne"]
+  - id: AZM-197
+    pair: C63
+    action: session.read
+    subject: "user:u_stranger"
+    object: "session:ses_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-108]
+    source: ["src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#someoneElsesSessionLooksExactlyLikeAMissingOne"]
+  - id: AZM-198
+    pair: C64
+    action: session.write
+    subject: "user:u_worker"
+    object: "session:ses_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-109]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/MyWorkRulesTest.java#aSessionBelongingToSomeoneElseCannotBeRevoked"]
+  - id: AZM-199
+    pair: C64
+    action: session.write
+    subject: "user:u_stranger"
+    object: "session:ses_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: go_only
+    inventory: [AZ-109]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/MyWorkRulesTest.java#aSessionBelongingToSomeoneElseCannotBeRevoked"]
+  - id: AZM-200
+    pair: C65
+    action: user_verification.confirm
+    subject: "user:u_worker"
+    object: "user_verification:ver_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-111]
+    source: []
+  - id: AZM-201
+    pair: C65
+    action: user_verification.confirm
+    subject: "user:u_stranger"
+    object: "user_verification:ver_w"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: false
+    engine: go_only
+    inventory: [AZ-111]
+    source: []
+  - id: AZM-202
+    pair: C66
+    action: notification.mark_read
+    subject: "user:u_worker"
+    object: "notification:notif_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-112]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/NotificationFeedRulesTest.java#someoneElsesNotificationIsNotMarkedRead"]
+  - id: AZM-203
+    pair: C66
+    action: notification.mark_read
+    subject: "user:u_stranger"
+    object: "notification:notif_w"
+    expect: deny
+    conceal: true
+    java: allow
+    engine: go_only
+    note: "Java 200 döner ama değişiklik yapmaz"
+    inventory: [AZ-112]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/NotificationFeedRulesTest.java#someoneElsesNotificationIsNotMarkedRead"]
+  - id: AZM-204
+    pair: C67
+    action: notification.mark_opened
+    subject: "anonymous"
+    object: "notification:notif_w"
+    expect: allow
+    basis: capability_url
+    java: allow
+    engine: go_only
+    inventory: [AZ-132]
+    source: []
+  - id: AZM-205
+    pair: C67
+    action: notification.mark_opened
+    subject: "anonymous"
+    object: "notification:notif_missing"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    note: "var olmayan bildirim; yetki değil"
+    inventory: [AZ-132]
+    source: []
+  - id: AZM-206
+    pair: C68
+    action: address_search_session.use
+    subject: "user:u_worker"
+    object: "address_search_session:addr_w"
+    expect: allow
+    basis: owner
+    java: allow
+    engine: go_only
+    inventory: [AZ-114, AZ-115]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AddressSearchManagerTest.java#providerProofCannotBeUsedByAnotherUser"]
+  - id: AZM-207
+    pair: C68
+    action: address_search_session.use
+    subject: "user:u_stranger"
+    object: "address_search_session:addr_w"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    inventory: [AZ-114, AZ-115]
+    source: ["src/test/java/com/exskylab/koala/business/concretes/AddressSearchManagerTest.java#providerProofCannotBeUsedByAnotherUser"]
+  - id: AZM-208
+    pair: C69
+    action: payment_attempt.complete_callback
+    subject: "anonymous"
+    object: "payment_attempt:pay_valid"
+    expect: allow
+    basis: provider_token
+    java: allow
+    engine: skip
+    inventory: [AZ-133]
+    source: []
+  - id: AZM-209
+    pair: C69
+    action: payment_attempt.complete_callback
+    subject: "anonymous"
+    object: "payment_attempt:pay_unknown"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: skip
+    note: "bilinmeyen token"
+    inventory: [AZ-133]
+    source: []
+  - id: AZM-210
+    pair: C70
+    action: payment_attempt.read_outcome
+    subject: "anonymous"
+    object: "payment_attempt:pay_valid"
+    expect: allow
+    basis: provider_token
+    java: allow
+    engine: skip
+    inventory: [AZ-134]
+    source: []
+  - id: AZM-211
+    pair: C70
+    action: payment_attempt.read_outcome
+    subject: "anonymous"
+    object: "payment_attempt:pay_unknown"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: skip
+    note: "bilinmeyen token başarısız sonuç sayfasına yönlenir"
+    inventory: [AZ-134]
+    source: []
+  - id: AZM-212
+    pair: C71
+    action: realtime_destination.subscribe
+    subject: "user:u_worker"
+    object: "realtime_destination:queue_own"
+    expect: allow
+    basis: user_destination
+    java: allow
+    engine: go_only
+    inventory: [AZ-076]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#anUnknownDestinationIsRefusedRatherThanSilentlyAllowed"]
+  - id: AZM-213
+    pair: C71
+    action: realtime_destination.subscribe
+    subject: "user:u_worker"
+    object: "realtime_destination:topic_unknown"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: go_only
+    inventory: [AZ-076]
+    source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#anUnknownDestinationIsRefusedRatherThanSilentlyAllowed"]
