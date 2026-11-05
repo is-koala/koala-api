@@ -41,6 +41,26 @@ paths:
       x-authz: {action: read, object: thing}
       responses:
         default: {$ref: "#/components/responses/Problem"}
+  /v1/authz-exempt-short:
+    get: # koala-operation-authz: an exemption needs a reason, not a word
+      operationId: getAuthzExemptShort
+      x-authz-exempt: kendisi
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/authz-exempt-and-authz:
+    get: # koala-operation-authz: x-authz and x-authz-exempt together
+      operationId: getAuthzExemptAndAuthz
+      x-authz: {action: can_read, object: thing}
+      x-authz-exempt: Nesnesi olmayan, yalnız kimliği isteyen uç.
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/authz-exempt-public:
+    get: # koala-operation-authz: a public operation needs no exemption
+      operationId: getAuthzExemptPublic
+      security: []
+      x-authz-exempt: Nesnesi olmayan, yalnız kimliği isteyen uç.
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
   /v1/admin/users:
     get: # koala-admin-permission: no x-authz-permission
       operationId: listUsers

@@ -5,31 +5,38 @@ package apiv1
 
 // Defines values for ErrorCode.
 const (
-	ErrorCodeAPPVERSIONUNSUPPORTED   ErrorCode = "APP_VERSION_UNSUPPORTED"
-	ErrorCodeCONTENTTYPEUNSUPPORTED  ErrorCode = "CONTENT_TYPE_UNSUPPORTED"
-	ErrorCodeCURSORINVALID           ErrorCode = "CURSOR_INVALID"
-	ErrorCodeDELETIONALREADYRESTORED ErrorCode = "DELETION_ALREADY_RESTORED"
-	ErrorCodeDELETIONNOTFOUND        ErrorCode = "DELETION_NOT_FOUND"
-	ErrorCodeFIELDFORMATINVALID      ErrorCode = "FIELD_FORMAT_INVALID"
-	ErrorCodeFIELDOUTOFRANGE         ErrorCode = "FIELD_OUT_OF_RANGE"
-	ErrorCodeFIELDREQUIRED           ErrorCode = "FIELD_REQUIRED"
-	ErrorCodeFIELDTYPEINVALID        ErrorCode = "FIELD_TYPE_INVALID"
-	ErrorCodeFIELDUNKNOWN            ErrorCode = "FIELD_UNKNOWN"
-	ErrorCodeFIELDVALUEINVALID       ErrorCode = "FIELD_VALUE_INVALID"
-	ErrorCodeIDEMPOTENCYKEYINUSE     ErrorCode = "IDEMPOTENCY_KEY_IN_USE"
-	ErrorCodeIDEMPOTENCYKEYREQUIRED  ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
-	ErrorCodeIDEMPOTENCYKEYREUSED    ErrorCode = "IDEMPOTENCY_KEY_REUSED"
-	ErrorCodeINTERNAL                ErrorCode = "INTERNAL"
-	ErrorCodeMETHODNOTALLOWED        ErrorCode = "METHOD_NOT_ALLOWED"
-	ErrorCodeREQUESTBODYMALFORMED    ErrorCode = "REQUEST_BODY_MALFORMED"
-	ErrorCodeREQUESTBODYTOOLARGE     ErrorCode = "REQUEST_BODY_TOO_LARGE"
-	ErrorCodeREQUESTINVALID          ErrorCode = "REQUEST_INVALID"
-	ErrorCodeRESTORECONFLICT         ErrorCode = "RESTORE_CONFLICT"
-	ErrorCodeRESTOREEXPIRED          ErrorCode = "RESTORE_EXPIRED"
-	ErrorCodeRESTOREPARENTDELETED    ErrorCode = "RESTORE_PARENT_DELETED"
-	ErrorCodeROUTENOTFOUND           ErrorCode = "ROUTE_NOT_FOUND"
-	ErrorCodeSOFTDELETERESTRICTED    ErrorCode = "SOFT_DELETE_RESTRICTED"
-	ErrorCodeSORTFIELDNOTALLOWED     ErrorCode = "SORT_FIELD_NOT_ALLOWED"
+	ErrorCodeAPPVERSIONUNSUPPORTED       ErrorCode = "APP_VERSION_UNSUPPORTED"
+	ErrorCodeCONTENTTYPEUNSUPPORTED      ErrorCode = "CONTENT_TYPE_UNSUPPORTED"
+	ErrorCodeCONVERSATIONNOTFOUND        ErrorCode = "CONVERSATION_NOT_FOUND"
+	ErrorCodeCURSORINVALID               ErrorCode = "CURSOR_INVALID"
+	ErrorCodeFIELDFORMATINVALID          ErrorCode = "FIELD_FORMAT_INVALID"
+	ErrorCodeFIELDOUTOFRANGE             ErrorCode = "FIELD_OUT_OF_RANGE"
+	ErrorCodeFIELDREQUIRED               ErrorCode = "FIELD_REQUIRED"
+	ErrorCodeFIELDTYPEINVALID            ErrorCode = "FIELD_TYPE_INVALID"
+	ErrorCodeFIELDUNKNOWN                ErrorCode = "FIELD_UNKNOWN"
+	ErrorCodeFIELDVALUEINVALID           ErrorCode = "FIELD_VALUE_INVALID"
+	ErrorCodeIDEMPOTENCYKEYINUSE         ErrorCode = "IDEMPOTENCY_KEY_IN_USE"
+	ErrorCodeIDEMPOTENCYKEYREQUIRED      ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
+	ErrorCodeIDEMPOTENCYKEYREUSED        ErrorCode = "IDEMPOTENCY_KEY_REUSED"
+	ErrorCodeINTERNAL                    ErrorCode = "INTERNAL"
+	ErrorCodeMETHODNOTALLOWED            ErrorCode = "METHOD_NOT_ALLOWED"
+	ErrorCodePATHINVALID                 ErrorCode = "PATH_INVALID"
+	ErrorCodeRATELIMITED                 ErrorCode = "RATE_LIMITED"
+	ErrorCodeREALTIMECOMMANDINVALID      ErrorCode = "REALTIME_COMMAND_INVALID"
+	ErrorCodeREALTIMECOMMANDUNKNOWN      ErrorCode = "REALTIME_COMMAND_UNKNOWN"
+	ErrorCodeREALTIMEDEVICEREQUIRED      ErrorCode = "REALTIME_DEVICE_REQUIRED"
+	ErrorCodeREALTIMEDRAINING            ErrorCode = "REALTIME_DRAINING"
+	ErrorCodeREALTIMEORIGINFORBIDDEN     ErrorCode = "REALTIME_ORIGIN_FORBIDDEN"
+	ErrorCodeREALTIMEPROTOCOLUNSUPPORTED ErrorCode = "REALTIME_PROTOCOL_UNSUPPORTED"
+	ErrorCodeREALTIMERATELIMITED         ErrorCode = "REALTIME_RATE_LIMITED"
+	ErrorCodeREALTIMETICKETINVALID       ErrorCode = "REALTIME_TICKET_INVALID"
+	ErrorCodeREALTIMETICKETRATELIMITED   ErrorCode = "REALTIME_TICKET_RATE_LIMITED"
+	ErrorCodeREALTIMETOOMANYCONNECTIONS  ErrorCode = "REALTIME_TOO_MANY_CONNECTIONS"
+	ErrorCodeREQUESTBODYMALFORMED        ErrorCode = "REQUEST_BODY_MALFORMED"
+	ErrorCodeREQUESTBODYTOOLARGE         ErrorCode = "REQUEST_BODY_TOO_LARGE"
+	ErrorCodeREQUESTINVALID              ErrorCode = "REQUEST_INVALID"
+	ErrorCodeROUTENOTFOUND               ErrorCode = "ROUTE_NOT_FOUND"
+	ErrorCodeSORTFIELDNOTALLOWED         ErrorCode = "SORT_FIELD_NOT_ALLOWED"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
@@ -39,11 +46,9 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeCONTENTTYPEUNSUPPORTED:
 		return true
+	case ErrorCodeCONVERSATIONNOTFOUND:
+		return true
 	case ErrorCodeCURSORINVALID:
-		return true
-	case ErrorCodeDELETIONALREADYRESTORED:
-		return true
-	case ErrorCodeDELETIONNOTFOUND:
 		return true
 	case ErrorCodeFIELDFORMATINVALID:
 		return true
@@ -67,21 +72,37 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeMETHODNOTALLOWED:
 		return true
+	case ErrorCodePATHINVALID:
+		return true
+	case ErrorCodeRATELIMITED:
+		return true
+	case ErrorCodeREALTIMECOMMANDINVALID:
+		return true
+	case ErrorCodeREALTIMECOMMANDUNKNOWN:
+		return true
+	case ErrorCodeREALTIMEDEVICEREQUIRED:
+		return true
+	case ErrorCodeREALTIMEDRAINING:
+		return true
+	case ErrorCodeREALTIMEORIGINFORBIDDEN:
+		return true
+	case ErrorCodeREALTIMEPROTOCOLUNSUPPORTED:
+		return true
+	case ErrorCodeREALTIMERATELIMITED:
+		return true
+	case ErrorCodeREALTIMETICKETINVALID:
+		return true
+	case ErrorCodeREALTIMETICKETRATELIMITED:
+		return true
+	case ErrorCodeREALTIMETOOMANYCONNECTIONS:
+		return true
 	case ErrorCodeREQUESTBODYMALFORMED:
 		return true
 	case ErrorCodeREQUESTBODYTOOLARGE:
 		return true
 	case ErrorCodeREQUESTINVALID:
 		return true
-	case ErrorCodeRESTORECONFLICT:
-		return true
-	case ErrorCodeRESTOREEXPIRED:
-		return true
-	case ErrorCodeRESTOREPARENTDELETED:
-		return true
 	case ErrorCodeROUTENOTFOUND:
-		return true
-	case ErrorCodeSOFTDELETERESTRICTED:
 		return true
 	case ErrorCodeSORTFIELDNOTALLOWED:
 		return true
@@ -134,16 +155,28 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
 //   - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 //     `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
-//     başlığını zorunlu tutuyor (ADR-0019).
-//   - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
-//     varken silinemez (ADR-0013, ADR-0020).
-//   - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
-//   - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
-//     ebeveyni başka bir silmeyle hâlâ silinmiş.
-//   - `RESTORE_EXPIRED` (409): silmenin kök kaydı artık yok (temizlenmiş ya da anonimleştirilmiş);
-//     geri alınamaz.
-//   - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
-//   - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
+//     başlığını zorunlu tutuyor (ADR-0019). Yalnız `IOS` ve `ANDROID` istemcisi alır;
+//     sürüm yok ya da okunamıyorsa da döner (ADR-0021).
+//   - `PATH_INVALID` (400): yol kanonik değil: `//`, `.`/`..` parçası, kodlanmış `/`, `\` ya da
+//     `%` (`%2f`, `%5c`, `%25`), kontrol karakteri ya da geçersiz UTF-8. Yol yeniden yazılmaz,
+//     reddedilir (ADR-0021).
+//   - `RATE_LIMITED` (429): istek oran sınırını aştı; `Retry-After` döner (ADR-0021).
+//
+// Realtime kodları (ADR-0018). Problem olarak handshake'te ve bilet ucunda, `error`
+// olayının `code`'u olarak bağlantı açıkken döner:
+//   - `REALTIME_TICKET_INVALID` (401): bilet yok, bozuk, kullanılmış, süresi geçmiş, başka
+//     cihazın ya da oturumu kapanmış; hepsi aynı yanıt.
+//   - `REALTIME_TICKET_RATE_LIMITED` (429): kullanıcı başına bilet oranı aşıldı; `Retry-After` döner.
+//   - `REALTIME_DEVICE_REQUIRED` (401): `Origin`'siz (yerel) handshake `X-Device-Id` taşımıyor.
+//   - `REALTIME_PROTOCOL_UNSUPPORTED` (400): WebSocket upgrade başlıkları ya da `koala.v1` alt protokolü eksik.
+//   - `REALTIME_ORIGIN_FORBIDDEN` (403): `Origin` izinli değil.
+//   - `REALTIME_DRAINING` (503): örnek kapanıyor; `Retry-After` döner.
+//   - `REALTIME_TOO_MANY_CONNECTIONS` (429): kullanıcının açık bağlantı sınırı dolu; `Retry-After` döner.
+//   - `REALTIME_COMMAND_UNKNOWN` (olay): bilinmeyen komut tipi; bağlantı açık kalır.
+//   - `REALTIME_COMMAND_INVALID` (olay): komut çözülemedi ya da alanı geçersiz.
+//   - `REALTIME_RATE_LIMITED` (olay): bağlantının komut oranı aşıldı.
+//   - `CONVERSATION_NOT_FOUND` (olay; Faz 4'te REST'te de 404): konuşma yok ya da katılımcısı
+//     değilsiniz; ikisi ayırt edilemez (ADR-0014).
 //
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -181,16 +214,28 @@ type Problem struct {
 	// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
 	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
-	//   başlığını zorunlu tutuyor (ADR-0019).
-	// - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
-	//   varken silinemez (ADR-0013, ADR-0020).
-	// - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
-	// - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
-	//   ebeveyni başka bir silmeyle hâlâ silinmiş.
-	// - `RESTORE_EXPIRED` (409): silmenin kök kaydı artık yok (temizlenmiş ya da anonimleştirilmiş);
-	//   geri alınamaz.
-	// - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
-	// - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
+	//   başlığını zorunlu tutuyor (ADR-0019). Yalnız `IOS` ve `ANDROID` istemcisi alır;
+	//   sürüm yok ya da okunamıyorsa da döner (ADR-0021).
+	// - `PATH_INVALID` (400): yol kanonik değil: `//`, `.`/`..` parçası, kodlanmış `/`, `\` ya da
+	//   `%` (`%2f`, `%5c`, `%25`), kontrol karakteri ya da geçersiz UTF-8. Yol yeniden yazılmaz,
+	//   reddedilir (ADR-0021).
+	// - `RATE_LIMITED` (429): istek oran sınırını aştı; `Retry-After` döner (ADR-0021).
+	//
+	// Realtime kodları (ADR-0018). Problem olarak handshake'te ve bilet ucunda, `error`
+	// olayının `code`'u olarak bağlantı açıkken döner:
+	// - `REALTIME_TICKET_INVALID` (401): bilet yok, bozuk, kullanılmış, süresi geçmiş, başka
+	//   cihazın ya da oturumu kapanmış; hepsi aynı yanıt.
+	// - `REALTIME_TICKET_RATE_LIMITED` (429): kullanıcı başına bilet oranı aşıldı; `Retry-After` döner.
+	// - `REALTIME_DEVICE_REQUIRED` (401): `Origin`'siz (yerel) handshake `X-Device-Id` taşımıyor.
+	// - `REALTIME_PROTOCOL_UNSUPPORTED` (400): WebSocket upgrade başlıkları ya da `koala.v1` alt protokolü eksik.
+	// - `REALTIME_ORIGIN_FORBIDDEN` (403): `Origin` izinli değil.
+	// - `REALTIME_DRAINING` (503): örnek kapanıyor; `Retry-After` döner.
+	// - `REALTIME_TOO_MANY_CONNECTIONS` (429): kullanıcının açık bağlantı sınırı dolu; `Retry-After` döner.
+	// - `REALTIME_COMMAND_UNKNOWN` (olay): bilinmeyen komut tipi; bağlantı açık kalır.
+	// - `REALTIME_COMMAND_INVALID` (olay): komut çözülemedi ya da alanı geçersiz.
+	// - `REALTIME_RATE_LIMITED` (olay): bağlantının komut oranı aşıldı.
+	// - `CONVERSATION_NOT_FOUND` (olay; Faz 4'te REST'te de 404): konuşma yok ya da katılımcısı
+	//   değilsiniz; ikisi ayırt edilemez (ADR-0014).
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -259,16 +304,28 @@ type ProblemField struct {
 	// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
 	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
-	//   başlığını zorunlu tutuyor (ADR-0019).
-	// - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
-	//   varken silinemez (ADR-0013, ADR-0020).
-	// - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
-	// - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
-	//   ebeveyni başka bir silmeyle hâlâ silinmiş.
-	// - `RESTORE_EXPIRED` (409): silmenin kök kaydı artık yok (temizlenmiş ya da anonimleştirilmiş);
-	//   geri alınamaz.
-	// - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
-	// - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
+	//   başlığını zorunlu tutuyor (ADR-0019). Yalnız `IOS` ve `ANDROID` istemcisi alır;
+	//   sürüm yok ya da okunamıyorsa da döner (ADR-0021).
+	// - `PATH_INVALID` (400): yol kanonik değil: `//`, `.`/`..` parçası, kodlanmış `/`, `\` ya da
+	//   `%` (`%2f`, `%5c`, `%25`), kontrol karakteri ya da geçersiz UTF-8. Yol yeniden yazılmaz,
+	//   reddedilir (ADR-0021).
+	// - `RATE_LIMITED` (429): istek oran sınırını aştı; `Retry-After` döner (ADR-0021).
+	//
+	// Realtime kodları (ADR-0018). Problem olarak handshake'te ve bilet ucunda, `error`
+	// olayının `code`'u olarak bağlantı açıkken döner:
+	// - `REALTIME_TICKET_INVALID` (401): bilet yok, bozuk, kullanılmış, süresi geçmiş, başka
+	//   cihazın ya da oturumu kapanmış; hepsi aynı yanıt.
+	// - `REALTIME_TICKET_RATE_LIMITED` (429): kullanıcı başına bilet oranı aşıldı; `Retry-After` döner.
+	// - `REALTIME_DEVICE_REQUIRED` (401): `Origin`'siz (yerel) handshake `X-Device-Id` taşımıyor.
+	// - `REALTIME_PROTOCOL_UNSUPPORTED` (400): WebSocket upgrade başlıkları ya da `koala.v1` alt protokolü eksik.
+	// - `REALTIME_ORIGIN_FORBIDDEN` (403): `Origin` izinli değil.
+	// - `REALTIME_DRAINING` (503): örnek kapanıyor; `Retry-After` döner.
+	// - `REALTIME_TOO_MANY_CONNECTIONS` (429): kullanıcının açık bağlantı sınırı dolu; `Retry-After` döner.
+	// - `REALTIME_COMMAND_UNKNOWN` (olay): bilinmeyen komut tipi; bağlantı açık kalır.
+	// - `REALTIME_COMMAND_INVALID` (olay): komut çözülemedi ya da alanı geçersiz.
+	// - `REALTIME_RATE_LIMITED` (olay): bağlantının komut oranı aşıldı.
+	// - `CONVERSATION_NOT_FOUND` (olay; Faz 4'te REST'te de 404): konuşma yok ya da katılımcısı
+	//   değilsiniz; ikisi ayırt edilemez (ADR-0014).
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.

@@ -130,7 +130,12 @@ components:
         - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
         - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
           `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
-          başlığını zorunlu tutuyor (ADR-0019).
+          başlığını zorunlu tutuyor (ADR-0019). Yalnız `IOS` ve `ANDROID` istemcisi alır;
+          sürüm yok ya da okunamıyorsa da döner (ADR-0021).
+        - `PATH_INVALID` (400): yol kanonik değil: `//`, `.`/`..` parçası, kodlanmış `/`, `\` ya da
+          `%` (`%2f`, `%5c`, `%25`), kontrol karakteri ya da geçersiz UTF-8. Yol yeniden yazılmaz,
+          reddedilir (ADR-0021).
+        - `RATE_LIMITED` (429): istek oran sınırını aştı; `Retry-After` döner (ADR-0021).
         - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
           varken silinemez (ADR-0013, ADR-0020).
         - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
@@ -140,6 +145,22 @@ components:
           geri alınamaz.
         - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
         - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
+
+        Realtime kodları (ADR-0018). Problem olarak handshake'te ve bilet ucunda, `error`
+        olayının `code`'u olarak bağlantı açıkken döner:
+        - `REALTIME_TICKET_INVALID` (401): bilet yok, bozuk, kullanılmış, süresi geçmiş, başka
+          cihazın ya da oturumu kapanmış; hepsi aynı yanıt.
+        - `REALTIME_TICKET_RATE_LIMITED` (429): kullanıcı başına bilet oranı aşıldı; `Retry-After` döner.
+        - `REALTIME_DEVICE_REQUIRED` (401): `Origin`'siz (yerel) handshake `X-Device-Id` taşımıyor.
+        - `REALTIME_PROTOCOL_UNSUPPORTED` (400): WebSocket upgrade başlıkları ya da `koala.v1` alt protokolü eksik.
+        - `REALTIME_ORIGIN_FORBIDDEN` (403): `Origin` izinli değil.
+        - `REALTIME_DRAINING` (503): örnek kapanıyor; `Retry-After` döner.
+        - `REALTIME_TOO_MANY_CONNECTIONS` (429): kullanıcının açık bağlantı sınırı dolu; `Retry-After` döner.
+        - `REALTIME_COMMAND_UNKNOWN` (olay): bilinmeyen komut tipi; bağlantı açık kalır.
+        - `REALTIME_COMMAND_INVALID` (olay): komut çözülemedi ya da alanı geçersiz.
+        - `REALTIME_RATE_LIMITED` (olay): bağlantının komut oranı aşıldı.
+        - `CONVERSATION_NOT_FOUND` (olay; Faz 4'te REST'te de 404): konuşma yok ya da katılımcısı
+          değilsiniz; ikisi ayırt edilemez (ADR-0014).
 
         Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
         - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -168,6 +189,19 @@ components:
         - RESTORE_EXPIRED
         - DELETION_NOT_FOUND
         - DELETION_ALREADY_RESTORED
+        - PATH_INVALID
+        - RATE_LIMITED
+        - REALTIME_TICKET_INVALID
+        - REALTIME_TICKET_RATE_LIMITED
+        - REALTIME_DEVICE_REQUIRED
+        - REALTIME_PROTOCOL_UNSUPPORTED
+        - REALTIME_ORIGIN_FORBIDDEN
+        - REALTIME_DRAINING
+        - REALTIME_TOO_MANY_CONNECTIONS
+        - REALTIME_COMMAND_UNKNOWN
+        - REALTIME_COMMAND_INVALID
+        - REALTIME_RATE_LIMITED
+        - CONVERSATION_NOT_FOUND
         - FIELD_REQUIRED
         - FIELD_UNKNOWN
         - FIELD_TYPE_INVALID

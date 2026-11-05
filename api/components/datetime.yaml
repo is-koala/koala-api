@@ -12,8 +12,12 @@ components:
       description: |
         Anlık zaman, RFC 3339, UTC ve `Z` ile (`2026-08-27T06:30:00Z`; K11). Ofsetli
         değer kabul edilmez: hem sunucu hem istemci UTC yazar. Alan adı `At` ile
-        biter (`createdAt`).
+        biter (`createdAt`). Sunucuda tipi `jsontime.UTC`'dir: başka dilimde verilen
+        zaman da yazılırken UTC'ye çevrilir (ADR-0021).
       examples: ["2026-08-27T06:30:00Z"]
+      x-go-type: jsontime.UTC
+      x-go-type-import:
+        path: github.com/is-koala/koala-api/internal/platform/jsontime
 
     OffsetDateTime:
       type: string
