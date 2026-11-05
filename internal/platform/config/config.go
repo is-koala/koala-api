@@ -56,7 +56,8 @@ type Config struct {
 	// server stops accepting connections, so the proxy can take the
 	// instance out of rotation.
 	ShutdownDrainDelay time.Duration
-	// ShutdownTimeout bounds how long in-flight requests may finish.
+	// ShutdownTimeout bounds how long in-flight requests may finish. It is
+	// at least MinShutdownTimeout.
 	ShutdownTimeout time.Duration
 }
 
@@ -64,8 +65,16 @@ type Config struct {
 const (
 	DefaultHTTPAddr           = ":8080"
 	DefaultShutdownDrainDelay = 5 * time.Second
-	DefaultShutdownTimeout    = 20 * time.Second
+	DefaultShutdownTimeout    = MinShutdownTimeout
 )
+
+// MinShutdownTimeout is the smallest accepted ShutdownTimeout. It equals
+// httpx.MinShutdownTimeout (read-header timeout + request timeout + write
+// margin = 35s): a connection accepted just before the listener closes must
+// be able to send its headers, run until its own deadline and write the
+// response instead of being cut off by the forced close. config does not
+// import httpx; a compile-time check in httpx keeps the two values equal.
+const MinShutdownTimeout = 35 * time.Second
 
 // Load parses environ (os.Environ format, "KEY=value") and returns the
 // configuration or an error listing every problem found.
@@ -125,6 +134,9 @@ func Load(environ []string) (Config, error) {
 	if v, ok := vars[VarShutdownTimeout]; ok {
 		if d, err := parseDuration(v, false); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", VarShutdownTimeout, err))
+		} else if d < MinShutdownTimeout {
+			errs = append(errs, fmt.Errorf("%s: %w: must be at least %s (request timeout plus header and write margins)",
+				VarShutdownTimeout, errInvalidValue, MinShutdownTimeout))
 		} else {
 			cfg.ShutdownTimeout = d
 		}

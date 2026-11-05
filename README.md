@@ -71,9 +71,9 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_HTTP_ADDR` | hayır | `:8080` | `host:port` |
 | `KOALA_LOG_LEVEL` | hayır | `info` | `debug`, `info`, `warn`, `error` |
 | `KOALA_SHUTDOWN_DRAIN_DELAY` | hayır | `5s` | Kapanışta `/readyz` 503 döndükten sonra dinleyicinin kapanmasına kadar geçen süre |
-| `KOALA_SHUTDOWN_TIMEOUT` | hayır | `20s` | Süren isteklerin bitmesi için verilen süre; aşılırsa bağlantılar zorla kapatılır |
+| `KOALA_SHUTDOWN_TIMEOUT` | hayır | `35s` | Süren isteklerin bitmesi için verilen süre; aşılırsa bağlantılar zorla kapatılır. En az `35s`: başlık okuma (5 sn) + istek süre sınırı (25 sn) + yazma payı (5 sn). Daha kısası açılışı durdurur |
 
-Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace_period`) şu toplamdan uzun olmalı: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT`, varsayılanlarla en az 30 sn. Docker'ın varsayılanı 10 sn; bu süre aşılırsa süreç SIGKILL ile kesilir.
+Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace_period`) şu toplamdan uzun olmalı: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT`. Varsayılanlarla bu toplam 5 + 35 = 40 sn'dir; `stop_grace_period` en az 45 sn verilmeli. Docker'ın varsayılanı 10 sn; bu süre aşılırsa süreç SIGKILL ile kesilir.
 
 ## HTTP platformu
 

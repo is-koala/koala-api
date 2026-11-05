@@ -155,3 +155,44 @@ func TestWriteErrorMapsMaxBytesErrorTo413(t *testing.T) {
 		}
 	}
 }
+
+// TestWriteErrorMapsWrappedMaxBytesErrorTo413 locks the 413 against a
+// KindInvalid wrapper: a handler that wraps every decode failure as a 400
+// must not turn an oversized body into a 400.
+func TestWriteErrorMapsWrappedMaxBytesErrorTo413(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{"invalid wraps", apperr.Wrap(&http.MaxBytesError{Limit: 1 << 20}, apperr.KindInvalid, "VALIDATION_FAILED")},
+		{"invalid wraps wrapped", fmt.Errorf("handler: %w",
+			apperr.Wrap(fmt.Errorf("decode body: %w", &http.MaxBytesError{Limit: 1 << 20}), apperr.KindInvalid, "VALIDATION_FAILED"))},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec, _ := serveError(t, tt.err)
+			if rec.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("status = %d, want 413", rec.Code)
+			}
+			if !strings.Contains(rec.Body.String(), `"code":"REQUEST_BODY_TOO_LARGE"`) {
+				t.Fatalf("body = %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestWriteErrorKeepsOtherKindsAroundMaxBytesError: only KindInvalid is
+// overridden; a deliberate kind such as KindConflict stays.
+func TestWriteErrorKeepsOtherKindsAroundMaxBytesError(t *testing.T) {
+	t.Parallel()
+
+	err := apperr.Wrap(&http.MaxBytesError{Limit: 1 << 20}, apperr.KindConflict, "JOB_ALREADY_TAKEN")
+	rec, _ := serveError(t, err)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+}
