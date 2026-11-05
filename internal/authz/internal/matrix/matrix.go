@@ -55,7 +55,7 @@ type Matrix struct {
 
 // Load reads and parses the matrix file.
 func Load(path string) (*Matrix, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the path is a test fixture chosen by the caller
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("matrix: %w", err)
 	}
