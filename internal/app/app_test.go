@@ -3,8 +3,10 @@ package app
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -100,6 +102,23 @@ func TestCommandsRequireTheirDatabaseURL(t *testing.T) {
 	}
 }
 
+// TestServeNeedsEdgeVariablesInProduction: in production serve refuses to
+// start without the minimum app version and the trusted proxies, before it
+// dials the database (the unreachable URL is never used).
+func TestServeNeedsEdgeVariablesInProduction(t *testing.T) {
+	t.Parallel()
+	code, stdout, _ := run([]string{"serve"},
+		"KOALA_ENV=production", "KOALA_DATABASE_URL=postgres://app@db.invalid/koala?sslmode=verify-full")
+	if code != ExitError {
+		t.Fatalf("exit = %d, want %d", code, ExitError)
+	}
+	for _, v := range []string{"KOALA_MIN_APP_VERSION", "KOALA_TRUSTED_PROXIES"} {
+		if !strings.Contains(stdout, v+": required by serve in production") {
+			t.Errorf("stdout = %q, want an error naming %s", stdout, v)
+		}
+	}
+}
+
 // TestMigrateDownRefusedInProduction: the refusal comes before any
 // connection, so the unreachable URL is never dialed.
 func TestMigrateDownRefusedInProduction(t *testing.T) {
@@ -136,7 +155,14 @@ func TestServeAndHealthcheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	environ := []string{"KOALA_ENV=test", "KOALA_HTTP_ADDR=" + ln.Addr().String(), "KOALA_SHUTDOWN_DRAIN_DELAY=0s"}
+	metricsLn, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	environ := []string{
+		"KOALA_ENV=test", "KOALA_HTTP_ADDR=" + ln.Addr().String(), "KOALA_SHUTDOWN_DRAIN_DELAY=0s",
+		"KOALA_METRICS_ADDR=" + metricsLn.Addr().String(),
+	}
 	cfg, err := config.Load(environ)
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +173,7 @@ func TestServeAndHealthcheck(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, cfg, logger, "v0.0.0-test", ln) }()
+	go func() { done <- serve(ctx, cfg, logger, "v0.0.0-test", listeners{api: ln, metrics: metricsLn}) }()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -161,6 +187,19 @@ func TestServeAndHealthcheck(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	// The metrics listener serves the registry the router records in; the
+	// healthcheck's /livez request is in it, by route template.
+	body := httpGet(t, "http://"+metricsLn.Addr().String()+"/metrics")
+	for _, want := range []string{
+		`http_server_request_duration_seconds_count{http_request_method="GET",http_response_status_code="200",http_route="/livez"}`,
+		`koala_build_info{version="v0.0.0-test"} 1`,
+		"go_goroutines ",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/metrics lacks %q", want)
+		}
+	}
+
 	cancel()
 	select {
 	case err := <-done:
@@ -170,6 +209,24 @@ func TestServeAndHealthcheck(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not stop")
 	}
+}
+
+func httpGet(t *testing.T, url string) string {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: %d, %v", url, resp.StatusCode, err)
+	}
+	return string(b)
 }
 
 func TestLivezURL(t *testing.T) {

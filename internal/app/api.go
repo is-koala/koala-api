@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/api"
 	"github.com/is-koala/koala-api/internal/apiv1"
@@ -16,22 +18,65 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
 
+// newRouter builds the HTTP router: the edge rules of ADR-0021 from cfg
+// and the contract (client headers, trusted proxies, rate limit groups,
+// metrics on reg) and the /v1 operations.
+func newRouter(ctx context.Context, cfg config.Config, logger *slog.Logger, health *httpx.Health,
+	reg prometheus.Registerer, groups map[string]httpx.GroupLimits,
+) (*httpx.Router, error) {
+	spec, err := api.Load(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("router: %w", err)
+	}
+	routes, err := httpx.RateLimitRoutes(spec)
+	if err != nil {
+		return nil, fmt.Errorf("router: %w", err)
+	}
+	limiter, err := httpx.NewRateLimiter(httpx.RateLimitConfig{Groups: groups, Routes: routes}, reg)
+	if err != nil {
+		return nil, fmt.Errorf("router: %w", err)
+	}
+	m, err := httpx.NewMetrics(reg)
+	if err != nil {
+		return nil, fmt.Errorf("router: %w", err)
+	}
+	// ExemptRoutes stays empty until the first route for a caller that is
+	// not a Koala app (a payment provider's callback, an e-mail tracking
+	// pixel) lands; it is listed here with its test. Health endpoints are
+	// exempt in httpx.
+	var policy httpx.ClientPolicy
+	if cfg.MinAppVersion != nil {
+		policy.MinAppVersion = *cfg.MinAppVersion
+	}
+	router, err := httpx.NewRouter(logger, health, httpx.RouterOptions{
+		Clients:   policy,
+		ClientIPs: httpx.NewClientIPResolver(cfg.TrustedProxies),
+		RateLimit: limiter,
+		Metrics:   m,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("router: %w", err)
+	}
+	if err := mountAPI(spec, router, limiter, logger, cfg.Env); err != nil {
+		return nil, err
+	}
+	return router, nil
+}
+
 // mountAPI mounts the generated /v1 operations on router. Each request is
 // validated against the embedded contract before the generated handler
 // binds it; every error leaves as a problem document (ADR-0007, ADR-0019).
 //
-// Faz 1 puts authentication in front of validation on this group, so an
-// unauthenticated caller learns nothing about the request shape.
-func mountAPI(ctx context.Context, router chi.Router, logger *slog.Logger, env config.Env) error {
-	spec, err := api.Load(ctx)
-	if err != nil {
-		return fmt.Errorf("mount api: %w", err)
-	}
+// Faz 1 puts authentication in front of the per-identity rate limit and
+// validation on this group, so an unauthenticated caller learns nothing
+// about the request shape. Authentication names the caller with
+// httpx.WithRateLimitIdentity; until then ByIdentity lets every request
+// through and the per-address limit of the root chain applies alone.
+func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, logger *slog.Logger, env config.Env) error {
 	validate, err := httpx.ValidateRequests(spec, logger)
 	if err != nil {
 		return fmt.Errorf("mount api: %w", err)
 	}
-
 	// Modules implement their part of the strict interface; wire<Module>
 	// functions compose them here as they land.
 	strict := apiv1.NewStrictHandlerWithOptions(meta.NewHandler(), nil, apiv1.StrictHTTPServerOptions{
@@ -41,7 +86,7 @@ func mountAPI(ctx context.Context, router chi.Router, logger *slog.Logger, env c
 		},
 	})
 	router.Group(func(g chi.Router) {
-		g.Use(validate)
+		g.Use(limiter.ByIdentity(logger), validate)
 		apiv1.HandlerWithOptions(strict, apiv1.ChiServerOptions{
 			BaseRouter:       skipRoutes{Router: g, skip: devOnlyPaths(env)},
 			ErrorHandlerFunc: bindError(logger),

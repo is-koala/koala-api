@@ -73,7 +73,9 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - `internal/apiv1/*.gen.go` üretilir ve commit edilir; elle düzenlenmez **[make verify: gen-check]**. `internal/codegentest` üreticinin 3.1 davranışını sabitler. Alan `http.go`'su üretilmiş `StrictServerInterface`'in kendi metotlarını uygular.
 - İstek biçimi spec'ten `httpx.ValidateRequests` ile doğrulanır; handler'da biçim kontrolü tekrar yazılmaz. Handler yalnız doğrulanmış değeri alır **[test]**. Authn doğrulamadan önce gelir.
 - `make generate` yerelde serbesttir; derleme gerektirdiği için önce yüke bakılır ve `nice -n 15` ile koşulur.
-- Servisin döndürdüğü her hata kodu `api/components/problem.yaml`'daki `ErrorCode` listesindedir (platform kodları için **[test]**).
+- Servisin döndürdüğü her hata kodu `api/components/problem.yaml`'daki `ErrorCode` listesindedir (platform ve realtime kodları için **[test]**).
+- İstemci başlıkları (`X-Client-Platform`, `X-Device-Id`, `X-App-Version`), yol normalizasyonu ve adres başına oran sınırı router'ın kök zincirindedir; WebSocket dahil her istek onlardan geçer. Yeni kapı kök zincire konur, route grubuna değil (ADR-0018 §8, ADR-0021) **[test]**.
+- Her route bir oran sınırı grubundadır: operasyonun `x-rate-limit`'i ya da metodun varsayılanı. Grup tablosu `internal/app/edge.go`'dadır (ADR-0021) **[test]**.
 
 ## Hatalar (ADR-0007)
 
@@ -92,6 +94,12 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - Garantili yan etki iş verisiyle aynı tx'te River `InsertTx` ile kuyruğa girer. Best-effort işler commit sonrası hook'ta çalışır.
 - Kilit açık yazılır (`SELECT … FOR UPDATE`). Para yolunda kilit sırası "önce atama, sonra detay"dır.
 - Her isteğin context'inde `httpx.RequestTimeout` süre sınırı var. Uzun işler isteğe değil, River işine taşınır.
+
+## Metrik (plan §3.10, ADR-0021)
+
+- Metrikler enjekte edilen `prometheus.Registerer`'a kaydedilir; global varsayılan deftere yazılmaz. `/metrics` iç porttadır (`KOALA_METRICS_ADDR`).
+- HTTP etiketi route şablonudur, ham yol değildir. Etiket değeri sonlu bir kümeden gelir; id, e-posta ya da yol etikete yazılmaz.
+- Uyarı kuralı `ops/monitoring/prometheus-alerts.yml`'e yazılır; okuduğu metriğin kayıtlı olduğunu test denetler **[test: TestAlertRulesUseRegisteredMetrics]**.
 
 ## Log (plan §3.10)
 
