@@ -224,6 +224,7 @@ pair("company_invitation", "read", "davet eden ∪ davet edilen ∪ şirket ADMI
      "company_invitation#can_read", FGA, "",
      [("user:u_invitee", "company_invitation:inv_1", A, A, "invitee"),
       ("user:u_co_admin", "company_invitation:inv_1", A, A, "inviter"),  # u_co_admin daveti de gönderdi; model önce inviter'ı bulur
+      ("user:u_co_admin2", "company_invitation:inv_1", A, A, "company_admin"),  # admin from company dalı: daveti göndermemiş ADMIN
       ("user:u_co_staff", "company_invitation:inv_1", D, D, True),
       ("user:u_stranger", "company_invitation:inv_1", D, D, True)])
 pair("company_invitation", "answer", "yalnız davet edilen", "= Java", "", "—", "✗", "company_invitation#can_answer", FGA, "",
@@ -390,6 +391,7 @@ USERS = {
     "u_worker": dict(is_employer=False, note="asg_ind, asg_co, asg_orphan, asg_pending, asg_done işçisi; conv_ind katılımcısı; seat_w"),
     "u_creator": dict(is_employer=True, note="bireysel işveren; job_ind ve job_closed sahibi; tmpl_c sahibi"),
     "u_co_admin": dict(is_employer=True, note="co_1 ADMIN"),
+    "u_co_admin2": dict(is_employer=True, note="co_1'in ikinci ADMIN'i; inv_1'i göndermedi"),
     "u_co_staff": dict(is_employer=True, note="co_1 STAFF; job_co'yu açan"),
     "u_co_former": dict(is_employer=True, note="co_1'den çıkarılmış eski yetkili; job_co_orphan'ı açan"),
     "u_other_co_admin": dict(is_employer=True, note="co_2 ADMIN; co_1 ile ilişkisi yok"),
@@ -449,7 +451,7 @@ OBJECTS = {
 for u, ua in USERS.items():                    # kullanıcılar nesne olarak da çözülür (başlık sözleşmesi)
     OBJECTS[f"user:{u}"] = {k: v for k, v in ua.items() if k != "note"}
 TUPLES = [
-    "company:co_1#admin@user:u_co_admin", "company:co_1#staff_member@user:u_co_staff",
+    "company:co_1#admin@user:u_co_admin", "company:co_1#admin@user:u_co_admin2", "company:co_1#staff_member@user:u_co_staff",
     "company:co_2#admin@user:u_other_co_admin",
     "company:co_1#viewer@user:*", "company:co_2#viewer@user:*",          # C24: her şirkette yazılır
     "job:job_ind#individual_owner@user:u_creator", "job:job_ind#creator@user:u_creator",

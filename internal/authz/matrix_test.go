@@ -13,9 +13,9 @@ import (
 // Decision.Conceal does not apply.
 var concealExceptions = map[string]string{
 	"AZM-055": "field-level projection: the public view of the job",
-	"AZM-130": "WebSocket subscription refusal; there is no 404 on a socket",
-	"AZM-150": "field-level projection: plate and driver hidden",
-	"AZM-162": "field-level projection: no CV link",
+	"AZM-131": "WebSocket subscription refusal; there is no 404 on a socket",
+	"AZM-151": "field-level projection: plate and driver hidden",
+	"AZM-163": "field-level projection: no CV link",
 }
 
 // TestMatrixGoEvaluator runs every [go, openfga] row of the matrix on the
@@ -119,13 +119,13 @@ func TestMatrixShape(t *testing.T) {
 	for i := range mx.Cases {
 		counts[mx.Cases[i].Engine]++
 	}
-	want := map[matrix.Engine]int{matrix.EngineBoth: 152, matrix.EngineGoOnly: 55, matrix.EngineSkip: 6}
+	want := map[matrix.Engine]int{matrix.EngineBoth: 153, matrix.EngineGoOnly: 55, matrix.EngineSkip: 6}
 	for engine, n := range want {
 		if counts[engine] != n {
 			t.Errorf("%s rows: %d, want %d", engine, counts[engine], n)
 		}
 	}
-	if len(mx.Cases) != 213 {
-		t.Errorf("cases: %d, want 213", len(mx.Cases))
+	if len(mx.Cases) != 214 {
+		t.Errorf("cases: %d, want 214", len(mx.Cases))
 	}
 }
