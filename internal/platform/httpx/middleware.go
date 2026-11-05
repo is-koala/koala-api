@@ -160,7 +160,7 @@ func recoverPanic(hw *headerWatcher, r *http.Request, logger *slog.Logger) {
 // code alone is not enough: Flush, ReadFrom and Hijack commit the response
 // without a WriteHeader call, and 1xx informational headers do not commit
 // it. Errors from the underlying writer pass through unchanged (wrapcheck
-// exempts http.ResponseWriter, io.ReaderFrom and http.ResponseController).
+// exempts these signatures in .golangci.yml).
 type headerWatcher struct {
 	http.ResponseWriter
 	wroteHeader bool

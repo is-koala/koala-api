@@ -235,11 +235,12 @@ linters:
         - apperr.Wrap(
       # Response writer wrappers (httpx.headerWatcher) must pass the
       # underlying writer's errors through unchanged.
+      # (ignore-interface-regexps is not enough: wrapcheck still reports
+      # the call as coming from another package.)
       ignore-sig-regexps:
+        - ^func \(net/http\.ResponseWriter\)\.Write\(
+        - ^func \(io\.ReaderFrom\)\.ReadFrom\(
         - ^func \(\*net/http\.ResponseController\)\.(Flush|Hijack)\(
-      ignore-interface-regexps:
-        - ^http\.ResponseWriter$
-        - ^io\.ReaderFrom$
 
   exclusions:
     generated: strict
