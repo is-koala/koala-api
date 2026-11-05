@@ -17,13 +17,17 @@ func TestLoadResolvesAndValidatesTheContract(t *testing.T) {
 	if !doc.IsOpenAPI31OrLater() {
 		t.Fatalf("openapi = %q, want 3.1", doc.OpenAPI)
 	}
-	ping := doc.Paths.Value("/v1/meta/ping")
-	if ping == nil || ping.Post == nil {
-		t.Fatal("POST /v1/meta/ping is missing")
+	login := doc.Paths.Value("/v1/auth/login")
+	if login == nil || login.Post == nil {
+		t.Fatal("POST /v1/auth/login is missing")
 	}
-	// The body's Money comes from components/money.yaml.
-	money := ping.Post.RequestBody.Value.Content.Get("application/json").Schema.Value.Properties["amount"]
-	if money == nil || money.Value == nil || money.Value.Properties["currency"] == nil {
-		t.Fatal("the $ref to components/money.yaml was not resolved")
+	// The response's Timestamp comes from components/datetime.yaml.
+	ok := login.Post.Responses.Value("200")
+	if ok == nil || ok.Value == nil {
+		t.Fatal("POST /v1/auth/login has no 200")
+	}
+	exp := ok.Value.Content.Get("application/json").Schema.Value.Properties["accessTokenExpiresAt"]
+	if exp == nil || exp.Value == nil || exp.Value.Format != "date-time" {
+		t.Fatal("the $ref to components/datetime.yaml was not resolved")
 	}
 }

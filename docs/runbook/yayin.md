@@ -89,16 +89,27 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
 | `KOALA_ENV` | **her ortamda zorunlu** (`local`, `test`, `staging`, `production`) | Yoksa hiçbir alt komut açılmaz. |
 | `KOALA_DATABASE_URL` | zorunlu (`serve`) | sır; production'da `sslmode=require`, `verify-ca` ya da `verify-full` |
 | `KOALA_MIN_APP_VERSION` | **zorunlu (`serve`)** | En düşük desteklenen mobil sürüm (semver). Yoksa `serve` açılmaz: ayarsız kapı her derlemeyi geçirirdi (ADR-0021). Mobil zorunlu güncelleme bu değeri yükselterek yapılır. |
-| `KOALA_TRUSTED_PROXIES` | **zorunlu (`serve`)** | Traefik'in (ve önünde CDN varsa onun) adresleri ya da CIDR'ları, virgülle; IPv4'te en geniş /8, IPv6'da /32. Yoksa `serve` açılmaz: bütün istemciler proxy'nin tek oran sınırı kovasını paylaşırdı (ADR-0021). **Staging:** kod zorunlu tutmaz ama staging de Traefik arkasındaysa aynı değer verilir; verilmezse staging'deki oran sınırı ölçümleri anlamsızdır. |
+| `KOALA_TRUSTED_PROXIES` | **zorunlu (`serve`, staging dahil)** | Traefik'in (ve önünde CDN varsa onun) adresleri ya da CIDR'ları, virgülle; IPv4'te en geniş /8, IPv6'da /32. Yoksa `serve` açılmaz: bütün istemciler proxy'nin tek oran sınırı kovasını ve personel adres kilidini paylaşırdı (ADR-0021, ADR-0025 §2). Staging de Traefik arkasında olduğu için orada da zorunludur. |
 | `KOALA_METRICS_ADDR` | isteğe bağlı (`:9090`) | `/metrics`'in iç portu; aşağıdaki ağ ayarına bakın. |
+| `KOALA_JWT_MARKETPLACE_KEYS`, `KOALA_JWT_STAFF_KEYS` | **zorunlu (`serve`, staging dahil)** | sır. Erişim token'larının Ed25519 halkaları (ADR-0025): `kid:tohum[,kid:tohum…]`, tohum 32 rastgele baytın unpadded base64url'i. Girdiyi `koala keygen jwt <kid>` üretir (imajda da çalışır: `docker run --rm <imaj> keygen jwt <kid>`; macOS'ta `openssl` ya da GNU `basenc` gerekmez). İki halka aynı tohumu taşıyamaz; rastgele görünmeyen tohum (sıfırlar, tekrar eden desen) reddedilir. **Halka başına en çok 4 anahtar.** **Rotasyon:** yeni anahtarı ikinci sıraya ekle ve yayımla → birinci sıraya al ve yayımla → 15 dk 5 sn sonra eskisini çıkar. Refresh token'lar opak olduğu için kimse çıkış yapmaz. |
+| `KOALA_LOGIN_PEPPER` | **zorunlu (`serve`, staging dahil)** | sır. Giriş hedeflerini HMAC'leyen anahtar (ADR-0025 §5): en az 32 rastgele bayt, unpadded base64url; `koala keygen pepper` üretir. Rotasyonu yoktur; değişmesinin etkileri aşağıda ("Giriş biberinin değişmesi"). |
+| `KOALA_REALTIME_ORIGINS` | isteğe bağlı | Web istemcisinin origin'leri, virgülle (`https://iskoala.com`). |
 | `KOALA_SHUTDOWN_DRAIN_DELAY` | isteğe bağlı (`5s`) | `/readyz` 503'ten dinleyicinin kapanmasına kadar geçen süre. |
-| `KOALA_SHUTDOWN_TIMEOUT` | isteğe bağlı (`35s`, en az `35s`) | Süren isteklere ve WebSocket'lere verilen süre; stream'lerin zorla kapatma payı (5 sn) bunun içindedir (ADR-0022). `stop_grace_period` bu ikisinin toplamından uzun olmalı (aşağıda). |
+| `KOALA_SHUTDOWN_TIMEOUT` | isteğe bağlı (`35s`, en az `35s`) | Süren isteklere ve WebSocket'lere verilen süre; stream'lerin zorla kapatma payı (5 sn) bunun içindedir (ADR-0022). `stop_grace_period` bu ikisinin ve işlerin 5 sn'lik durma payının toplamından uzun olmalı (aşağıda). |
 | `KOALA_HTTP_ADDR`, `KOALA_LOG_LEVEL` | isteğe bağlı (`:8080`, `info`) | |
 | `KOALA_OWNER_DATABASE_URL`, `KOALA_BOOTSTRAP_DATABASE_URL` | yalnız `migrate`/`maint` ve `bootstrap` adımında | sır |
 
 **Metrik portunun ağ ayarı (Dokploy).** `KOALA_METRICS_ADDR` portu Dokploy'da **yayımlanmaz** (port mapping yok) ve Traefik'e domain/route olarak **bağlanmaz**. Prometheus konteyneri uygulamayla aynı iç Docker ağına (Dokploy'un uygulama ağı ya da ayrı bir `monitoring` ağı) alınır ve `koala-api:9090`'ı oradan kazır. Uygulamanın kendisi bu ayrımı yapamaz: dinleyici bütün arayüzlerde açıktır; kısıt ağ ayarıdır.
 
-- Konteynerin durdurma süresi `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT` toplamından uzun olmalı (README'deki formül). Varsayılanlarla toplam 40 sn olduğundan **`stop_grace_period` en az 45 sn** verilir. Smoke testi SIGTERM'den sonra 50 sn bekler ve drain'i (`/readyz` 503, `/livez` 200) yoklar.
+- Konteynerin durdurma süresi `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT + 5 sn` (arka plan işlerinin durması) toplamından uzun olmalı (README'deki formül). Varsayılanlarla toplam 45 sn olduğundan **`stop_grace_period` en az 50 sn** verilir. Smoke testi SIGTERM'den sonra 50 sn bekler ve drain'i (`/readyz` 503, `/livez` 200) yoklar.
+- **Giriş biberinin (`KOALA_LOGIN_PEPPER`) değişmesi.** Yalnız sızma şüphesinde değiştirilir, düşük trafikte. Etkileri:
+  - Marketplace kilit sayaçları ve oran sınırı kovaları sıfırlanır; eski `login_attempts` satırları 90 günde silinir.
+  - Refresh ardılının anahtarı biberden türetilir (ADR-0025 §3). Bu yüzden değişimden önce yenilenmiş bir token, değişimden sonraki 10 sn'lik tolerans penceresi içinde tekrar gelirse eski ardılı bulamaz. Tekrar, yeniden kullanım sayılır ve o oturum kapanır; kullanıcı yeniden giriş yapar. Etkilenen yalnız yeni sürüm açılırken yenileme isteği yolda olan oturumlardır. Değişimden sonra yenilenen token'lar etkilenmez.
+  - Birden çok örnek varsa hepsi aynı anda yeni biberle açılmalıdır. Aksi hâlde bir örneğin verdiği ardıl, ötekinin tekrarına uymaz.
+- **Panelin sunucu tarafından çağırması (koala-admin BFF).** Panel API'yi kendi sunucusundan çağıracaksa iki koşul gerekir:
+  - BFF, tarayıcının adresini `X-Forwarded-For`'un **sonuna ekler**; gelen değerin solundakini kopyalamaz.
+  - BFF'nin adresi `KOALA_TRUSTED_PROXIES` içindedir.
+  Bu sağlanmadan bütün personel BFF'nin tek adresinden geliyor görünür. Adres kilidi, bilinen iyi kaynak ve (hedef, adres) kovası tek adrese iner; 5 hata herkesi kilitler (ADR-0025 §6). koala-admin tarafındaki iş ayrı bir issue'dadır.
 - Sağlık kontrolü imajın kendisindedir (`koala healthcheck`, `/livez`). Dokploy'da ayrıca HTTP sağlık kontrolü tanımlanırsa `/livez` kullanılır, `/readyz` değil: DB kesintisi konteyneri yeniden başlatmamalı.
 - Dokploy'a verilen imaj `ghcr.io/is-koala/koala-api:<sürüm>@<digest>`'tir. Hareketli etiket yoktur.
 - **Faz 9 notları (deploy açılmadan önce):**
@@ -119,8 +130,8 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
   - `main`: PR zorunlu, `verify`, `integration`, `image` ve `authz-conformance` kontrollerinin yeşili zorunlu, force-push ve silme yasak;
   - `v*` tag'leri için ruleset: oluşturma yalnız GitHub Actions'a ve yayınlayanlara açık, silme ve güncelleme yasak;
   - `production` environment'ı ve sırların oraya taşınması.
-- [ ] **Production ortam değişkenleri.** Dokploy'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` tanımlanır (yukarıdaki tablo); ikisi yoksa `serve` açılmaz. Prometheus `KOALA_METRICS_ADDR` portunu iç ağdan kazır; port proxy'ye açılmaz.
-- [ ] **Dokploy `stop_grace_period` ≥ 45 sn.** Formül: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT` toplamından uzun; varsayılanlarla 5 + 35 = 40 sn.
+- [ ] **Production ortam değişkenleri.** Dokploy'da `KOALA_MIN_APP_VERSION`, `KOALA_TRUSTED_PROXIES`, `KOALA_JWT_MARKETPLACE_KEYS`, `KOALA_JWT_STAFF_KEYS` ve `KOALA_LOGIN_PEPPER` tanımlanır (yukarıdaki tablo; değerleri `koala keygen` üretir); biri yoksa `serve` açılmaz. `KOALA_MIN_APP_VERSION` dışındakiler staging'de de zorunludur. Prometheus `KOALA_METRICS_ADDR` portunu iç ağdan kazır; port proxy'ye açılmaz.
+- [ ] **Dokploy `stop_grace_period` ≥ 50 sn.** Formül: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT + 5 sn` toplamından uzun; varsayılanlarla 5 + 35 + 5 = 45 sn.
 - [ ] **Webhook sırrı ve anahtarı (Faz 9).**
   - Repo **Settings → Secrets and variables → Actions** altında `DOKPLOY_DEPLOY_WEBHOOK` sırrı tanımlanır. Değeri Dokploy'daki uygulamanın HTTPS deploy webhook URL'sidir.
   - Deploy'u açmak için aynı yerde **Variables** altında `DOKPLOY_DEPLOY_ENABLED` = `true` tanımlanır. Değişken yoksa `deploy` job'ı atlanır; pre-release'te hiç koşmaz.

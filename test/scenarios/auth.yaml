@@ -31,7 +31,11 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/LoginEnumerationIT.java#anUnregisteredEmailIsStillRecordedAsAFailedLoginAttempt"
       - "src/test/java/com/exskylab/koala/business/concretes/LoginConcealmentTest.java#anUnregisteredEmailStillPaysForAPasswordVerification"
       - "src/test/java/com/exskylab/koala/business/concretes/LoginConcealmentTest.java#anUnregisteredEmailStillPaysForTheDeviceLookupTheRegisteredOnePays"
-    go_test: null
+    go_test:
+      - internal/authn.TestLoginConcealsUnknownAddress
+      - internal/app.TestLoginFailureBodiesAreIdentical
+      - internal/authn.TestKnownDeviceIsNotLockedOut
+      - internal/authn.TestKnownDeviceOfAnUnknownAddressQueriesTheSessions
 
   - id: AUTH-002
     priority: P0
@@ -56,7 +60,7 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#twoWebProfileIdsKeepTwoIndependentSessionsActive"
       - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#webLoginWithoutADeviceIdIsRejectedBeforeCredentialLookup"
       - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java:236-241"
-    go_test: null
+    go_test: internal/authn.TestLoginReplacesTheDeviceSession
 
   - id: AUTH-003
     priority: P0
@@ -88,7 +92,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#theStrictExtractorStillRejectsAnExpiredToken"
       - "src/test/java/com/exskylab/koala/core/security/ExpiredTokenRefreshTest.java#aRealtimeCredentialCannotEnterTheRefreshFlow"
       - "src/test/java/com/exskylab/koala/webAPI/ErrorContractIT.java#refreshGetsPastAnExpiredAccessTokenAndFailsOnTheSessionInstead"
-    go_test: null
+    go_test:
+      - internal/authn.TestRefreshNeedsNoAccessToken
+      - internal/authn.TestAccessTokenExpiry
 
   - id: AUTH-004
     priority: P0
@@ -108,7 +114,7 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#changingTheWebDeviceIdDeactivatesTheSessionAndReturnsUnauthorized"
       - "src/test/java/com/exskylab/koala/webAPI/WebDeviceIdentityIT.java#webRefreshWithoutOrWithAMalformedDeviceIdIsRejected"
       - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java:283-291"
-    go_test: null
+    go_test: internal/authn.TestAnotherDeviceRevokesTheSession
 
   - id: AUTH-005
     priority: P0
@@ -132,12 +138,17 @@ scenarios:
     decision: K12
     target: >
       K12: erişim token'ı 15 dakika (Java'da 12 saat). Her yenilemede yeni bir refresh token verilir
-      (rotasyon). Eski refresh token tekrar kullanılırsa token ailesinin tamamı iptal edilir
-      (yeniden kullanım tespiti). Yanlış token'ın oturumu açık bırakması K12'de yeniden ele alınır.
+      (rotasyon). Eski refresh token tekrar kullanılırsa token ailesinin (oturumun) tamamı iptal
+      edilir (yeniden kullanım tespiti). ADR-0025 §3: tek istisna 10 saniyelik tolerans
+      penceresidir; tüketilmiş token aynı cihazdan ve ardılı henüz kullanılmamışken gelirse
+      oturum kapanmaz, aynı ardıl yeniden döner. Refresh token boşta 30 gün, oturum en çok
+      90 gün geçerlidir. Oturum token'ın kendisinden bulunduğu için yanlış (bilinmeyen) token
+      hiçbir oturuma bağlanamaz: AUTH_REFRESH_TOKEN_INVALID döner ve hiçbir oturum değişmez.
+      (Bu son madde ADR-0025 kararıdır; K12 bu konuda bir şey söylemez.)
     source:
       - "src/test/java/com/exskylab/koala/webAPI/ErrorContractIT.java#refreshForAClosedSessionIsUnauthorized"
       - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java:258-313"
-    go_test: null
+    go_test: internal/authn.TestRefreshRotation
 
   - id: AUTH-006
     priority: P0
@@ -167,6 +178,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#changingThePasswordWhileLoggedInInvalidatesAnExistingResetLink"
       - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#successfulResetQueuesTheSecurityNoticeOnlyAfterCommit"
     go_test: null
+    deferred:
+      phase: 2
+      reason: Parola sıfırlama akışı kimlik modülüyle gelir (plan §6.1 Faz 2).
 
   - id: AUTH-007
     priority: P0
@@ -191,6 +205,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#resettingReplacesTheHashAndClosesEverySession"
       - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#anInvalidTokenIsRejectedBeforeAnythingChanges"
     go_test: null
+    deferred:
+      phase: 2
+      reason: Parola sıfırlama akışı kimlik modülüyle gelir (plan §6.1 Faz 2).
 
   - id: AUTH-008
     priority: P0
@@ -212,6 +229,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aNewAddressStartsRegistration"
       - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aSecondAttemptResendsInsteadOfFailing"
     go_test: null
+    deferred:
+      phase: 2
+      reason: 3 adımlı kayıt kimlik modülüyle gelir (plan §6.1 Faz 2).
 
   - id: AUTH-009
     priority: P0
@@ -225,6 +245,14 @@ scenarios:
     when:
       - "1 karakterlik, 11 karakterlik, 73 baytlık ve rakamsız 20 karakterlik parolalar denenir"
       - "Eski kurala göre belirlenmiş 8 karakterlik parolayla giriş yapılır"
+    target: >
+      ADR-0025 §5 (Yusuf, 05.11): en az 15, en çok 128 karakter; bileşim şartı yokluğu aynen kalır.
+      Alt sınır NIST SP 800-63B-4'ten: parola tek faktörse en az 15 karakter. Kullanıcı için de
+      personel için de parola bugün tek faktördür; personelde TOTP (Faz 8) gelince alt sınır 8'e
+      inebilir. Üst sınır 72 bayt (bcrypt sınırı) yerine 128 karakter: argon2id'de 72 baytın
+      gerekçesi yok, NIST en az 64 karaktere izin verilmesini ister, 128 hash işini de sınırlar.
+      Go testinde sınır vakaları 14 ve 15 karakter, 129 karakterdir. Mevcut kısa parolayla giriş
+      kurala takılmaz.
     then:
       - "1, 11 karakter ve 73 bayt her yüzeyde reddedilir"
       - "Rakamsız ve büyük harfsiz uzun parola kabul edilir"
@@ -235,7 +263,15 @@ scenarios:
       - "src/test/java/com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#aPasswordThatBcryptWouldSilentlyRefuseIsRefusedByEveryPasswordSurface"
       - "src/test/java/com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#aLongPassphraseWithoutDigitsOrCapitalsIsAcceptedByEveryPasswordSurface"
       - "src/test/java/com/exskylab/koala/core/customValidations/PasswordPolicyTest.java#theLoginSurfaceKeepsAcceptingWhateverTheUserAlreadyHas"
-    go_test: null
+    go_test:
+      - internal/authn.TestPasswordRule
+      - internal/authn.TestStaffLogoutAndPasswordChange
+      - internal/authn.TestLoginAcceptsAnExistingShortPassword
+    partial:
+      phase: 2
+      reason: >-
+        Kural tek yerde (authn.CheckPassword); Faz 1'de onu çağıran yüzey personel parola
+        değişimi. Kayıt, sıfırlama ve oturumda değiştirme Faz 2'de aynı fonksiyonu çağırır.
 
   - id: AUTH-010
     priority: P0
@@ -254,7 +290,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aWrongPasswordIsIndistinguishableFromAnAccountThatDoesNotExist"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#bothBranchesCarryTheSameErrorCode"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aDisabledAccountIsIndistinguishableTooAndItsPasswordStillDoesNotWork"
-    go_test: null
+    go_test:
+      - internal/authn.TestStaffLoginConcealment
+      - internal/authn.TestStaffRefusedSignInsCostTheSame
 
   - id: AUTH-011
     priority: P0
@@ -278,13 +316,33 @@ scenarios:
       - "Başarılı girişte sayaç 0"
     error: STAFF_LOGIN_FAILED
     decision: K13
-    target: "K13: personel için TOTP v1'de zorunlu. Parola doğrulamasından sonra ikinci faktör istenir."
+    target: >
+      K13: personel için TOTP v1'de zorunlu; parola doğrulamasından sonra ikinci faktör istenir
+      (Faz 8). ADR-0025 §6 (Yusuf, 05.11; PCI DSS 4.0 8.3.4, OWASP): kilit (hesap, istemci adresi)
+      çiftinindir; o adresten 5 hata hesabı o adres için 30 dakika kilitler. Hesap genelinde,
+      adresten bağımsız, 10 ardışık hatadan sonra her hata ikiye katlanan bir bekleme koyar (en
+      çok 15 dakika); sert hesap kilidi yoktur. Bekleme yalnız bilinmeyen adreslere uygulanır:
+      personelin son 30 günde başarıyla girdiği adres (known-good source) muaftır, böylece
+      saldırgan personeli kullandığı yerlerden dışarıda tutamaz. Kilitliyken ya da beklemedeyken
+      deneme sahte hash'e karşı doğrulanır (süre doğru parolayı ele vermez), hiçbir deneme kilidi
+      uzatmaz, yanıt yanlış parolayla bayt bayt aynıdır; başarılı giriş sayaçları sıfırlar.
+      Mevcut parola denemeleri de bu sayaçlara girer ve aynı korumadan geçer.
     source:
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#fiveWrongPasswordsLockTheAccountAndTheRightPasswordStopsWorking"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aCorrectPasswordWhileLockedDoesNotExtendTheLock"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#theLockLeavesNoTraceInTheResponseEither"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aSuccessfulSignInClearsTheFailureCounter"
-    go_test: null
+    go_test:
+      - internal/authn.TestStaffLockout
+      - internal/app.TestStaffLockBodyIsTheFailureBody
+      - internal/authn.TestStaffKnownSourceIsNotBackedOff
+      - internal/authn.TestStaffKnownSourceIsStillLocked
+      - internal/authn.TestStaffRefusedSignInsCostTheSame
+    partial:
+      phase: 8
+      reason: >-
+        K13 hedefi (parola sonrası TOTP) Faz 8'de gelir; oturum şeması mfa_verified_at ve
+        token amr ile hazır.
 
   - id: AUTH-012
     priority: P0
@@ -309,7 +367,16 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#revokingTheMembershipTakesEffectOnTheVeryNextRequest"
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anExpiredStaffTokenIsRejected"
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aRefreshTokenIsNotAnAccessToken"
-    go_test: null
+    go_test:
+      - internal/authn.TestStaffTokens
+      - internal/app.TestTokenClassesOverHTTP
+    partial:
+      phase: 1
+      reason: >-
+        Bağlı testler token'ın izin taşımadığını, süresi dolmuş token'ın ve refresh
+        token'ın erişim token'ı olarak reddedildiğini kanıtlar. İzinlerin her istekte rol
+        DAG'ından okunması ve rol ya da üyelik iptalinin bir sonraki istekte geçerli olması
+        (ilk iki "then" maddesi) Faz 1'de personel RBAC PR'ında (migration 0040+) kapanır.
 
   - id: AUTH-013
     priority: P0
@@ -333,7 +400,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#changingThePasswordInvalidatesEveryTokenIncludingTheOneThatChangedIt"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#theChangePasswordEndpointStillChecksTheCurrentPassword"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#anAnonymousCallerCannotLogSomeoneElseOut"
-    go_test: null
+    go_test:
+      - internal/authn.TestStaffLogoutAndPasswordChange
+      - internal/app.TestStaffSessionEndsOverHTTP
 
   - id: AUTH-014
     priority: P0
@@ -352,7 +421,9 @@ scenarios:
     source:
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aFreshAccountMustChangeItsPasswordBeforeReachingAnythingElse"
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aStaffMemberWhoMustChangeTheirPasswordReachesNothingElse"
-    go_test: null
+    go_test:
+      - internal/app.TestStaffMustChangePassword
+      - internal/authn.TestStaffMustChangeFlag
 
   - id: AUTH-015
     priority: P0
@@ -383,7 +454,12 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anAnonymousRequestNeverReachesTheAdminSurface"
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anUnmappedAdminPathIsDeniedRatherThanGuessedAt"
       - "src/test/java/com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#theMarketplaceAdminRoleNoLongerOpensTheAdminSurface"
-    go_test: null
+    go_test:
+      - internal/authn.TestTokenClassesDoNotCross
+      - internal/app.TestTokenClassesOverHTTP
+    partial:
+      phase: 8
+      reason: Personel kimliği için zorunlu TOTP (K13) Faz 8'de gelir.
 
   - id: AUTH-016
     priority: P1
@@ -405,7 +481,7 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/MyWorkRulesTest.java#aSessionBelongingToSomeoneElseCannotBeRevoked"
       - "src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#someoneElsesSessionLooksExactlyLikeAMissingOne"
       - "src/test/java/com/exskylab/koala/webAPI/SessionDetailIT.java#aClosedSessionHasNoDetailEither"
-    go_test: null
+    go_test: internal/authn.TestOwnSessions
 
   - id: AUTH-017
     priority: P1
@@ -426,7 +502,13 @@ scenarios:
       - "Gerçek zamanlı bağlantı kurulur"
       - "S kapandıktan sonra bağlantı reddedilir; süresi dolmuş ya da başka kitleli bilgi de reddedilir"
     decision: K4
-    target: "K4: düz WebSocket + JSON olay protokolü. Kural aynı kalır, taşıyıcı değişir (WS bileti Faz 0 spike'ı)."
+    target: >
+      K4: düz WebSocket + JSON olay protokolü. Kural aynı kalır, taşıyıcı değişir (WS bileti Faz 0
+      spike'ı). "Başka kitle için verilmiş bilgi bağlanamaz" maddesi düşer: bilet imzalı bir JWT
+      değil, opak ve durumludur; kitlesi yoktur. Sınıf ayrımı anahtarla değil depoyla sağlanır:
+      bilet yalnız TicketStore'da aranır, erişim token'ı orada bulunmaz ve bilet bir JWT
+      doğrulayıcısından geçemez (ADR-0018 §3, ADR-0025 §10). Testte erişim token'ı bilet yerine
+      sunulur ve reddedilir.
     source:
       - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#anAuthenticatedSessionCanIssueANonCacheableRealtimeCredential"
       - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aRealtimeCredentialCannotAuthenticateAnHttpRequest"
@@ -434,7 +516,7 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aCredentialCannotClaimAnotherUserInItsSession"
       - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#anExpiredRealtimeCredentialCannotConnect"
       - "src/test/java/com/exskylab/koala/webAPI/RealtimeHandshakeIT.java#aCredentialForARevokedSessionCannotConnect"
-    go_test: null
+    go_test: internal/app.TestRealtimeTicketsOverHTTP
 
   - id: AUTH-018
     priority: P1
@@ -458,4 +540,13 @@ scenarios:
       - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffLoginEndpointSharesTheAuthBudget"
       - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffRefreshAndPasswordEndpointsAreAuthToo"
       - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#oversizedChunkedAuthBodiesAreRejectedBeforeTheRequestIsBuffered"
-    go_test: null
+    target: >
+      ADR-0025 §8: giriş iki kovadan jeton alır, (hedef, adres) ve hedef geneli. Hesabın bilinen
+      iyi kaynağı (marketplace'te son 30 günde oturumu olmuş cihaz, personelde son 30 günde
+      başarıyla girilmiş adres) boş hedef geneli kovadan geçer; saldırgan kovayı çok adresten
+      boşaltarak kullanıcıyı ya da personeli dışarıda tutamaz. (Hedef, adres) kovası ona da
+      uygulanır.
+    go_test:
+      - internal/app.TestAuthRateLimits
+      - internal/app.TestKnownDeviceSkipsTheAccountBucket
+      - internal/app.TestStaffKnownSourceSkipsTheAccountBucket

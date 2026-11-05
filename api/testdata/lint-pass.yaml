@@ -155,6 +155,21 @@ paths:
       responses:
         default:
           $ref: "#/components/responses/Problem"
+  /v1/admin/me:
+    get:
+      operationId: adminGetMe
+      x-authz-exempt: Personel yalnız kendi hesabını okur; izin gerektiren nesne yok.
+      security: [{adminBearer: []}]
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+  /v1/admin/auth/refresh:
+    get:
+      operationId: adminGetSignInState
+      security: []
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
 components:
   securitySchemes:
     marketplaceBearer: {type: http, scheme: bearer}

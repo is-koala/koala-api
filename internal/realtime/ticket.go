@@ -53,11 +53,10 @@ type TicketHash [sha256.Size]byte
 // atomic: of two concurrent Takes of one hash, at most one finds it. That
 // is the single-use guarantee.
 //
-// Faz 4 implements it on Postgres: Put is an INSERT, Take is
-// DELETE FROM realtime_tickets WHERE hash = $1 RETURNING ..., which keeps
-// redemption single-use across instances; a River periodic job deletes
-// expired rows. There is no production implementation yet; tests use an
-// in-memory one.
+// PostgresTickets implements it (Faz 1, ADR-0025): Put is an INSERT, Take
+// is DELETE FROM realtime_tickets WHERE token_hash = $1 RETURNING ...,
+// which keeps redemption single-use across instances; Purge deletes
+// expired rows. The unit tests of this package use an in-memory one.
 type TicketStore interface {
 	Put(ctx context.Context, hash TicketHash, t Ticket) error
 	// Take removes and returns the ticket. found is false when there is

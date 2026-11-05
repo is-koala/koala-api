@@ -46,6 +46,64 @@ sql:
               type: Time
               pointer: true
 
+  - name: authn
+    engine: postgresql
+    schema: db/migrations
+    queries: db/queries/authn
+    rules:
+      - no-base-table
+      - no-soft-delete-columns
+    gen:
+      go:
+        package: authndb
+        out: internal/authn/authndb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: github.com/google/uuid.NullUUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+
+  - name: realtime
+    engine: postgresql
+    schema: db/migrations
+    queries: db/queries/realtime
+    rules:
+      - no-base-table
+      - no-soft-delete-columns
+    gen:
+      go:
+        package: realtimedb
+        out: internal/realtime/realtimedb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: github.com/google/uuid.NullUUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+
   # koala_maint: base tables. Neither rule applies here, and no application
   # area may list db/queries/maint (TestSQLCConfig).
   - name: maint
@@ -86,7 +144,7 @@ rules:
     # The rule line is written by `make generate` from db/softdelete.yaml
     # (internal/tools/softdeletegen); do not edit it. It is `false` while
     # the catalog has no soft-deleted table.
-    rule: 'false'
+    rule: 'query.sql.matches(r"(?i)\b(?:from|join|update|into|using|truncate)\s+(?:only\s+)?(?:table\s+)?(?:public\.)?(?:devices|staff_members|users)\b")'
 
   # deleted_at and deletion_id are written by softdelete.Delete and Restore
   # alone. An application query that assigns them (UPDATE … SET, ON CONFLICT

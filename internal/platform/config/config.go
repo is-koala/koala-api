@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/is-koala/koala-api/internal/platform/appversion"
+	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
 )
 
 // Prefix is the namespace of every variable this service reads.
@@ -38,6 +39,10 @@ const (
 	VarMinAppVersion        = "KOALA_MIN_APP_VERSION"
 	VarTrustedProxies       = "KOALA_TRUSTED_PROXIES"
 	VarMetricsAddr          = "KOALA_METRICS_ADDR"
+	VarJWTMarketplaceKeys   = "KOALA_JWT_MARKETPLACE_KEYS"
+	VarJWTStaffKeys         = "KOALA_JWT_STAFF_KEYS"
+	VarRealtimeOrigins      = "KOALA_REALTIME_ORIGINS"
+	VarLoginPepper          = "KOALA_LOGIN_PEPPER"
 )
 
 // known lists every variable Load understands. A KOALA_* variable outside
@@ -46,6 +51,7 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarEnv, VarHTTPAddr, VarLogLevel, VarShutdownDrainDelay, VarShutdownTimeout,
 	VarDatabaseURL, VarOwnerDatabaseURL, VarBootstrapDatabaseURL,
 	VarMinAppVersion, VarTrustedProxies, VarMetricsAddr,
+	VarJWTMarketplaceKeys, VarJWTStaffKeys, VarRealtimeOrigins, VarLoginPepper,
 }
 
 // Env is the deployment environment.
@@ -97,6 +103,21 @@ type Config struct {
 	// MetricsAddr is the internal listener of /metrics (plan §3.10). It is
 	// never routed by the proxy.
 	MetricsAddr string
+	// JWTMarketplaceKeys and JWTStaffKeys are the Ed25519 key rings of the
+	// two access token classes (ADR-0025, internal/platform/tokenkeys):
+	// "kid:seed[,kid:seed…]", the first key signs. serve requires both in
+	// staging and production (ServeAuthErrors); elsewhere it generates
+	// ephemeral keys when they are unset. The rings must not share a key.
+	JWTMarketplaceKeys Secret
+	JWTStaffKeys       Secret
+	// RealtimeOrigins are the web origins allowed to open the WebSocket
+	// from a browser (ADR-0018 §4), comma-separated https://host[:port].
+	// The realtime handler validates each when serve starts.
+	RealtimeOrigins string
+	// LoginPepper keys the HMAC that stands for a sign-in identifier in the
+	// attempt log and the rate limit keys (ADR-0025 §5): unpadded base64url
+	// of at least 32 random bytes. Required like the key rings.
+	LoginPepper Secret
 }
 
 // Secret is a configuration value that must not reach logs or error
@@ -221,6 +242,7 @@ func Load(environ []string) (Config, error) {
 	}
 
 	errs = append(errs, loadEdge(vars, &cfg)...)
+	errs = append(errs, loadAuth(vars, &cfg)...)
 
 	if len(errs) > 0 {
 		slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
@@ -265,18 +287,21 @@ func loadEdge(vars map[string]string, cfg *Config) []error {
 	return errs
 }
 
-// ServeEdgeErrors reports the edge variables serve needs in production
-// (ADR-0021). Other commands (migrate, bootstrap) do not read them.
+// ServeEdgeErrors reports the edge variables serve needs (ADR-0021): the
+// trusted proxies in staging and production, both behind Traefik, where
+// without them every client would share the proxy's rate limit and lock
+// buckets (ADR-0025 §6, fail closed); the minimum app version in
+// production. Other commands (migrate, bootstrap) do not read them.
 func (c Config) ServeEdgeErrors() error {
-	if c.Env != EnvProduction {
+	if c.Env != EnvStaging && c.Env != EnvProduction {
 		return nil
 	}
 	var errs []error
-	if c.MinAppVersion == nil {
-		errs = append(errs, fmt.Errorf("%s: required by serve in production", VarMinAppVersion))
+	if c.Env == EnvProduction && c.MinAppVersion == nil {
+		errs = append(errs, fmt.Errorf("%s: required by serve in %s", VarMinAppVersion, c.Env))
 	}
 	if c.TrustedProxies == nil {
-		errs = append(errs, fmt.Errorf("%s: required by serve in production", VarTrustedProxies))
+		errs = append(errs, fmt.Errorf("%s: required by serve in %s", VarTrustedProxies, c.Env))
 	}
 	return errors.Join(errs...)
 }
@@ -339,6 +364,64 @@ func samePort(a, b string) bool {
 	_, pa, errA := net.SplitHostPort(a)
 	_, pb, errB := net.SplitHostPort(b)
 	return errA == nil && errB == nil && pa == pb
+}
+
+// loadAuth reads the authentication variables (ADR-0025): the two token
+// classes' key rings and the realtime origins. The rings are parsed here
+// so a bad value stops every command, and kept as secrets.
+func loadAuth(vars map[string]string, cfg *Config) []error {
+	var errs []error
+	if v, ok := vars[VarRealtimeOrigins]; ok {
+		cfg.RealtimeOrigins = v
+	}
+	rings := map[string]tokenkeys.Ring{}
+	for name, dst := range map[string]*Secret{
+		VarJWTMarketplaceKeys: &cfg.JWTMarketplaceKeys,
+		VarJWTStaffKeys:       &cfg.JWTStaffKeys,
+	} {
+		v, ok := vars[name]
+		if !ok {
+			continue
+		}
+		ring, err := tokenkeys.Parse(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w: %w", name, errInvalidValue, err))
+			continue
+		}
+		rings[name] = ring
+		*dst = Secret(v)
+	}
+	if v, ok := vars[VarLoginPepper]; ok {
+		if _, err := tokenkeys.ParsePepper(v); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w: %w", VarLoginPepper, errInvalidValue, err))
+		} else {
+			cfg.LoginPepper = Secret(v)
+		}
+	}
+	if m, ok := rings[VarJWTMarketplaceKeys]; ok && m.SharesKey(rings[VarJWTStaffKeys]) {
+		errs = append(errs, fmt.Errorf("%s, %s: %w: the token classes must not share a key", VarJWTMarketplaceKeys, VarJWTStaffKeys, errInvalidValue))
+	}
+	return errs
+}
+
+// ServeAuthErrors reports the authentication settings serve cannot start
+// without: in staging and production both signing key rings and the login
+// pepper. Elsewhere an unset one is generated per process (tokens die on
+// restart, attempt targets do not match across restarts).
+func (c Config) ServeAuthErrors() error {
+	if c.Env != EnvStaging && c.Env != EnvProduction {
+		return nil
+	}
+	var errs []error
+	for name, v := range map[string]Secret{
+		VarJWTMarketplaceKeys: c.JWTMarketplaceKeys, VarJWTStaffKeys: c.JWTStaffKeys, VarLoginPepper: c.LoginPepper,
+	} {
+		if v == "" {
+			errs = append(errs, fmt.Errorf("%s: required by serve in %s", name, c.Env))
+		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errors.Join(errs...)
 }
 
 func parseEnv(v string) (Env, error) {

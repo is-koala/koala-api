@@ -75,14 +75,36 @@ func (p Policy) valid() bool {
 type Table struct {
 	Name  string
 	Class Class
-	// PII marks a soft-deleted table whose view filters personal data
-	// (KVKK): its view is created WITH (security_barrier) (ADR-0017 §8).
+	// PII marks a table that holds personal data (KVKK). A soft-deleted
+	// one's view is created WITH (security_barrier) (ADR-0017 §8); an
+	// exempt one has no view and is marked for the retention and
+	// anonymization inventory (ADR-0025).
 	PII bool
 	// Reason justifies an exemption; required for M1–M6 and tool.
 	Reason string
 	// UniqueExceptions maps a unique index of a soft-deleted table that is
 	// not partial on deleted_at IS NULL to the reason (ADR-0013 Karar 5).
 	UniqueExceptions map[string]string
+	// AppView narrows koala_app's privileges on the active view below the
+	// generated SELECT, INSERT, UPDATE (the migration revokes the rest),
+	// for example a table only maintenance code inserts into. Empty means
+	// the default.
+	AppView []string
+}
+
+// AppViewPrivileges returns koala_app's privileges on the active view, in
+// SELECT, INSERT, UPDATE order.
+func (t Table) AppViewPrivileges() []string {
+	if len(t.AppView) == 0 {
+		return []string{"SELECT", "INSERT", "UPDATE"}
+	}
+	var out []string
+	for _, p := range []string{"SELECT", "INSERT", "UPDATE"} {
+		if slices.Contains(t.AppView, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // SoftDelete reports whether the table is soft-deleted (has a view).
@@ -127,6 +149,7 @@ type (
 		PII              bool              `yaml:"pii"`
 		Reason           string            `yaml:"reason"`
 		UniqueExceptions map[string]string `yaml:"unique_exceptions"`
+		AppView          []string          `yaml:"app_view"`
 	}
 	edgeDoc struct {
 		Child  string `yaml:"child"`
@@ -161,7 +184,7 @@ func ParseCatalog(docs ...[]byte) (*Catalog, error) {
 			if _, dup := c.tables[name]; dup {
 				return nil, fmt.Errorf("softdelete catalog: table %s listed twice", name)
 			}
-			t := Table{Name: name, Class: td.Class, PII: td.PII, Reason: strings.TrimSpace(td.Reason), UniqueExceptions: td.UniqueExceptions}
+			t := Table{Name: name, Class: td.Class, PII: td.PII, Reason: strings.TrimSpace(td.Reason), UniqueExceptions: td.UniqueExceptions, AppView: td.AppView}
 			if err := t.validate(); err != nil {
 				return nil, fmt.Errorf("softdelete catalog: table %s: %w", name, err)
 			}
@@ -224,13 +247,21 @@ func (t Table) validate() error {
 				return fmt.Errorf("unique exception %q needs an index name and a reason", index)
 			}
 		}
+		for _, p := range t.AppView {
+			if p != "SELECT" && p != "INSERT" && p != "UPDATE" {
+				return fmt.Errorf("app_view privilege %q: want SELECT, INSERT or UPDATE", p)
+			}
+		}
+		if len(t.AppView) > 0 && !slices.Contains(t.AppView, "SELECT") {
+			return errors.New("app_view must keep SELECT")
+		}
 		return nil
 	}
 	switch {
 	case t.Reason == "":
 		return errors.New("an exempt table needs a reason")
-	case t.PII:
-		return errors.New("pii applies to soft-deleted tables (their views) only")
+	case len(t.AppView) > 0:
+		return errors.New("app_view applies to soft-deleted tables (their views) only")
 	case len(t.UniqueExceptions) > 0:
 		return errors.New("unique_exceptions apply to soft-deleted tables only")
 	}

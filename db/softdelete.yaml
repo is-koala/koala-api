@@ -25,6 +25,58 @@
 # here. `make generate` writes sqlc.yaml's no-base-table rule from it.
 
 tables:
+  users:
+    class: soft_delete
+    pii: true
+  devices:
+    class: soft_delete
+    pii: true
+  staff_members:
+    class: soft_delete
+    pii: true
+    # Staff accounts are created by the bootstrap and staff management as
+    # koala_maint; the application only reads and updates them.
+    app_view: [SELECT, UPDATE]
+  user_sessions:
+    class: M2
+    reason: >-
+      Device-bound marketplace sessions (ADR-0025). Revoked or expired rows
+      are hard-deleted by the purge job; a session never comes back.
+  user_refresh_tokens:
+    class: M2
+    reason: >-
+      SHA-256 of rotating refresh tokens; purged with their session. Consumed
+      rows stay until then, for reuse detection (K12).
+  login_attempts:
+    class: M2
+    pii: true
+    reason: >-
+      Security log and persistent failure counter of sign-ins (ADR-0025 §5).
+      Not M1: it has a fixed 90-day retention and is hard-deleted after it,
+      which M1 ("never deleted") forbids. The target is an HMAC of the
+      address under a server secret; with the time it is still personal
+      data, hence pii.
+  staff_login_sources:
+    class: M2
+    pii: true
+    reason: >-
+      A staff member's state at one client address (ADR-0025 §6): failure
+      counter, address lock and last success (known-good source). A client
+      address tied to an account is personal data, hence pii. Retention: a
+      row is hard-deleted a day after its last change once its lock has
+      ended, or, when the address is a known-good source, 30 days after
+      its last success.
+  staff_sessions:
+    class: M2
+    reason: Staff sessions (ADR-0025); hard-deleted after they end.
+  staff_refresh_tokens:
+    class: M2
+    reason: SHA-256 of rotating staff refresh tokens; purged with their session.
+  realtime_tickets:
+    class: M2
+    reason: >-
+      Single-use WebSocket tickets that live 60 seconds (ADR-0018); redeemed
+      by DELETE, the rest purged.
   deletions:
     class: M1
     reason: >-
@@ -48,4 +100,28 @@ tables:
     class: M3
     reason: River's queue settings (ADR-0010).
 
-edges: []
+edges:
+  # A user's devices go with the user.
+  - child: devices
+    column: user_id
+    parent: users
+    policy: cascade
+  # Sessions are M2 and cannot cascade. A session of a deleted user or
+  # device is dead: the session check reaches both parents by LEFT JOIN
+  # and requires them active (ADR-0025).
+  - child: user_sessions
+    column: user_id
+    parent: users
+    policy: detach
+  - child: user_sessions
+    column: device_id
+    parent: devices
+    policy: detach
+  - child: staff_sessions
+    column: staff_id
+    parent: staff_members
+    policy: detach
+  - child: staff_login_sources
+    column: staff_id
+    parent: staff_members
+    policy: detach

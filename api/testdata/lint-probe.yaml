@@ -68,6 +68,79 @@ paths:
       security: [{adminBearer: []}]
       responses:
         default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/exempt-elsewhere:
+    get: # koala-admin-permission: x-authz-exempt outside the self-service allow list
+      operationId: getAdminExemptElsewhere
+      x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/auth/sessions:
+    get: # koala-admin-permission: /v1/admin/auth/* outside the explicit allow list needs a permission
+      operationId: getAdminAuthSessions
+      x-authz: {action: can_read, object: thing}
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/reports:
+    get: # koala-admin-permission: `security: []` outside the allow list
+      operationId: getAdminReports
+      security: []
+      x-authz-permission: report.read
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/head-only:
+    head: # koala-admin-permission: HEAD is checked like every other method
+      operationId: headAdminHeadOnly
+      x-authz: {action: can_read, object: thing}
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/auth/logout:
+    get: # koala-admin-self-service: a self-service operation with `security: []`
+      operationId: getAdminAuthLogout
+      security: []
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/auth/login:
+    get: # koala-admin-public: sign-in without `security: []` (and so koala-operation-authz)
+      operationId: getAdminAuthLogin
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+    delete: # koala-admin-public: a permission on sign-in
+      operationId: deleteAdminAuthLogin
+      security: []
+      x-authz-permission: auth.login
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/auth/refresh:
+    get: # koala-admin-public: an exemption on refresh (and so koala-operation-authz)
+      operationId: getAdminAuthRefresh
+      security: []
+      x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+    put: # koala-admin-public: refresh with a bearer (`security` must be empty)
+      operationId: putAdminAuthRefresh
+      x-authz: {action: can_read, object: thing}
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/me:
+    get: # koala-admin-self-service: an allow-listed operation without x-authz-exempt
+      operationId: getAdminMe
+      x-authz: {action: can_read, object: thing}
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/auth/password:
+    get: # koala-admin-self-service: an allow-listed operation with a permission
+      operationId: getAdminAuthPassword
+      x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
+      x-authz-permission: auth.password
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
   /v1/permission-outside-admin:
     get: # koala-admin-only-under-admin
       operationId: getPermissionOutsideAdmin

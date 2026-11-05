@@ -41,7 +41,7 @@ components:
           description: |
             Eşleşen route şablonu (`/v1/jobs/{jobId}`). Yol parametresinin değeri
             yazılmaz; eşleşmeyen istekte (404 `ROUTE_NOT_FOUND`) alan yoktur (ADR-0019).
-          examples: ["/v1/meta/ping"]
+          examples: ["/v1/auth/login"]
         requestId:
           type: string
           description: Yanıttaki `X-Request-Id` ile aynı değer.
@@ -56,7 +56,7 @@ components:
           title: Bad Request
           status: 400
           code: REQUEST_INVALID
-          instance: /v1/meta/ping
+          instance: /v1/auth/login
           requestId: req-123
           errors:
             - pointer: /amount/currency
@@ -162,6 +162,33 @@ components:
         - `CONVERSATION_NOT_FOUND` (olay; Faz 4'te REST'te de 404): konuşma yok ya da katılımcısı
           değilsiniz; ikisi ayırt edilemez (ADR-0014).
 
+        Kimlik doğrulama kodları (ADR-0015, ADR-0025):
+        - `AUTH_EMAIL_OR_PASSWORD_MISMATCH` (401): kayıtsız adres, yanlış parola ya da parolası
+          olmayan hesap; üçü ayırt edilemez (AUTH-001).
+        - `AUTH_ACCOUNT_SUSPENDED` (403): parola doğru ama hesap askıda.
+        - `AUTH_TOKEN_MISSING` (401): korunan operasyonda `Authorization: Bearer` yok.
+        - `AUTH_TOKEN_INVALID` (401): erişim token'ı bozuk, sahte, başka sınıfın ya da henüz geçerli değil.
+        - `AUTH_TOKEN_EXPIRED` (401): erişim token'ının süresi doldu; istemci yeniler.
+        - `AUTH_SESSION_NOT_FOUND_OR_INACTIVE` (401): oturum yok, kapalı ya da süresi dolmuş; kullanıcısı
+          ya da cihazı silinmiş.
+        - `AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE` (401): istek oturumun cihazından gelmedi; oturum
+          kapatıldı (AUTH-004).
+        - `AUTH_REFRESH_TOKEN_INVALID` (401): refresh token bilinmiyor ya da bozuk.
+        - `AUTH_REFRESH_TOKEN_EXPIRED` (401): refresh token'ın boşta kalma ya da oturumun mutlak süresi
+          doldu; oturum kapandı.
+        - `AUTH_REFRESH_TOKEN_REUSED` (401): döndürülmüş bir refresh token yeniden geldi; oturumun
+          tamamı kapatıldı (K12).
+        - `AUTH_SESSION_NOT_FOUND` (404): çağıranın böyle açık bir oturumu yok; başkasınınki de aynı
+          yanıtı alır (AUTH-016).
+        - `PASSWORD_POLICY_VIOLATION` (400): yeni parola en az 15, en çok 128 karakter kuralına
+          uymuyor (AUTH-009).
+        - `STAFF_LOGIN_FAILED` (401): personel hesabı yok, parola yanlış, hesap devre dışı ya da
+          kilitli; dördü ayırt edilemez (AUTH-010, AUTH-011).
+        - `STAFF_SESSION_ENDED` (401): personel oturumu çıkış, parola değişimi ya da devre dışı
+          bırakmayla sona erdi.
+        - `STAFF_PASSWORD_CHANGE_REQUIRED` (403): hesap önce parolasını değiştirmeli (AUTH-014).
+        - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+
         Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
         - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
         - `FIELD_UNKNOWN`: istek şemasında olmayan alan; gövdesi olmayan operasyona gövde.
@@ -202,6 +229,22 @@ components:
         - REALTIME_COMMAND_INVALID
         - REALTIME_RATE_LIMITED
         - CONVERSATION_NOT_FOUND
+        - AUTH_EMAIL_OR_PASSWORD_MISMATCH
+        - AUTH_ACCOUNT_SUSPENDED
+        - AUTH_TOKEN_MISSING
+        - AUTH_TOKEN_INVALID
+        - AUTH_TOKEN_EXPIRED
+        - AUTH_SESSION_NOT_FOUND_OR_INACTIVE
+        - AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE
+        - AUTH_REFRESH_TOKEN_INVALID
+        - AUTH_REFRESH_TOKEN_EXPIRED
+        - AUTH_REFRESH_TOKEN_REUSED
+        - AUTH_SESSION_NOT_FOUND
+        - PASSWORD_POLICY_VIOLATION
+        - STAFF_LOGIN_FAILED
+        - STAFF_SESSION_ENDED
+        - STAFF_PASSWORD_CHANGE_REQUIRED
+        - STAFF_CURRENT_PASSWORD_MISMATCH
         - FIELD_REQUIRED
         - FIELD_UNKNOWN
         - FIELD_TYPE_INVALID

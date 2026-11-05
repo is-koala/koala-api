@@ -7,9 +7,11 @@ import (
 	"log/slog"
 	"net"
 
+	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/jobs"
 	"github.com/is-koala/koala-api/internal/platform/log"
 	"github.com/is-koala/koala-api/internal/platform/metrics"
 )
@@ -28,7 +30,7 @@ func runServe(ctx context.Context, args []string, sio IO) int {
 		logger.ErrorContext(ctx, "startup failed", slog.String("error", config.VarDatabaseURL+": required by serve"))
 		return ExitError
 	}
-	if err := cfg.ServeEdgeErrors(); err != nil {
+	if err := errors.Join(cfg.ServeEdgeErrors(), cfg.ServeAuthErrors()); err != nil {
 		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
 		return ExitError
 	}
@@ -64,7 +66,7 @@ func runServe(ctx context.Context, args []string, sio IO) int {
 		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
 		return ExitError
 	}
-	if err := serve(ctx, cfg, logger, sio.Version, listeners{api: ln, metrics: metricsLn}, database.Ready); err != nil {
+	if err := serve(ctx, cfg, logger, sio.Version, listeners{api: ln, metrics: metricsLn}, database, database.Ready); err != nil {
 		logger.ErrorContext(ctx, "server failed", slog.Any("error", err))
 		return ExitError
 	}
@@ -80,11 +82,13 @@ type listeners struct {
 
 // serve wires the application and blocks until ctx is canceled and the
 // shutdown sequence has finished. Order on shutdown (plan §3.10):
-// readiness 503 → HTTP drain → (Faz 1) cancel workers → metrics listener
+// readiness 503 → HTTP drain → stop workers → metrics listener
 // → close pools; the caller closes the pools after serve returns. The
 // metrics listener stays up through the drain, so the drain itself is
 // observable. checks gate /readyz.
-func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version string, lns listeners, checks ...httpx.ReadinessCheck) error {
+func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version string, lns listeners,
+	database *db.DB, checks ...httpx.ReadinessCheck,
+) error {
 	logger.InfoContext(ctx, "starting",
 		slog.String("version", version),
 		slog.String("env", string(cfg.Env)))
@@ -101,11 +105,30 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	go func() { metricsDone <- metrics.Serve(metricsCtx, lns.metrics, metrics.Handler(reg, logger), logger) }()
 
 	health := httpx.NewHealth(logger, checks...)
-	router, err := newRouter(ctx, cfg, logger, health, reg, rateLimitGroups())
+	mods, err := wireModules(ctx, cfg, database, clock.Real{}, logger, reg)
+	var router *httpx.Router
+	if err == nil {
+		router, err = newRouter(ctx, cfg, logger, health, reg, rateLimitGroups(), mods)
+	}
+	var workers *jobs.Client
+	if err == nil {
+		workers, err = newWorkerClient(database, mods, logger)
+	}
+	var wm *workerMetrics
+	if err == nil {
+		wm, err = newWorkerMetrics(reg)
+	}
+	stopWorkers := func(context.Context) {}
+	if err == nil {
+		stopWorkers = startWorkers(ctx, workers, logger, wm, workerRetry)
+	}
 	if err == nil {
 		srv := httpx.NewServer(router, health, logger, httpx.ServerOptions{
 			DrainDelay:      cfg.ShutdownDrainDelay,
 			ShutdownTimeout: cfg.ShutdownTimeout,
+			// The hub owns the hijacked WebSocket connections: drain
+			// refuses new ones, shutdown closes the rest (ADR-0018 §8).
+			Streams: []httpx.Stream{mods.hub},
 		})
 		if serveErr := srv.Serve(ctx, lns.api); serveErr != nil {
 			err = fmt.Errorf("serve: %w", serveErr)
@@ -113,7 +136,12 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	} else {
 		_ = lns.api.Close()
 	}
-	// Faz 1: cancel the worker context, wait for workers.
+	// After the drain: cancel the workers and wait for them within
+	// workerStopTimeout (the margin of stop_grace_period over drain +
+	// shutdown, ADR-0025 §7).
+	stopCtx, cancelStop := context.WithTimeout(context.WithoutCancel(ctx), workerStopTimeout)
+	stopWorkers(stopCtx)
+	cancelStop()
 	stopMetrics()
 	if metricsErr := <-metricsDone; metricsErr != nil && err == nil {
 		err = metricsErr

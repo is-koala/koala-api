@@ -40,8 +40,15 @@ security:
   - marketplaceBearer: []
 
 tags:
-  - name: meta
-    description: Sözleşme ve sunucu sağlığıyla ilgili yardımcı uçlar.
+  - name: auth
+    description: |
+      Pazaryeri kullanıcısının girişi, token yenileme ve oturumları (ADR-0015,
+      ADR-0025). Oturum cihaza bağlıdır; erişim token'ı 15 dakika, refresh token tek
+      kullanımlıktır (K12).
+  - name: admin-auth
+    description: |
+      Personel girişi ve personel token sınıfı (ADR-0015 §5, ADR-0025): kilit,
+      `must_change_password`, `token_version`. TOTP Faz 8'de gelir (K13).
   - name: realtime
     description: |
       WebSocket kanalı (ADR-0011, ADR-0018). Bu uçlar üretilen strict sunucunun
@@ -50,77 +57,6 @@ tags:
       sınırının dışında, `Router.Stream` ile çalışır.
 
 paths:
-  /v1/meta/ping:
-    post:
-      operationId: ping
-      tags: [meta]
-      summary: Gövdeyi doğrulayıp geri döndürür.
-      description: |
-        Sözleşme duman testi: istek gövdesi spec'e göre doğrulanır ve aynen geri
-        döner. Yan etkisi yoktur. Ortak para ve problem bileşenlerinin uçtan uca
-        çalıştığını gösterir (ADR-0019). **Üretim ortamında bağlanmaz**
-        (`KOALA_ENV=production`'da 404); ilk gerçek operasyon gelince silinecek.
-      security: []
-      x-no-idempotency-key: Yan etkisi yok; aynı gövde her zaman aynı yanıtı verir.
-      requestBody:
-        description: Doğrulanıp geri döndürülecek gövde.
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PingRequest"
-      responses:
-        "200":
-          description: Doğrulanmış gövde.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PingResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        default:
-          $ref: "#/components/responses/InternalError"
-    patch:
-      operationId: patchPing
-      tags: [meta]
-      summary: Merge Patch gövdesini doğrulayıp hangi alanların değiştiğini döndürür.
-      description: |
-        JSON Merge Patch (RFC 7396) duman testi. Gönderilmeyen alan değişmez, `null`
-        alanı temizler, değer alanı değiştirir; yanıt bu üç durumu ayırt eder. Yan
-        etkisi yoktur. Üretim ortamında bağlanmaz; ilk gerçek operasyonla silinecek
-        (ADR-0019).
-      security: []
-      requestBody:
-        description: Merge patch. Yalnız `application/merge-patch+json` kabul edilir.
-        required: true
-        content:
-          application/merge-patch+json:
-            schema:
-              $ref: "#/components/schemas/PingPatch"
-      responses:
-        "200":
-          description: Gövdenin hangi alanları değiştirdiği.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PingPatchResult"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "413":
-          $ref: "#/components/responses/PayloadTooLarge"
-        "415":
-          $ref: "#/components/responses/UnsupportedMediaType"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        default:
-          $ref: "#/components/responses/InternalError"
-
   /v1/realtime/tickets:
     post:
       operationId: issueRealtimeTicket
@@ -187,6 +123,427 @@ paths:
         default:
           $ref: "#/components/responses/InternalError"
 
+  /v1/auth/login:
+    post:
+      operationId: loginUser
+      tags: [auth]
+      summary: E-posta ve parolayla giriş yapar; cihaza bağlı bir oturum açar.
+      description: |
+        Parolayla giriş (OTP ve kayıt Faz 2'de). İstek `X-Device-Id` taşır; oturum o
+        cihaza bağlanır ve aynı cihazın açık oturumları kapanır (AUTH-002). Kayıtsız
+        adres, yanlış parola ve parolası olmayan hesap aynı
+        `401 AUTH_EMAIL_OR_PASSWORD_MISMATCH` gövdesini alır ve aynı maliyeti öder
+        (AUTH-001). Erişim token'ı 15 dakikalık, refresh token'ı opak ve tek
+        kullanımlıktır (K12, ADR-0025). Oran sınırı: `auth` grubu, adres başına ve giriş
+        hedefinin özeti başına (ADR-0021).
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-no-idempotency-key: Her başarılı giriş yeni bir oturum açar ve aynı cihazın öncekini kapatır; tekrar güvenlidir.
+      requestBody:
+        description: Giriş bilgileri.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Yeni oturumun token çifti. Yanıt önbelleğe alınmaz.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/refresh:
+    post:
+      operationId: refreshUserSession
+      tags: [auth]
+      summary: Refresh token'ı döndürür ve yeni bir token çifti verir.
+      description: |
+        Sunulan refresh token tüketilir, yenisi verilir (rotasyon, K12). Oturum refresh
+        token'ın kendisinden bulunur; süresi dolmuş erişim token'ı gerekmez (AUTH-003).
+        Tüketilmiş bir token yeniden gelirse oturumun tamamı kapanır
+        (`AUTH_REFRESH_TOKEN_REUSED`). İstek oturumun cihazından gelmezse oturum kapanır
+        (`AUTH_SESSION_NOT_MATCHING_CURRENT_DEVICE`, AUTH-004). Refresh token 30 gün
+        kullanılmazsa, oturum 90 günü doldurursa `AUTH_REFRESH_TOKEN_EXPIRED` (ADR-0025).
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-no-idempotency-key: Refresh token tek kullanımlıktır; aynı gövdenin tekrarı yeniden kullanım sayılır ve oturumu kapatır (K12).
+      requestBody:
+        description: Refresh token.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Yeni token çifti; önceki refresh token artık geçersiz.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/logout:
+    post:
+      operationId: logoutUser
+      tags: [auth]
+      summary: Çağıranın oturumunu kapatır.
+      description: |
+        Oturumu kapatır; erişim ve refresh token'ı hemen geçersizleşir, açık WebSocket
+        bağlantıları kapanır.
+      x-authz-exempt: |
+        Çağıran yalnız kendi oturumunu kapatır; yetkilendirilecek başka bir nesne yoktur.
+      x-no-idempotency-key: Kapalı oturumu yeniden kapatmak bir şey değiştirmez; ikinci istek kimlik doğrulamasında 401 alır.
+      responses:
+        "204":
+          description: Oturum kapandı.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Çağıranın kimlik çekirdeğini döndürür.
+      description: Kimlik çekirdeğinin iskeleti; profil alanları Faz 2'de gelir.
+      x-authz-exempt: |
+        Çağıran yalnız kendi kaydını okur; kimlik oturumdan gelir, seçilecek nesne yoktur.
+      x-resource: users
+      responses:
+        "200":
+          description: Çağıranın kaydı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/sessions:
+    get:
+      operationId: listMySessions
+      tags: [auth]
+      summary: Çağıranın açık oturumlarını listeler.
+      description: |
+        Kapanmamış, süresi dolmamış ve cihazı silinmemiş oturumlar, yeniden eskiye.
+        Cihaz başına bir oturum olduğundan liste tek sayfadır: cursor'lar her zaman
+        `null` döner (en çok 100 oturum).
+      x-authz-exempt: |
+        Liste çağıranın kendi oturumlarıyla sınırlıdır; seçilecek başka bir nesne yoktur.
+      x-resource: user_sessions
+      responses:
+        "200":
+          description: Açık oturumlar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/sessions/revoke-others:
+    post:
+      operationId: revokeMyOtherSessions
+      tags: [auth]
+      summary: İsteği yapan dışındaki bütün oturumları kapatır.
+      description: Çağıranın diğer bütün oturumları kapanır; isteği yapan oturum açık kalır (AUTH-016).
+      x-authz-exempt: |
+        Yalnız çağıranın kendi oturumlarına dokunur; seçilecek başka bir nesne yoktur.
+      x-no-idempotency-key: Kapatma idempotenttir; tekrar eden istek kapalı oturumları yeniden kapatmaz.
+      responses:
+        "204":
+          description: Diğer oturumlar kapandı.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/sessions/{sessionId}:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        description: Oturum kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getMySession
+      tags: [auth]
+      summary: Çağıranın açık oturumlarından birini döndürür.
+      description: |
+        Başkasına ait, kapanmış ve hiç olmamış oturum aynı `404 AUTH_SESSION_NOT_FOUND`
+        gövdesini alır (AUTH-016).
+      x-authz-exempt: |
+        Arama çağıranın kendi oturumlarıyla sınırlıdır; başkasınınki yok sayılır.
+      x-resource: user_sessions
+      responses:
+        "200":
+          description: Oturum.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: revokeMySession
+      tags: [auth]
+      summary: Çağıranın açık oturumlarından birini kapatır.
+      description: |
+        Başkasına ait, kapanmış ve hiç olmamış oturum aynı 404'ü alır ve hiçbir şey
+        değişmez (AUTH-016). İsteği yapan oturum da kapatılabilir.
+      x-authz-exempt: |
+        Kapatma çağıranın kendi oturumlarıyla sınırlıdır; başkasınınki yok sayılır.
+      responses:
+        "204":
+          description: Oturum kapandı.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/auth/login:
+    post:
+      operationId: loginStaff
+      tags: [admin-auth]
+      summary: Personel girişi.
+      description: |
+        Ayrı token sınıfı: personel token'ı pazaryerinde, pazaryeri token'ı burada
+        geçmez (D5, ADR-0025). Hesap yok, parola yanlış, hesap devre dışı ve hesap
+        kilitli aynı `401 STAFF_LOGIN_FAILED` gövdesini alır (AUTH-010, AUTH-011). Art
+        arda 5 yanlış parola hesabı 15 dakika kilitler. TOTP Faz 8'de gelir (K13).
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-no-idempotency-key: Her başarılı giriş yeni bir personel oturumu açar; tekrar güvenlidir.
+      requestBody:
+        description: Giriş bilgileri.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Yeni personel oturumunun token çifti.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffTokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/auth/refresh:
+    post:
+      operationId: refreshStaffSession
+      tags: [admin-auth]
+      summary: Personel refresh token'ını döndürür.
+      description: |
+        Pazaryerinin yenilemesiyle aynı rotasyon ve yeniden kullanım kuralı. Hesabın
+        token sürümü değiştiyse (çıkış, parola değişimi) `STAFF_SESSION_ENDED`
+        (AUTH-013). Boşta 30 dakika, oturum en çok 12 saat (ADR-0025).
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-no-idempotency-key: Refresh token tek kullanımlıktır; aynı gövdenin tekrarı yeniden kullanım sayılır ve oturumu kapatır (K12).
+      requestBody:
+        description: Refresh token.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Yeni token çifti.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffTokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/auth/logout:
+    post:
+      operationId: logoutStaff
+      tags: [admin-auth]
+      summary: Personelin bütün token'larını geçersiz kılar.
+      description: |
+        Hesabın token sürümü artar: bütün cihazlardaki erişim ve refresh token'ları
+        ölür (AUTH-013).
+      security:
+        - adminBearer: []
+      x-authz-exempt: |
+        Personel yalnız kendi hesabının token'larını sonlandırır; izin gerektiren bir nesne yoktur.
+      x-no-idempotency-key: Çıkış idempotenttir; ikinci istek kimlik doğrulamasında 401 alır.
+      responses:
+        "204":
+          description: Bütün token'lar geçersiz.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/auth/password:
+    post:
+      operationId: changeStaffPassword
+      tags: [admin-auth]
+      summary: Personel parolasını değiştirir.
+      description: |
+        Mevcut parolayı ister (`403 STAFF_CURRENT_PASSWORD_MISMATCH`). Yeni parola en az
+        15, en çok 128 karakterdir (`400 PASSWORD_POLICY_VIOLATION`, AUTH-009).
+        Değişimden sonra isteği yapan dahil bütün token'lar ölür; personel yeniden giriş
+        yapar (AUTH-013). "Parola değişmeli" işaretli hesabın erişebildiği tek uç budur
+        (ve çıkış; AUTH-014).
+      security:
+        - adminBearer: []
+      x-authz-exempt: |
+        Personel yalnız kendi parolasını değiştirir; izin gerektiren bir nesne yoktur.
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-no-idempotency-key: Değişim bütün token'ları öldürür; tekrar eden istek kimlik doğrulamasında 401 alır.
+      requestBody:
+        description: Mevcut ve yeni parola.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffPasswordChange"
+      responses:
+        "204":
+          description: Parola değişti; yeniden giriş gerekir.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/me:
+    get:
+      operationId: getStaffMe
+      tags: [admin-auth]
+      summary: Personelin kendi hesabını döndürür.
+      description: |
+        "Parola değişmeli" işaretli hesap bu uca da erişemez:
+        `403 STAFF_PASSWORD_CHANGE_REQUIRED` (AUTH-014).
+      security:
+        - adminBearer: []
+      x-authz-exempt: |
+        Personel yalnız kendi hesabını okur; izin gerektiren bir nesne yoktur.
+      x-resource: staff_members
+      responses:
+        "200":
+          description: Personelin hesabı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffMe"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     marketplaceBearer:
@@ -213,88 +570,6 @@ components:
         altındaki operasyonlarda geçerlidir; marketplace token'ı burada reddedilir.
 
   schemas:
-    PingRequest:
-      type: object
-      description: Ping isteği. Bilinmeyen alan reddedilir.
-      additionalProperties: false
-      required: [amount]
-      properties:
-        amount:
-          $ref: "./components/money.yaml#/components/schemas/MoneyInput"
-          description: Geri döndürülecek tutar.
-          examples: [{amount: 15000, currency: TRY}]
-        note:
-          type: [string, "null"]
-          maxLength: 200
-          description: İsteğe bağlı not; null gönderilebilir.
-          examples: [Merhaba, null]
-      examples:
-        - amount: {amount: 15000, currency: TRY}
-          note: null
-
-    PingResponse:
-      type: object
-      description: Ping yanıtı; isteğin doğrulanmış hâli.
-      required: [amount, note]
-      properties:
-        amount:
-          $ref: "./components/money.yaml#/components/schemas/Money"
-          description: İstekteki tutar.
-          examples: [{amount: 15000, currency: TRY}]
-        note:
-          type: [string, "null"]
-          description: İstekteki not; gönderilmediyse null.
-      examples:
-        - amount: {amount: 15000, currency: TRY}
-          note: null
-
-    PingPatch:
-      type: object
-      description: |
-        Ping'in merge patch'i (RFC 7396). Hiçbir alan zorunlu değildir. Temizlenebilen
-        alan nullable'dır ve Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi",
-        "null" ve "değer" ayrılır (stil rehberi §3). `amount` temizlenemez: null 400 döner.
-      additionalProperties: false
-      properties:
-        amount:
-          $ref: "./components/money.yaml#/components/schemas/MoneyInput"
-          description: Yeni tutar. Temizlenemez.
-          examples: [{amount: 15000, currency: TRY}]
-        note:
-          type: [string, "null"]
-          maxLength: 200
-          description: Yeni not; `null` notu temizler.
-          examples: [Merhaba, null]
-          x-go-type: nullable.Nullable[string]
-          x-go-type-import:
-            path: github.com/oapi-codegen/nullable
-          x-go-type-skip-optional-pointer: true
-      examples:
-        - note: null
-        - amount: {amount: 15000, currency: TRY}
-          note: Merhaba
-
-    PingPatchResult:
-      type: object
-      description: Merge patch'in hangi alanları değiştirdiği.
-      required: [set, cleared]
-      properties:
-        set:
-          type: array
-          description: Değer verilen alanlar, alfabetik.
-          items:
-            type: string
-          examples: [[amount]]
-        cleared:
-          type: array
-          description: "`null` ile temizlenen alanlar, alfabetik."
-          items:
-            type: string
-          examples: [[note]]
-      examples:
-        - set: [amount]
-          cleared: [note]
-
     RealtimeTicket:
       type: object
       description: |
@@ -314,6 +589,239 @@ components:
       examples:
         - ticket: q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk
           expiresAt: "2026-11-05T09:01:00Z"
+
+    LoginRequest:
+      type: object
+      description: |
+        Parolayla giriş. Adres büyük-küçük harfe ve baştaki/sondaki boşluğa duyarsızdır.
+        Parola kurala bakılmadan olduğu gibi denenir (AUTH-009); üst sınır yalnız
+        gövdeyi korur.
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Giriş adresi.
+          examples: [ayse@example.com]
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Parola.
+          examples: [uzun bir parola cümlesi]
+      examples:
+        - email: ayse@example.com
+          password: uzun bir parola cümlesi
+
+    RefreshRequest:
+      type: object
+      description: Döndürülecek refresh token.
+      additionalProperties: false
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Son verilen refresh token (opak, 43 karakter).
+          examples: [q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk]
+      examples:
+        - refreshToken: q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk
+
+    TokenPair:
+      type: object
+      description: |
+        Bir oturumun token çifti (K12, ADR-0025). Erişim token'ı `Authorization: Bearer`
+        ile gönderilir ve 15 dakika geçerlidir. Refresh token opaktır, tek
+        kullanımlıktır; bir sonraki yenilemede yalnız son verilen geçerlidir.
+      required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, sessionId]
+      properties:
+        accessToken:
+          type: string
+          description: "EdDSA imzalı JWT (`typ` başlığı `at+jwt`)."
+          examples: [eyJhbGciOiJFZERTQSJ9.e30.c2ln]
+        accessTokenExpiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Erişim token'ının son geçerli anı.
+        refreshToken:
+          type: string
+          description: Opak refresh token.
+          examples: [q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk]
+        refreshTokenExpiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Refresh token kullanılmazsa geçersizleşeceği an.
+        sessionId:
+          type: string
+          format: uuid
+          description: Oturumun kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+      examples:
+        - accessToken: eyJhbGciOiJFZERTQSJ9.e30.c2ln
+          accessTokenExpiresAt: "2026-11-05T09:15:00Z"
+          refreshToken: q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk
+          refreshTokenExpiresAt: "2026-12-05T09:00:00Z"
+          sessionId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
+
+    StaffTokenPair:
+      type: object
+      description: |
+        Personel oturumunun token çifti. `mustChangePassword` doğruysa parola
+        değiştirilene kadar yalnız parola değişimi ve çıkış açıktır (AUTH-014).
+      required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, sessionId, mustChangePassword]
+      properties:
+        accessToken:
+          type: string
+          description: "EdDSA imzalı personel JWT'si (`aud` değeri `koala-staff`)."
+          examples: [eyJhbGciOiJFZERTQSJ9.e30.c2ln]
+        accessTokenExpiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Erişim token'ının son geçerli anı.
+        refreshToken:
+          type: string
+          description: Opak refresh token.
+          examples: [q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk]
+        refreshTokenExpiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Refresh token kullanılmazsa geçersizleşeceği an (boşta 30 dakika).
+        sessionId:
+          type: string
+          format: uuid
+          description: Personel oturumunun kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        mustChangePassword:
+          type: boolean
+          description: Hesap önce parolasını değiştirmeli.
+      examples:
+        - accessToken: eyJhbGciOiJFZERTQSJ9.e30.c2ln
+          accessTokenExpiresAt: "2026-11-05T09:15:00Z"
+          refreshToken: q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk
+          refreshTokenExpiresAt: "2026-11-05T09:30:00Z"
+          sessionId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
+          mustChangePassword: false
+
+    StaffPasswordChange:
+      type: object
+      description: Personel parola değişimi. Yeni parolanın kuralını sunucu uygular (AUTH-009).
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Mevcut parola.
+          examples: [eski parola cümlesi]
+        newPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Yeni parola; en az 15, en çok 128 karakter.
+          examples: [yeni ve uzun bir parola]
+      examples:
+        - currentPassword: eski parola cümlesi
+          newPassword: yeni ve uzun bir parola
+
+    SessionPlatform:
+      type: string
+      description: Oturumun cihazının platformu; giriş isteği bildirmediyse `UNKNOWN`.
+      enum: [IOS, ANDROID, WEB, UNKNOWN]
+
+    Session:
+      type: object
+      description: Çağıranın açık oturumlarından biri.
+      required: [id, platform, createdAt, lastSeenAt, expiresAt, current]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Oturum kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        platform:
+          $ref: "#/components/schemas/SessionPlatform"
+          description: Cihazın platformu.
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Girişin anı.
+        lastSeenAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Son etkinlik (5 dakika hassasiyetle).
+        expiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Oturumun mutlak sonu (girişten 90 gün sonra).
+        current:
+          type: boolean
+          description: İsteği yapan oturum mu.
+      examples:
+        - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
+          platform: IOS
+          createdAt: "2026-11-05T09:00:00Z"
+          lastSeenAt: "2026-11-05T09:10:00Z"
+          expiresAt: "2027-02-03T09:00:00Z"
+          current: true
+
+    SessionPage:
+      description: Açık oturumlar; tek sayfa.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Oturumlar, yeniden eskiye.
+              items:
+                $ref: "#/components/schemas/Session"
+
+    Me:
+      type: object
+      description: Çağıranın kimlik çekirdeği. Profil alanları Faz 2'de eklenir.
+      required: [id, email, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kullanıcı kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        email:
+          type: string
+          description: Giriş adresi.
+          examples: [ayse@example.com]
+        status:
+          type: string
+          description: Hesabın durumu.
+          enum: [ACTIVE, SUSPENDED]
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Hesabın açıldığı an.
+      examples:
+        - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
+          email: ayse@example.com
+          status: ACTIVE
+          createdAt: "2026-11-05T09:00:00Z"
+
+    StaffMe:
+      type: object
+      description: Personelin kendi hesabı. Roller ve izinler personel RBAC'ıyla gelir.
+      required: [id, email, mustChangePassword]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Personel kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        email:
+          type: string
+          description: Giriş adresi.
+          examples: [destek@iskoala.com]
+        mustChangePassword:
+          type: boolean
+          description: Hesap önce parolasını değiştirmeli.
+      examples:
+        - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
+          email: destek@iskoala.com
+          mustChangePassword: false
 
   # Ortak hata yanıtları. Her biri Problem gövdesi döner; kodlar
   # ErrorCode'dadır.

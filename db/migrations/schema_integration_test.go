@@ -227,6 +227,21 @@ func TestRoleGrants(t *testing.T) {
 		app := map[string][]string{
 			"deletions":        {"INSERT"},           // record of deletions: insert-only, no read-back (0010_deletions.sql)
 			"example_receipts": {"SELECT", "INSERT"}, // example M1 table (dbtest testdata)
+			// M2 sessions, tokens and attempts: written directly and
+			// purged by the application (0020, 0021, ADR-0025).
+			"user_sessions":       dml,
+			"staff_sessions":      dml,
+			"staff_login_sources": dml,
+			// Refresh tokens are deleted with their session only.
+			"user_refresh_tokens":  {"SELECT", "INSERT", "UPDATE"},
+			"staff_refresh_tokens": {"SELECT", "INSERT", "UPDATE"},
+			// The attempt log is append-only, purged after 90 days.
+			"login_attempts": {"SELECT", "INSERT", "DELETE"},
+			// Staff accounts are inserted by koala_maint only (catalog app_view).
+			"active_staff_members": {"SELECT", "UPDATE"},
+			// Realtime tickets are inserted, redeemed by DELETE … RETURNING
+			// and purged; never updated (0022).
+			"realtime_tickets": {"SELECT", "INSERT", "DELETE"},
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below

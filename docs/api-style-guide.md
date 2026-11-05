@@ -65,12 +65,12 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 | `DELETE` | Silme (soft-delete, ADR-0013). | 204 |
 
 - Durum alanı (`status`) `PATCH` ile değiştirilmez; geçiş her zaman alt eylemdir. FSM `domain.go`'da tablo olarak durur (CLAUDE.md).
-- **PATCH yalnız JSON Merge Patch'tir** (RFC 7396; ADR-0019). Gövdenin `Content-Type`'ı `application/merge-patch+json` olmalıdır; `application/json` `415 CONTENT_TYPE_UNSUPPORTED` döner **[lint: koala-patch-is-merge-patch]** **[test: internal/app TestPatchPingMergePatch]**. Patch şeması şu kurallara uyar:
+- **PATCH yalnız JSON Merge Patch'tir** (RFC 7396; ADR-0019). Gövdenin `Content-Type`'ı `application/merge-patch+json` olmalıdır; `application/json` `415 CONTENT_TYPE_UNSUPPORTED` döner **[lint: koala-patch-is-merge-patch]** **[test: internal/codegentest]**. Uçtan uca test (doğrulama + bağlama) ilk gerçek PATCH operasyonuyla `internal/app`'e gelir; `PATCH /v1/meta/ping` ADR-0025 ile kaldırıldı. Patch şeması şu kurallara uyar:
   - Kökte hiçbir üye zorunlu değildir. Şema ve içindeki her nesne bilinmeyen üyeyi reddeder (§4) **[lint: koala-merge-patch-shape, koala-closed-request-body]**. İç içe değer nesneleri (`MoneyInput` gibi) atomiktir: tamamı gönderilir ve kendi zorunlu üyelerini korur.
   - Temizlenebilen üye nullable'dır: düz alanda `type: [string, "null"]`, `$ref`'li alanda `oneOf: [{$ref: …}, {type: "null"}]`. Go'da `nullable.Nullable[T]` olur, böylece "gönderilmedi", "null" ve "değer" üç ayrı durum kalır. Bunun için üye `x-go-type: nullable.Nullable[…]`, `x-go-type-import: {path: github.com/oapi-codegen/nullable}` ve `x-go-type-skip-optional-pointer: true` taşır. Kural iç içe nesnelerdeki üyelere de uygulanır. Bu üç uzantı yoksa üye pointer olur ve `null` ile temizleme isteği "gönderilmedi"den ayırt edilemez, sessizce kaybolur **[lint: koala-merge-patch-nullable]** **[test: internal/codegentest]**.
   - Temizlenemeyen üye nullable değildir; ona `null` göndermek `400 FIELD_TYPE_INVALID` döner.
   - `nullable.Nullable` yalnız merge patch üyelerinde kullanılır; oapi-codegen'in global `nullable-type` seçeneği açılmaz. Gerekçe: zorunlu + nullable bir yanıt alanı `Nullable` olursa handler'ın atamayı unuttuğu değer `null` değil, sıfır değer (`""`, `0`) olarak yazılır. Pointer'da unutulan değer `null`'dır.
-  - Örnek: `PATCH /v1/meta/ping` (`PingPatch`).
+  - Örnek: `internal/codegentest/testdata/openapi31.yaml`'daki merge patch şeması.
 - Uzun iş isteğe bağlanmaz: 202 + iş kaynağı döner; sonuç iş kaynağından okunur (CLAUDE.md "Transaction").
 
 ## 4. İstek gövdesi
@@ -209,11 +209,14 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - `x-authz-exempt` kimlik isteyen ama yetkilendirilecek nesnesi olmayan uç içindir (kendi oturumu için bilet gibi). Gerekçe en az 20 karakterdir; `security: []` ile birlikte kullanılmaz.
   - Biçim: `x-authz: {action: can_read, object: job}`. `action`, authz modelindeki (`model.fga`, ADR-0014, plan §5.4) `can_*` relation'ıdır; `object` aynı modeldeki tiptir.
   - Varsayılan güvenlik `marketplaceBearer`'dır (kök `security`).
-- **`/v1/admin` altındaki her operasyon** `security: [{adminBearer: []}]` ve `x-authz-permission: payout.release` taşır. Eşleme eksikse sunucu açılmaz (Faz 1) **[lint: koala-admin-permission]**. `adminBearer` ve `x-authz-permission` başka yerde kullanılmaz **[lint: koala-admin-only-under-admin]**.
+- **`/v1/admin` altındaki her operasyon** `security: [{adminBearer: []}]` ve `x-authz-permission: payout.release` taşır. Eşleme eksikse sunucu açılmaz (Faz 1) **[lint: koala-admin-permission]**. `adminBearer` ve `x-authz-permission` başka yerde kullanılmaz **[lint: koala-admin-only-under-admin]**. İki dar istisna vardır (ADR-0025 §9; ADR-0005 madde 1'i ve plan §4.1-1, §5.5'i genişletir):
+  - **Kimliksiz personel uçları** yalnız `/v1/admin/auth/login` ve `/v1/admin/auth/refresh`'tir: `security: []`, izin ve muafiyet yok **[lint: koala-admin-public]**.
+  - **Personelin kendi hesabına dokunan uçlar** yalnız açık izin listesindedir: `/v1/admin/me`, `/v1/admin/auth/logout` ve `/v1/admin/auth/password`. Bunlar adminBearer + `x-authz-exempt` taşır, `x-authz-permission` taşımaz **[lint: koala-admin-self-service]**. Liste dışındaki her yol, `/v1/admin/auth/` altındaki yeni bir uç da, izin ister; orada ne `x-authz-exempt` ne `security: []` izin yerine geçer **[lint: koala-admin-permission]**.
+  - Kurallar `head`, `options` ve `trace` dahil her HTTP metoduna uygulanır.
 - **Sıra:** authn middleware'i (Faz 1) istek doğrulamasından önce gelir. Kimliksiz istek gövde biçimi hakkında bir şey öğrenmez (ADR-0019).
 - **Her GET operasyonu** okuduğu tabloyu `x-resource: <tablo>` ile adlandırır (`db/softdelete.yaml`'daki ad). Üretilmiş okuma testi (`softdeletetest.ReadTest`) bu operasyonlarda silinmiş nesnenin gizlendiğini sınar (ADR-0020). Zorunluluğu denetleyen vacuum kuralı ilk gerçek kaynakla gelir.
 
-- **Oran sınırı grubu:** Operasyon varsayılan grubundan (GET/HEAD/OPTIONS → `read`, diğerleri → `write`) başka bir gruba `x-rate-limit: <grup>` ile girer (`auth`, `upload`, `message`, `sitemap`, `boarding`). Grup tablosu `internal/app/edge.go`'dadır; bilinmeyen grup açılışı durdurur (ADR-0021) **[test]**.
+- **Oran sınırı grubu:** Operasyon varsayılan grubundan (GET/HEAD/OPTIONS → `read`, diğerleri → `write`) başka bir gruba `x-rate-limit: <grup>` ile girer (`auth`, `upload`, `message`, `sitemap`, `boarding`). Grup tablosu `internal/app/edge.go`'dadır; bilinmeyen grup açılışı durdurur (ADR-0021) **[test]**. `auth_account` grubunun route'u yoktur: giriş, hedef başına (adres fark etmeksizin) kovayı buradan alır (ADR-0025 §8).
 
 ## 12. Kullanımdan kaldırma (öneri)
 
@@ -235,4 +238,4 @@ Bu bölümün planda ya da bir ADR'de dayanağı yoktur.
 - Yeni bir bileşen dosyası `api/components/`'a eklenirse iki satır eklenir:
   - `internal/apiv1/generate.go`'ya bir `go:generate` satırı,
   - `internal/apiv1/oapi-codegen.yaml`'ın `import-mapping`'ine bir satır.
-- `/v1/meta/ping` sözleşme duman testidir. Üretimde bağlanmaz ve ilk gerçek operasyonla silinir (ADR-0019) **[test]**.
+- `/v1/meta/ping` ilk gerçek operasyonlarla (kimlik doğrulama, ADR-0025) kaldırıldı; doğrulama zincirinin uçtan uca testi `POST /v1/auth/login` üzerindedir (`internal/app TestLoginRequestValidation`) **[test]**.
