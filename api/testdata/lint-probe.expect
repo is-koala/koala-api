@@ -1,6 +1,9 @@
 # Expected koala-* results of api/testdata/lint-probe.yaml: one line per
 # (rule, JSON path) pair, tab-separated. scripts/api-lint-probe.sh fails on
 # a missing or an unexpected pair.
+# koala-operation-authz is a oneOf whose branches use `not`: when a case
+# breaks a `not`, vacuum v0.36.2 reports it once at the operation and once
+# at its path item, so those cases have two lines.
 koala-admin-only-under-admin	$.paths['/v1/permission-outside-admin'].get
 koala-admin-permission	$.paths['/v1/admin/users'].get
 koala-body-limit	$.paths['/v1/body-limit'].post
@@ -37,9 +40,13 @@ koala-no-envelope	$.paths['/v1/envelope-message'].get.responses['200'].content['
 koala-no-envelope	$.paths['/v1/envelope-success'].get.responses['200'].content['application/json'].schema.properties.success
 koala-no-multipart-upload	$.paths['/v1/multipart'].post.requestBody.content['multipart/form-data']
 koala-no-nullable-keyword	$.components.schemas['NullableKeyword'].properties['legacy']
+koala-operation-authz	$.paths['/v1/authz-exempt-and-authz']
 koala-operation-authz	$.paths['/v1/authz-exempt-and-authz'].get
+koala-operation-authz	$.paths['/v1/authz-exempt-public']
 koala-operation-authz	$.paths['/v1/authz-exempt-public'].get
+koala-operation-authz	$.paths['/v1/authz-exempt-short']
 koala-operation-authz	$.paths['/v1/authz-exempt-short'].get
+koala-operation-authz	$.paths['/v1/authz-not-a-relation']
 koala-operation-authz	$.paths['/v1/authz-not-a-relation'].get
 koala-operation-authz	$.paths['/v1/no-authz'].get
 koala-operation-id-camel-case	$.paths['/v1/bad-operation-id'].get
