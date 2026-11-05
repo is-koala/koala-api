@@ -42,20 +42,6 @@ func (q *Queries) ChangeStaffPassword(ctx context.Context, arg ChangeStaffPasswo
 	return err
 }
 
-const clearStaffLoginLock = `-- name: ClearStaffLoginLock :exec
-DELETE FROM staff_login_locks WHERE staff_id = $1 AND client_key = $2
-`
-
-type ClearStaffLoginLockParams struct {
-	StaffID   uuid.UUID
-	ClientKey string
-}
-
-func (q *Queries) ClearStaffLoginLock(ctx context.Context, arg ClearStaffLoginLockParams) error {
-	_, err := q.db.Exec(ctx, clearStaffLoginLock, arg.StaffID, arg.ClientKey)
-	return err
-}
-
 const consumeStaffRefreshToken = `-- name: ConsumeStaffRefreshToken :exec
 UPDATE staff_refresh_tokens
 SET consumed_at = $1::timestamptz, successor_salt = $2::bytea
@@ -74,7 +60,7 @@ func (q *Queries) ConsumeStaffRefreshToken(ctx context.Context, arg ConsumeStaff
 }
 
 const getStaffCredentials = `-- name: GetStaffCredentials :one
-SELECT id, password_hash
+SELECT id, password_hash, status, backoff_until
 FROM active_staff_members
 WHERE email = $1
 `
@@ -82,40 +68,49 @@ WHERE email = $1
 type GetStaffCredentialsRow struct {
 	ID           uuid.UUID
 	PasswordHash string
+	Status       string
+	BackoffUntil *time.Time
 }
 
 // GetStaffCredentials finds an active (not soft-deleted) staff member by
-// login identifier. A DISABLED account is returned: its sign-in fails
-// exactly like a wrong password (AUTH-010).
+// login identifier, with what decides before any hashing whether the
+// sign-in is examined at all. A DISABLED account is returned: its sign-in
+// fails exactly like a wrong password (AUTH-010).
 func (q *Queries) GetStaffCredentials(ctx context.Context, email string) (GetStaffCredentialsRow, error) {
 	row := q.db.QueryRow(ctx, getStaffCredentials, email)
 	var i GetStaffCredentialsRow
-	err := row.Scan(&i.ID, &i.PasswordHash)
+	err := row.Scan(
+		&i.ID,
+		&i.PasswordHash,
+		&i.Status,
+		&i.BackoffUntil,
+	)
 	return i, err
 }
 
-const getStaffLoginLock = `-- name: GetStaffLoginLock :one
-SELECT failures, locked_until
-FROM staff_login_locks
+const getStaffLoginSource = `-- name: GetStaffLoginSource :one
+SELECT failures, locked_until, last_success_at
+FROM staff_login_sources
 WHERE staff_id = $1 AND client_key = $2
 FOR UPDATE
 `
 
-type GetStaffLoginLockParams struct {
+type GetStaffLoginSourceParams struct {
 	StaffID   uuid.UUID
 	ClientKey string
 }
 
-type GetStaffLoginLockRow struct {
-	Failures    int32
-	LockedUntil *time.Time
+type GetStaffLoginSourceRow struct {
+	Failures      int32
+	LockedUntil   *time.Time
+	LastSuccessAt *time.Time
 }
 
-// GetStaffLoginLock reads and locks the (account, address) pair's counter.
-func (q *Queries) GetStaffLoginLock(ctx context.Context, arg GetStaffLoginLockParams) (GetStaffLoginLockRow, error) {
-	row := q.db.QueryRow(ctx, getStaffLoginLock, arg.StaffID, arg.ClientKey)
-	var i GetStaffLoginLockRow
-	err := row.Scan(&i.Failures, &i.LockedUntil)
+// GetStaffLoginSource reads and locks the (account, address) state.
+func (q *Queries) GetStaffLoginSource(ctx context.Context, arg GetStaffLoginSourceParams) (GetStaffLoginSourceRow, error) {
+	row := q.db.QueryRow(ctx, getStaffLoginSource, arg.StaffID, arg.ClientKey)
+	var i GetStaffLoginSourceRow
+	err := row.Scan(&i.Failures, &i.LockedUntil, &i.LastSuccessAt)
 	return i, err
 }
 
@@ -146,17 +141,23 @@ func (q *Queries) GetStaffMember(ctx context.Context, id uuid.UUID) (GetStaffMem
 	return i, err
 }
 
-const getStaffPasswordHash = `-- name: GetStaffPasswordHash :one
-SELECT password_hash
+const getStaffPasswordState = `-- name: GetStaffPasswordState :one
+SELECT password_hash, backoff_until
 FROM active_staff_members
 WHERE id = $1
 `
 
-func (q *Queries) GetStaffPasswordHash(ctx context.Context, id uuid.UUID) (string, error) {
-	row := q.db.QueryRow(ctx, getStaffPasswordHash, id)
-	var password_hash string
-	err := row.Scan(&password_hash)
-	return password_hash, err
+type GetStaffPasswordStateRow struct {
+	PasswordHash string
+	BackoffUntil *time.Time
+}
+
+// GetStaffPasswordState is what a password change checks before hashing.
+func (q *Queries) GetStaffPasswordState(ctx context.Context, id uuid.UUID) (GetStaffPasswordStateRow, error) {
+	row := q.db.QueryRow(ctx, getStaffPasswordState, id)
+	var i GetStaffPasswordStateRow
+	err := row.Scan(&i.PasswordHash, &i.BackoffUntil)
+	return i, err
 }
 
 const getStaffRefreshTokenForUpdate = `-- name: GetStaffRefreshTokenForUpdate :one
@@ -330,16 +331,70 @@ func (q *Queries) LockStaffForSignIn(ctx context.Context, id uuid.UUID) (LockSta
 	return i, err
 }
 
-const purgeStaffLoginLocks = `-- name: PurgeStaffLoginLocks :execrows
-DELETE FROM staff_login_locks
-WHERE updated_at < $1::timestamptz
-  AND (locked_until IS NULL OR locked_until < $1::timestamptz)
+const markStaffSourceSuccess = `-- name: MarkStaffSourceSuccess :exec
+INSERT INTO staff_login_sources (staff_id, client_key, failures, locked_until, last_success_at, updated_at)
+VALUES ($1, $2, 0, NULL, $3::timestamptz, $3::timestamptz)
+ON CONFLICT (staff_id, client_key) DO UPDATE
+SET failures = 0, locked_until = NULL, last_success_at = EXCLUDED.last_success_at, updated_at = EXCLUDED.updated_at
 `
 
-// PurgeStaffLoginLocks deletes pairs untouched since the bound whose lock,
-// if any, has ended.
-func (q *Queries) PurgeStaffLoginLocks(ctx context.Context, before time.Time) (int64, error) {
-	result, err := q.db.Exec(ctx, purgeStaffLoginLocks, before)
+type MarkStaffSourceSuccessParams struct {
+	StaffID   uuid.UUID
+	ClientKey string
+	Now       time.Time
+}
+
+// MarkStaffSourceSuccess clears the address's counter and lock and makes
+// it a known-good source (ADR-0025 §6).
+func (q *Queries) MarkStaffSourceSuccess(ctx context.Context, arg MarkStaffSourceSuccessParams) error {
+	_, err := q.db.Exec(ctx, markStaffSourceSuccess, arg.StaffID, arg.ClientKey, arg.Now)
+	return err
+}
+
+const peekStaffLoginSource = `-- name: PeekStaffLoginSource :one
+SELECT failures, locked_until, last_success_at
+FROM staff_login_sources
+WHERE staff_id = $1 AND client_key = $2
+`
+
+type PeekStaffLoginSourceParams struct {
+	StaffID   uuid.UUID
+	ClientKey string
+}
+
+type PeekStaffLoginSourceRow struct {
+	Failures      int32
+	LockedUntil   *time.Time
+	LastSuccessAt *time.Time
+}
+
+// PeekStaffLoginSource reads the (account, address) state without a lock:
+// the sign-in decides with it whether to verify the password at all, and
+// reads it again under the lock before acting.
+func (q *Queries) PeekStaffLoginSource(ctx context.Context, arg PeekStaffLoginSourceParams) (PeekStaffLoginSourceRow, error) {
+	row := q.db.QueryRow(ctx, peekStaffLoginSource, arg.StaffID, arg.ClientKey)
+	var i PeekStaffLoginSourceRow
+	err := row.Scan(&i.Failures, &i.LockedUntil, &i.LastSuccessAt)
+	return i, err
+}
+
+const purgeStaffLoginSources = `-- name: PurgeStaffLoginSources :execrows
+DELETE FROM staff_login_sources
+WHERE updated_at < $1::timestamptz
+  AND (locked_until IS NULL OR locked_until < $1::timestamptz)
+  AND (last_success_at IS NULL OR last_success_at < $2::timestamptz)
+`
+
+type PurgeStaffLoginSourcesParams struct {
+	Before      time.Time
+	KnownBefore time.Time
+}
+
+// PurgeStaffLoginSources deletes address states untouched since before
+// whose lock, if any, has ended and whose last success, if any, is older
+// than known_before.
+func (q *Queries) PurgeStaffLoginSources(ctx context.Context, arg PurgeStaffLoginSourcesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeStaffLoginSources, arg.Before, arg.KnownBefore)
 	if err != nil {
 		return 0, err
 	}
@@ -357,6 +412,25 @@ func (q *Queries) PurgeStaffSessions(ctx context.Context, before time.Time) (int
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const resetStaffSourceFailures = `-- name: ResetStaffSourceFailures :exec
+UPDATE staff_login_sources
+SET failures = 0, locked_until = NULL, updated_at = $1::timestamptz
+WHERE staff_id = $2 AND client_key = $3
+`
+
+type ResetStaffSourceFailuresParams struct {
+	Now       time.Time
+	StaffID   uuid.UUID
+	ClientKey string
+}
+
+// ResetStaffSourceFailures clears the address's counter and lock, if it
+// has a row.
+func (q *Queries) ResetStaffSourceFailures(ctx context.Context, arg ResetStaffSourceFailuresParams) error {
+	_, err := q.db.Exec(ctx, resetStaffSourceFailures, arg.Now, arg.StaffID, arg.ClientKey)
+	return err
 }
 
 const revokeStaffSession = `-- name: RevokeStaffSession :exec
@@ -394,14 +468,14 @@ func (q *Queries) SetStaffFailures(ctx context.Context, arg SetStaffFailuresPara
 	return err
 }
 
-const setStaffLoginLock = `-- name: SetStaffLoginLock :exec
-INSERT INTO staff_login_locks (staff_id, client_key, failures, locked_until, updated_at)
+const setStaffSourceFailures = `-- name: SetStaffSourceFailures :exec
+INSERT INTO staff_login_sources (staff_id, client_key, failures, locked_until, updated_at)
 VALUES ($1, $2, $3, $4, $5::timestamptz)
 ON CONFLICT (staff_id, client_key) DO UPDATE
 SET failures = EXCLUDED.failures, locked_until = EXCLUDED.locked_until, updated_at = EXCLUDED.updated_at
 `
 
-type SetStaffLoginLockParams struct {
+type SetStaffSourceFailuresParams struct {
 	StaffID     uuid.UUID
 	ClientKey   string
 	Failures    int32
@@ -409,8 +483,10 @@ type SetStaffLoginLockParams struct {
 	Now         time.Time
 }
 
-func (q *Queries) SetStaffLoginLock(ctx context.Context, arg SetStaffLoginLockParams) error {
-	_, err := q.db.Exec(ctx, setStaffLoginLock,
+// SetStaffSourceFailures stores the address's failure counter and lock;
+// its last success stays.
+func (q *Queries) SetStaffSourceFailures(ctx context.Context, arg SetStaffSourceFailuresParams) error {
+	_, err := q.db.Exec(ctx, setStaffSourceFailures,
 		arg.StaffID,
 		arg.ClientKey,
 		arg.Failures,
@@ -438,17 +514,20 @@ func (q *Queries) TouchStaffSession(ctx context.Context, arg TouchStaffSessionPa
 }
 
 const updateStaffPasswordHash = `-- name: UpdateStaffPasswordHash :exec
-UPDATE active_staff_members SET password_hash = $2 WHERE id = $1
+UPDATE active_staff_members
+SET password_hash = $1
+WHERE id = $2 AND password_hash = $3::text
 `
 
 type UpdateStaffPasswordHashParams struct {
-	ID           uuid.UUID
 	PasswordHash string
+	ID           uuid.UUID
+	VerifiedHash string
 }
 
-// UpdateStaffPasswordHash stores a rehash under current parameters; it is
-// not a password change.
+// UpdateStaffPasswordHash stores a rehash under current parameters, unless
+// the hash changed since it was verified; it is not a password change.
 func (q *Queries) UpdateStaffPasswordHash(ctx context.Context, arg UpdateStaffPasswordHashParams) error {
-	_, err := q.db.Exec(ctx, updateStaffPasswordHash, arg.ID, arg.PasswordHash)
+	_, err := q.db.Exec(ctx, updateStaffPasswordHash, arg.PasswordHash, arg.ID, arg.VerifiedHash)
 	return err
 }

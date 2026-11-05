@@ -93,6 +93,8 @@ CREATE TABLE user_sessions (
 CREATE INDEX user_sessions_user_open_idx ON user_sessions (user_id) WHERE revoked_at IS NULL;
 CREATE INDEX user_sessions_device_open_idx ON user_sessions (device_id) WHERE revoked_at IS NULL;
 CREATE INDEX user_sessions_expires_at_idx ON user_sessions (expires_at);
+-- Known-good devices (ADR-0025 §5): the user's sessions seen recently.
+CREATE INDEX user_sessions_user_seen_idx ON user_sessions (user_id, last_seen_at);
 
 -- Opaque refresh tokens, stored as SHA-256 (32 bytes of entropy make a
 -- slow hash unnecessary, plan §3.9). Each refresh consumes the presented

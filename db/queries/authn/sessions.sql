@@ -93,3 +93,14 @@ RETURNING id;
 -- with their refresh tokens and tickets (ON DELETE CASCADE).
 DELETE FROM user_sessions
 WHERE expires_at < sqlc.arg(before)::timestamptz OR revoked_at < sqlc.arg(before)::timestamptz;
+
+-- name: CountRecentDeviceSessions :one
+-- CountRecentDeviceSessions counts the user's sessions on a device seen
+-- since a bound: the device is a known-good source (ADR-0025 §5). Sessions
+-- ended for a stolen token or another device do not vouch for it.
+SELECT count(*)
+FROM user_sessions s
+LEFT JOIN active_devices d ON d.id = s.device_id
+WHERE s.user_id = sqlc.arg(user_id) AND d.device_key = sqlc.arg(device_key)::text
+  AND s.last_seen_at >= sqlc.arg(since)::timestamptz
+  AND (s.revoke_reason IS NULL OR s.revoke_reason NOT IN ('DEVICE_MISMATCH', 'REFRESH_REUSED'));

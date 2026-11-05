@@ -21,9 +21,10 @@ CREATE TABLE staff_members (
     -- Consecutive wrong passwords on the account, from any address, since
     -- the last success. From StaffBackoffAfter on, each failure sets an
     -- exponentially growing backoff_until (at most 15 minutes) during
-    -- which every attempt is refused unexamined. There is no hard lock
-    -- on the account: an attacker cannot keep a member out from other
-    -- addresses (ADR-0025 §6).
+    -- which attempts from unknown sources are refused unexamined. There
+    -- is no hard lock on the account, and the addresses the member signed
+    -- in from within 30 days are exempt (staff_login_sources): an
+    -- attacker cannot keep a member out of a place they use (ADR-0025 §6).
     failed_login_attempts integer NOT NULL DEFAULT 0,
     backoff_until timestamptz,
     -- Bumped by logout, password change and disabling: every access and
@@ -56,23 +57,28 @@ REVOKE INSERT ON active_staff_members FROM koala_app;
 
 CREATE UNIQUE INDEX staff_members_email_key ON staff_members (email) WHERE deleted_at IS NULL;
 
--- The lock of one (account, client address) pair (PCI DSS 4.0 8.3.4):
--- StaffLockThreshold consecutive wrong passwords from the address lock
--- the account for that address for StaffLockDuration. Other addresses
--- are unaffected.
-CREATE TABLE staff_login_locks (
+-- A staff member's state at one client address (ADR-0025 §6). Its failure
+-- counter and lock (PCI DSS 4.0 8.3.4): StaffLockThreshold consecutive
+-- wrong passwords from the address lock the account for that address for
+-- StaffLockDuration; other addresses are unaffected. Its last success:
+-- for KnownSourceWindow (30 days) after it the address is a known-good
+-- source, exempt from the account-wide backoff. Personal data (a client
+-- address with an account); purged a day after its last change unless
+-- the last success is still within the window.
+CREATE TABLE staff_login_sources (
     staff_id uuid NOT NULL REFERENCES staff_members (id) ON DELETE CASCADE,
     -- The client address; an IPv6 client by its /64.
     client_key text NOT NULL,
-    failures integer NOT NULL,
+    failures integer NOT NULL DEFAULT 0,
     locked_until timestamptz,
+    last_success_at timestamptz,
     updated_at timestamptz NOT NULL,
     PRIMARY KEY (staff_id, client_key),
-    CONSTRAINT staff_login_locks_failures_check CHECK (failures >= 0),
-    CONSTRAINT staff_login_locks_client_key_check CHECK (length(client_key) BETWEEN 1 AND 64)
+    CONSTRAINT staff_login_sources_failures_check CHECK (failures >= 0),
+    CONSTRAINT staff_login_sources_client_key_check CHECK (length(client_key) BETWEEN 1 AND 64)
 );
 
-CREATE INDEX staff_login_locks_updated_at_idx ON staff_login_locks (updated_at);
+CREATE INDEX staff_login_sources_updated_at_idx ON staff_login_sources (updated_at);
 
 -- A staff sign-in. The staff surface sends no device id (ADR-0021 §2);
 -- the session is bound to the account's token_version instead.
@@ -110,12 +116,12 @@ CREATE TABLE staff_refresh_tokens (
 
 CREATE INDEX staff_refresh_tokens_session_idx ON staff_refresh_tokens (session_id);
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON staff_sessions, staff_login_locks TO koala_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON staff_sessions, staff_login_sources TO koala_app;
 GRANT SELECT, INSERT, UPDATE ON staff_refresh_tokens TO koala_app;
 
 -- +goose Down
 DROP TABLE staff_refresh_tokens;
 DROP TABLE staff_sessions;
-DROP TABLE staff_login_locks;
+DROP TABLE staff_login_sources;
 DROP VIEW active_staff_members;
 DROP TABLE staff_members;

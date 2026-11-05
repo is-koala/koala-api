@@ -176,8 +176,9 @@ func TestTrustedProxiesUnmapIPv4(t *testing.T) {
 	}
 }
 
-// serve needs the edge variables in production; other commands and other
-// environments do not.
+// serve needs the edge variables: the trusted proxies in staging and
+// production, the minimum app version in production; other commands and
+// other environments need neither.
 func TestServeEdgeErrors(t *testing.T) {
 	t.Parallel()
 
@@ -188,7 +189,9 @@ func TestServeEdgeErrors(t *testing.T) {
 		{[]string{"KOALA_ENV=production"}, []string{"KOALA_MIN_APP_VERSION: required", "KOALA_TRUSTED_PROXIES: required"}},
 		{[]string{"KOALA_ENV=production", "KOALA_MIN_APP_VERSION=1.0.0"}, []string{"KOALA_TRUSTED_PROXIES: required"}},
 		{[]string{"KOALA_ENV=production", "KOALA_MIN_APP_VERSION=0.0.0", "KOALA_TRUSTED_PROXIES=10.0.0.0/8"}, nil},
-		{[]string{"KOALA_ENV=staging"}, nil},
+		{[]string{"KOALA_ENV=staging"}, []string{"KOALA_TRUSTED_PROXIES: required by serve in staging"}},
+		{[]string{"KOALA_ENV=staging", "KOALA_TRUSTED_PROXIES=10.0.0.0/8"}, nil},
+		{[]string{"KOALA_ENV=local"}, nil},
 	}
 	for _, tt := range tests {
 		cfg, err := config.Load(tt.environ)

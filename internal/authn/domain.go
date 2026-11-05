@@ -105,11 +105,15 @@ const (
 //     StaffLockDuration;
 //   - per account, from any address: from StaffBackoffAfter consecutive
 //     wrong passwords on, each one sets a backoff that doubles from
-//     StaffBackoffBase up to StaffBackoffMax. There is no hard lock on the
-//     account, so nobody can keep a member out from other addresses.
+//     StaffBackoffBase up to StaffBackoffMax. The backoff holds back only
+//     unknown sources: an address the member signed in from within
+//     KnownSourceWindow ("known-good source") is exempt, so failures from
+//     elsewhere, however many, cannot keep the member out of a place they
+//     use. The address lock applies to every address, known or not.
 //
-// While a lock or backoff is in force every attempt is refused unexamined
-// and changes nothing; the answer is the plain failure.
+// While a lock or backoff is in force for the address every attempt is
+// refused unexamined (verified against the dummy hash) and changes
+// nothing; the answer is the plain failure.
 const (
 	StaffLockThreshold = 5
 	StaffLockDuration  = 30 * time.Minute
@@ -118,10 +122,43 @@ const (
 	StaffBackoffMax    = 15 * time.Minute
 )
 
+// KnownSourceWindow is how long a successful sign-in makes its source a
+// known-good one (ADR-0025 §5–6): a staff member's (account, address)
+// pair, a user's device. A known source skips the account-wide
+// protections an attacker elsewhere can trigger (the staff backoff; the
+// marketplace lock and account-wide rate bucket) but not the ones of its
+// own address.
+const KnownSourceWindow = 30 * 24 * time.Hour
+
+// source is a staff member's state at one client address.
+type source struct {
+	failures    int32
+	lockedUntil *time.Time
+	lastSuccess *time.Time
+}
+
+// locked reports whether the address lock holds at now.
+func (s source) locked(now time.Time) bool { return inForce(s.lockedUntil, now) }
+
+// known reports whether the member signed in from the address within
+// KnownSourceWindow before now.
+func (s source) known(now time.Time) bool {
+	return s.lastSuccess != nil && now.Sub(*s.lastSuccess) < KnownSourceWindow
+}
+
+// blocked reports whether a sign-in from s is refused unexamined at now:
+// its address is locked, or the account backoff holds and s is not a
+// known-good source.
+func (s source) blocked(backoffUntil *time.Time, now time.Time) bool {
+	return s.locked(now) || (inForce(backoffUntil, now) && !s.known(now))
+}
+
 // Marketplace lock (ADR-0025 §5; NIST SP 800-63B 5.2.2): every
 // UserLockThreshold consecutive failures on a sign-in target lock it for
 // UserLockDuration. The counter is the attempt log itself. A locked target
-// answers exactly like a wrong password.
+// answers exactly like a wrong password, except to a device the account
+// signed in on within KnownSourceWindow, which the lock does not hold
+// back.
 const (
 	UserLockThreshold = 100
 	UserLockDuration  = time.Hour

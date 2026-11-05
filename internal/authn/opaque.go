@@ -1,10 +1,12 @@
 package authn
 
 import (
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"strings"
 )
 
@@ -39,13 +41,32 @@ func wellFormedOpaque(v string) bool {
 	return strings.Trim(v, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") == ""
 }
 
-// successorOf is the token a rotation of token issues: HMAC-SHA256 keyed
-// by the token over the salt stored with it at consumption. Only a holder
-// of the token can compute it, and a retry inside the grace window gets
-// the same successor back (ADR-0025 §3).
-func successorOf(token string, salt []byte) string {
-	mac := hmac.New(sha256.New, []byte(token))
-	_, _ = mac.Write(salt) // a hash.Hash never fails to write
+// successorInfo is the HKDF context of the successor key: the login
+// pepper keys sign-in targets directly and successors only through this
+// derivation, so neither use can stand in for the other.
+const successorInfo = "koala-api refresh token successor v1"
+
+// successorKey derives the server key of successorOf from the login pepper
+// (HKDF-SHA256, RFC 5869). No variable of its own is needed.
+func successorKey(pepper []byte) ([]byte, error) {
+	k, err := hkdf.Key(sha256.New, pepper, nil, successorInfo, sha256.Size)
+	if err != nil {
+		return nil, fmt.Errorf("authn: derive the successor key: %w", err)
+	}
+	return k, nil
+}
+
+// successorOf is the token a rotation of token issues:
+// HMAC-SHA256(key, token ‖ salt), key the server's successor key, salt the
+// random value stored with token at consumption. Computing it needs both
+// the token and the server secret: a leaked table (hash and salt) gives
+// neither, and a retry inside the grace window gets the same successor
+// back (ADR-0025 §3). The token has a fixed length, so the concatenation
+// is unambiguous.
+func successorOf(key []byte, token string, salt []byte) string {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(token)) // a hash.Hash never fails to write
+	_, _ = mac.Write(salt)
 	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 

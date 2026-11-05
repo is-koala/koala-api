@@ -114,9 +114,13 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	if err == nil {
 		workers, err = newWorkerClient(database, mods, logger)
 	}
+	var wm *workerMetrics
+	if err == nil {
+		wm, err = newWorkerMetrics(reg)
+	}
 	stopWorkers := func(context.Context) {}
 	if err == nil {
-		stopWorkers = startWorkers(ctx, workers, logger, workerRetry)
+		stopWorkers = startWorkers(ctx, workers, logger, wm, workerRetry)
 	}
 	if err == nil {
 		srv := httpx.NewServer(router, health, logger, httpx.ServerOptions{
@@ -132,9 +136,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	} else {
 		_ = lns.api.Close()
 	}
-	// After the drain: let a running job finish within workerStopTimeout
-	// (the margin of stop_grace_period over drain + shutdown, ADR-0025 §7);
-	// past it River cancels the job.
+	// After the drain: cancel the workers and wait for them within
+	// workerStopTimeout (the margin of stop_grace_period over drain +
+	// shutdown, ADR-0025 §7).
 	stopCtx, cancelStop := context.WithTimeout(context.WithoutCancel(ctx), workerStopTimeout)
 	stopWorkers(stopCtx)
 	cancelStop()

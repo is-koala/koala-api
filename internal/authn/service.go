@@ -43,10 +43,12 @@ type Service struct {
 	passwords PasswordHasher
 	tokens    *TokenClass
 	targets   targets
-	clock     clock.Clock
-	logger    *slog.Logger
-	metrics   *Metrics
-	onRevoke  RevokeHook
+	// successors keys the successor of a rotated refresh token.
+	successors []byte
+	clock      clock.Clock
+	logger     *slog.Logger
+	metrics    *Metrics
+	onRevoke   RevokeHook
 }
 
 // NewService returns the marketplace authentication service. tokens is
@@ -64,9 +66,14 @@ func NewService(database *db.DB, passwords PasswordHasher, tokens *TokenClass, p
 	if len(pepper) == 0 {
 		return nil, errors.New("authn: login pepper is required")
 	}
+	successors, err := successorKey(pepper)
+	if err != nil {
+		return nil, err
+	}
 	return &Service{
 		db: database, reads: authndb.New(database.Pool()), passwords: passwords, tokens: tokens,
-		targets: targets{pepper: pepper}, clock: clk, logger: logger, metrics: metrics, onRevoke: onRevoke,
+		targets: targets{pepper: pepper}, successors: successors, clock: clk, logger: logger, metrics: metrics,
+		onRevoke: onRevoke,
 	}, nil
 }
 
@@ -88,8 +95,10 @@ func (s *Service) Target(email string) []byte { return s.targets.of(normalizeEma
 //
 // An unknown address, an account without a password, a wrong password and
 // a locked target are the same error and pay the same cost: the lock
-// check, one argon2id verification and one attempt row (AUTH-001,
-// ADR-0025 §5). The device id is checked before anything is looked up.
+// check, the known-device check, one argon2id verification and one
+// attempt row (AUTH-001, ADR-0025 §5). A device the account signed in on
+// within KnownSourceWindow is not held back by the lock. The device id is
+// checked before anything is looked up.
 func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 	if err := checkDeviceKey(in.DeviceKey); err != nil {
 		return TokenPair{}, err
@@ -108,6 +117,12 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return TokenPair{}, fmt.Errorf("authn: load user credentials: %w", err)
 	}
+	// An unknown address asks about the nil user, which has no sessions.
+	known, err := s.knownDevice(ctx, cred.ID, in.DeviceKey, now)
+	if err != nil {
+		return TokenPair{}, err
+	}
+	locked = locked && !known
 	var ok, rehash bool
 	if found && cred.PasswordHash != nil && !locked {
 		ok, rehash, err = s.passwords.Verify(ctx, *cred.PasswordHash, in.Password)
@@ -199,6 +214,16 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 // UserLockDuration from the failure that completed the hundred; refused
 // attempts are logged as LOCKED and do not count, so they do not extend
 // it.
+//
+// The read takes no lock (ADR-0025 §5): sign-ins of one target that run
+// at the same time all see the count before any of them is logged. The
+// lock then starts at most that many attempts late; how many can run at
+// once is bounded by the target's rate limit buckets (a burst of 5 per
+// address, 10 across addresses). Each attempt is still logged, so the
+// next read counts it, and the lock's start is the hundredth failure's
+// time whatever the order. The metric and warning of a lock fire on the
+// attempt that reads 99 failures; concurrent ones can skip or repeat
+// them.
 func (s *Service) lockState(ctx context.Context, target []byte, now time.Time) (int64, bool, error) {
 	n, err := s.reads.CountFailuresSinceSuccess(ctx, authndb.CountFailuresSinceSuccessParams{PrincipalKind: principalUser, TargetHash: target})
 	if err != nil {
@@ -214,6 +239,34 @@ func (s *Service) lockState(ctx context.Context, target []byte, now time.Time) (
 		return 0, false, fmt.Errorf("authn: find lock start: %w", err)
 	}
 	return n, now.Before(start.Add(UserLockDuration)), nil
+}
+
+// KnownDevice reports whether deviceKey is a known-good device of the
+// account of email: one the account had a session on within
+// KnownSourceWindow (ADR-0025 §5). The rate limit lets such a device past
+// the account-wide bucket. An unknown address has no known device.
+func (s *Service) KnownDevice(ctx context.Context, email, deviceKey string) (bool, error) {
+	if !ValidDeviceKey(deviceKey) {
+		return false, nil
+	}
+	cred, err := s.reads.GetUserCredentials(ctx, normalizeEmail(email))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("authn: load user credentials: %w", err)
+	}
+	return s.knownDevice(ctx, cred.ID, deviceKey, s.clock.Now())
+}
+
+func (s *Service) knownDevice(ctx context.Context, userID uuid.UUID, deviceKey string, now time.Time) (bool, error) {
+	n, err := s.reads.CountRecentDeviceSessions(ctx, authndb.CountRecentDeviceSessionsParams{
+		UserID: userID, DeviceKey: deviceKey, Since: now.Add(-KnownSourceWindow),
+	})
+	if err != nil {
+		return false, fmt.Errorf("authn: check known device: %w", err)
+	}
+	return n > 0, nil
 }
 
 // fail logs a failed sign-in in its own statement (a transaction would
@@ -360,7 +413,7 @@ func (s *Service) Refresh(ctx context.Context, refreshToken, deviceKey string) (
 		if err := q.TouchUserSession(ctx, authndb.TouchUserSessionParams{Now: now, ID: row.SessionID, SeenBefore: now}); err != nil {
 			return fmt.Errorf("authn: touch session: %w", err)
 		}
-		pair, err = s.issuePair(ctx, q, row.UserID, row.SessionID, successorOf(refreshToken, salt), now, row.SessionExpiresAt)
+		pair, err = s.issuePair(ctx, q, row.UserID, row.SessionID, successorOf(s.successors, refreshToken, salt), now, row.SessionExpiresAt)
 		return err
 	})
 	if err != nil {
@@ -379,7 +432,7 @@ func (s *Service) retrySuccessor(ctx context.Context, q *authndb.Queries, token 
 	if len(salt) == 0 {
 		return TokenPair{}, false, nil
 	}
-	successor := successorOf(token, salt)
+	successor := successorOf(s.successors, token, salt)
 	next, err := q.GetUserRefreshTokenForUpdate(ctx, hashOpaque(successor))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return TokenPair{}, false, nil

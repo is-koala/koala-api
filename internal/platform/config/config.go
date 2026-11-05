@@ -287,18 +287,21 @@ func loadEdge(vars map[string]string, cfg *Config) []error {
 	return errs
 }
 
-// ServeEdgeErrors reports the edge variables serve needs in production
-// (ADR-0021). Other commands (migrate, bootstrap) do not read them.
+// ServeEdgeErrors reports the edge variables serve needs (ADR-0021): the
+// trusted proxies in staging and production, both behind Traefik, where
+// without them every client would share the proxy's rate limit and lock
+// buckets (ADR-0025 §6, fail closed); the minimum app version in
+// production. Other commands (migrate, bootstrap) do not read them.
 func (c Config) ServeEdgeErrors() error {
-	if c.Env != EnvProduction {
+	if c.Env != EnvStaging && c.Env != EnvProduction {
 		return nil
 	}
 	var errs []error
-	if c.MinAppVersion == nil {
-		errs = append(errs, fmt.Errorf("%s: required by serve in production", VarMinAppVersion))
+	if c.Env == EnvProduction && c.MinAppVersion == nil {
+		errs = append(errs, fmt.Errorf("%s: required by serve in %s", VarMinAppVersion, c.Env))
 	}
 	if c.TrustedProxies == nil {
-		errs = append(errs, fmt.Errorf("%s: required by serve in production", VarTrustedProxies))
+		errs = append(errs, fmt.Errorf("%s: required by serve in %s", VarTrustedProxies, c.Env))
 	}
 	return errors.Join(errs...)
 }

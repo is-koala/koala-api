@@ -99,7 +99,7 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_OWNER_DATABASE_URL` | `migrate`, `maint` için | — | `koala_owner` üyesi giriş; süper kullanıcı olamaz |
 | `KOALA_BOOTSTRAP_DATABASE_URL` | `bootstrap` için | — | `CREATEROLE` yetkili giriş, `postgres` DB'sine; süper kullanıcı olamaz |
 | `KOALA_MIN_APP_VERSION` | production'da `serve` için | `0.0.0` | En düşük desteklenen mobil sürüm (semver). `IOS`/`ANDROID` istemcisinin daha eski `X-App-Version`'ı `400 APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` alır (ADR-0021) |
-| `KOALA_TRUSTED_PROXIES` | production'da `serve` için | — | `X-Forwarded-For`'u okunacak proxy'ler: virgülle ayrılmış IP ya da CIDR (`10.0.0.0/8`). Yoksa TCP eşi istemcidir |
+| `KOALA_TRUSTED_PROXIES` | staging ve production'da `serve` için | — | `X-Forwarded-For`'u okunacak proxy'ler: virgülle ayrılmış IP ya da CIDR (`10.0.0.0/8`). Yoksa TCP eşi istemcidir |
 | `KOALA_METRICS_ADDR` | hayır | `:9090` | `/metrics`'in iç dinleyicisi; API portuyla aynı olamaz. Proxy'ye açılmaz |
 | `KOALA_JWT_MARKETPLACE_KEYS` | staging ve production'da `serve` için | süreç başına geçici anahtar | Marketplace erişim token'larının Ed25519 anahtar halkası: `kid:tohum[,kid:tohum…]`, tohum 32 bayt unpadded base64url; ilk anahtar imzalar, hepsi doğrular (ADR-0025). Sırdır |
 | `KOALA_JWT_STAFF_KEYS` | staging ve production'da `serve` için | süreç başına geçici anahtar | Personel token'larının halkası; biçim aynı, marketplace halkasıyla anahtar paylaşamaz. Halka başına en çok 4 anahtar; rastgele görünmeyen tohum reddedilir. Değeri `koala keygen jwt <kid>` üretir. Sırdır |
@@ -121,7 +121,7 @@ Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace
 - İstemci başlıkları yönlendirmeden önce, WebSocket dahil her yolda denetlenir (ADR-0021): `/v1/admin` dışında `X-Client-Platform` (`IOS`, `ANDROID`, `WEB`) ve `X-Device-Id` zorunludur; `IOS`/`ANDROID` ayrıca `KOALA_MIN_APP_VERSION`'dan eski olmayan bir `X-App-Version` gönderir. Sağlık uçları muaftır.
 - Kanonik olmayan yol (`//`, `.`/`..`, `%2f`, `%5c`, `%25`) yeniden yazılmaz, `400 PATH_INVALID` alır.
 - Oran sınırı iki katmandır: her istek istemci adresi başına (IPv6 için /64), kimliği doğrulanmış istek ayrıca kimlik başına. Grup, operasyonun `x-rate-limit`'inden ya da metottan gelir. Aşımda `429 RATE_LIMITED` + `Retry-After` döner. Kovalar bellek içidir; tek örnek varsayımı ADR-0021'dedir.
-- Prometheus metrikleri `KOALA_METRICS_ADDR`'de `/metrics`'te yayımlanır: `http_server_request_duration_seconds` (route şablonuyla), oran sınırı ve sürüm kapısı sayaçları, `koala_build_info`, Go runtime ve süreç metrikleri. Uyarı kuralları `ops/monitoring/prometheus-alerts.yml`'dedir.
+- Prometheus metrikleri `KOALA_METRICS_ADDR`'de `/metrics`'te yayımlanır: `http_server_request_duration_seconds` (route şablonuyla), oran sınırı ve sürüm kapısı sayaçları, giriş kilitleri (`koala_auth_lockouts_total`), arka plan işçileri (`koala_workers_up`, `koala_worker_start_failures_total`), `koala_build_info`, Go runtime ve süreç metrikleri. Uyarı kuralları `ops/monitoring/prometheus-alerts.yml`'dedir.
 
 ## Docker ve yayın
 
@@ -158,7 +158,7 @@ Konteynerin durdurma süresi (`stop_grace_period`) `KOALA_SHUTDOWN_DRAIN_DELAY +
 - [ ] GHCR paketinin görünürlüğü ve erişimi: private kalır, repoya bağlanır, Dokploy için `read:packages` token'ı verilir.
 - [ ] Branch protection, `v*` tag ruleset'i ve `production` environment'ı. Free planda private repo için yok; Team planı ya da public repo gerekir.
 - [ ] Dokploy `stop_grace_period` ≥ 50 sn.
-- [ ] Production'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` (ikisi yoksa `serve` açılmaz) ve Prometheus'un `KOALA_METRICS_ADDR`'i iç ağdan kazıması.
+- [ ] Production'da `KOALA_MIN_APP_VERSION`, staging ve production'da `KOALA_TRUSTED_PROXIES` (yoksa `serve` açılmaz) ve Prometheus'un `KOALA_METRICS_ADDR`'i iç ağdan kazıması.
 - [ ] Staging ve production'da `KOALA_JWT_MARKETPLACE_KEYS`, `KOALA_JWT_STAFF_KEYS` ve `KOALA_LOGIN_PEPPER` (biri yoksa `serve` açılmaz; `koala keygen` ile üretim ve rotasyon runbook'ta).
 - [ ] Faz 9'da `DOKPLOY_DEPLOY_WEBHOOK` sırrı (HTTPS alan adı) ve `DOKPLOY_DEPLOY_ENABLED` değişkeni.
 

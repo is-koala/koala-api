@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -111,6 +112,13 @@ func (a *authApp) call(t *testing.T, method, path, bearer, body string) *httptes
 // callFrom sends a request from client address addr.
 func (a *authApp) callFrom(t *testing.T, addr, method, path, bearer, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return a.callDevice(t, addr, "", method, path, bearer, body)
+}
+
+// callDevice sends a request from client address addr; a marketplace
+// request carries device as its X-Device-Id when it is not empty.
+func (a *authApp) callDevice(t *testing.T, addr, device, method, path, bearer, body string) *httptest.ResponseRecorder {
+	t.Helper()
 	var rd io.Reader = http.NoBody
 	if body != "" {
 		rd = strings.NewReader(body)
@@ -123,6 +131,9 @@ func (a *authApp) callFrom(t *testing.T, addr, method, path, bearer, body string
 	req.Header.Set(httpx.HeaderRequestID, "req-auth")
 	if !strings.HasPrefix(path, httpx.AdminPathPrefix) {
 		setClient(req.Header)
+		if device != "" {
+			req.Header.Set(httpx.HeaderDeviceID, device)
+		}
 	}
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
@@ -467,6 +478,36 @@ func TestAuthRateLimits(t *testing.T) {
 	rec := httptest.NewRecorder()
 	a.router.ServeHTTP(rec, req)
 	wantStatus(t, rec, http.StatusRequestEntityTooLarge, "REQUEST_BODY_TOO_LARGE")
+}
+
+// AUTH-018 (ADR-0025 §5): a device the account signed in on recently is
+// let past the account-wide bucket an attacker emptied from many
+// addresses; another device is not.
+func TestKnownDeviceSkipsTheAccountBucket(t *testing.T) {
+	t.Parallel()
+	groups := rateLimitGroups()
+	slow := func(r httpx.Rate) httpx.Rate { return httpx.Rate{Every: time.Hour, Burst: r.Burst} }
+	auth, account := groups[groupAuth], groups[groupAuthAccount]
+	auth.PerCustom, account.PerCustom = slow(auth.PerCustom), slow(account.PerCustom)
+	groups[groupAuth], groups[groupAuthAccount] = auth, account
+	a := newAuthApp(t, groups)
+	a.addUser(t)
+	a.loginUser(t) // testDevice: a known-good device from now on
+
+	wrong := `{"email":"` + userEmail + `","password":"yanlış ama yeterince uzun parola"}`
+	right := `{"email":"` + userEmail + `","password":"` + userPw + `"}`
+	const attacker = "attacker-device-01"
+	// One attempt per address: the pair buckets stay full, the account
+	// bucket (one token spent by the sign-in above) runs dry.
+	for i := range account.PerCustom.Burst - 1 {
+		wantStatus(t, a.callDevice(t, fmt.Sprintf("198.51.100.%d", i+1), attacker, http.MethodPost, "/v1/auth/login", "", wrong),
+			http.StatusUnauthorized, string(authn.CodeEmailOrPasswordMismatch))
+	}
+	wantStatus(t, a.callDevice(t, "203.0.113.1", attacker, http.MethodPost, "/v1/auth/login", "", right),
+		http.StatusTooManyRequests, httpx.CodeRateLimited)
+	if rec := a.callDevice(t, "203.0.113.2", testDevice, http.MethodPost, "/v1/auth/login", "", right); rec.Code != http.StatusOK {
+		t.Fatalf("AUTH-018: the known-good device was held back by the account bucket: %d %s", rec.Code, rec.Body)
+	}
 }
 
 // The purge runs as a River periodic job (ADR-0025 §7): the client serve

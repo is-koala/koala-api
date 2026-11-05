@@ -34,6 +34,7 @@ scenarios:
     go_test:
       - internal/authn.TestLoginConcealsUnknownAddress
       - internal/app.TestLoginFailureBodiesAreIdentical
+      - internal/authn.TestKnownDeviceIsNotLockedOut
 
   - id: AUTH-002
     priority: P0
@@ -288,7 +289,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aWrongPasswordIsIndistinguishableFromAnAccountThatDoesNotExist"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#bothBranchesCarryTheSameErrorCode"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aDisabledAccountIsIndistinguishableTooAndItsPasswordStillDoesNotWork"
-    go_test: internal/authn.TestStaffLoginConcealment
+    go_test:
+      - internal/authn.TestStaffLoginConcealment
+      - internal/authn.TestStaffRefusedSignInsCostTheSame
 
   - id: AUTH-011
     priority: P0
@@ -317,10 +320,12 @@ scenarios:
       (Faz 8). ADR-0025 §6 (Yusuf, 05.11; PCI DSS 4.0 8.3.4, OWASP): kilit (hesap, istemci adresi)
       çiftinindir; o adresten 5 hata hesabı o adres için 30 dakika kilitler. Hesap genelinde,
       adresten bağımsız, 10 ardışık hatadan sonra her hata ikiye katlanan bir bekleme koyar (en
-      çok 15 dakika); sert hesap kilidi yoktur, saldırgan personeli başka adreslerden dışarıda
-      tutamaz. Kilitliyken doğru parola da reddedilir, hiçbir deneme kilidi uzatmaz, yanıt
-      yanlış parolayla bayt bayt aynıdır; başarılı giriş sayaçları sıfırlar. Mevcut parola
-      denemeleri de bu sayaçlara girer.
+      çok 15 dakika); sert hesap kilidi yoktur. Bekleme yalnız bilinmeyen adreslere uygulanır:
+      personelin son 30 günde başarıyla girdiği adres (known-good source) muaftır, böylece
+      saldırgan personeli kullandığı yerlerden dışarıda tutamaz. Kilitliyken ya da beklemedeyken
+      deneme sahte hash'e karşı doğrulanır (süre doğru parolayı ele vermez), hiçbir deneme kilidi
+      uzatmaz, yanıt yanlış parolayla bayt bayt aynıdır; başarılı giriş sayaçları sıfırlar.
+      Mevcut parola denemeleri de bu sayaçlara girer ve aynı korumadan geçer.
     source:
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#fiveWrongPasswordsLockTheAccountAndTheRightPasswordStopsWorking"
       - "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aCorrectPasswordWhileLockedDoesNotExtendTheLock"
@@ -329,6 +334,8 @@ scenarios:
     go_test:
       - internal/authn.TestStaffLockout
       - internal/app.TestStaffLockBodyIsTheFailureBody
+      - internal/authn.TestStaffKnownSourceIsNotBackedOff
+      - internal/authn.TestStaffRefusedSignInsCostTheSame
     partial:
       phase: 8
       reason: >-
@@ -531,4 +538,11 @@ scenarios:
       - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffLoginEndpointSharesTheAuthBudget"
       - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#theStaffRefreshAndPasswordEndpointsAreAuthToo"
       - "src/test/java/com/exskylab/koala/core/configs/RateLimitBucketTest.java#oversizedChunkedAuthBodiesAreRejectedBeforeTheRequestIsBuffered"
-    go_test: internal/app.TestAuthRateLimits
+    target: >
+      ADR-0025 §8: giriş iki kovadan jeton alır, (hedef, adres) ve hedef geneli. Hesabın son 30
+      günde oturumu olmuş cihazı (known-good device) boş hedef geneli kovadan geçer; saldırgan
+      kovayı çok adresten boşaltarak kullanıcıyı dışarıda tutamaz. (Hedef, adres) kovası ona da
+      uygulanır.
+    go_test:
+      - internal/app.TestAuthRateLimits
+      - internal/app.TestKnownDeviceSkipsTheAccountBucket

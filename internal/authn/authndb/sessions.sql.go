@@ -29,6 +29,31 @@ func (q *Queries) ConsumeUserRefreshToken(ctx context.Context, arg ConsumeUserRe
 	return err
 }
 
+const countRecentDeviceSessions = `-- name: CountRecentDeviceSessions :one
+SELECT count(*)
+FROM user_sessions s
+LEFT JOIN active_devices d ON d.id = s.device_id
+WHERE s.user_id = $1 AND d.device_key = $2::text
+  AND s.last_seen_at >= $3::timestamptz
+  AND (s.revoke_reason IS NULL OR s.revoke_reason NOT IN ('DEVICE_MISMATCH', 'REFRESH_REUSED'))
+`
+
+type CountRecentDeviceSessionsParams struct {
+	UserID    uuid.UUID
+	DeviceKey string
+	Since     time.Time
+}
+
+// CountRecentDeviceSessions counts the user's sessions on a device seen
+// since a bound: the device is a known-good source (ADR-0025 §5). Sessions
+// ended for a stolen token or another device do not vouch for it.
+func (q *Queries) CountRecentDeviceSessions(ctx context.Context, arg CountRecentDeviceSessionsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentDeviceSessions, arg.UserID, arg.DeviceKey, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getOpenUserSession = `-- name: GetOpenUserSession :one
 SELECT s.id, s.created_at, s.last_seen_at, s.expires_at, d.platform
 FROM user_sessions s

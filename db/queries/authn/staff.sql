@@ -1,13 +1,15 @@
 -- name: GetStaffCredentials :one
 -- GetStaffCredentials finds an active (not soft-deleted) staff member by
--- login identifier. A DISABLED account is returned: its sign-in fails
--- exactly like a wrong password (AUTH-010).
-SELECT id, password_hash
+-- login identifier, with what decides before any hashing whether the
+-- sign-in is examined at all. A DISABLED account is returned: its sign-in
+-- fails exactly like a wrong password (AUTH-010).
+SELECT id, password_hash, status, backoff_until
 FROM active_staff_members
 WHERE email = $1;
 
--- name: GetStaffPasswordHash :one
-SELECT password_hash
+-- name: GetStaffPasswordState :one
+-- GetStaffPasswordState is what a password change checks before hashing.
+SELECT password_hash, backoff_until
 FROM active_staff_members
 WHERE id = $1;
 
@@ -27,33 +29,59 @@ UPDATE active_staff_members
 SET failed_login_attempts = sqlc.arg(failed_login_attempts), backoff_until = sqlc.narg(backoff_until)
 WHERE id = sqlc.arg(id);
 
--- name: GetStaffLoginLock :one
--- GetStaffLoginLock reads and locks the (account, address) pair's counter.
-SELECT failures, locked_until
-FROM staff_login_locks
+-- name: PeekStaffLoginSource :one
+-- PeekStaffLoginSource reads the (account, address) state without a lock:
+-- the sign-in decides with it whether to verify the password at all, and
+-- reads it again under the lock before acting.
+SELECT failures, locked_until, last_success_at
+FROM staff_login_sources
+WHERE staff_id = $1 AND client_key = $2;
+
+-- name: GetStaffLoginSource :one
+-- GetStaffLoginSource reads and locks the (account, address) state.
+SELECT failures, locked_until, last_success_at
+FROM staff_login_sources
 WHERE staff_id = $1 AND client_key = $2
 FOR UPDATE;
 
--- name: SetStaffLoginLock :exec
-INSERT INTO staff_login_locks (staff_id, client_key, failures, locked_until, updated_at)
+-- name: SetStaffSourceFailures :exec
+-- SetStaffSourceFailures stores the address's failure counter and lock;
+-- its last success stays.
+INSERT INTO staff_login_sources (staff_id, client_key, failures, locked_until, updated_at)
 VALUES (sqlc.arg(staff_id), sqlc.arg(client_key), sqlc.arg(failures), sqlc.narg(locked_until), sqlc.arg(now)::timestamptz)
 ON CONFLICT (staff_id, client_key) DO UPDATE
 SET failures = EXCLUDED.failures, locked_until = EXCLUDED.locked_until, updated_at = EXCLUDED.updated_at;
 
--- name: ClearStaffLoginLock :exec
-DELETE FROM staff_login_locks WHERE staff_id = $1 AND client_key = $2;
+-- name: MarkStaffSourceSuccess :exec
+-- MarkStaffSourceSuccess clears the address's counter and lock and makes
+-- it a known-good source (ADR-0025 §6).
+INSERT INTO staff_login_sources (staff_id, client_key, failures, locked_until, last_success_at, updated_at)
+VALUES (sqlc.arg(staff_id), sqlc.arg(client_key), 0, NULL, sqlc.arg(now)::timestamptz, sqlc.arg(now)::timestamptz)
+ON CONFLICT (staff_id, client_key) DO UPDATE
+SET failures = 0, locked_until = NULL, last_success_at = EXCLUDED.last_success_at, updated_at = EXCLUDED.updated_at;
 
--- name: PurgeStaffLoginLocks :execrows
--- PurgeStaffLoginLocks deletes pairs untouched since the bound whose lock,
--- if any, has ended.
-DELETE FROM staff_login_locks
+-- name: ResetStaffSourceFailures :exec
+-- ResetStaffSourceFailures clears the address's counter and lock, if it
+-- has a row.
+UPDATE staff_login_sources
+SET failures = 0, locked_until = NULL, updated_at = sqlc.arg(now)::timestamptz
+WHERE staff_id = sqlc.arg(staff_id) AND client_key = sqlc.arg(client_key);
+
+-- name: PurgeStaffLoginSources :execrows
+-- PurgeStaffLoginSources deletes address states untouched since before
+-- whose lock, if any, has ended and whose last success, if any, is older
+-- than known_before.
+DELETE FROM staff_login_sources
 WHERE updated_at < sqlc.arg(before)::timestamptz
-  AND (locked_until IS NULL OR locked_until < sqlc.arg(before)::timestamptz);
+  AND (locked_until IS NULL OR locked_until < sqlc.arg(before)::timestamptz)
+  AND (last_success_at IS NULL OR last_success_at < sqlc.arg(known_before)::timestamptz);
 
 -- name: UpdateStaffPasswordHash :exec
--- UpdateStaffPasswordHash stores a rehash under current parameters; it is
--- not a password change.
-UPDATE active_staff_members SET password_hash = $2 WHERE id = $1;
+-- UpdateStaffPasswordHash stores a rehash under current parameters, unless
+-- the hash changed since it was verified; it is not a password change.
+UPDATE active_staff_members
+SET password_hash = sqlc.arg(password_hash)
+WHERE id = sqlc.arg(id) AND password_hash = sqlc.arg(verified_hash)::text;
 
 -- name: ChangeStaffPassword :exec
 -- ChangeStaffPassword sets a new password: the must-change flag drops and

@@ -26,9 +26,11 @@ type StaffService struct {
 	passwords PasswordHasher
 	tokens    *TokenClass
 	targets   targets
-	clock     clock.Clock
-	logger    *slog.Logger
-	metrics   *Metrics
+	// successors keys the successor of a rotated refresh token.
+	successors []byte
+	clock      clock.Clock
+	logger     *slog.Logger
+	metrics    *Metrics
 }
 
 // NewStaffService returns the staff authentication service. tokens is the
@@ -42,9 +44,13 @@ func NewStaffService(database *db.DB, passwords PasswordHasher, tokens *TokenCla
 	if metrics == nil || len(pepper) == 0 {
 		return nil, errors.New("authn: metrics and login pepper are required")
 	}
+	successors, err := successorKey(pepper)
+	if err != nil {
+		return nil, err
+	}
 	return &StaffService{
 		db: database, reads: authndb.New(database.Pool()), passwords: passwords, tokens: tokens,
-		targets: targets{pepper: pepper}, clock: clk, logger: logger, metrics: metrics,
+		targets: targets{pepper: pepper}, successors: successors, clock: clk, logger: logger, metrics: metrics,
 	}, nil
 }
 
@@ -57,81 +63,81 @@ func (s *StaffService) Target(email string) []byte { return s.targets.of(normali
 // a locked or backed-off account are the same STAFF_LOGIN_FAILED and each
 // pays one argon2id verification (AUTH-010, AUTH-011).
 //
-// The counters are read and written under the member's row lock
-// (ADR-0025 §6): StaffLockThreshold consecutive failures from one address
-// lock the account for that address for StaffLockDuration; from
-// StaffBackoffAfter consecutive failures on the account, from any
-// address, every attempt waits out a doubling backoff. While either is in
-// force nothing changes, not even with the right password. A success
-// resets the account counter and the address's counter.
+// Whether the attempt is examined at all is decided before any hashing,
+// from the account's state and its source's (ADR-0025 §6): a disabled
+// account, a locked address and the account backoff seen from an unknown
+// source are verified against the dummy hash, so the time of the answer
+// does not depend on whether the password was right, and no rehash is
+// paid. An unknown address runs the same statements on nothing. The
+// counters are read again and written under the member's row lock: the
+// address lock after StaffLockThreshold consecutive failures from it, the
+// account backoff from StaffBackoffAfter on (not for known-good sources).
+// A success resets the account counter and the address's, and makes the
+// address a known-good source; a rehash under current parameters is
+// stored after it.
 func (s *StaffService) Login(ctx context.Context, email, password, clientKey string) (StaffTokenPair, error) {
 	email = normalizeEmail(email)
 	target := s.targets.of(email)
 	failed := apperr.New(apperr.KindUnauthenticated, CodeStaffLoginFailed)
+	now := s.clock.Now()
 
 	cred, err := s.reads.GetStaffCredentials(ctx, email)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if err := s.passwords.VerifyDummy(ctx, password); err != nil {
-			return StaffTokenPair{}, fmt.Errorf("authn: verify password: %w", err)
-		}
-		if err := insertAttempt(ctx, s.reads, principalStaff, target, outcomeFailed, s.clock.Now()); err != nil {
-			return StaffTokenPair{}, err
-		}
-		return StaffTokenPair{}, failed
-	}
-	if err != nil {
+	found := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return StaffTokenPair{}, fmt.Errorf("authn: load staff credentials: %w", err)
 	}
-	ok, rehash, err := s.passwords.Verify(ctx, cred.PasswordHash, password)
+	// An unknown address reads the nil member's source, which has none.
+	src, err := peekSource(ctx, s.reads, cred.ID, clientKey)
+	if err != nil {
+		return StaffTokenPair{}, err
+	}
+	examined := found && cred.Status == StaffActive && !src.blocked(cred.BackoffUntil, now)
+	var ok, rehash bool
+	if examined {
+		ok, rehash, err = s.passwords.Verify(ctx, cred.PasswordHash, password)
+	} else {
+		err = s.passwords.VerifyDummy(ctx, password)
+	}
 	if err != nil {
 		return StaffTokenPair{}, fmt.Errorf("authn: verify password: %w", err)
 	}
-	var newHash string
-	if ok && rehash {
-		if newHash, err = s.passwords.Hash(ctx, password); err != nil {
-			return StaffTokenPair{}, fmt.Errorf("authn: rehash password: %w", err)
-		}
-	}
 
-	now := s.clock.Now()
 	var pair StaffTokenPair
 	var outcome error
 	err = s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := authndb.New(tx)
 		m, err := q.LockStaffForSignIn(ctx, cred.ID)
 		if errors.Is(err, pgx.ErrNoRows) {
-			outcome = failed // deleted since the read above
-			return insertAttempt(ctx, q, principalStaff, target, outcomeFailed, now)
+			// An unknown address, or deleted since the read above.
+			outcome = failed
+			return imitateFailure(ctx, q, clientKey, target, now)
 		}
 		if err != nil {
 			return fmt.Errorf("authn: lock staff member: %w", err)
 		}
-		addr, err := addressLock(ctx, q, m.ID, clientKey)
+		src, err := lockSource(ctx, q, m.ID, clientKey)
 		if err != nil {
 			return err
 		}
 		switch {
-		case inForce(addr.LockedUntil, now) || inForce(m.BackoffUntil, now):
+		case src.blocked(m.BackoffUntil, now) || (!examined && m.Status == StaffActive):
+			// Locked, or not examined above and the state changed since:
+			// refused without counting.
 			outcome = failed
 			return insertAttempt(ctx, q, principalStaff, target, outcomeLocked, now)
+		case m.Status != StaffActive:
+			outcome = failed
+			return imitateFailure(ctx, q, clientKey, target, now)
 		case !ok || m.PasswordHash != cred.PasswordHash:
 			// A hash changed since the read counts as a wrong password.
 			outcome = failed
-			if _, err := s.countFailure(ctx, q, m.ID, m.FailedLoginAttempts, addr.Failures, clientKey, now); err != nil {
+			if _, _, err := s.countFailure(ctx, q, m.ID, m.FailedLoginAttempts, src, clientKey, now); err != nil {
 				return err
 			}
 			return insertAttempt(ctx, q, principalStaff, target, outcomeFailed, now)
-		case m.Status != StaffActive:
-			outcome = failed
-			return insertAttempt(ctx, q, principalStaff, target, outcomeFailed, now)
 		}
-		if err := s.clearFailures(ctx, q, m.ID, m.FailedLoginAttempts != 0 || m.BackoffUntil != nil, clientKey); err != nil {
+		if err := s.markSuccess(ctx, q, m.ID, m.FailedLoginAttempts != 0 || m.BackoffUntil != nil, clientKey, now); err != nil {
 			return err
-		}
-		if newHash != "" {
-			if err := q.UpdateStaffPasswordHash(ctx, authndb.UpdateStaffPasswordHashParams{ID: m.ID, PasswordHash: newHash}); err != nil {
-				return fmt.Errorf("authn: store rehash: %w", err)
-			}
 		}
 		sid := newID()
 		end := now.Add(StaffSessionMaxTTL)
@@ -154,62 +160,113 @@ func (s *StaffService) Login(ctx context.Context, email, password, clientKey str
 	if outcome != nil {
 		return StaffTokenPair{}, outcome
 	}
+	if rehash {
+		s.rehash(ctx, cred.ID, cred.PasswordHash, password)
+	}
 	return pair, nil
 }
 
-// addressLock reads and locks the (member, address) counter; a pair with
-// no row has no failures.
-func addressLock(ctx context.Context, q *authndb.Queries, staffID uuid.UUID, clientKey string) (authndb.GetStaffLoginLockRow, error) {
-	row, err := q.GetStaffLoginLock(ctx, authndb.GetStaffLoginLockParams{StaffID: staffID, ClientKey: clientKey})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return authndb.GetStaffLoginLockRow{}, nil
+// rehash stores password under current parameters after a sign-in that
+// verified it against an older hash. It runs after the success, so only a
+// right password on an examined attempt pays it; a failure leaves the old
+// hash, which still verifies.
+func (s *StaffService) rehash(ctx context.Context, id uuid.UUID, verified, password string) {
+	hash, err := s.passwords.Hash(ctx, password)
+	if err == nil {
+		err = s.reads.UpdateStaffPasswordHash(ctx, authndb.UpdateStaffPasswordHashParams{
+			PasswordHash: hash, ID: id, VerifiedHash: verified,
+		})
 	}
 	if err != nil {
-		return authndb.GetStaffLoginLockRow{}, fmt.Errorf("authn: load staff address lock: %w", err)
+		s.logger.WarnContext(ctx, "staff password rehash failed", slog.Any("error", err))
 	}
-	return row, nil
+}
+
+// imitateFailure runs, for a sign-in with no member or a disabled one, the
+// statements a wrong password runs after the member's row lock (AUTH-010):
+// the address state read under a lock, the two counter writes and the
+// attempt row. The first three are on the nil member and match no row.
+func imitateFailure(ctx context.Context, q *authndb.Queries, clientKey string, target []byte, now time.Time) error {
+	var id uuid.UUID
+	if _, err := lockSource(ctx, q, id, clientKey); err != nil {
+		return err
+	}
+	if err := q.SetStaffFailures(ctx, authndb.SetStaffFailuresParams{ID: id}); err != nil {
+		return fmt.Errorf("authn: count staff failure: %w", err)
+	}
+	if err := q.ResetStaffSourceFailures(ctx, authndb.ResetStaffSourceFailuresParams{Now: now, StaffID: id, ClientKey: clientKey}); err != nil {
+		return fmt.Errorf("authn: count staff address failure: %w", err)
+	}
+	return insertAttempt(ctx, q, principalStaff, target, outcomeFailed, now)
+}
+
+// peekSource reads the member's state at an address without a lock; an
+// address with no row has none.
+func peekSource(ctx context.Context, q *authndb.Queries, staffID uuid.UUID, clientKey string) (source, error) {
+	row, err := q.PeekStaffLoginSource(ctx, authndb.PeekStaffLoginSourceParams{StaffID: staffID, ClientKey: clientKey})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return source{}, nil
+	}
+	if err != nil {
+		return source{}, fmt.Errorf("authn: load staff address state: %w", err)
+	}
+	return source{failures: row.Failures, lockedUntil: row.LockedUntil, lastSuccess: row.LastSuccessAt}, nil
+}
+
+// lockSource reads and locks the member's state at an address.
+func lockSource(ctx context.Context, q *authndb.Queries, staffID uuid.UUID, clientKey string) (source, error) {
+	row, err := q.GetStaffLoginSource(ctx, authndb.GetStaffLoginSourceParams{StaffID: staffID, ClientKey: clientKey})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return source{}, nil
+	}
+	if err != nil {
+		return source{}, fmt.Errorf("authn: load staff address state: %w", err)
+	}
+	return source{failures: row.Failures, lockedUntil: row.LockedUntil, lastSuccess: row.LastSuccessAt}, nil
 }
 
 // countFailure applies one wrong password to the account counter and the
-// address counter, and reports whether the address is now locked. Locks
-// and backoffs are counted (MetricLockouts) and logged as warnings.
+// address counter. It reports whether the address is now locked and
+// whether the account is now backed off. Locks and backoffs are counted
+// (MetricLockouts) and logged as warnings.
 func (s *StaffService) countFailure(ctx context.Context, q *authndb.Queries, staffID uuid.UUID,
-	accountFailures, addressFailures int32, clientKey string, now time.Time,
-) (bool, error) {
+	accountFailures int32, src source, clientKey string, now time.Time,
+) (addressLocked, backedOff bool, err error) {
 	n, backoff := accountFailure(accountFailures, now)
 	if err := q.SetStaffFailures(ctx, authndb.SetStaffFailuresParams{FailedLoginAttempts: n, BackoffUntil: backoff, ID: staffID}); err != nil {
-		return false, fmt.Errorf("authn: count staff failure: %w", err)
+		return false, false, fmt.Errorf("authn: count staff failure: %w", err)
 	}
 	if backoff != nil {
 		s.metrics.lockout("staff", scopeBackoff)
 		s.logger.WarnContext(ctx, "staff account backoff after consecutive failures",
 			slog.String("staff_id", staffID.String()), slog.Int("failures", int(n)), slog.Time("until", *backoff))
 	}
-	af, until := addressFailure(addressFailures, now)
-	err := q.SetStaffLoginLock(ctx, authndb.SetStaffLoginLockParams{
+	af, until := addressFailure(src.failures, now)
+	err = q.SetStaffSourceFailures(ctx, authndb.SetStaffSourceFailuresParams{
 		StaffID: staffID, ClientKey: clientKey, Failures: af, LockedUntil: until, Now: now,
 	})
 	if err != nil {
-		return false, fmt.Errorf("authn: count staff address failure: %w", err)
+		return false, false, fmt.Errorf("authn: count staff address failure: %w", err)
 	}
 	if until != nil {
 		s.metrics.lockout("staff", scopeAddress)
 		s.logger.WarnContext(ctx, "staff account locked for a client address",
 			slog.String("staff_id", staffID.String()), slog.Time("until", *until))
 	}
-	return until != nil, nil
+	return until != nil, backoff != nil, nil
 }
 
-// clearFailures resets the counters a success clears: the account's (when
-// it has any) and the address's.
-func (s *StaffService) clearFailures(ctx context.Context, q *authndb.Queries, staffID uuid.UUID, account bool, clientKey string) error {
+// markSuccess resets the counters a success clears, the account's (when
+// it has any) and the address's, and makes the address a known-good
+// source.
+func (s *StaffService) markSuccess(ctx context.Context, q *authndb.Queries, staffID uuid.UUID, account bool, clientKey string, now time.Time) error {
 	if account {
 		if err := q.SetStaffFailures(ctx, authndb.SetStaffFailuresParams{ID: staffID}); err != nil {
 			return fmt.Errorf("authn: reset staff failures: %w", err)
 		}
 	}
-	if err := q.ClearStaffLoginLock(ctx, authndb.ClearStaffLoginLockParams{StaffID: staffID, ClientKey: clientKey}); err != nil {
-		return fmt.Errorf("authn: reset staff address failures: %w", err)
+	if err := q.MarkStaffSourceSuccess(ctx, authndb.MarkStaffSourceSuccessParams{StaffID: staffID, ClientKey: clientKey, Now: now}); err != nil {
+		return fmt.Errorf("authn: mark staff address: %w", err)
 	}
 	return nil
 }
@@ -271,7 +328,7 @@ func (s *StaffService) Refresh(ctx context.Context, refreshToken string) (StaffT
 			return nil
 		case row.ConsumedAt != nil:
 			if live && !now.After(row.ConsumedAt.Add(RefreshGraceWindow)) && len(row.SuccessorSalt) > 0 {
-				retry, ok, err := s.retrySuccessor(ctx, q, successorOf(refreshToken, row.SuccessorSalt), row, now)
+				retry, ok, err := s.retrySuccessor(ctx, q, successorOf(s.successors, refreshToken, row.SuccessorSalt), row, now)
 				if err != nil || ok {
 					pair = retry
 					return err
@@ -290,7 +347,7 @@ func (s *StaffService) Refresh(ctx context.Context, refreshToken string) (StaffT
 			if err != nil {
 				return fmt.Errorf("authn: consume staff refresh token: %w", err)
 			}
-			refresh = successorOf(refreshToken, salt)
+			refresh = successorOf(s.successors, refreshToken, salt)
 		}
 		if err := q.TouchStaffSession(ctx, authndb.TouchStaffSessionParams{Now: now, ID: row.SessionID, SeenBefore: now}); err != nil {
 			return fmt.Errorf("authn: touch staff session: %w", err)
@@ -412,48 +469,44 @@ func (s *StaffService) Logout(ctx context.Context, p StaffPrincipal) error {
 // and the token version moves, so every token, the caller's included, is
 // dead and the member signs in again (AUTH-013, AUTH-014).
 //
-// A wrong current password counts like a wrong sign-in password from
-// clientKey (ADR-0025 §6); when it locks the address the session ends.
+// The current password is guarded like a sign-in from clientKey
+// (ADR-0025 §6): while the address is locked or the account backed off
+// (and the address is not a known-good source) the change is refused
+// unexamined, at the cost of a dummy verification. A wrong current
+// password counts on both counters; when it locks the address or backs
+// off the account the session ends.
 func (s *StaffService) ChangePassword(ctx context.Context, p StaffPrincipal, current, next, clientKey string) error {
 	if err := CheckPassword(next); err != nil {
 		return err
 	}
-	stored, err := s.reads.GetStaffPasswordHash(ctx, p.StaffID)
+	mismatch := apperr.New(apperr.KindForbidden, CodeStaffCurrentPasswordMismatch)
+	now := s.clock.Now()
+	st, err := s.reads.GetStaffPasswordState(ctx, p.StaffID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return apperr.New(apperr.KindUnauthenticated, CodeStaffSessionEnded)
 	}
 	if err != nil {
 		return fmt.Errorf("authn: load staff password: %w", err)
 	}
-	ok, _, err := s.passwords.Verify(ctx, stored, current)
+	src, err := peekSource(ctx, s.reads, p.StaffID, clientKey)
+	if err != nil {
+		return err
+	}
+	if src.blocked(st.BackoffUntil, now) {
+		if err := s.passwords.VerifyDummy(ctx, current); err != nil {
+			return fmt.Errorf("authn: verify password: %w", err)
+		}
+		return mismatch
+	}
+	ok, _, err := s.passwords.Verify(ctx, st.PasswordHash, current)
 	if err != nil {
 		return fmt.Errorf("authn: verify password: %w", err)
 	}
-	now := s.clock.Now()
 	if !ok {
-		err := s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
-			q := authndb.New(tx)
-			m, err := q.LockStaffForSignIn(ctx, p.StaffID)
-			if err != nil {
-				return fmt.Errorf("authn: lock staff member: %w", err)
-			}
-			addr, err := addressLock(ctx, q, p.StaffID, clientKey)
-			if err != nil {
-				return err
-			}
-			locked, err := s.countFailure(ctx, q, p.StaffID, m.FailedLoginAttempts, addr.Failures, clientKey, now)
-			if err != nil || !locked {
-				return err
-			}
-			if err := q.RevokeStaffSession(ctx, authndb.RevokeStaffSessionParams{Now: now, Reason: reasonLocked, ID: p.SessionID}); err != nil {
-				return fmt.Errorf("authn: revoke staff session: %w", err)
-			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("authn: count staff password failure: %w", err)
+		if err := s.countPasswordFailure(ctx, p, clientKey, now); err != nil {
+			return err
 		}
-		return apperr.New(apperr.KindForbidden, CodeStaffCurrentPasswordMismatch)
+		return mismatch
 	}
 	hash, err := s.passwords.Hash(ctx, next)
 	if err != nil {
@@ -464,8 +517,11 @@ func (s *StaffService) ChangePassword(ctx context.Context, p StaffPrincipal, cur
 		if err := q.ChangeStaffPassword(ctx, authndb.ChangeStaffPasswordParams{PasswordHash: hash, Now: now, ID: p.StaffID}); err != nil {
 			return fmt.Errorf("authn: change staff password: %w", err)
 		}
-		if err := s.clearFailures(ctx, q, p.StaffID, true, clientKey); err != nil {
-			return err
+		if err := q.SetStaffFailures(ctx, authndb.SetStaffFailuresParams{ID: p.StaffID}); err != nil {
+			return fmt.Errorf("authn: reset staff failures: %w", err)
+		}
+		if err := q.ResetStaffSourceFailures(ctx, authndb.ResetStaffSourceFailuresParams{Now: now, StaffID: p.StaffID, ClientKey: clientKey}); err != nil {
+			return fmt.Errorf("authn: reset staff address failures: %w", err)
 		}
 		if err := q.RevokeStaffSession(ctx, authndb.RevokeStaffSessionParams{Now: now, Reason: reasonLogout, ID: p.SessionID}); err != nil {
 			return fmt.Errorf("authn: revoke staff session: %w", err)
@@ -474,6 +530,34 @@ func (s *StaffService) ChangePassword(ctx context.Context, p StaffPrincipal, cur
 	})
 	if err != nil {
 		return fmt.Errorf("authn: staff password change: %w", err)
+	}
+	return nil
+}
+
+// countPasswordFailure counts a wrong current password and ends the
+// session when it locks the address or backs off the account.
+func (s *StaffService) countPasswordFailure(ctx context.Context, p StaffPrincipal, clientKey string, now time.Time) error {
+	err := s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
+		q := authndb.New(tx)
+		m, err := q.LockStaffForSignIn(ctx, p.StaffID)
+		if err != nil {
+			return fmt.Errorf("authn: lock staff member: %w", err)
+		}
+		src, err := lockSource(ctx, q, p.StaffID, clientKey)
+		if err != nil {
+			return err
+		}
+		locked, backedOff, err := s.countFailure(ctx, q, p.StaffID, m.FailedLoginAttempts, src, clientKey, now)
+		if err != nil || (!locked && !backedOff) {
+			return err
+		}
+		if err := q.RevokeStaffSession(ctx, authndb.RevokeStaffSessionParams{Now: now, Reason: reasonLocked, ID: p.SessionID}); err != nil {
+			return fmt.Errorf("authn: revoke staff session: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("authn: count staff password failure: %w", err)
 	}
 	return nil
 }
@@ -490,16 +574,24 @@ func (s *StaffService) Me(ctx context.Context, p StaffPrincipal) (StaffMember, e
 	return StaffMember{ID: m.ID, Email: m.Email, MustChangePassword: m.MustChangePassword}, nil
 }
 
+// StaffSourceRetention is how long an address state is kept after its
+// last change once its lock has ended; a known-good source is kept until
+// KnownSourceWindow after its last success (ADR-0025 §7).
+const StaffSourceRetention = 24 * time.Hour
+
 // Purge hard-deletes staff sessions that ended more than
 // EndedSessionRetention ago, with their refresh tokens, and address
-// counters untouched for a day whose lock has ended.
-func (s *StaffService) Purge(ctx context.Context) (sessions, locks int64, err error) {
+// states past their retention.
+func (s *StaffService) Purge(ctx context.Context) (sessions, sources int64, err error) {
 	now := s.clock.Now()
 	if sessions, err = s.reads.PurgeStaffSessions(ctx, now.Add(-EndedSessionRetention)); err != nil {
 		return 0, 0, fmt.Errorf("authn: purge staff sessions: %w", err)
 	}
-	if locks, err = s.reads.PurgeStaffLoginLocks(ctx, now.Add(-24*time.Hour)); err != nil {
-		return sessions, 0, fmt.Errorf("authn: purge staff address locks: %w", err)
+	sources, err = s.reads.PurgeStaffLoginSources(ctx, authndb.PurgeStaffLoginSourcesParams{
+		Before: now.Add(-StaffSourceRetention), KnownBefore: now.Add(-KnownSourceWindow),
+	})
+	if err != nil {
+		return sessions, 0, fmt.Errorf("authn: purge staff address states: %w", err)
 	}
-	return sessions, locks, nil
+	return sessions, sources, nil
 }

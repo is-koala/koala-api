@@ -3,6 +3,7 @@
 package authn_test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -49,7 +50,7 @@ func (e *env) addressLock(t *testing.T, id uuid.UUID) *time.Time {
 	t.Helper()
 	var until *time.Time
 	err := e.db.Pool().QueryRow(t.Context(),
-		"SELECT max(locked_until) FROM staff_login_locks WHERE staff_id = $1 AND client_key = $2", id, officeIP).Scan(&until)
+		"SELECT max(locked_until) FROM staff_login_sources WHERE staff_id = $1 AND client_key = $2", id, officeIP).Scan(&until)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,6 +184,165 @@ func TestStaffBackoff(t *testing.T) {
 	if n, until := e.lockState(t, id); n != 0 || until != nil {
 		t.Errorf("after a success: counter %d, backoff %v", n, until)
 	}
+}
+
+// AUTH-011 (ADR-0025 §6): the account backoff holds back unknown sources
+// only. However many addresses an attacker fails from, the member still
+// signs in from an address they signed in from within KnownSourceWindow;
+// once that success is older than the window the address is unknown
+// again.
+func TestStaffKnownSourceIsNotBackedOff(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	id := e.addStaff(t, opsEmail, authn.StaffActive, false)
+	ctx := t.Context()
+	e.staffLogin(t, opsPw, officeIP)
+
+	attack := func(round int) {
+		t.Helper()
+		// One failure per address: no address lock, only the backoff.
+		for i := range authn.StaffBackoffAfter {
+			_, err := e.staff.Login(ctx, opsEmail, wrongPw, fmt.Sprintf("203.0.%d.%d", 113+round, i+1))
+			wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
+		}
+		if _, until := e.lockState(t, id); !e.clock.Now().Before(derefTime(until)) {
+			t.Fatalf("AUTH-011: no backoff after %d failures from other addresses: %v", authn.StaffBackoffAfter, until)
+		}
+	}
+	attack(0)
+	_, err := e.staff.Login(ctx, opsEmail, opsPw, homeIP)
+	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffLoginFailed)
+	if _, err := e.staff.Login(ctx, opsEmail, opsPw, officeIP); err != nil {
+		t.Fatalf("AUTH-011: the attacker kept the member out of a known-good address: %v", err)
+	}
+
+	e.clock.Advance(authn.KnownSourceWindow)
+	attack(1)
+	_, err = e.staff.Login(ctx, opsEmail, opsPw, officeIP)
+	if apperr.From(err).Code != authn.CodeStaffLoginFailed {
+		t.Fatalf("AUTH-011: an address last used %s ago is still exempt: %v", authn.KnownSourceWindow, err)
+	}
+}
+
+// derefTime is *p, or the zero time.
+func derefTime(p *time.Time) time.Time {
+	if p == nil {
+		return time.Time{}
+	}
+	return *p
+}
+
+// AUTH-010, AUTH-011 (ADR-0025 §6): a sign-in refused unexamined (a
+// disabled account, a locked address, the account backoff, an unknown
+// address) is verified against the dummy hash only, whether the password
+// is right or not, so its time does not tell; the right password of a
+// hash under old parameters pays no rehash there. A wrong password on an
+// open account pays one verification of the stored hash, the same work,
+// and only a success pays the rehash.
+func TestStaffRefusedSignInsCostTheSame(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	ctx := t.Context()
+	old, err := authn.NewPasswords(authn.Params{MemoryKiB: 8 * 1024, Time: 1, Threads: 1, SaltLen: 16, KeyLen: 32}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := old.Hash(ctx, opsPw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		disabled = "gone@iskoala.com"
+		locked   = "locked@iskoala.com"
+		slow     = "slow@iskoala.com"
+		open     = "open@iskoala.com"
+	)
+	e.addStaffHashed(t, disabled, authn.StaffDisabled, false, hash)
+	e.addStaffHashed(t, locked, authn.StaffActive, false, hash)
+	e.addStaffHashed(t, slow, authn.StaffActive, false, hash)
+	e.addStaffHashed(t, open, authn.StaffActive, false, hash)
+	for range authn.StaffLockThreshold {
+		_, _ = e.staff.Login(ctx, locked, wrongPw, officeIP)
+	}
+	for i := range authn.StaffBackoffAfter {
+		_, _ = e.staff.Login(ctx, slow, wrongPw, fmt.Sprintf("198.51.100.%d", i+1))
+	}
+
+	refused := cost{dummies: 1}
+	for _, tc := range []struct {
+		name, email, pw, client string
+		want                    cost
+	}{
+		{"AUTH-010 disabled, right password", disabled, opsPw, officeIP, refused},
+		{"AUTH-010 disabled, wrong password", disabled, wrongPw, officeIP, refused},
+		{"AUTH-010 unknown address", "p3@example.com", opsPw, officeIP, refused},
+		{"AUTH-011 locked address, right password", locked, opsPw, officeIP, refused},
+		{"AUTH-011 locked address, wrong password", locked, wrongPw, officeIP, refused},
+		{"AUTH-011 backoff, right password", slow, opsPw, homeIP, refused},
+		{"AUTH-011 backoff, wrong password", slow, wrongPw, homeIP, refused},
+		{"AUTH-010 open account, wrong password", open, wrongPw, officeIP, cost{verifies: 1}},
+	} {
+		var err error
+		got := e.passwords.costOf(func() { _, err = e.staff.Login(ctx, tc.email, tc.pw, tc.client) })
+		if apperr.From(err).Code != authn.CodeStaffLoginFailed {
+			t.Errorf("%s: %v, want %s", tc.name, err, authn.CodeStaffLoginFailed)
+		}
+		if got != tc.want {
+			t.Errorf("%s: cost %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+	var err2 error
+	got := e.passwords.costOf(func() { _, err2 = e.staff.Login(ctx, open, opsPw, officeIP) })
+	if err2 != nil || got != (cost{verifies: 1, hashes: 1}) {
+		t.Errorf("AUTH-011 success on an old hash: %v, cost %+v; want one verification and the rehash", err2, got)
+	}
+}
+
+// ADR-0025 §6: a password change is guarded like a sign-in from the
+// request's address. From a locked address, or under the account backoff
+// from an unknown address, it is refused unexamined even with the right
+// current password; a wrong current password that backs the account off
+// ends the session.
+func TestStaffPasswordChangeIsGuarded(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.addStaff(t, opsEmail, authn.StaffActive, false)
+	ctx := t.Context()
+	pair := e.staffLogin(t, opsPw, officeIP)
+	p, err := e.staff.Authenticate(ctx, pair.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := cost{dummies: 1}
+
+	for range authn.StaffLockThreshold {
+		_, _ = e.staff.Login(ctx, opsEmail, wrongPw, homeIP)
+	}
+	got := e.passwords.costOf(func() { err = e.staff.ChangePassword(ctx, p, opsPw, newStaffPw, homeIP) })
+	wantErr(t, err, apperr.KindForbidden, authn.CodeStaffCurrentPasswordMismatch)
+	if got != refused {
+		t.Errorf("change from a locked address: cost %+v, want %+v", got, refused)
+	}
+
+	for i := range authn.StaffBackoffAfter {
+		_, _ = e.staff.Login(ctx, opsEmail, wrongPw, fmt.Sprintf("198.51.100.%d", i+1))
+	}
+	got = e.passwords.costOf(func() { err = e.staff.ChangePassword(ctx, p, opsPw, newStaffPw, "192.0.2.77") })
+	wantErr(t, err, apperr.KindForbidden, authn.CodeStaffCurrentPasswordMismatch)
+	if got != refused {
+		t.Errorf("change under the backoff from an unknown address: cost %+v, want %+v", got, refused)
+	}
+	if _, err := e.staff.Authenticate(ctx, pair.AccessToken); err != nil {
+		t.Fatalf("a refused change ended the session: %v", err)
+	}
+
+	// The office is a known-good source: examined, and a wrong current
+	// password there backs the account off further, which ends the session.
+	err = e.staff.ChangePassword(ctx, p, wrongPw, newStaffPw, officeIP)
+	wantErr(t, err, apperr.KindForbidden, authn.CodeStaffCurrentPasswordMismatch)
+	_, err = e.staff.Authenticate(ctx, pair.AccessToken)
+	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeStaffSessionEnded)
+	e.staffLogin(t, opsPw, officeIP)
 }
 
 // AUTH-012 (token part): an expired staff token and a refresh token used

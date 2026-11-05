@@ -110,10 +110,16 @@ func (e *env) addStaff(t *testing.T, email, status string, mustChange bool) uuid
 	if err != nil {
 		t.Fatal(err)
 	}
+	return e.addStaffHashed(t, email, status, mustChange, hash)
+}
+
+// addStaffHashed creates a staff member with a given password hash.
+func (e *env) addStaffHashed(t *testing.T, email, status string, mustChange bool, hash string) uuid.UUID {
+	t.Helper()
 	id := uuid.Must(uuid.NewV7())
 	// Staff accounts are created by koala_maint (bootstrap, staff
 	// management); the application role cannot insert them.
-	_, err = e.maint.Pool().Exec(t.Context(), `
+	_, err := e.maint.Pool().Exec(t.Context(), `
 		INSERT INTO staff_members (id, email, password_hash, status, must_change_password, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)`, id, email, hash, status, mustChange, e.clock.Now())
 	if err != nil {
@@ -179,13 +185,17 @@ func wantErr(t *testing.T, err error, kind apperr.Kind, code apperr.Code) {
 	}
 }
 
-// countingHasher counts the argon2id verifications the services ask for.
+// countingHasher counts the argon2id work the services ask for:
+// verifications (against a stored hash or the dummy) and new hashes.
 type countingHasher struct {
 	inner    *authn.Passwords
-	verifies atomic.Int64
+	verifies atomic.Int64 // Verify and VerifyDummy
+	dummies  atomic.Int64 // VerifyDummy only
+	hashes   atomic.Int64
 }
 
 func (c *countingHasher) Hash(ctx context.Context, p string) (string, error) {
+	c.hashes.Add(1)
 	return c.inner.Hash(ctx, p)
 }
 
@@ -196,7 +206,23 @@ func (c *countingHasher) Verify(ctx context.Context, stored, p string) (bool, bo
 
 func (c *countingHasher) VerifyDummy(ctx context.Context, p string) error {
 	c.verifies.Add(1)
+	c.dummies.Add(1)
 	return c.inner.VerifyDummy(ctx, p)
+}
+
+// cost is the argon2id work of one call: verifications against a stored
+// hash, against the dummy, and new hashes.
+type cost struct{ verifies, dummies, hashes int64 }
+
+// costOf runs f and returns the work it asked for.
+func (c *countingHasher) costOf(f func()) cost {
+	v, d, h := c.verifies.Load(), c.dummies.Load(), c.hashes.Load()
+	f()
+	return cost{
+		verifies: c.verifies.Load() - v - (c.dummies.Load() - d),
+		dummies:  c.dummies.Load() - d,
+		hashes:   c.hashes.Load() - h,
+	}
 }
 
 // revocations records the sessions the revoke hook was told about.

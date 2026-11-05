@@ -43,7 +43,7 @@ rules:
   koala-operation-authz:
     description: "Her operasyon ya `x-authz` ({action: model.fga'daki `can_*` relation'ı, object: tip}) taşır, ya `security: []` ile açıkça public'tir, ya da `x-authz-exempt: <gerekçe>` ile belgeli istisnadır (kimlik ister ama yetkilendirilecek nesnesi yoktur). Üçünden yalnız biri bulunur (stil rehberi §11, ADR-0005 madde 1, ADR-0014; üçüncü biçim ADR-0021 ile ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü genişletir)."
     severity: error
-    given: "$.paths[*][get,put,post,patch,delete]"
+    given: "$.paths[*][get,put,post,patch,delete,head,options,trace]"
     then:
       function: schema
       functionOptions:
@@ -88,9 +88,9 @@ rules:
                 required: [x-authz]
 
   koala-admin-permission:
-    description: "/v1/admin altındaki her operasyon, izinsiz personel uçlarının izin listesi (`/v1/admin/me`, `/v1/admin/auth/*`) dışında, adminBearer kullanır ve `x-authz-permission` (`payout.release` biçiminde) taşır (stil rehberi §11, ADR-0005 madde 1, ADR-0025 §9)."
+    description: "/v1/admin altındaki her operasyon, izinsiz personel uçlarının açık izin listesi (`/v1/admin/me`, `/v1/admin/auth/login`, `/v1/admin/auth/refresh`, `/v1/admin/auth/logout`, `/v1/admin/auth/password`) dışında, adminBearer kullanır ve `x-authz-permission` (`payout.release` biçiminde) taşır; her HTTP metodunda (stil rehberi §11, ADR-0005 madde 1, ADR-0025 §9)."
     severity: error
-    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\//) && !@property.match(/^\\/v1\\/admin\\/(me|auth\\/[a-z0-9-]+)$/))][get,put,post,patch,delete]"
+    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\//) && !@property.match(/^\\/v1\\/admin\\/(me|auth\\/(login|refresh|logout|password))$/))][get,put,post,patch,delete,head,options,trace]"
     then:
       function: schema
       functionOptions:
@@ -109,9 +109,9 @@ rules:
                 maxProperties: 1
 
   koala-admin-self-service:
-    description: "İzin listesindeki kimlikli personel uçları (`/v1/admin/me`, giriş ve yenileme dışındaki `/v1/admin/auth/*`) personelin yalnız kendi hesabına dokunur: adminBearer + `x-authz-exempt`, `x-authz-permission` yok (ADR-0025 §9)."
+    description: "İzin listesindeki kimlikli personel uçları (`/v1/admin/me`, `/v1/admin/auth/logout`, `/v1/admin/auth/password`) personelin yalnız kendi hesabına dokunur: adminBearer + `x-authz-exempt`, `x-authz-permission` yok (ADR-0025 §9)."
     severity: error
-    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\/(me|auth\\/[a-z0-9-]+)$/) && !@property.match(/^\\/v1\\/admin\\/auth\\/(login|refresh)$/))][get,put,post,patch,delete]"
+    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\/(me|auth\\/(logout|password))$/))][get,put,post,patch,delete,head,options,trace]"
     then:
       function: schema
       functionOptions:
@@ -131,7 +131,7 @@ rules:
   koala-admin-public:
     description: "Kimliksiz personel uçları yalnız giriş ve yenilemedir (`/v1/admin/auth/login`, `/v1/admin/auth/refresh`): `security: []`, izin ve muafiyet yok (ADR-0025 §9)."
     severity: error
-    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\/auth\\/(login|refresh)$/))][get,put,post,patch,delete]"
+    given: "$.paths[?(@property.match(/^\\/v1\\/admin\\/auth\\/(login|refresh)$/))][get,put,post,patch,delete,head,options,trace]"
     then:
       function: schema
       functionOptions:
@@ -149,7 +149,7 @@ rules:
   koala-admin-only-under-admin:
     description: adminBearer ve `x-authz-permission` yalnız /v1/admin altında kullanılır (stil rehberi §11).
     severity: error
-    given: "$.paths[?(!@property.match(/^\\/v1\\/admin\\//))][get,put,post,patch,delete]"
+    given: "$.paths[?(!@property.match(/^\\/v1\\/admin\\//))][get,put,post,patch,delete,head,options,trace]"
     then:
       function: schema
       functionOptions:

@@ -101,9 +101,8 @@ func postLogin(h http.Handler, method, contentType, body string) *httptest.Respo
 // POST /v1/auth/login runs the contract path up to the handler: the
 // OpenAPI 3.1 spec is loaded and the request is validated against it
 // before anything reaches the database (ADR-0019). The bodies are the
-// wire format of the problem documents, byte for byte. (Was the
-// /v1/meta/ping smoke test; the 200 path runs against Postgres in the
-// integration tests.)
+// wire format of the problem documents, byte for byte. The 200 path runs
+// against Postgres in the integration tests.
 func TestLoginRequestValidation(t *testing.T) {
 	t.Parallel()
 

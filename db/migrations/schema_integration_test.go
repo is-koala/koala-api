@@ -229,9 +229,9 @@ func TestRoleGrants(t *testing.T) {
 			"example_receipts": {"SELECT", "INSERT"}, // example M1 table (dbtest testdata)
 			// M2 sessions, tokens and attempts: written directly and
 			// purged by the application (0020, 0021, ADR-0025).
-			"user_sessions":     dml,
-			"staff_sessions":    dml,
-			"staff_login_locks": dml,
+			"user_sessions":       dml,
+			"staff_sessions":      dml,
+			"staff_login_sources": dml,
 			// Refresh tokens are deleted with their session only.
 			"user_refresh_tokens":  {"SELECT", "INSERT", "UPDATE"},
 			"staff_refresh_tokens": {"SELECT", "INSERT", "UPDATE"},

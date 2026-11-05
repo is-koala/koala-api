@@ -225,7 +225,11 @@ type TargetLimiter interface {
 //     client address) in pairGroup and one per target from any address in
 //     accountGroup. The target is the keyed hash of the address, so one
 //     account hammered behind an office NAT does not lock out the next,
-//     and many addresses together cannot try one account fast.
+//     and many addresses together cannot try one account fast. A
+//     marketplace device the account signed in on recently (a known-good
+//     source) is let past an empty account bucket, so an attacker cannot
+//     keep the user out by draining it; its own (target, address) bucket
+//     still applies.
 //   - A refresh takes one from the bucket of its hashed token, a staff
 //     password change from the member's, both in pairGroup.
 //   - Token responses are not cached (RFC 6749 §5.1).
@@ -243,9 +247,20 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup s
 				if k.account {
 					group = accountGroup
 				}
-				if ok, wait := limiter.Allow(group, httpx.KeyCustom, k.key); !ok {
-					return nil, httpx.RateLimitedError(w, wait)
+				ok, wait := limiter.Allow(group, httpx.KeyCustom, k.key)
+				if ok {
+					continue
 				}
+				if k.knownEmail != "" {
+					known, err := h.users.KnownDevice(ctx, k.knownEmail, httpx.DeviceIDFrom(ctx))
+					if err != nil {
+						return nil, err
+					}
+					if known {
+						continue
+					}
+				}
+				return nil, httpx.RateLimitedError(w, wait)
 			}
 			return f(ctx, w, r, request)
 		}
@@ -255,21 +270,24 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup s
 type limitKey struct {
 	key     string
 	account bool
+	// knownEmail, on a marketplace account bucket, lets a known-good
+	// device of that account past it.
+	knownEmail string
 }
 
 // rateLimitKeys returns the rate limit keys of an authentication request
 // (none for other operations) and whether its response carries tokens.
 func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool) {
 	addr := ClientKey(httpx.ClientIPFrom(ctx))
-	signIn := func(prefix string, target []byte) []limitKey {
+	signIn := func(prefix string, target []byte, knownEmail string) []limitKey {
 		t := prefix + hex.EncodeToString(target)
-		return []limitKey{{key: t + "@" + addr}, {key: t, account: true}}
+		return []limitKey{{key: t + "@" + addr}, {key: t, account: true, knownEmail: knownEmail}}
 	}
 	switch req := request.(type) {
 	case apiv1.LoginUserRequestObject:
-		return signIn("login:user:", h.users.Target(req.Body.Email)), true
+		return signIn("login:user:", h.users.Target(req.Body.Email), req.Body.Email), true
 	case apiv1.LoginStaffRequestObject:
-		return signIn("login:staff:", h.staff.Target(req.Body.Email)), true
+		return signIn("login:staff:", h.staff.Target(req.Body.Email), ""), true
 	case apiv1.RefreshUserSessionRequestObject:
 		return []limitKey{{key: "refresh:user:" + hex.EncodeToString(hashOpaque(req.Body.RefreshToken))}}, true
 	case apiv1.RefreshStaffSessionRequestObject:

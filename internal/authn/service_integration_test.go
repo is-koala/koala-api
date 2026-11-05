@@ -662,3 +662,40 @@ func TestLoginLocksAfterAHundredFailures(t *testing.T) {
 	// The success reset the counter: one failure is not a lock.
 	e.login(t, alice, alicePw, deviceW1)
 }
+
+// AUTH-001 (ADR-0025 §5): the hundred-failure lock holds back unknown
+// devices only. A device the account signed in on within
+// KnownSourceWindow still signs in while the lock holds; any other device
+// gets the wrong-password answer, even with the right password.
+func TestKnownDeviceIsNotLockedOut(t *testing.T) {
+	t.Parallel()
+	e := newEnv(t)
+	e.addUser(t, alice, alicePw)
+	ctx := t.Context()
+	e.login(t, alice, alicePw, devicePhone)
+	target := e.users.Target(alice)
+	for i := range authn.UserLockThreshold {
+		_, err := e.db.Pool().Exec(ctx,
+			"INSERT INTO login_attempts (id, principal_kind, target_hash, outcome, created_at) VALUES ($1, 'USER', $2, 'FAILED', $3)",
+			uuid.Must(uuid.NewV7()), target, epoch.Add(time.Duration(i+1)*time.Second))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.clock.Advance(authn.UserLockThreshold*time.Second + time.Minute)
+
+	_, err := e.users.Login(ctx, authn.LoginInput{Email: alice, Password: alicePw, DeviceKey: deviceW1})
+	if apperr.From(err).Code != authn.CodeEmailOrPasswordMismatch {
+		t.Fatalf("AUTH-001: an unknown device during the lock: %v, want %s", err, authn.CodeEmailOrPasswordMismatch)
+	}
+	if _, err := e.users.Login(ctx, authn.LoginInput{Email: alice, Password: alicePw, DeviceKey: devicePhone}); err != nil {
+		t.Fatalf("AUTH-001: the lock kept out a known-good device: %v", err)
+	}
+	known, err := e.users.KnownDevice(ctx, alice, devicePhone)
+	if err != nil || !known {
+		t.Errorf("AUTH-001: KnownDevice(phone) = %v, %v; want true", known, err)
+	}
+	if known, err := e.users.KnownDevice(ctx, alice, deviceW1); err != nil || known {
+		t.Errorf("AUTH-001: KnownDevice(another device) = %v, %v; want false", known, err)
+	}
+}
