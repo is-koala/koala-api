@@ -172,7 +172,9 @@ rules:
   koala-no-envelope:
     description: Başarılı yanıt çıplak gövdedir; `success`/`httpStatus`/`message` zarfı yok (stil rehberi §5, ADR-0005 madde 3).
     severity: error
-    given: "$.paths[*][*].responses[?(@property.match(/^2/))].content[*].schema.properties[*]~"
+    given:
+      - "$.paths[*][*].responses[?(@property.match(/^2/))].content[*].schema.properties[*]~"
+      - "$.paths[*][*].responses[?(@property.match(/^2/))].content[*].schema.allOf[*].properties[*]~"
     then:
       function: pattern
       functionOptions:
@@ -181,9 +183,15 @@ rules:
   koala-closed-request-body:
     description: "JSON istek gövdesi ve içindeki her nesne bilinmeyen alanı reddeder: `additionalProperties: false`, allOf ile kurulan nesnede `unevaluatedProperties: false` (stil rehberi §4, plan §3.3)."
     severity: error
+    # The body, every object-valued member, oneOf/anyOf branch and array
+    # item. allOf members are not checked on their own: the allOf owner's
+    # unevaluatedProperties closes them.
     given:
       - "$.paths[*][post,put,patch].requestBody.content[?(@property == 'application/json' || @property == 'application/merge-patch+json')].schema"
-      - "$.paths[*][post,put,patch].requestBody.content[?(@property == 'application/json' || @property == 'application/merge-patch+json')].schema..[?(@ && @.properties && @parentProperty !== 'allOf')]"
+      - "$.paths[*][post,put,patch].requestBody.content[?(@property == 'application/json' || @property == 'application/merge-patch+json')].schema..properties[?(@ && @.properties)]"
+      - "$.paths[*][post,put,patch].requestBody.content[?(@property == 'application/json' || @property == 'application/merge-patch+json')].schema..oneOf[?(@ && @.properties)]"
+      - "$.paths[*][post,put,patch].requestBody.content[?(@property == 'application/json' || @property == 'application/merge-patch+json')].schema..anyOf[?(@ && @.properties)]"
+      - "$.paths[*][post,put,patch].requestBody.content[?(@property == 'application/json' || @property == 'application/merge-patch+json')].schema..[?(@ && @.items && @.items.properties)].items"
     then:
       function: schema
       functionOptions:
@@ -211,7 +219,7 @@ rules:
           maxProperties: 1
 
   koala-merge-patch-shape:
-    description: "Merge patch şemasında zorunlu üye yoktur; temizlenebilen (nullable) üye Go'da `nullable.Nullable[T]` olur: `x-go-type: nullable.Nullable[...]` + `x-go-type-skip-optional-pointer: true` (stil rehberi §3, ADR-0019)."
+    description: "Merge patch şemasının kökünde zorunlu üye yoktur: her üye ayrı ayrı yamanır. İç içe değer nesneleri (Money gibi) atomiktir ve kendi zorunlu üyelerini korur (stil rehberi §3, RFC 7396)."
     severity: error
     given: "$.paths[*].patch.requestBody.content['application/merge-patch+json'].schema"
     then:
@@ -220,24 +228,40 @@ rules:
         schema:
           not:
             required: [required]
-          properties:
+
+  koala-merge-patch-nullable:
+    description: "Merge patch'te temizlenebilen üye (`type: [T, \"null\"]` ya da `oneOf: [{$ref}, {type: \"null\"}]`), iç içe nesnelerde de, Go'da `nullable.Nullable[T]` olur: `x-go-type: nullable.Nullable[...]` + `x-go-type-skip-optional-pointer: true`. Yoksa temizleme isteği pointer'da kaybolur (stil rehberi §3, ADR-0019)."
+    severity: error
+    given: "$.paths[*].patch.requestBody.content['application/merge-patch+json'].schema..properties[*]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          if:
+            anyOf:
+              - required: [type]
+                properties:
+                  type:
+                    type: array
+                    contains:
+                      const: "null"
+              - required: [oneOf]
+                properties:
+                  oneOf:
+                    type: array
+                    contains:
+                      required: [type]
+                      properties:
+                        type:
+                          const: "null"
+          then:
+            required: [x-go-type, x-go-type-skip-optional-pointer]
             properties:
-              additionalProperties:
-                if:
-                  required: [type]
-                  properties:
-                    type:
-                      type: array
-                      contains:
-                        const: "null"
-                then:
-                  required: [x-go-type, x-go-type-skip-optional-pointer]
-                  properties:
-                    x-go-type:
-                      type: string
-                      pattern: "^nullable\\.Nullable\\["
-                    x-go-type-skip-optional-pointer:
-                      const: true
+              x-go-type:
+                type: string
+                pattern: "^nullable\\.Nullable\\["
+              x-go-type-skip-optional-pointer:
+                const: true
 
   koala-no-multipart-upload:
     description: Dosya API'den geçmez; istemci presigned URL ile doğrudan nesne deposuna yükler. multipart/form-data istek gövdesi yok (stil rehberi §4, ADR-0019).

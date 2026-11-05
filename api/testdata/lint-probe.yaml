@@ -1,7 +1,9 @@
-# Lint probe (scripts/api-lint-probe.sh): every koala-* rule in
-# api/ruleset.yaml and api/ruleset-schemas.yaml must fire on this file at
-# least once. Each violation is labelled with its rule. Not part of the
-# contract; never referenced by api/openapi.yaml.
+# Lint probe (scripts/api-lint-probe.sh). Every case breaks one rule at one
+# place; lint-probe.expect lists each (rule, path) pair that must be
+# reported, and the script fails if a koala-* result is missing or not
+# expected. Cases are independent: a schema case lives in its own
+# component, an operation case on its own path. lint-pass.yaml holds the
+# correct forms, which must report nothing. Not part of the contract.
 openapi: 3.1.1
 info:
   title: Lint probe
@@ -9,19 +11,100 @@ info:
 security:
   - marketplaceBearer: []
 paths:
+  # --- paths and operations ---
   /v2/things: # koala-paths-v1
     get:
       operationId: listThingsV2
       security: []
       responses:
-        default:
-          $ref: "#/components/responses/Problem"
-  /v1/Bad_Path/{Id}: # koala-paths-kebab-case
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/Bad_Path: # koala-paths-kebab-case
+    get:
+      operationId: getBadPath
+      security: []
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/bad-operation-id:
     get:
       operationId: Get_Thing # koala-operation-id-camel-case
-      parameters:
-        - {name: Id, in: path, required: true, schema: {type: string}}
-      # koala-operation-authz: no x-authz and no `security: []`
+      security: []
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/no-authz:
+    get: # koala-operation-authz: no x-authz and no `security: []`
+      operationId: getNoAuthz
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/authz-not-a-relation:
+    get: # koala-operation-authz: the action is not a model.fga can_* relation
+      operationId: getAuthzNotARelation
+      x-authz: {action: read, object: thing}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/users:
+    get: # koala-admin-permission: no x-authz-permission
+      operationId: listUsers
+      x-authz: {action: can_read, object: user}
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/permission-outside-admin:
+    get: # koala-admin-only-under-admin
+      operationId: getPermissionOutsideAdmin
+      x-authz: {action: can_read, object: thing}
+      x-authz-permission: thing.read
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/deprecated:
+    get: # koala-deprecation-has-sunset
+      operationId: getDeprecated
+      security: []
+      deprecated: true
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/no-default:
+    get: # koala-default-problem-response
+      operationId: getNoDefault
+      security: []
+      responses:
+        "204": {description: ok}
+  /v1/body-limit:
+    post: # koala-body-limit
+      operationId: postBodyLimit
+      security: []
+      x-no-idempotency-key: probe only, no side effect at all
+      x-body-limit: big
+      requestBody:
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+
+  # --- responses ---
+  /v1/error-not-problem:
+    get:
+      operationId: getErrorNotProblem
+      security: []
+      responses:
+        "404": # koala-error-responses-are-problems: JSON, not problem+json
+          description: nf
+          content:
+            application/json:
+              schema: {type: object}
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/error-without-content:
+    get:
+      operationId: getErrorWithoutContent
+      security: []
+      responses:
+        "409": # koala-error-responses-are-problems: a 4xx without content
+          description: conflict
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/envelope-success:
+    get:
+      operationId: getEnvelopeSuccess
+      security: []
       responses:
         "200":
           description: ok
@@ -31,77 +114,92 @@ paths:
                 type: object
                 properties:
                   success: {type: boolean} # koala-no-envelope
-                  message: {type: string} # koala-no-envelope
-        "404": # koala-error-responses-are-problems
-          description: nf
-          content:
-            application/json:
-              schema: {type: object}
-        "409": # koala-error-responses-are-problems: a 4xx without content
-          description: conflict
-        # koala-default-problem-response: no default
-  /v1/admin/users:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/envelope-message:
     get:
-      operationId: listUsers
-      x-authz: {action: can_read, object: user}
-      # koala-admin-permission: no x-authz-permission
-      responses:
-        default:
-          $ref: "#/components/responses/Problem"
-  /v1/things:
-    get:
-      operationId: listThings
-      x-authz: {action: can_read, object: thing}
-      x-authz-permission: thing.read # koala-admin-only-under-admin
-      deprecated: true # koala-deprecation-has-sunset
-      parameters:
-        - {name: page, in: query, schema: {type: integer, format: int32}} # koala-cursor-pagination
-        - {name: includeTotal, in: query, schema: {type: boolean}} # koala-include-total-admin-or-seo
-        - {name: sort, in: query, schema: {type: string}} # koala-sort-fields
+      operationId: getEnvelopeMessage
+      security: []
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Thing"
-        default:
-          $ref: "#/components/responses/Problem"
-    patch:
-      operationId: patchThing
-      x-authz: {action: can_edit, object: thing}
-      requestBody:
-        content:
-          application/json: # koala-patch-is-merge-patch
-            schema:
-              type: object
-              additionalProperties: false
-              properties:
-                name: {type: string}
+                type: object
+                properties:
+                  message: {type: string} # koala-no-envelope
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/envelope-in-all-of:
+    get:
+      operationId: getEnvelopeInAllOf
+      security: []
       responses:
-        default:
-          $ref: "#/components/responses/Problem"
-    post:
-      operationId: createThing
-      x-authz: {action: can_create, object: thing}
-      x-body-limit: big # koala-body-limit
-      # koala-idempotency-key: no Idempotency-Key and no x-no-idempotency-key
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - type: object
+                    properties:
+                      httpStatus: {type: integer, format: int32} # koala-no-envelope
+        default: {$ref: "#/components/responses/Problem"}
+
+  # --- pagination ---
+  /v1/page-param:
+    get:
+      operationId: getPageParam
+      security: []
+      parameters:
+        - {name: page, in: query, schema: {type: integer, format: int32}} # koala-cursor-pagination
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/include-total:
+    get: # koala-include-total-admin-or-seo
+      operationId: getIncludeTotal
+      security: []
+      parameters:
+        - {name: includeTotal, in: query, schema: {type: boolean}}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/sort:
+    get: # koala-sort-fields
+      operationId: getSort
+      security: []
+      parameters:
+        - {name: sort, in: query, schema: {type: string}}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+
+  # --- request bodies ---
+  /v1/no-idempotency:
+    post: # koala-idempotency-key
+      operationId: postNoIdempotency
+      security: []
       requestBody:
         content:
           application/json:
-            schema: # koala-closed-request-body
+            schema: {type: object, additionalProperties: false}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/open-body:
+    post:
+      operationId: postOpenBody
+      security: []
+      x-no-idempotency-key: probe only, no side effect at all
+      requestBody:
+        content:
+          application/json:
+            schema: # koala-closed-request-body: the body is open
               type: object
               properties:
                 name: {type: string}
-          multipart/form-data: # koala-no-multipart-upload
-            schema: {type: object}
       responses:
-        default:
-          $ref: "#/components/responses/Problem"
-  /v1/nested-things:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/open-nested:
     post:
-      operationId: createNestedThing
-      x-authz: {action: create, object: thing} # koala-operation-authz: not a can_* relation
+      operationId: postOpenNested
+      security: []
       x-no-idempotency-key: probe only, no side effect at all
       requestBody:
         content:
@@ -110,28 +208,121 @@ paths:
               type: object
               additionalProperties: false
               properties:
-                nested: # koala-closed-request-body: nested object left open
+                nested: # koala-closed-request-body: a nested object is open
                   type: object
                   properties:
                     x: {type: string}
+                branch: # (its oneOf branch below is the case)
+                  oneOf:
+                    - type: object # koala-closed-request-body: an open oneOf branch
+                      properties:
+                        y: {type: string}
+                list:
+                  type: array
+                  items: # koala-closed-request-body: open array items
+                    type: object
+                    properties:
+                      z: {type: string}
       responses:
-        default:
-          $ref: "#/components/responses/Problem"
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/all-of-without-unevaluated:
+    post:
+      operationId: postAllOfWithoutUnevaluated
+      security: []
+      x-no-idempotency-key: probe only, no side effect at all
+      requestBody:
+        content:
+          application/json:
+            schema: # koala-closed-request-body: allOf without unevaluatedProperties
+              type: object
+              allOf:
+                - type: object
+                  properties:
+                    name: {type: string}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/all-of-open-member:
+    post:
+      operationId: postAllOfOpenMember
+      security: []
+      x-no-idempotency-key: probe only, no side effect at all
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              unevaluatedProperties: false
+              allOf:
+                - type: object
+                  properties:
+                    inner: # koala-closed-request-body: an allOf member's object is open
+                      type: object
+                      properties:
+                        x: {type: string}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/multipart:
+    post:
+      operationId: postMultipart
+      security: []
+      x-no-idempotency-key: probe only, no side effect at all
+      requestBody:
+        content: # koala-no-multipart-upload
+          multipart/form-data:
+            schema: {type: object, additionalProperties: false}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+
+  # --- merge patch ---
+  /v1/patch-json:
     patch:
-      operationId: patchNestedThing
-      x-authz: {action: can_edit, object: thing}
+      operationId: patchJson
+      security: []
+      requestBody:
+        content: # koala-patch-is-merge-patch
+          application/json:
+            schema: {type: object, additionalProperties: false}
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/patch-required:
+    patch:
+      operationId: patchRequired
+      security: []
       requestBody:
         content:
           application/merge-patch+json:
-            schema: # koala-closed-request-body: merge patch is a request body too
+            schema: # koala-merge-patch-shape: nothing is required in a patch
               type: object
-              required: [x] # koala-merge-patch-shape: nothing is required in a patch
+              additionalProperties: false
+              required: [x]
               properties:
                 x: {type: string}
-                y: {type: [string, "null"]} # koala-merge-patch-shape: no nullable.Nullable
       responses:
-        default:
-          $ref: "#/components/responses/Problem"
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/patch-nullable:
+    patch:
+      operationId: patchNullable
+      security: []
+      requestBody:
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note: {type: [string, "null"]} # koala-merge-patch-nullable: type array without nullable.Nullable
+                amount: # koala-merge-patch-nullable: nullable $ref without nullable.Nullable
+                  oneOf:
+                    - {$ref: "#/components/schemas/Money"}
+                    - {type: "null"}
+                nested:
+                  type: object
+                  additionalProperties: false
+                  properties:
+                    label: {type: [string, "null"]} # koala-merge-patch-nullable: in a nested object
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+
 components:
   securitySchemes:
     marketplaceBearer: {type: http, scheme: bearer}
@@ -150,22 +341,55 @@ components:
               status: {type: integer, format: int32}
               code: {type: string}
   schemas:
-    Thing:
+    Money:
       type: object
+      additionalProperties: false
+      properties:
+        amount: {type: integer, format: int64}
+        currency: {type: string, enum: [TRY]}
+    # One schema per case: each property breaks one schema rule.
+    SnakeCase:
       properties:
         snake_case_field: {type: string} # koala-properties-camel-case
+    LowerEnum:
+      properties:
         state: {type: string, enum: [active]} # koala-enum-upper-snake
+    LowerEnumNullable:
+      properties:
+        state: {type: [string, "null"], enum: [active, null]} # koala-enum-upper-snake
+    NoFormat:
+      properties:
         count: {type: integer} # koala-integer-format
+    NoFormatNullable:
+      properties:
+        count: {type: [integer, "null"]} # koala-integer-format
+    NullableKeyword:
+      properties:
         legacy: {type: string, nullable: true} # koala-no-nullable-keyword
+    MoneyAsNumber:
+      properties:
         price: {type: number} # koala-money-is-money
-        commissionRate: {type: integer, format: int32} # koala-rate-in-basis-points
-        feeBps: {type: string} # koala-bps-integer
-        createdAt: {type: string} # koala-instant-is-date-time
-        birthDate: {type: string, format: date-time} # koala-calendar-date-is-date
-        # The same rules on OpenAPI 3.1 type arrays:
-        nullableCount: {type: [integer, "null"]} # koala-integer-format
-        nullableState: {type: [string, "null"], enum: [active, null]} # koala-enum-upper-snake
-        refundAmount: {type: [integer, "null"], format: int64} # koala-money-is-money
+    MoneyAsNullableNumber:
+      properties:
         wage: {type: [number, "null"]} # koala-money-is-money
-        rentBps: {type: [string, "null"]} # koala-bps-integer
+    MoneyAsNullableInteger:
+      properties:
+        refundAmount: {type: [integer, "null"], format: int64} # koala-money-is-money
+    RateNotBps:
+      properties:
+        commissionRate: {type: integer, format: int32} # koala-rate-in-basis-points
+    RateNotBpsNullable:
+      properties:
         successRate: {type: [number, "null"]} # koala-rate-in-basis-points
+    BpsNotInteger:
+      properties:
+        feeBps: {type: string} # koala-bps-integer
+    BpsNotIntegerNullable:
+      properties:
+        rentBps: {type: [string, "null"]} # koala-bps-integer
+    InstantNotDateTime:
+      properties:
+        createdAt: {type: string} # koala-instant-is-date-time
+    DateNotDate:
+      properties:
+        birthDate: {type: string, format: date-time} # koala-calendar-date-is-date
