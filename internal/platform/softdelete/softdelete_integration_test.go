@@ -21,7 +21,7 @@ import (
 )
 
 // env is one test database with the application, maintenance and owner
-// pools and a Deleter over the merged catalog. The example tables
+// (admin) pools and a Deleter over the merged catalog. The example tables
 // (dbtest/testdata/migrations/9003_*):
 //
 //	example_owners <- example_projects (cascade) <- example_tasks (cascade) <- example_invoices.task_id (cascade)
@@ -30,7 +30,7 @@ import (
 //	               <- example_comments (detach)
 //	example_folders.parent_id -> example_folders (cascade)
 type env struct {
-	app, maint, owner *db.DB
+	app, maint, admin *db.DB
 	del               *softdelete.Deleter
 	// restorer is the staff member every restore of the env is made by.
 	restorer softdelete.Actor
@@ -42,7 +42,7 @@ func newEnv(t *testing.T) env {
 	return env{
 		app:      d.Open(t, db.RoleApp),
 		maint:    d.Open(t, db.RoleMaint),
-		owner:    d.Open(t, db.RoleOwner),
+		admin:    d.Open(t, db.RoleOwner),
 		del:      softdelete.New(dbtest.SoftDeleteCatalog(t)),
 		restorer: softdelete.Actor{Kind: softdelete.ActorStaff, ID: newID()},
 	}
@@ -679,7 +679,7 @@ func (e env) waitBlocked(t *testing.T, pid int32, done <-chan error) {
 		default:
 		}
 		var waiting bool
-		err := e.owner.Pool().QueryRow(t.Context(),
+		err := e.admin.Pool().QueryRow(t.Context(),
 			"SELECT EXISTS (SELECT FROM pg_locks WHERE pid = $1 AND NOT granted)", pid).Scan(&waiting)
 		return waiting, err
 	})
