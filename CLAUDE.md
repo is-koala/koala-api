@@ -7,6 +7,7 @@ Kararların gerekçesi `docs/adr/`'de, plan belgesi `docs/plan/go-gecis-degerlen
 Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazılır. Etiketlerin anlamı:
 - **[lint: …]**: golangci-lint zorlar.
 - **[test]**: bir test zorlar.
+- **[make verify: …]**: `make verify` kapısının lint ve test dışındaki bir adımı zorlar (ör. `go mod tidy -diff`).
 - Etiketsiz kural: makine zorlamıyor, incelemede bakılır.
 - "(öneri)": plan belgesinde yok, iskelet PR'ında önerildi.
 

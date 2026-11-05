@@ -1,12 +1,15 @@
 package httpx
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"time"
@@ -122,22 +125,22 @@ func finishAccessLog(logger *slog.Logger, ww middleware.WrapResponseWriter, r *h
 }
 
 // Recover turns a handler panic into a logged 500 INTERNAL problem. If the
-// handler had already written the status line, a 500 can no longer be sent:
-// the panic is logged and the response is aborted with http.ErrAbortHandler
-// so the client sees a broken response instead of a truncated success.
-// http.ErrAbortHandler itself is re-raised untouched.
+// handler had already sent the status line (WriteHeader, Write or Flush), a
+// 500 can no longer be sent: the panic is logged and the response is aborted
+// with http.ErrAbortHandler so the client sees a broken response instead of
+// a truncated success. http.ErrAbortHandler itself is re-raised untouched.
 func Recover(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
-			defer recoverPanic(ww, r, logger)
-			next.ServeHTTP(ww, r)
+			hw := &headerWatcher{ResponseWriter: w}
+			defer recoverPanic(hw, r, logger)
+			next.ServeHTTP(hw, r)
 		})
 	}
 }
 
 // recoverPanic must be deferred directly so recover() sees the panic.
-func recoverPanic(ww middleware.WrapResponseWriter, r *http.Request, logger *slog.Logger) {
+func recoverPanic(hw *headerWatcher, r *http.Request, logger *slog.Logger) {
 	v := recover()
 	if v == nil {
 		return
@@ -148,11 +151,56 @@ func recoverPanic(ww middleware.WrapResponseWriter, r *http.Request, logger *slo
 	logger.ErrorContext(r.Context(), "panic",
 		slog.Any("panic", v),
 		slog.String("stack", string(debug.Stack())))
-	if ww.Status() != 0 {
+	if hw.wroteHeader {
 		panic(http.ErrAbortHandler)
 	}
-	WriteProblem(ww, logger, r, NewProblem(r, http.StatusInternalServerError, apperr.CodeInternal))
+	WriteProblem(hw, logger, r, NewProblem(r, http.StatusInternalServerError, apperr.CodeInternal))
 }
+
+// headerWatcher records whether the response header has been sent. A status
+// code alone is not enough: Flush and Hijack commit the response without a
+// WriteHeader call, and 1xx informational headers do not commit it.
+type headerWatcher struct {
+	http.ResponseWriter
+	wroteHeader bool
+}
+
+func (hw *headerWatcher) WriteHeader(code int) {
+	if code >= http.StatusOK || code == http.StatusSwitchingProtocols {
+		hw.wroteHeader = true
+	}
+	hw.ResponseWriter.WriteHeader(code)
+}
+
+func (hw *headerWatcher) Write(b []byte) (int, error) {
+	hw.wroteHeader = true
+	n, err := hw.ResponseWriter.Write(b)
+	if err != nil {
+		return n, fmt.Errorf("write response: %w", err)
+	}
+	return n, nil
+}
+
+// Flush implements http.Flusher. Flushing sends the header (status 200 if
+// none was set).
+func (hw *headerWatcher) Flush() {
+	hw.wroteHeader = true
+	_ = http.NewResponseController(hw.ResponseWriter).Flush() // http.Flusher has no error return
+}
+
+// Hijack implements http.Hijacker; after it the response belongs to the
+// handler.
+func (hw *headerWatcher) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hw.wroteHeader = true
+	conn, rw, err := http.NewResponseController(hw.ResponseWriter).Hijack()
+	if err != nil {
+		return nil, nil, fmt.Errorf("hijack: %w", err)
+	}
+	return conn, rw, nil
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer.
+func (hw *headerWatcher) Unwrap() http.ResponseWriter { return hw.ResponseWriter }
 
 // SecurityHeaders sets headers every response carries: no MIME sniffing and
 // no framing (clickjacking). Proposal of this PR (standards review).

@@ -30,6 +30,14 @@ func newTestRouter(t *testing.T) (http.Handler, *logSink) {
 		w.WriteHeader(http.StatusAccepted)
 		panic("late kaboom")
 	})
+	r.Get("/panic-after-flush", func(w http.ResponseWriter, _ *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			panic("response writer is not an http.Flusher")
+		}
+		flusher.Flush()
+		panic("flushed kaboom")
+	})
 	r.Get("/abort", func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) })
 	r.Get("/deadline", func(w http.ResponseWriter, req *http.Request) {
 		if dl, ok := req.Context().Deadline(); ok {
@@ -217,6 +225,29 @@ func TestRecoverAbortsWhenHeadersAreAlreadyWritten(t *testing.T) {
 	}
 	if line := sink.find(t, "http request"); line["status"] != float64(http.StatusAccepted) || line["aborted"] != true {
 		t.Fatalf("access log = %v, want status 202 and aborted", line)
+	}
+}
+
+// TestRecoverAbortsWhenFlushedWithoutWriteHeader: Flush sends the header
+// (200) without a WriteHeader call, so a later 500 is impossible too.
+func TestRecoverAbortsWhenFlushedWithoutWriteHeader(t *testing.T) {
+	t.Parallel()
+
+	h, sink := newTestRouter(t)
+	var rec *httptest.ResponseRecorder
+	v := recovered(func() { rec = do(h, http.MethodGet, "/panic-after-flush", nil) })
+
+	if v != http.ErrAbortHandler { //nolint:errorlint // identity check on the recovered value
+		t.Fatalf("recovered %v, want http.ErrAbortHandler", v)
+	}
+	if rec != nil {
+		t.Fatal("do returned; the response must be aborted")
+	}
+	if logged := sink.find(t, "panic"); logged["panic"] != "flushed kaboom" {
+		t.Fatalf("panic log = %v", logged)
+	}
+	if line := sink.find(t, "http request"); line["aborted"] != true {
+		t.Fatalf("access log = %v, want aborted", line)
 	}
 }
 

@@ -22,7 +22,9 @@ const (
 
 // RequestTimeout bounds every request's context (Timeout middleware). It is
 // shorter than the server's write timeout so handlers can still write an
-// error before net/http closes the connection.
+// error before net/http closes the connection. The shutdown timeout must be
+// at least this long (config.MinShutdownTimeout), so a request accepted
+// during the drain is not force-closed before its own deadline.
 const RequestTimeout = writeTimeout - 5*time.Second
 
 // ServerOptions configures the shutdown sequence.
@@ -30,7 +32,8 @@ type ServerOptions struct {
 	// DrainDelay: time between readiness turning 503 and the listener
 	// closing.
 	DrainDelay time.Duration
-	// ShutdownTimeout: time in-flight requests get to finish.
+	// ShutdownTimeout: time in-flight requests get to finish. In
+	// production it is at least RequestTimeout; config enforces that.
 	ShutdownTimeout time.Duration
 }
 

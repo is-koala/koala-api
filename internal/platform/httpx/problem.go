@@ -78,13 +78,15 @@ func NewProblem(r *http.Request, status int, code apperr.Code) Problem {
 // WriteError renders err as a problem document. Server-side failures
 // (5xx) are logged with their cause; the cause never reaches the client.
 //
-// A *http.MaxBytesError (body over BodyLimit) that no *apperr.Error wraps
-// becomes 413 REQUEST_BODY_TOO_LARGE, so handlers can return the decode
-// error as is.
+// A *http.MaxBytesError (body over BodyLimit) becomes 413
+// REQUEST_BODY_TOO_LARGE, so handlers can return the decode error as is.
+// This also holds when the error is wrapped as KindInvalid, as a generic
+// "bad body" wrapper would do: an oversized body is never a 400. Any other
+// *apperr.Error kind around it is kept.
 func WriteError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, err error) {
 	var ae *apperr.Error
 	var tooLarge *http.MaxBytesError
-	if !errors.As(err, &ae) && errors.As(err, &tooLarge) {
+	if errors.As(err, &tooLarge) && (!errors.As(err, &ae) || ae.Kind == apperr.KindInvalid) {
 		err = apperr.Wrap(err, apperr.KindPayloadTooLarge, CodeBodyTooLarge)
 	}
 	e := apperr.From(err)

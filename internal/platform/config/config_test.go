@@ -73,6 +73,8 @@ func TestLoadFailsClosed(t *testing.T) {
 		{"drain not a duration", []string{"KOALA_ENV=local", "KOALA_SHUTDOWN_DRAIN_DELAY=5"}, "KOALA_SHUTDOWN_DRAIN_DELAY: invalid value"},
 		{"drain negative", []string{"KOALA_ENV=local", "KOALA_SHUTDOWN_DRAIN_DELAY=-1s"}, "KOALA_SHUTDOWN_DRAIN_DELAY: invalid value"},
 		{"timeout zero", []string{"KOALA_ENV=local", "KOALA_SHUTDOWN_TIMEOUT=0s"}, "KOALA_SHUTDOWN_TIMEOUT: invalid value"},
+		{"timeout below request timeout", []string{"KOALA_ENV=local", "KOALA_SHUTDOWN_TIMEOUT=24s"}, "KOALA_SHUTDOWN_TIMEOUT: invalid value"},
+		{"timeout old default", []string{"KOALA_ENV=local", "KOALA_SHUTDOWN_TIMEOUT=20s"}, "KOALA_SHUTDOWN_TIMEOUT: invalid value"},
 		{"unknown koala variable", []string{"KOALA_ENV=local", "KOALA_LOGLEVEL=debug"}, "KOALA_LOGLEVEL: unknown variable"},
 	}
 	for _, tt := range tests {
@@ -90,6 +92,26 @@ func TestLoadFailsClosed(t *testing.T) {
 				t.Fatalf("Load() returned a partial config on error: %+v", cfg)
 			}
 		})
+	}
+}
+
+func TestLoadAcceptsMinShutdownTimeout(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load([]string{"KOALA_ENV=local", "KOALA_SHUTDOWN_TIMEOUT=" + config.MinShutdownTimeout.String()})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ShutdownTimeout != config.MinShutdownTimeout {
+		t.Fatalf("ShutdownTimeout = %s, want %s", cfg.ShutdownTimeout, config.MinShutdownTimeout)
+	}
+}
+
+func TestDefaultShutdownTimeoutIsAtLeastTheMinimum(t *testing.T) {
+	t.Parallel()
+
+	if config.DefaultShutdownTimeout < config.MinShutdownTimeout {
+		t.Fatalf("DefaultShutdownTimeout %s < MinShutdownTimeout %s", config.DefaultShutdownTimeout, config.MinShutdownTimeout)
 	}
 }
 
