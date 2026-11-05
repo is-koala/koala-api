@@ -54,7 +54,10 @@ func TestCatalogMatchesDatabase(t *testing.T) {
 			SELECT c.relname::text FROM pg_class c
 			WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('v', 'm')
 			ORDER BY 1`)
-		want := []string{}
+		// authz_tuples projects the relationship tables into OpenFGA's
+		// tuple form for the conformance test (0040, ADR-0026); it is
+		// the one view that is not an active view.
+		want := []string{"authz_tuples"}
 		for _, name := range cat.SoftDeleteTables() {
 			tb, _ := cat.Table(name)
 			want = append(want, tb.View())
@@ -259,16 +262,25 @@ func checkExempt(t *testing.T, q *pgxpool.Pool, tb softdelete.Table) {
 		return
 	}
 	// M1 is never deleted: no role but the owner may DELETE or TRUNCATE.
+	// The one exception is an M1 table with a retention: koala_maint
+	// deletes its rows once the retention has passed (ADR-0026), and
+	// must hold DELETE for it; nobody truncates.
 	for _, role := range []string{db.RoleApp, db.RoleMaint} {
-		var can bool
+		var canDelete, canTruncate bool
 		err := q.QueryRow(t.Context(),
-			"SELECT has_table_privilege($1, to_regclass($2), 'DELETE') OR has_table_privilege($1, to_regclass($2), 'TRUNCATE')",
-			role, tb.Name).Scan(&can)
+			"SELECT has_table_privilege($1, to_regclass($2), 'DELETE'), has_table_privilege($1, to_regclass($2), 'TRUNCATE')",
+			role, tb.Name).Scan(&canDelete, &canTruncate)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if can {
+		purges := role == db.RoleMaint && len(tb.Retention) > 0
+		switch {
+		case canTruncate:
+			t.Errorf("%s can truncate the M1 table %s", role, tb.Name)
+		case canDelete && !purges:
 			t.Errorf("%s can delete from the M1 table %s", role, tb.Name)
+		case !canDelete && purges:
+			t.Errorf("%s cannot purge the M1 table %s, whose catalog entry has a retention", role, tb.Name)
 		}
 	}
 }

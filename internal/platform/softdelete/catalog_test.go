@@ -44,6 +44,11 @@ func TestRealCatalogParses(t *testing.T) {
 	if g, _ := cat.Table("goose_db_version"); g.Class != softdelete.ClassTool {
 		t.Errorf("goose_db_version = %+v, want class tool", g)
 	}
+	// The audit trail's retention (ADR-0026); the database computes the
+	// same periods (internal/audit TestRetentionMatchesCatalog).
+	if a, _ := cat.Table("admin_audit_entries"); a.Retention["entry"] != "P24M" || a.Retention["financial_entry"] != "P10Y" {
+		t.Errorf("admin_audit_entries retention = %v, want entry P24M and financial_entry P10Y", a.Retention)
+	}
 	for _, tb := range cat.Tables() {
 		if !tb.SoftDelete() && tb.Reason == "" {
 			t.Errorf("%s: exempt without a reason", tb.Name)
@@ -110,6 +115,9 @@ func TestParseCatalogRejects(t *testing.T) {
 		"unique exception without reason": {[]string{"tables:\n  a:\n    class: soft_delete\n    unique_exceptions:\n      a_key: ''\n"}, "unique exception"},
 		"not YAML":                        {[]string{"tables: [\n"}, "parse YAML"},
 		"tool without reason":             {[]string{"tables:\n  a:\n    class: tool\n"}, "reason"},
+		"retention outside M1":            {[]string{"tables:\n  a:\n    class: M2\n    reason: r\n    retention: {default: P90D}\n"}, "M1 tables only"},
+		"retention on soft_delete":        {[]string{"tables:\n  a:\n    class: soft_delete\n    retention: {default: P6M}\n"}, "M1 tables only"},
+		"retention in days":               {[]string{"tables:\n  a:\n    class: M1\n    reason: r\n    retention: {default: P90D}\n"}, "period"},
 		"name over the limit": {[]string{"tables:\n  " + strings.Repeat("n", softdelete.MaxTableName+1) + ":\n    class: soft_delete\n"},
 			"at most 46 bytes"},
 	}

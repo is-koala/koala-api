@@ -104,6 +104,93 @@ sql:
               type: Time
               pointer: true
 
+  - name: authz
+    engine: postgresql
+    schema: db/migrations
+    queries: db/queries/authz
+    rules:
+      - no-base-table
+      - no-soft-delete-columns
+    gen:
+      go:
+        package: authzdb
+        out: internal/authz/authzdb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: github.com/google/uuid.NullUUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+
+  - name: audit
+    engine: postgresql
+    schema: db/migrations
+    queries: db/queries/audit
+    rules:
+      - no-base-table
+      - no-soft-delete-columns
+    gen:
+      go:
+        package: auditdb
+        out: internal/audit/auditdb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: github.com/google/uuid.NullUUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+
+  - name: pii
+    engine: postgresql
+    schema: db/migrations
+    queries: db/queries/pii
+    rules:
+      - no-base-table
+      - no-soft-delete-columns
+    gen:
+      go:
+        package: piidb
+        out: internal/pii/piidb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: github.com/google/uuid.NullUUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+
   # koala_maint: base tables. Neither rule applies here, and no application
   # area may list db/queries/maint (TestSQLCConfig).
   - name: maint
