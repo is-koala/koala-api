@@ -57,6 +57,14 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - `softdelete.yaml`'da `detach` politikalı FK kenarında yalnız `LEFT JOIN active_*` kullanılır; INNER JOIN yasak. Faz 1'de lint'le zorlanacak.
 - Temel tablolara yalnız `koala_maint` rolü erişir: geri alma, temizlik, anonimleştirme. M1 tabloları (defter, kanıt) silinmez.
 
+## API (ADR-0005, ADR-0006, `docs/api-style-guide.md`)
+
+- Sözleşme önce: `api/openapi.yaml` (OpenAPI 3.1) ve `api/components/*.yaml` tek doğruluk kaynağıdır. Akış: spec → `make api-lint` → `make generate` → uygulama.
+- Spec kuralları stil rehberindedir ve vacuum'la zorlanır **[make verify: api-lint]**. Her kuralın tetiklendiğini `scripts/api-lint-probe.sh` kanıtlar.
+- `internal/apiv1/*.gen.go` üretilir ve commit edilir; elle düzenlenmez **[make verify: gen-check]**. Alan `http.go`'su üretilmiş `StrictServerInterface`'in kendi metotlarını uygular.
+- İstek biçimi spec'ten `httpx.ValidateRequests` ile doğrulanır; handler'da biçim kontrolü tekrar yazılmaz.
+- Servisin döndürdüğü her hata kodu `api/components/problem.yaml`'daki `ErrorCode` listesindedir (platform kodları için **[test]**).
+
 ## Hatalar (ADR-0007)
 
 - Servisler istemciye dönecek hatayı `apperr.New(kind, "STABLE_CODE")` ya da `apperr.Wrap(cause, kind, code)` ile üretir. Kod UPPER_SNAKE'tir ve anlamı hiç değişmez; OpenAPI'deki kod listesine eklenir.
