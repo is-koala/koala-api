@@ -1,0 +1,103 @@
+# Ortak başlıklar (ADR-0005 madde 6-7, plan §4.1-6, §4.1-7).
+#
+# Platform başlıkları (X-Request-Id, X-Device-Id, X-App-Version,
+# X-Client-Platform) middleware'de zorlanır ve operasyonlara tek tek
+# yazılmaz; burada tek yerde tanımlıdır ki istemciler tip ve sabit üretsin
+# (docs/api-style-guide.md "Başlıklar"). Idempotency-Key operasyona özgüdür:
+# gerektiren her POST onu parameters'ta referanslar.
+openapi: 3.1.1
+info:
+  title: Koala ortak bileşenleri - başlıklar
+  version: 1.0.0
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        İsteğin tekil anahtarı (IETF draft-ietf-httpapi-idempotency-key-header).
+        İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
+        aynısını gönderir. Aynı anahtar farklı gövdeyle gelirse 422
+        `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
+        `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
+        saklanır.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 255
+        pattern: "^[A-Za-z0-9_.:-]+$"
+        examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+
+    XRequestId:
+      name: X-Request-Id
+      in: header
+      description: |
+        İsteğe bağlı istek kimliği. İyi biçimliyse (en fazla 64 karakter,
+        `[A-Za-z0-9._-]`) sunucu onu kullanır, değilse yenisini üretir; değer
+        her yanıtta döner.
+      schema:
+        type: string
+        maxLength: 64
+        pattern: "^[A-Za-z0-9._-]+$"
+
+    XDeviceId:
+      name: X-Device-Id
+      in: header
+      required: true
+      description: Cihaz kimliği. Admin (`/v1/admin`) dışındaki her istekte zorunludur.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+
+    XAppVersion:
+      name: X-App-Version
+      in: header
+      description: |
+        İstemci sürümü (semver). En düşük desteklenen sürümün altındaysa yanıt
+        426 `APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` olur. Kapı `/v1`
+        dışında da çalışır.
+      schema:
+        type: string
+        pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$"
+        examples: [0.9.32]
+
+    XClientPlatform:
+      name: X-Client-Platform
+      in: header
+      description: İstemcinin platformu.
+      schema:
+        $ref: "#/components/schemas/ClientPlatform"
+
+  headers:
+    XRequestId:
+      description: İsteğin kimliği; log'larla eşleştirmek için.
+      schema:
+        type: string
+    XMinimumAppVersion:
+      description: Desteklenen en düşük istemci sürümü (426 ile döner).
+      schema:
+        type: string
+    RetryAfter:
+      description: Yeniden denemeden önce beklenecek saniye (429 ve 503 ile döner).
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+    Deprecation:
+      description: |
+        RFC 9745. Operasyonun kullanımdan kalktığı an, structured field date
+        (`@1767225600`).
+      schema:
+        type: string
+    Sunset:
+      description: RFC 8594. Operasyonun kaldırılacağı an, HTTP-date.
+      schema:
+        type: string
+
+  schemas:
+    ClientPlatform:
+      type: string
+      description: İstemci platformu.
+      enum: [IOS, ANDROID, WEB, ADMIN]

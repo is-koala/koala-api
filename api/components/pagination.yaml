@@ -1,0 +1,93 @@
+# Cursor sayfalama (K10, ADR-0005 madde 4, plan §4.1-4).
+#
+# OpenAPI'de jenerik tip yok. Bir liste yanıtı tabanı allOf ile alır ve
+# items'ı ekler:
+#
+#   JobPage:
+#     allOf:
+#       - $ref: "./components/pagination.yaml#/components/schemas/CursorPage"
+#       - type: object
+#         required: [items]
+#         properties:
+#           items: {type: array, items: {$ref: "#/components/schemas/Job"}}
+#
+# `total` yalnız admin listelerinde ve SEO'lu aramada sunulur: o operasyonlar
+# CountedCursorPage'i ve IncludeTotal parametresini kullanır (lint:
+# koala-include-total-admin-or-seo).
+openapi: 3.1.1
+info:
+  title: Koala ortak bileşenleri - sayfalama
+  version: 1.0.0
+components:
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Sayfadaki en fazla öğe sayısı.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+        default: 20
+    Cursor:
+      name: cursor
+      in: query
+      description: |
+        Önceki yanıtın `nextCursor` ya da `prevCursor` değeri. Opak bir değerdir;
+        istemci içini çözmez, kurmaz ve saklamaz. Cursor sıralama anahtarını ve
+        süzgeçleri kodlar; süzgeç değişirse ilk sayfaya dönülür. Bozuk ya da başka
+        bir sorguya ait cursor 400 `CURSOR_INVALID` döner.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+    IncludeTotal:
+      name: includeTotal
+      in: query
+      description: |
+        `true` ise yanıtta `total` bulunur. Yalnız admin listelerinde ve SEO'lu
+        aramada sunulur; sayım maliyetlidir.
+      schema:
+        type: boolean
+        default: false
+    Sort:
+      name: sort
+      in: query
+      description: |
+        Virgülle ayrılmış sıralama alanları; `-` öneki azalan sıradır
+        (`-startsAt,id`). Kabul edilen alanlar operasyonun `x-sort-fields`
+        listesindedir; dışındaki alan 400 `SORT_FIELD_NOT_ALLOWED` döner.
+      schema:
+        type: string
+        pattern: "^-?[a-z][a-zA-Z0-9]*(,-?[a-z][a-zA-Z0-9]*)*$"
+        maxLength: 200
+
+  schemas:
+    CursorPage:
+      type: object
+      description: |
+        Cursor sayfa zarfının ortak alanları. `nextCursor` null ise sonraki sayfa
+        yoktur; `prevCursor` null ise ilk sayfadasınız.
+      required: [nextCursor, prevCursor]
+      properties:
+        nextCursor:
+          type: [string, "null"]
+          description: Sonraki sayfanın cursor'ı.
+        prevCursor:
+          type: [string, "null"]
+          description: Önceki sayfanın cursor'ı.
+
+    CountedCursorPage:
+      description: |
+        CursorPage + isteğe bağlı `total`. Yalnız admin listelerinde ve SEO'lu
+        aramada kullanılır.
+      allOf:
+        - $ref: "#/components/schemas/CursorPage"
+        - type: object
+          properties:
+            total:
+              type: integer
+              format: int64
+              minimum: 0
+              description: Süzgece uyan toplam öğe sayısı; yalnız `includeTotal=true` ile gelir.

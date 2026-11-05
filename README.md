@@ -100,7 +100,7 @@ internal/app/         elle wiring ve alt komutlar
 internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr
 internal/archtest/    lint'in ifade edemediği mimari testler
 db/                   migration ve sorgular (Faz 1)
-api/                  OpenAPI 3.1 sözleşmesi: api/openapi.yaml, api/components/ (ayrı PR)
+api/                  OpenAPI 3.1 sözleşmesi, ortak bileşenler ve spec lint kuralları
 docs/adr/             mimari karar kayıtları
 docs/plan/            Go geçiş planı
 scripts/              CI yardımcıları (lint probu)

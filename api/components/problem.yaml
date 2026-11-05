@@ -1,0 +1,125 @@
+# Hata gövdesi (RFC 9457) ve hata kodu kaydı (ADR-0007, plan §3.4).
+#
+# Alanlar internal/platform/httpx.Problem ile birebir aynıdır; altın test
+# httpx.TestWriteErrorGoldenBody'dir. Bir alan eklemek ya da kaldırmak hem
+# bu dosyayı hem altın testi değiştirir.
+openapi: 3.1.1
+info:
+  title: Koala ortak bileşenleri - problem
+  version: 1.0.0
+components:
+  schemas:
+    Problem:
+      type: object
+      description: |
+        RFC 9457 problem belgesi; medya tipi `application/problem+json`.
+        `detail` alanı yoktur: kullanıcıya gösterilecek metni istemci `code`'dan
+        üretir (ADR-0005 madde 3). Gövde yanıt olduğu için yeni alan eklenebilir;
+        istemci bilmediği alanı yok sayar.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: "`https://api.iskoala.com/problems/<code-kebab>`; `code`'dan türetilir."
+          examples: ["https://api.iskoala.com/problems/payment-attempt-active"]
+        title:
+          type: string
+          description: HTTP durumunun standart adı (`Conflict`). Görüntülemek için değil.
+          examples: [Conflict]
+        status:
+          type: integer
+          format: int32
+          minimum: 400
+          maximum: 599
+          examples: [409]
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+        instance:
+          type: string
+          format: uri-reference
+          description: İsteğin yolu; query string yazılmaz.
+          examples: ["/v1/job-assignments/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10/payment-session"]
+        requestId:
+          type: string
+          description: Yanıttaki `X-Request-Id` ile aynı değer.
+          examples: [req-123]
+        errors:
+          type: array
+          description: Alan hataları. Yalnız alan düzeyinde hata varsa bulunur.
+          items:
+            $ref: "#/components/schemas/ProblemField"
+      examples:
+        - type: https://api.iskoala.com/problems/payment-attempt-active
+          title: Conflict
+          status: 409
+          code: PAYMENT_ATTEMPT_ACTIVE
+          instance: /v1/job-assignments/abc/payment-session
+          requestId: req-123
+          errors:
+            - pointer: /iban
+              code: IBAN_INVALID
+
+    ProblemField:
+      type: object
+      description: Tek bir alanın hatası.
+      required: [pointer, code]
+      properties:
+        pointer:
+          type: string
+          description: |
+            Gövdedeki alan için RFC 6901 JSON pointer (`/amount/currency`; `""` gövdenin
+            tamamı). Parametre için `<in>:<ad>` (`query:limit`, `header:Idempotency-Key`,
+            `path:id`).
+          examples: [/amount/currency, "query:limit"]
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+
+    ErrorCode:
+      type: string
+      description: |
+        Stabil, makinece okunur hata kodu (UPPER_SNAKE). Bir kodun anlamı hiç değişmez;
+        yeni kod eklemek geriye uyumludur. İstemciler bilmedikleri kodu genel hata olarak
+        gösterir. Servis yeni bir kod döndürmeden önce kod bu listeye eklenir
+        (CLAUDE.md "Hatalar"); istemcilerin kod listesi buradan üretilir (ADR-0007 madde 5).
+
+        Problem kodları (`Problem.code`):
+        - `INTERNAL` (500): sınıflandırılmamış hata; sebep yalnız log'da.
+        - `ROUTE_NOT_FOUND` (404): bilinmeyen yol.
+        - `METHOD_NOT_ALLOWED` (405): yol var, metot yok; `Allow` başlığı döner.
+        - `REQUEST_BODY_TOO_LARGE` (413): gövde route'un sınırını aşıyor.
+        - `REQUEST_INVALID` (400): istek sözleşmeye uymuyor; ayrıntı `errors`'ta.
+        - `REQUEST_BODY_MALFORMED` (400): gövde JSON olarak çözülemiyor.
+        - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
+        - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
+        - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
+        - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
+        - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
+        - `APP_VERSION_UNSUPPORTED` (426): `X-App-Version` en düşük sürümün altında.
+
+        Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
+        - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
+        - `FIELD_UNKNOWN`: istek şemasında olmayan alan.
+        - `FIELD_TYPE_INVALID`: JSON tipi yanlış.
+        - `FIELD_FORMAT_INVALID`: `format` (date-time, uuid, …) uymuyor.
+        - `FIELD_VALUE_INVALID`: enum, const, pattern ya da bileşik şema uymuyor.
+        - `FIELD_OUT_OF_RANGE`: sayı, uzunluk ya da öğe sayısı sınır dışında.
+      enum:
+        - INTERNAL
+        - ROUTE_NOT_FOUND
+        - METHOD_NOT_ALLOWED
+        - REQUEST_BODY_TOO_LARGE
+        - REQUEST_INVALID
+        - REQUEST_BODY_MALFORMED
+        - SORT_FIELD_NOT_ALLOWED
+        - CURSOR_INVALID
+        - IDEMPOTENCY_KEY_REQUIRED
+        - IDEMPOTENCY_KEY_REUSED
+        - IDEMPOTENCY_KEY_IN_USE
+        - APP_VERSION_UNSUPPORTED
+        - FIELD_REQUIRED
+        - FIELD_UNKNOWN
+        - FIELD_TYPE_INVALID
+        - FIELD_FORMAT_INVALID
+        - FIELD_VALUE_INVALID
+        - FIELD_OUT_OF_RANGE

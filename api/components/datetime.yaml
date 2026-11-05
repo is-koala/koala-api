@@ -1,0 +1,43 @@
+# Zaman ve kimlik tipleri (K11, ADR-0005 madde 5, plan §3.6-4, §3.8).
+openapi: 3.1.1
+info:
+  title: Koala ortak bileşenleri - zaman ve kimlik
+  version: 1.0.0
+components:
+  schemas:
+    Timestamp:
+      type: string
+      format: date-time
+      description: |
+        Anlık zaman, RFC 3339, UTC ve `Z` ile (`2026-08-27T06:30:00Z`). Sunucu
+        her zaman UTC yazar; istemci gönderirken ofsetli değer de verebilir.
+        Alan adı `At` ile biter (`createdAt`).
+      examples: ["2026-08-27T06:30:00Z"]
+
+    LocalDateTime:
+      type: string
+      format: date-time
+      description: |
+        Yerel anlamı olan zaman (ilan başlangıcı gibi), RFC 3339, kaynağın saat
+        diliminin ofsetiyle (`2026-08-27T09:30:00+03:00`). Saat dilimi aynı nesnede
+        `timeZone` alanında taşınır. Alan adı `At` ile biter (`startsAt`).
+      examples: ["2026-08-27T09:30:00+03:00"]
+
+    TimeZone:
+      type: string
+      description: IANA saat dilimi adı. Varsayılan `Europe/Istanbul`.
+      minLength: 1
+      maxLength: 64
+      examples: [Europe/Istanbul]
+
+    Date:
+      type: string
+      format: date
+      description: Takvim günü, RFC 3339 `full-date` (`2026-08-27`). Saat ve dilim taşımaz. Alan adı `On` ya da `Date` ile biter (`birthDate`).
+      examples: ["2026-08-27"]
+
+    Id:
+      type: string
+      format: uuid
+      description: Kaynak kimliği; uygulamada üretilen UUIDv7 (zamana göre sıralı).
+      examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
