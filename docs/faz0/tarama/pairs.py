@@ -450,6 +450,7 @@ for u, ua in USERS.items():                    # kullanıcılar nesne olarak da 
 TUPLES = [
     "company:co_1#admin@user:u_co_admin", "company:co_1#staff_member@user:u_co_staff",
     "company:co_2#admin@user:u_other_co_admin",
+    "company:co_1#viewer@user:*", "company:co_2#viewer@user:*",          # C24: her şirkette yazılır
     "job:job_ind#individual_owner@user:u_creator", "job:job_ind#creator@user:u_creator",
     "job:job_ind#public_viewer@user:*", "job:job_ind#applicant_pool@user:*", "job:job_ind#active_worker@user:u_worker",
     "job:job_closed#individual_owner@user:u_creator", "job:job_closed#creator@user:u_creator",
@@ -639,8 +640,9 @@ def main():
 
 HEADER = '''# TASLAK — internal/authz/testdata/matrix.yaml (plan §5.6-3, ADR-0014)
 #
-# Faz 0 başlangıç taslağı. Go değerlendiricisi ve OpenFGA uygunluk koşucusu (§5.6-5)
-# henüz yok. Üretici: docs/faz0/tarama/pairs.py; elle düzenlemeyin, betiği güncelleyin.
+# Faz 0 başlangıç taslağı. Koşucular (§5.6-5, ADR-0024): Go değerlendiricisi
+# internal/authz/matrix_test.go, gerçek OpenFGA internal/authz/openfga_conformance_test.go.
+# Üretici: docs/faz0/tarama/pairs.py; elle düzenlemeyin, betiği güncelleyin.
 #
 # Alanlar
 #   action   : <nesne_tipi>.<karar eylemi>; relation karşılığı `actions:` haritasında.
