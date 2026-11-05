@@ -41,7 +41,7 @@ rules:
               pattern: "^[a-z][a-zA-Z0-9]*$"
 
   koala-operation-authz:
-    description: "Her operasyon ya `x-authz` ({action, object}) taşır ya da `security: []` ile açıkça public'tir; ikisi birden olmaz (stil rehberi §11, ADR-0005 madde 1)."
+    description: "Her operasyon ya `x-authz` ({action: model.fga'daki `can_*` relation'ı, object: tip}) taşır ya da `security: []` ile açıkça public'tir; ikisi birden olmaz (stil rehberi §11, ADR-0005 madde 1, ADR-0014)."
     severity: error
     given: "$.paths[*][get,put,post,patch,delete]"
     then:
@@ -58,7 +58,7 @@ rules:
                   properties:
                     action:
                       type: string
-                      pattern: "^[a-z][a-z_]*$"
+                      pattern: "^can_[a-z_]+$"
                     object:
                       type: string
                       pattern: "^[a-z][a-z_]*$"
@@ -111,7 +111,7 @@ rules:
                   required: [adminBearer]
 
   koala-idempotency-key:
-    description: "Her POST ya zorunlu Idempotency-Key başlığını alır ya da `x-no-idempotency-key: <gerekçe>` yazar (stil rehberi §7, ADR-0005 madde 6)."
+    description: "Her POST ya zorunlu Idempotency-Key başlığını alır ya da `x-no-idempotency-key: <gerekçe>` yazar (stil rehberi §7, ADR-0005 madde 6; uzantı öneri)."
     severity: error
     given: "$.paths[*].post"
     then:
@@ -146,48 +146,79 @@ rules:
       function: defined
 
   koala-error-responses-are-problems:
-    description: 4xx, 5xx ve default yanıtları yalnız application/problem+json Problem gövdesi döner (stil rehberi §5, ADR-0007).
+    description: 4xx, 5xx ve default yanıtları içerikli olur ve yalnız application/problem+json Problem gövdesi döner (stil rehberi §5, ADR-0007).
     severity: error
     given: "$.paths[*][get,put,post,patch,delete].responses[?(@property.match(/^[45]/) || @property == 'default')]"
     then:
-      field: content
       function: schema
       functionOptions:
         schema:
-          type: object
-          required: [application/problem+json]
-          maxProperties: 1
+          required: [content]
           properties:
-            application/problem+json:
-              required: [schema]
+            content:
+              type: object
+              required: [application/problem+json]
+              maxProperties: 1
               properties:
-                schema:
-                  required: [properties]
+                application/problem+json:
+                  required: [schema]
                   properties:
-                    properties:
-                      required: [type, title, status, code]
+                    schema:
+                      required: [properties]
+                      properties:
+                        properties:
+                          required: [type, title, status, code]
 
   koala-no-envelope:
-    description: Başarılı yanıt çıplak gövdedir; `success`/`httpStatus` zarfı yok (stil rehberi §5, ADR-0005 madde 3).
+    description: Başarılı yanıt çıplak gövdedir; `success`/`httpStatus`/`message` zarfı yok (stil rehberi §5, ADR-0005 madde 3).
     severity: error
     given: "$.paths[*][*].responses[?(@property.match(/^2/))].content[*].schema.properties[*]~"
     then:
       function: pattern
       functionOptions:
-        notMatch: "^(success|httpStatus)$"
+        notMatch: "^(success|httpStatus|message)$"
 
   koala-closed-request-body:
-    description: "JSON istek gövdesi bilinmeyen alanı reddeder (`additionalProperties: false`) (stil rehberi §4, plan §3.3)."
+    description: "JSON istek gövdesi ve içindeki her nesne bilinmeyen alanı reddeder: `additionalProperties: false`, allOf ile kurulan nesnede `unevaluatedProperties: false` (stil rehberi §4, plan §3.3)."
     severity: error
-    given: "$.paths[*][post,put,patch].requestBody.content['application/json'].schema"
+    given:
+      - "$.paths[*][post,put,patch].requestBody.content[?(@property == 'application/json' || @property == 'application/merge-patch+json')].schema"
+      - "$.paths[*][post,put,patch].requestBody.content[?(@property == 'application/json' || @property == 'application/merge-patch+json')].schema..[?(@ && @.properties && @parentProperty !== 'allOf')]"
     then:
       function: schema
       functionOptions:
         schema:
-          required: [additionalProperties]
+          anyOf:
+            - required: [additionalProperties]
+              properties:
+                additionalProperties:
+                  const: false
+            - required: [unevaluatedProperties]
+              properties:
+                unevaluatedProperties:
+                  const: false
+
+  koala-no-multipart-upload:
+    description: Dosya API'den geçmez; istemci presigned URL ile doğrudan nesne deposuna yükler. multipart/form-data istek gövdesi yok (stil rehberi §4, ADR-0019).
+    severity: error
+    given: "$.paths[*][post,put,patch].requestBody.content"
+    then:
+      field: multipart/form-data
+      function: undefined
+
+  koala-body-limit:
+    description: "`x-body-limit` bayt cinsinden pozitif tam sayıdır; varsayılan 1 MiB'ın yerine geçer (stil rehberi §4, öneri)."
+    severity: error
+    given: "$.paths[*][get,put,post,patch,delete]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
           properties:
-            additionalProperties:
-              const: false
+            x-body-limit:
+              type: integer
+              minimum: 1
+              maximum: 2147483647
 
   # Sayfalama, süzme, sıralama
 
@@ -202,7 +233,7 @@ rules:
         notMatch: "^(page|size|offset|pageSize|pageNumber|perPage|skip)$"
 
   koala-include-total-admin-or-seo:
-    description: "`includeTotal` yalnız /v1/admin listelerinde ve `x-seo-search: true` operasyonlarında bulunur (stil rehberi §6, ADR-0005 madde 4)."
+    description: "`includeTotal` yalnız /v1/admin listelerinde ve SEO'lu aramada bulunur; SEO'lu arama `x-seo-search: true` ile işaretlenir (stil rehberi §6, ADR-0005 madde 4; uzantı öneri)."
     severity: error
     given: "$.paths[?(!@property.match(/^\\/v1\\/admin\\//))][get,post]"
     then:
@@ -226,7 +257,7 @@ rules:
                         const: includeTotal
 
   koala-sort-fields:
-    description: "`sort` alan operasyon kabul ettiği alanları `x-sort-fields` ile listeler (stil rehberi §6, ADR-0005 madde 4)."
+    description: "`sort` alan operasyon kabul ettiği alanları `x-sort-fields` ile listeler (stil rehberi §6, ADR-0005 madde 4; uzantı öneri)."
     severity: error
     given: "$.paths[*][get,post]"
     then:
@@ -255,7 +286,7 @@ rules:
   # Kullanımdan kaldırma
 
   koala-deprecation-has-sunset:
-    description: "`deprecated: true` olan operasyon kaldırılma gününü `x-sunset: YYYY-MM-DD` ile yazar (stil rehberi §12)."
+    description: "`deprecated: true` olan operasyon kaldırılma gününü `x-sunset: YYYY-MM-DD` ile yazar (stil rehberi §12, öneri)."
     severity: error
     given: "$.paths[*][get,put,post,patch,delete]"
     then:

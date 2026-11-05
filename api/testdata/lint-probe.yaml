@@ -31,16 +31,19 @@ paths:
                 type: object
                 properties:
                   success: {type: boolean} # koala-no-envelope
+                  message: {type: string} # koala-no-envelope
         "404": # koala-error-responses-are-problems
           description: nf
           content:
             application/json:
               schema: {type: object}
+        "409": # koala-error-responses-are-problems: a 4xx without content
+          description: conflict
         # koala-default-problem-response: no default
   /v1/admin/users:
     get:
       operationId: listUsers
-      x-authz: {action: read, object: user}
+      x-authz: {action: can_read, object: user}
       # koala-admin-permission: no x-authz-permission
       responses:
         default:
@@ -48,7 +51,7 @@ paths:
   /v1/things:
     get:
       operationId: listThings
-      x-authz: {action: read, object: thing}
+      x-authz: {action: can_read, object: thing}
       x-authz-permission: thing.read # koala-admin-only-under-admin
       deprecated: true # koala-deprecation-has-sunset
       parameters:
@@ -66,7 +69,8 @@ paths:
           $ref: "#/components/responses/Problem"
     post:
       operationId: createThing
-      x-authz: {action: create, object: thing}
+      x-authz: {action: can_create, object: thing}
+      x-body-limit: big # koala-body-limit
       # koala-idempotency-key: no Idempotency-Key and no x-no-idempotency-key
       requestBody:
         content:
@@ -75,6 +79,40 @@ paths:
               type: object
               properties:
                 name: {type: string}
+          multipart/form-data: # koala-no-multipart-upload
+            schema: {type: object}
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+  /v1/nested-things:
+    post:
+      operationId: createNestedThing
+      x-authz: {action: create, object: thing} # koala-operation-authz: not a can_* relation
+      x-no-idempotency-key: probe only, no side effect at all
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                nested: # koala-closed-request-body: nested object left open
+                  type: object
+                  properties:
+                    x: {type: string}
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+    patch:
+      operationId: patchNestedThing
+      x-authz: {action: can_edit, object: thing}
+      requestBody:
+        content:
+          application/merge-patch+json:
+            schema: # koala-closed-request-body: merge patch is a request body too
+              type: object
+              properties:
+                x: {type: string}
       responses:
         default:
           $ref: "#/components/responses/Problem"
@@ -103,8 +141,15 @@ components:
         state: {type: string, enum: [active]} # koala-enum-upper-snake
         count: {type: integer} # koala-integer-format
         legacy: {type: string, nullable: true} # koala-no-nullable-keyword
-        price: {type: number} # koala-money-not-decimal
+        price: {type: number} # koala-money-is-money
         commissionRate: {type: integer, format: int32} # koala-rate-in-basis-points
         feeBps: {type: string} # koala-bps-integer
         createdAt: {type: string} # koala-instant-is-date-time
         birthDate: {type: string, format: date-time} # koala-calendar-date-is-date
+        # The same rules on OpenAPI 3.1 type arrays:
+        nullableCount: {type: [integer, "null"]} # koala-integer-format
+        nullableState: {type: [string, "null"], enum: [active, null]} # koala-enum-upper-snake
+        refundAmount: {type: [integer, "null"], format: int64} # koala-money-is-money
+        wage: {type: [number, "null"]} # koala-money-is-money
+        rentBps: {type: [string, "null"]} # koala-bps-integer
+        successRate: {type: [number, "null"]} # koala-rate-in-basis-points
