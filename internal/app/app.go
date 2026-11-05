@@ -22,7 +22,8 @@ commands:
   serve        run the HTTP server
   bootstrap    create the database group roles (idempotent; before migrate)
   migrate      apply database migrations: up, down, status (goose)
-  maint        maintenance tasks for scheduled ops jobs: reindex
+  maint        maintenance tasks for scheduled ops jobs: reindex, audit-purge
+  staff        staff accounts as koala_maint: create, disable
   healthcheck  probe the local server's /livez (Docker HEALTHCHECK)
   keygen       print a new signing key entry or login pepper
   version      print the build version
@@ -54,6 +55,8 @@ func Run(ctx context.Context, args []string, sio IO) int {
 		return runMigrate(ctx, rest, sio)
 	case "maint":
 		return runMaint(ctx, rest, sio)
+	case "staff":
+		return runStaff(ctx, rest, sio)
 	case "keygen":
 		return runKeygen(rest, sio)
 	case "version":

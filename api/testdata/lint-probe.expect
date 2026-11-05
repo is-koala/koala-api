@@ -70,6 +70,7 @@ koala-admin-public	$.paths['/v1/admin/auth/refresh'].get
 koala-admin-self-service	$.paths['/v1/admin/auth/logout'].get
 koala-admin-self-service	$.paths['/v1/admin/auth/password'].get
 koala-admin-self-service	$.paths['/v1/admin/me'].get
+koala-admin-self-service	$.paths['/v1/admin/me/capabilities'].get
 koala-operation-authz	$.paths['/v1/admin/auth/login'].get
 koala-operation-authz	$.paths['/v1/admin/auth/refresh']
 koala-operation-authz	$.paths['/v1/admin/auth/refresh'].get

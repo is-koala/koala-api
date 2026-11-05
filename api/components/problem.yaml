@@ -188,6 +188,8 @@ components:
           bırakmayla sona erdi.
         - `STAFF_PASSWORD_CHANGE_REQUIRED` (403): hesap önce parolasını değiştirmeli (AUTH-014).
         - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+        - `STAFF_PERMISSION_DENIED` (403): personel, operasyonun `x-authz-permission` iznini
+          tutmuyor; ret denetim kaydına yazılır (AUTH-012, ADR-0026).
 
         Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
         - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -245,6 +247,7 @@ components:
         - STAFF_SESSION_ENDED
         - STAFF_PASSWORD_CHANGE_REQUIRED
         - STAFF_CURRENT_PASSWORD_MISMATCH
+        - STAFF_PERMISSION_DENIED
         - FIELD_REQUIRED
         - FIELD_UNKNOWN
         - FIELD_TYPE_INVALID

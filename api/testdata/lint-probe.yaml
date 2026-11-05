@@ -133,6 +133,13 @@ paths:
       security: [{adminBearer: []}]
       responses:
         default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/me/capabilities:
+    get: # koala-admin-self-service: the capabilities of oneself need no permission
+      operationId: getAdminMeCapabilities
+      x-authz-permission: role.manage
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
   /v1/admin/auth/password:
     get: # koala-admin-self-service: an allow-listed operation with a permission
       operationId: getAdminAuthPassword

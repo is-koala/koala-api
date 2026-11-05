@@ -18,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/api"
+	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/log"
@@ -195,7 +196,8 @@ var externalMetrics = map[string]bool{
 }
 
 // TestAlertRulesUseRegisteredMetrics: every metric an alert rule reads is
-// registered by the wired service (or listed as external), and every label
+// registered by the wired service, wireService as serve calls it (or
+// listed as external), and every label
 // it selects or groups by is one of that metric's labels. A rule over a
 // series or a label that never exists would stay green forever.
 func TestAlertRulesUseRegisteredMetrics(t *testing.T) {
@@ -210,8 +212,10 @@ func TestAlertRulesUseRegisteredMetrics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	router, err := newRouter(context.Background(), config.Config{Env: config.EnvTest}, logger,
-		httpx.NewHealth(logger), reg, rateLimitGroups(), testModules(t))
+	// Everything serve registers: the modules' metrics (authentication),
+	// the router's and the workers' (issue #7), not only the router's.
+	_, router, _, err := wireService(context.Background(), config.Config{Env: config.EnvTest}, lazyDB(t), clock.Real{},
+		logger, httpx.NewHealth(logger), reg)
 	if err != nil {
 		t.Fatal(err)
 	}

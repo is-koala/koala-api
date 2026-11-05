@@ -57,6 +57,27 @@ func (e SessionPlatform) Valid() bool {
 	}
 }
 
+// Defines values for StaffPermissionSensitivity.
+const (
+	StaffPermissionSensitivityFINANCIAL    StaffPermissionSensitivity = "FINANCIAL"
+	StaffPermissionSensitivityNORMAL       StaffPermissionSensitivity = "NORMAL"
+	StaffPermissionSensitivityPERSONALDATA StaffPermissionSensitivity = "PERSONAL_DATA"
+)
+
+// Valid indicates whether the value is a known member of the StaffPermissionSensitivity enum.
+func (e StaffPermissionSensitivity) Valid() bool {
+	switch e {
+	case StaffPermissionSensitivityFINANCIAL:
+		return true
+	case StaffPermissionSensitivityNORMAL:
+		return true
+	case StaffPermissionSensitivityPERSONALDATA:
+		return true
+	default:
+		return false
+	}
+}
+
 // LoginRequest Parolayla giriş. Adres büyük-küçük harfe ve baştaki/sondaki boşluğa duyarsızdır.
 // Parola kurala bakılmadan olduğu gibi denenir (AUTH-009); üst sınır yalnız
 // gövdeyi korur.
@@ -156,9 +177,22 @@ type SessionPage struct {
 // SessionPlatform Oturumun cihazının platformu; giriş isteği bildirmediyse `UNKNOWN`.
 type SessionPlatform string
 
-// StaffMe Personelin kendi hesabı. Roller ve izinler personel RBAC'ıyla gelir.
+// StaffCapabilities Personel arayüzünün neyi açacağı (plan §5.5). Her değer aynı yetki kararından
+// (`Check`) hesaplanır; istemci token ayrıştırmaz. Uç okunamazsa arayüz kapalı başlar.
 //
-// Examples: {"email":"destek@iskoala.com","id":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10","mustChangePassword":false}
+// Examples: {"can":{"audit.read":true,"payout.release":false},"permissions":["audit.read"]}
+type StaffCapabilities struct {
+	// Can Bilinen her izin kodu için personelin onu tutup tutmadığı.
+	Can map[string]bool `json:"can"`
+
+	// Permissions Personelin tuttuğu izinler, koda göre sıralı.
+	Permissions []StaffPermissionCode `json:"permissions"`
+}
+
+// StaffMe Personelin kendi hesabı, doğrudan atanmış rolleri ve rol DAG'ından her istekte
+// çözülen izinleri (ADR-0026). İzinler token'da taşınmaz (AUTH-012).
+//
+// Examples: {"email":"destek@iskoala.com","id":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10","mustChangePassword":false,"permissions":["job.read","note.read","note.write","user.read"],"roles":[{"code":"SUPPORT_AGENT","id":"9a1c0f10-0003-4c00-8000-000000000002","name":"Destek görevlisi"}]}
 type StaffMe struct {
 	// Email Giriş adresi.
 	//
@@ -172,6 +206,12 @@ type StaffMe struct {
 
 	// MustChangePassword Hesap önce parolasını değiştirmeli.
 	MustChangePassword bool `json:"mustChangePassword"`
+
+	// Permissions Personelin tuttuğu izinler (doğrudan ya da rol kapsamasıyla), koda göre sıralı.
+	Permissions []StaffPermissionCode `json:"permissions"`
+
+	// Roles Personele doğrudan atanmış roller, koda göre sıralı.
+	Roles []StaffRole `json:"roles"`
 }
 
 // StaffPasswordChange Personel parola değişimi. Yeni parolanın kuralını sunucu uygular (AUTH-009).
@@ -187,6 +227,54 @@ type StaffPasswordChange struct {
 	//
 	// Examples: yeni ve uzun bir parola
 	NewPassword string `json:"newPassword"`
+}
+
+// StaffPermission İzin kataloğunun bir satırı.
+type StaffPermission struct {
+	// Code Personel izni kodu; `x-authz-permission`'ın değeri (ADR-0026).
+	//
+	// Examples: payout.release
+	Code StaffPermissionCode `json:"code"`
+
+	// Mutating İzin durum değiştiren işlemlere verilir.
+	Mutating bool `json:"mutating"`
+
+	// Sensitivity İznin açtığı verinin sınıfı; `FINANCIAL` denetim satırları 10 yıl, diğerleri 24 ay
+	// saklanır (ADR-0026).
+	Sensitivity StaffPermissionSensitivity `json:"sensitivity"`
+}
+
+// StaffPermissionSensitivity İznin açtığı verinin sınıfı; `FINANCIAL` denetim satırları 10 yıl, diğerleri 24 ay
+// saklanır (ADR-0026).
+type StaffPermissionSensitivity string
+
+// StaffPermissionCatalog Personel izinlerinin tamamı (25), koda göre sıralı.
+type StaffPermissionCatalog struct {
+	// Permissions İzinler.
+	Permissions []StaffPermission `json:"permissions"`
+}
+
+// StaffPermissionCode Personel izni kodu; `x-authz-permission`'ın değeri (ADR-0026).
+//
+// Examples: payout.release
+type StaffPermissionCode = string
+
+// StaffRole Bir personel rolü.
+type StaffRole struct {
+	// Code Rol kodu.
+	//
+	// Examples: FINANCE_OFFICER
+	Code string `json:"code"`
+
+	// ID Rol kimliği; denetim kaydının dayanağında `staff_role:<id>` olarak geçer.
+	//
+	// Examples: 9a1c0f10-0003-4c00-8000-000000000009
+	ID openapi_types.UUID `json:"id"`
+
+	// Name Rolün görünen adı.
+	//
+	// Examples: Finans yetkilisi
+	Name string `json:"name"`
 }
 
 // StaffTokenPair Personel oturumunun token çifti. `mustChangePassword` doğruysa parola
@@ -351,6 +439,12 @@ type ServerInterface interface {
 	// GetStaffMe Personelin kendi hesabını döndürür.
 	// (GET /v1/admin/me)
 	GetStaffMe(w http.ResponseWriter, r *http.Request)
+	// GetStaffCapabilities Personelin tuttuğu izinleri ve arayüz yeteneklerini döndürür.
+	// (GET /v1/admin/me/capabilities)
+	GetStaffCapabilities(w http.ResponseWriter, r *http.Request)
+	// ListStaffPermissions Personel izin kataloğunu döndürür.
+	// (GET /v1/admin/permissions)
+	ListStaffPermissions(w http.ResponseWriter, r *http.Request)
 	// LoginUser E-posta ve parolayla giriş yapar; cihaza bağlı bir oturum açar.
 	// (POST /v1/auth/login)
 	LoginUser(w http.ResponseWriter, r *http.Request)
@@ -408,6 +502,18 @@ func (_ Unimplemented) RefreshStaffSession(w http.ResponseWriter, r *http.Reques
 // GetStaffMe Personelin kendi hesabını döndürür.
 // (GET /v1/admin/me)
 func (_ Unimplemented) GetStaffMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// GetStaffCapabilities Personelin tuttuğu izinleri ve arayüz yeteneklerini döndürür.
+// (GET /v1/admin/me/capabilities)
+func (_ Unimplemented) GetStaffCapabilities(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListStaffPermissions Personel izin kataloğunu döndürür.
+// (GET /v1/admin/permissions)
+func (_ Unimplemented) ListStaffPermissions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -529,6 +635,34 @@ func (siw *ServerInterfaceWrapper) GetStaffMe(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetStaffMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetStaffCapabilities operation middleware
+func (siw *ServerInterfaceWrapper) GetStaffCapabilities(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetStaffCapabilities(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListStaffPermissions operation middleware
+func (siw *ServerInterfaceWrapper) ListStaffPermissions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListStaffPermissions(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -825,6 +959,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/admin/me", wrapper.GetStaffMe)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/admin/me/capabilities", wrapper.GetStaffCapabilities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/admin/permissions", wrapper.ListStaffPermissions)
 	})
 
 	return r
@@ -1390,6 +1530,184 @@ type GetStaffMedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response GetStaffMedefaultApplicationProblemPlusJSONResponse) VisitGetStaffMeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffCapabilitiesRequestObject struct {
+}
+
+type GetStaffCapabilitiesResponseObject interface {
+	VisitGetStaffCapabilitiesResponse(w http.ResponseWriter) error
+}
+
+type GetStaffCapabilities200JSONResponse StaffCapabilities
+
+func (response GetStaffCapabilities200JSONResponse) VisitGetStaffCapabilitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffCapabilities401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response GetStaffCapabilities401ApplicationProblemPlusJSONResponse) VisitGetStaffCapabilitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffCapabilities403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response GetStaffCapabilities403ApplicationProblemPlusJSONResponse) VisitGetStaffCapabilitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffCapabilities429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response GetStaffCapabilities429ApplicationProblemPlusJSONResponse) VisitGetStaffCapabilitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetStaffCapabilitiesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response GetStaffCapabilitiesdefaultApplicationProblemPlusJSONResponse) VisitGetStaffCapabilitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListStaffPermissionsRequestObject struct {
+}
+
+type ListStaffPermissionsResponseObject interface {
+	VisitListStaffPermissionsResponse(w http.ResponseWriter) error
+}
+
+type ListStaffPermissions200JSONResponse StaffPermissionCatalog
+
+func (response ListStaffPermissions200JSONResponse) VisitListStaffPermissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListStaffPermissions401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListStaffPermissions401ApplicationProblemPlusJSONResponse) VisitListStaffPermissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListStaffPermissions403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response ListStaffPermissions403ApplicationProblemPlusJSONResponse) VisitListStaffPermissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListStaffPermissions429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListStaffPermissions429ApplicationProblemPlusJSONResponse) VisitListStaffPermissionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListStaffPermissionsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListStaffPermissionsdefaultApplicationProblemPlusJSONResponse) VisitListStaffPermissionsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -2252,6 +2570,12 @@ type StrictServerInterface interface {
 	// GetStaffMe Personelin kendi hesabını döndürür.
 	// (GET /v1/admin/me)
 	GetStaffMe(ctx context.Context, request GetStaffMeRequestObject) (GetStaffMeResponseObject, error)
+	// GetStaffCapabilities Personelin tuttuğu izinleri ve arayüz yeteneklerini döndürür.
+	// (GET /v1/admin/me/capabilities)
+	GetStaffCapabilities(ctx context.Context, request GetStaffCapabilitiesRequestObject) (GetStaffCapabilitiesResponseObject, error)
+	// ListStaffPermissions Personel izin kataloğunu döndürür.
+	// (GET /v1/admin/permissions)
+	ListStaffPermissions(ctx context.Context, request ListStaffPermissionsRequestObject) (ListStaffPermissionsResponseObject, error)
 	// LoginUser E-posta ve parolayla giriş yapar; cihaza bağlı bir oturum açar.
 	// (POST /v1/auth/login)
 	LoginUser(ctx context.Context, request LoginUserRequestObject) (LoginUserResponseObject, error)
@@ -2451,6 +2775,54 @@ func (sh *strictHandler) GetStaffMe(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetStaffMeResponseObject); ok {
 		if err := validResponse.VisitGetStaffMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetStaffCapabilities operation middleware
+func (sh *strictHandler) GetStaffCapabilities(w http.ResponseWriter, r *http.Request) {
+	var request GetStaffCapabilitiesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetStaffCapabilities(ctx, request.(GetStaffCapabilitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetStaffCapabilities")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetStaffCapabilitiesResponseObject); ok {
+		if err := validResponse.VisitGetStaffCapabilitiesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListStaffPermissions operation middleware
+func (sh *strictHandler) ListStaffPermissions(w http.ResponseWriter, r *http.Request) {
+	var request ListStaffPermissionsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListStaffPermissions(ctx, request.(ListStaffPermissionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListStaffPermissions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListStaffPermissionsResponseObject); ok {
+		if err := validResponse.VisitListStaffPermissionsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

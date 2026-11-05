@@ -163,6 +163,22 @@ paths:
       responses:
         default:
           $ref: "#/components/responses/Problem"
+  /v1/admin/me/capabilities:
+    get:
+      operationId: adminGetCapabilities
+      x-authz-exempt: Personel yalnız kendi izinlerini okur; izin gerektiren nesne yok.
+      security: [{adminBearer: []}]
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+  /v1/admin/permissions:
+    get:
+      operationId: adminListPermissions
+      x-authz-permission: role.manage
+      security: [{adminBearer: []}]
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
   /v1/admin/auth/refresh:
     get:
       operationId: adminGetSignInState

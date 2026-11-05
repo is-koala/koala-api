@@ -60,6 +60,7 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		"KOALA_SHUTDOWN_TIMEOUT=60s",
 		"KOALA_DATABASE_URL=postgres://app@db.internal:5432/koala?sslmode=verify-full",
 		"KOALA_OWNER_DATABASE_URL=postgresql://migrator@db.internal/koala?sslmode=require",
+		"KOALA_MAINT_DATABASE_URL=postgresql://maint@db.internal/koala?sslmode=require",
 		"KOALA_BOOTSTRAP_DATABASE_URL=postgres://admin@db.internal/postgres?sslmode=verify-ca",
 		"KOALA_MIN_APP_VERSION=1.4.0",
 		"KOALA_TRUSTED_PROXIES=10.0.0.0/8, 192.0.2.7,2001:db8::/32",
@@ -81,6 +82,7 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		ShutdownTimeout:      60 * time.Second,
 		DatabaseURL:          "postgres://app@db.internal:5432/koala?sslmode=verify-full",
 		OwnerDatabaseURL:     "postgresql://migrator@db.internal/koala?sslmode=require",
+		MaintDatabaseURL:     "postgresql://maint@db.internal/koala?sslmode=require",
 		BootstrapDatabaseURL: "postgres://admin@db.internal/postgres?sslmode=verify-ca",
 		MinAppVersion:        &minVersion,
 		TrustedProxies: []netip.Prefix{

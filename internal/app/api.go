@@ -16,6 +16,7 @@ import (
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/staff"
 )
 
 // newRouter builds the HTTP router: the edge rules of ADR-0021 from cfg
@@ -88,15 +89,23 @@ func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, l
 	if err != nil {
 		return fmt.Errorf("mount api: %w", err)
 	}
+	// The x-authz-permission gate: an admin operation without a known
+	// permission or a documented exemption stops the server here
+	// (fail-closed, ADR-0026).
+	gate, err := staff.NewGate(spec, mods.admin.checker, mods.admin.recorder, mods.admin.writes, logger)
+	if err != nil {
+		return fmt.Errorf("mount api: %w", err)
+	}
 	middlewares := []apiv1.StrictMiddlewareFunc{mods.authHTTP.StrictMiddleware(limiter, groupAuth, groupAuthAccount)}
-	strict := apiv1.NewStrictHandlerWithOptions(mods.authHTTP, middlewares, apiv1.StrictHTTPServerOptions{
+	server := strictServer{HTTP: mods.authHTTP, admin: mods.admin.http}
+	strict := apiv1.NewStrictHandlerWithOptions(server, middlewares, apiv1.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: bindError(logger),
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			httpx.WriteError(w, r, logger, err)
 		},
 	})
 	router.Group(func(g chi.Router) {
-		g.Use(authenticate.Handler, limiter.ByIdentity(logger), validate)
+		g.Use(authenticate.Handler, limiter.ByIdentity(logger), gate.Handler, validate)
 		apiv1.HandlerWithOptions(strict, apiv1.ChiServerOptions{
 			BaseRouter:       g,
 			ErrorHandlerFunc: bindError(logger),
@@ -119,4 +128,24 @@ func bindError(logger *slog.Logger) func(http.ResponseWriter, *http.Request, err
 		}
 		httpx.WriteError(w, r, logger, fmt.Errorf("bind validated request: %T (cause %T)", err, cause))
 	}
+}
+
+// strictServer composes the modules' handlers into the generated strict
+// server interface: authentication (authn, embedded) and the staff
+// surface (forwarded; both handler types are named HTTP).
+type strictServer struct {
+	*authn.HTTP
+	admin *staff.HTTP
+}
+
+func (s strictServer) GetStaffMe(ctx context.Context, req apiv1.GetStaffMeRequestObject) (apiv1.GetStaffMeResponseObject, error) {
+	return s.admin.GetStaffMe(ctx, req) //nolint:wrapcheck // forwarding: the handler's error is the response
+}
+
+func (s strictServer) GetStaffCapabilities(ctx context.Context, req apiv1.GetStaffCapabilitiesRequestObject) (apiv1.GetStaffCapabilitiesResponseObject, error) {
+	return s.admin.GetStaffCapabilities(ctx, req) //nolint:wrapcheck // forwarding: the handler's error is the response
+}
+
+func (s strictServer) ListStaffPermissions(ctx context.Context, req apiv1.ListStaffPermissionsRequestObject) (apiv1.ListStaffPermissionsResponseObject, error) {
+	return s.admin.ListStaffPermissions(ctx, req) //nolint:wrapcheck // forwarding: the handler's error is the response
 }

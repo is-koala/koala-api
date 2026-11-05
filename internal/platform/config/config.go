@@ -35,6 +35,7 @@ const (
 	VarShutdownTimeout      = "KOALA_SHUTDOWN_TIMEOUT"
 	VarDatabaseURL          = "KOALA_DATABASE_URL"
 	VarOwnerDatabaseURL     = "KOALA_OWNER_DATABASE_URL"
+	VarMaintDatabaseURL     = "KOALA_MAINT_DATABASE_URL"
 	VarBootstrapDatabaseURL = "KOALA_BOOTSTRAP_DATABASE_URL"
 	VarMinAppVersion        = "KOALA_MIN_APP_VERSION"
 	VarTrustedProxies       = "KOALA_TRUSTED_PROXIES"
@@ -49,7 +50,7 @@ const (
 // this list is a typo or a leftover and fails startup.
 var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarEnv, VarHTTPAddr, VarLogLevel, VarShutdownDrainDelay, VarShutdownTimeout,
-	VarDatabaseURL, VarOwnerDatabaseURL, VarBootstrapDatabaseURL,
+	VarDatabaseURL, VarOwnerDatabaseURL, VarMaintDatabaseURL, VarBootstrapDatabaseURL,
 	VarMinAppVersion, VarTrustedProxies, VarMetricsAddr,
 	VarJWTMarketplaceKeys, VarJWTStaffKeys, VarRealtimeOrigins, VarLoginPepper,
 }
@@ -83,8 +84,11 @@ type Config struct {
 	//
 	// DatabaseURL is the server's login, a member of koala_app only (serve).
 	DatabaseURL Secret
-	// OwnerDatabaseURL is a member of koala_owner (migrate, maint).
+	// OwnerDatabaseURL is a member of koala_owner (migrate, maint reindex).
 	OwnerDatabaseURL Secret
+	// MaintDatabaseURL is a member of koala_maint: staff management and
+	// the audit purge (koala staff, koala maint audit-purge; ADR-0026).
+	MaintDatabaseURL Secret
 	// BootstrapDatabaseURL has CREATEROLE; it creates the group roles
 	// (bootstrap).
 	BootstrapDatabaseURL Secret
@@ -230,6 +234,7 @@ func Load(environ []string) (Config, error) {
 	for name, dst := range map[string]*Secret{
 		VarDatabaseURL:          &cfg.DatabaseURL,
 		VarOwnerDatabaseURL:     &cfg.OwnerDatabaseURL,
+		VarMaintDatabaseURL:     &cfg.MaintDatabaseURL,
 		VarBootstrapDatabaseURL: &cfg.BootstrapDatabaseURL,
 	} {
 		if v, ok := vars[name]; ok {

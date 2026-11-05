@@ -41,6 +41,11 @@ func TestRunUsage(t *testing.T) {
 		{"maint without command", []string{"maint"}, ExitUsage},
 		{"maint unknown command", []string{"maint", "vacuum"}, ExitUsage},
 		{"maint help", []string{"maint", "help"}, ExitOK},
+		{"staff without command", []string{"staff"}, ExitUsage},
+		{"staff unknown command", []string{"staff", "delete"}, ExitUsage},
+		{"staff create without role", []string{"staff", "create", "--email", "a@iskoala.com"}, ExitUsage},
+		{"staff disable without email", []string{"staff", "disable"}, ExitUsage},
+		{"staff help", []string{"staff", "help"}, ExitOK},
 		{"bootstrap with args", []string{"bootstrap", "now"}, ExitUsage},
 	}
 	for _, tt := range tests {
@@ -87,6 +92,7 @@ func TestCommandsRequireTheirDatabaseURL(t *testing.T) {
 		{[]string{"migrate", "up"}, "KOALA_OWNER_DATABASE_URL"},
 		{[]string{"migrate", "status"}, "KOALA_OWNER_DATABASE_URL"},
 		{[]string{"maint", "reindex"}, "KOALA_OWNER_DATABASE_URL"},
+		{[]string{"maint", "audit-purge"}, "KOALA_MAINT_DATABASE_URL"},
 		{[]string{"bootstrap"}, "KOALA_BOOTSTRAP_DATABASE_URL"},
 	}
 	for _, tt := range tests {

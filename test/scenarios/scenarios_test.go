@@ -33,7 +33,7 @@ func activeDomains() []string {
 // or partial scenario names the phase that closes it; once that phase is
 // behind (the PR that exits it raises this constant), the scenario is red
 // until it is bound in full (ADR-0025 §11).
-const currentPhase = 1
+const currentPhase = 2
 
 // repoRoot is the repository root relative to this directory.
 const repoRoot = "../.."
