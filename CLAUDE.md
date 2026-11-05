@@ -13,7 +13,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 
 ## Kapı: CI'da koşar, yerelde ağır iş yok
 
-- Kapı `make verify`'dır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004). Sırası: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on`.
+- Kapı `make verify`'dır ve **yalnız GitHub Actions'ta** koşar (`.github/workflows/verify.yml`, ADR-0004). Sırası: gofmt → `go mod tidy -diff` → `go vet` → golangci-lint → lint probu → govulncheck → `go test -race -shuffle=on` → spec lint (`api-lint`) → üretilen kod güncel mi (`gen-check`).
 - **Bu Mac'te yerelde ağır iş yapılmaz** (Yusuf, 04.11). `go test`, `go vet`, `go build`, golangci-lint, `make verify` ve docker çalıştırılmaz. Serbest olanlar: `gofmt`, `go mod tidy`, `make fmt-check`, `make mod-check`. İş bitince `go clean -cache`.
 - PR, CI'daki `verify` yeşil olmadan merge edilmez. Kırmızı kapıyla "sonra düzeltirim" yok.
 - `//nolint` yalnız linter adı ve gerekçeyle yazılır: `//nolint:wrapcheck // neden` **[lint: nolintlint]**. Gerekçesiz susturma yerine kodu düzelt.
@@ -63,6 +63,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - Spec kuralları stil rehberindedir ve vacuum'la zorlanır **[make verify: api-lint]**. Her kuralın tetiklendiğini `scripts/api-lint-probe.sh` kanıtlar.
 - `internal/apiv1/*.gen.go` üretilir ve commit edilir; elle düzenlenmez **[make verify: gen-check]**. Alan `http.go`'su üretilmiş `StrictServerInterface`'in kendi metotlarını uygular.
 - İstek biçimi spec'ten `httpx.ValidateRequests` ile doğrulanır; handler'da biçim kontrolü tekrar yazılmaz.
+- `make generate` yerelde serbesttir; derleme gerektirdiği için önce yüke bakılır ve `nice -n 15` ile koşulur.
 - Servisin döndürdüğü her hata kodu `api/components/problem.yaml`'daki `ErrorCode` listesindedir (platform kodları için **[test]**).
 
 ## Hatalar (ADR-0007)

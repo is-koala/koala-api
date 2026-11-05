@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -33,7 +32,9 @@ func mountAPI(ctx context.Context, router chi.Router, logger *slog.Logger) error
 	// functions compose them here as they land.
 	strict := apiv1.NewStrictHandlerWithOptions(meta.NewHandler(), nil, apiv1.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
-			httpx.WriteError(w, r, logger, decodeError(err))
+			// Rare: the validator has already parsed the body. A body over
+			// its limit still becomes 413 in WriteError.
+			httpx.WriteError(w, r, logger, apperr.Wrap(err, apperr.KindInvalid, httpx.CodeBodyMalformed))
 		},
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			httpx.WriteError(w, r, logger, err)
@@ -49,15 +50,4 @@ func mountAPI(ctx context.Context, router chi.Router, logger *slog.Logger) error
 		})
 	})
 	return nil
-}
-
-// decodeError classifies a body the generated handler could not bind. The
-// validation middleware has already parsed it, so this is rare; a body over
-// its limit stays a *http.MaxBytesError so WriteError makes it a 413.
-func decodeError(err error) error {
-	var tooLarge *http.MaxBytesError
-	if errors.As(err, &tooLarge) {
-		return err
-	}
-	return apperr.Wrap(err, apperr.KindInvalid, httpx.CodeBodyMalformed)
 }

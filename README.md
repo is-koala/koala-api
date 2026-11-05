@@ -31,9 +31,11 @@ Plan belgesi: [`docs/plan/go-gecis-degerlendirme.md`](docs/plan/go-gecis-degerle
 4. golangci-lint (`.golangci.yml`),
 5. lint probu (`scripts/lint-probe.sh`): katman ve bağımlılık kurallarının gerçekten tetiklendiğini geçici prob paketleriyle kanıtlar,
 6. `govulncheck`,
-7. `go test -race -shuffle=on -count=1 ./...`.
+7. `go test -race -shuffle=on -count=1 ./...`,
+8. spec lint (`make api-lint`): vacuum ile `api/` ve her kuralın tetiklendiğini kanıtlayan prob,
+9. `make gen-check`: `internal/apiv1` spec'ten yeniden üretilenle aynı mı.
 
-Araçlar (`golangci-lint`, `govulncheck`) `Makefile`'daki sabit sürümlerle `./bin`'e kaynaktan derlenir (ADR-0004).
+Araçlar (`golangci-lint`, `govulncheck`, `vacuum`) `Makefile`'daki sabit sürümlerle `./bin`'e kaynaktan derlenir (ADR-0004).
 
 **Paylaşılan geliştirme Mac'inde ağır iş yapılmaz.** Yerelde yalnız `make fmt-check`, `make mod-check`, `gofmt` ve `go mod tidy` çalıştırılır. Test, vet, lint ve build CI'da koşar.
 
@@ -97,11 +99,12 @@ docker build --build-arg VERSION=$(git describe --tags --always) -t koala-api .
 ```
 cmd/koala/            ince main: sinyal + app.Run
 internal/app/         elle wiring ve alt komutlar
+internal/apiv1/       spec'ten üretilmiş sunucu arayüzü (make generate; elle düzenlenmez)
 internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr
 internal/archtest/    lint'in ifade edemediği mimari testler
 db/                   migration ve sorgular (Faz 1)
 api/                  OpenAPI 3.1 sözleşmesi, ortak bileşenler ve spec lint kuralları
 docs/adr/             mimari karar kayıtları
 docs/plan/            Go geçiş planı
-scripts/              CI yardımcıları (lint probu)
+scripts/              CI yardımcıları (lint probları)
 ```
