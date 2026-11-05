@@ -1,6 +1,6 @@
 # Prometheus alert rules of koala-api (ADR-0021, plan §3.10). They replace
 # koala-backend's ops/monitoring/prometheus-alerts.yml; ADR-0021 maps each
-# of its 18 rules to the rule here or to the phase that brings its metric.
+# of its 19 rules to the rule here or to the phase that brings its metric.
 #
 # internal/app TestAlertRulesUseRegisteredMetrics fails when a rule names a
 # metric the service does not register, so a rule cannot stay silently

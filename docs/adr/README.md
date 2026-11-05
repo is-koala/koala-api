@@ -26,8 +26,8 @@ Her ADR tek bir kararı kaydeder: **Bağlam / Karar / Sonuçlar**. "Neden" kısm
 | [0018](0018-realtime-ticket-and-ws-protocol.md) | Realtime bileti ve WS protokol ayrıntıları | K4, K12 (ADR-0015 §1'in bir kaleminin yerine geçer) |
 | [0019](0019-openapi-31-codegen-and-request-validation.md) | OpenAPI 3.1 spike sonucu, kod üretimi ve istek doğrulaması | K9, K5, K10, K11 (ADR-0005 madde 7'deki 426'nın yerine geçer) |
 | [0020](0020-sqlc-toolchain-and-soft-delete-platform.md) | sqlc araç zinciri ve soft-delete platformu | K7, K14, K19 (plan §3.3'teki sqlc için "`go tool`" notunun yerine geçer) |
-| [0021](0021-http-edge-clients-rate-limit-metrics.md) | HTTP kenarı: istemci başlıkları, oran sınırı, yol normalizasyonu ve metrikler | K12, §3.10 |
-| [0022](0022-realtime-binding-and-session-check-corrections.md) | Realtime düzeltmeleri: cihaz bağı, oturum kontrolü, origin ve kapanış payı | K4 (ADR-0018'deki "bilet cihaza bağlıdır" iddiasının yerine geçer) |
+| [0021](0021-http-edge-clients-rate-limit-metrics.md) | HTTP kenarı: istemci başlıkları, oran sınırı, yol normalizasyonu ve metrikler | K12, §3.10 (ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü `x-authz-exempt` ile genişletir; ADR-0005 madde 7 ve ADR-0015 madde 3'e cihaz istisnaları ekler; ADR-0018 §4'teki cihaz adımının ve §8'deki kök zincirin yerine geçer) |
+| [0022](0022-realtime-binding-and-session-check-corrections.md) | Realtime düzeltmeleri: cihaz bağı, oturum kontrolü, origin ve kapanış payı | K4 (ADR-0018 §2'deki bilet ve cihaz bağının, Sonuçlar'daki "cihaz ve oturuma bağlıdır" cümlesinin, §4'teki aynı host origin kuralının ve §8'deki zorla kapatma beklemesinin yerine geçer; ADR-0011 madde 2 ve plan §4.1-8'deki cihaz eşleşmesini düzeltir) |
 | [0023](0023-image-release-pipeline-and-test-fakes.md) | İmaj kapısı, yayın hattı ve test sahteleri | §3.11, §6.1 Faz 1 ve 9 |
 
 **Not:** Plandaki ADR-0013, 0014, 0016 atıfları koala-backend'e aittir; bu dizindeki aynı numaralı ADR'lerle ilgisi yoktur.

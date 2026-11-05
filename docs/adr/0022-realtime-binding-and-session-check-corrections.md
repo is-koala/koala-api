@@ -5,7 +5,13 @@
 - Karar kaydı: K4 (ayrıntı)
 - Kaynak: [ADR-0018](0018-realtime-ticket-and-ws-protocol.md) §2, §4, §6, §8 ve Sonuçlar; [ADR-0021](0021-http-edge-clients-rate-limit-metrics.md); issue #7 (PR #5 doğrulama incelemesinin kalanları)
 - Kod: `internal/realtime` (`ticket.go`, `conn.go`, `hub.go`, `http.go`), `internal/platform/httpx` (`server.go`), `api/openapi.yaml`
-- Yerine geçtiği: ADR-0018'deki "bilet cihaza bağlıdır" iddiası (Karar 1)
+- Yerine geçtiği maddeler:
+  - ADR-0018 §2 "Bilet bağı" ve "Cihaz bağı ve istemci türü": bilet kullanıcıya ve oturuma bağlıdır; cihaz eşitliği güvence değil, tutarlılık kontrolüdür (Karar 1).
+  - ADR-0018 Sonuçlar: "Bilet tekrar kullanılamaz, cihaz ve oturuma bağlıdır" cümlesi (Karar 1).
+  - ADR-0018 §2: oturum kontrolünün hata davranışı tanımsızdı; `Sessions.Active` sözleşmesi ve ardışık hata sınırı (Karar 2).
+  - ADR-0018 §4 "Origin kuralı": isteğin kendi host'u yalnız `https` ile kabul edilir (Karar 3). Aynı tablodaki cihaz adımının önüne router'ın istemci başlığı kapısı girer (ADR-0021).
+  - ADR-0018 §8 kapanış: stream'lerin zorla kapatma payı `ShutdownTimeout`'un içindedir (Karar 4).
+  - ADR-0011 madde 2 ve plan §4.1-8 "cihaz eşleşmesi yapılır" ifadesi (Plandan sapmalar).
 
 ## Bağlam
 
@@ -64,6 +70,10 @@ ADR-0018'in "Java'daki 'istemci sahte olay basar' açığı sınıf olarak kapan
 - İki uç da elle bağlanır; üretilen strict sunucunun parçası değildir (`exclude-tags: [realtime]`).
 - `RealtimeTicket` şeması ile `realtime.TicketResponse`'u `api.TestRealtimeTicketMatchesContract` karşılaştırır.
 - Realtime kodları `ErrorCode` listesindedir.
+
+## Plandan sapmalar
+
+- **Plan §4.1-8 ve ADR-0011 madde 2:** "Kimlik ... 60 sn'lik tek kullanımlık biletle sağlanır; cihaz eşleşmesi yapılır." Cihaz eşleşmesi yalnız handshake cihaz beyan ettiğinde yapılır ve bir güvence değildir. Güvence biletin tek kullanımlık ve kısa ömürlü olması ile oturum kontrolüdür; cihaz bağı oturumdan gelir (Karar 1).
 
 ## Sonuçlar
 

@@ -195,7 +195,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 
 - **Platform başlıkları operasyonlara yazılmaz.** Tanımları `headers.yaml`'dadır ki istemciler tip ve sabit üretsin (ADR-0005 madde 7). Her başlığın zorunluluğunu kendi middleware testi kanıtlar:
   - `X-Request-Id` isteğe bağlı gelir ve her yanıtta döner **[test: httpx middleware testleri]**.
-  - `X-Client-Platform` değerleri `IOS`, `ANDROID`, `WEB`, `ADMIN`'dir ve hangi kuralın uygulanacağını belirler. `/v1/admin` dışında zorunludur; `ADMIN` yalnız `/v1/admin` altında geçerlidir (ADR-0021) **[test: httpx TestClientGate]**.
+  - `X-Client-Platform` değerleri `IOS`, `ANDROID`, `WEB`, `ADMIN`'dir ve hangi kuralın uygulanacağını belirler. Kabulde harf duyarsızdır (`web` = `WEB`); kanonik biçim büyük harftir. Değer istemcinin beyanıdır, yetki girdisi değildir. `/v1/admin` dışında zorunludur; `ADMIN` yalnız `/v1/admin` altında geçerlidir (ADR-0021) **[test: httpx TestClientGate]**.
   - `X-Device-Id` (`[A-Za-z0-9._:-]{8,128}`) `/v1/admin` dışındaki her istekte zorunludur. Tek istisna tarayıcının WebSocket handshake'idir **[test]**.
   - `X-App-Version` semver'dir; yalnız `IOS` ve `ANDROID` için okunur ve zorunludur. Desteklenmeyen, eksik ya da okunamayan sürüm `400 APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` döner (ADR-0019). Kapı yönlendirmeden önce, WebSocket dahil her yolda çalışır **[test]**.
   - Başlık hatası `400 REQUEST_INVALID` + `{parameter, in: HEADER, code}` döner.
@@ -205,7 +205,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 
 ## 11. Yetki uzantıları
 
-- **Her operasyon** ya `x-authz` taşır, ya `security: []` ile açıkça public'tir, ya da `x-authz-exempt: <gerekçe>` ile belgeli istisnadır; yalnız biri bulunur (ADR-0005 madde 1, plan §4.1-1, ADR-0021) **[lint: koala-operation-authz]**.
+- **Her operasyon** ya `x-authz` taşır, ya `security: []` ile açıkça public'tir, ya da `x-authz-exempt: <gerekçe>` ile belgeli istisnadır; yalnız biri bulunur (ADR-0005 madde 1, plan §4.1-1; `x-authz-exempt` ADR-0021 ile ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü genişletir) **[lint: koala-operation-authz]**.
   - `x-authz-exempt` kimlik isteyen ama yetkilendirilecek nesnesi olmayan uç içindir (kendi oturumu için bilet gibi). Gerekçe en az 20 karakterdir; `security: []` ile birlikte kullanılmaz.
   - Biçim: `x-authz: {action: can_read, object: job}`. `action`, authz modelindeki (`model.fga`, ADR-0014, plan §5.4) `can_*` relation'ıdır; `object` aynı modeldeki tiptir.
   - Varsayılan güvenlik `marketplaceBearer`'dır (kök `security`).

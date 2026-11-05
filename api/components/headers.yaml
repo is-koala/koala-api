@@ -68,10 +68,14 @@ components:
         `X-Minimum-App-Version` olur (426 değil, ADR-0019). Pre-release sürümü kendi
         sürümünden önce gelir (`1.4.0-beta.1` < `1.4.0`); `+build` sırayı etkilemez.
         Kapı yönlendirmeden önce, WebSocket dahil her yolda çalışır (ADR-0021).
+      # SemVer 2.0.0's regular expression with numbers of at most 9 digits
+      # (Java's AppVersion rule), exactly as internal/platform/appversion
+      # parses it; api TestAppVersionPatternMatchesParser compares the two.
       schema:
         type: string
-        pattern: "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$"
-        examples: [0.9.32]
+        maxLength: 64
+        pattern: '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-(0|[1-9][0-9]{0,8}|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]{0,8}|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+        examples: [0.9.32, 1.4.0-beta.1, 1.1.1+3]
 
     XClientPlatform:
       name: X-Client-Platform
@@ -82,7 +86,9 @@ components:
         `X-Device-Id` gönderir, sürüm kapısı yoktur; `ADMIN` yalnız `/v1/admin`
         altında geçerlidir ve oradaki tek değerdir (başlık hiç gönderilmeyebilir).
         `/v1/admin` dışında zorunludur; yoksa ya da bilinmeyen bir değerse 400
-        `REQUEST_INVALID` döner. Değerler büyük harftir.
+        `REQUEST_INVALID` döner. Sunucu değeri harf duyarsız eşler (`web` = `WEB`);
+        kanonik biçim bu enum'daki büyük harftir. Değer istemcinin beyanıdır; yetki
+        kararında kullanılmaz (ADR-0021).
       schema:
         $ref: "#/components/schemas/ClientPlatform"
 

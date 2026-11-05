@@ -4,6 +4,11 @@
 - Tarih: 05.11.2026
 - Karar kaydı: K12 (hız sınırı), §0.1 (426 → ADR-0019)
 - Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §3.3, §3.9, §3.10, §3.11, §4.1-7, §6.1 (Faz 1 ve Faz 2 çıkış kriteri), §9 R9; N01 §1.6, §4.5, §6, §8.2; [ADR-0005](0005-api-contract-principles.md) madde 7, [ADR-0018](0018-realtime-ticket-and-ws-protocol.md) §8–9, [ADR-0019](0019-openapi-31-codegen-and-request-validation.md) Karar 6
+- Genişlettiği ve yerine geçtiği maddeler:
+  - ADR-0005 madde 1: `x-authz` ya da `security: []`'ın yanına üçüncü biçim `x-authz-exempt` (Karar 8). Plan §4.1-1 ve §6.3'teki "her operasyonda `x-authz` ya da `security: []`" kuralını da aynı biçimde genişletir.
+  - ADR-0005 madde 7 ve ADR-0015 madde 3: "`X-Device-Id` zorunludur (admin hariç)" kuralına istisnalar eklenir: sağlık uçları, `ExemptRoutes` ve tarayıcının WebSocket handshake'i. `X-Client-Platform`'un değerleri ve hangi kuralı seçtiği burada tanımlanır (Karar 2).
+  - ADR-0018 §4: handshake'in cihaz adımından önce router'ın istemci başlığı kapısı koşar. Yerel istemcinin eksik cihazı artık `401 REALTIME_DEVICE_REQUIRED` değil, `400 REQUEST_INVALID` alır (Karar 2, ADR-0022 Karar 1).
+  - ADR-0018 §8: kök zincir "RequestID → SecurityHeaders → AccessLog → Recover" değil, Karar 1'deki zincirdir.
 - Kod: `internal/platform/httpx` (`router.go`, `clients.go`, `path.go`, `clientip.go`, `ratelimit.go`, `metrics.go`), `internal/platform/metrics`, `internal/platform/appversion`, `internal/platform/jsontime`, `internal/app/edge.go`, `ops/monitoring/prometheus-alerts.yml`
 
 ## Bağlam
@@ -34,7 +39,9 @@ stream:  kök
 
 ### 2. İstemci başlıkları ve sürüm kapısı
 
-`X-Client-Platform` hangi kuralın uygulanacağını belirler. Değerler sözleşmenin enum'udur (`IOS`, `ANDROID`, `WEB`, `ADMIN`); büyük-küçük harf duyarlıdır.
+`X-Client-Platform` hangi kuralın uygulanacağını belirler. Değerler sözleşmenin enum'udur (`IOS`, `ANDROID`, `WEB`, `ADMIN`).
+- **Harf duyarsız kabul, büyük harf kanonik biçim.** Başlık değerleri sektör pratiğinde çoğunlukla harf duyarsız eşlenir; web istemcisi bugün `web` gönderiyor. Sunucu değeri ASCII olarak büyük harfe çevirip eşler; spec'teki enum ve `ClientPlatformFrom`'un döndürdüğü değer büyük harftir. ASCII dışı bir bayt çevrilmez: Unicode'da `ı`'nın büyüğü `I`'dır ve `androıd` `ANDROID`'e katlanmamalıdır.
+- **Platform bir beyandır, yetki girdisi değildir.** Değer yalnız hangi başlık kuralının uygulanacağını seçer; loglanabilir ve sayılabilir. "Bu admin paneli" ya da "bu mobil uygulama" gibi bir yetki kararı kimliği doğrulanmış özneden (token sınıfı, oturum) gelir, bu başlıktan gelmez (`ClientPlatformFrom`'un yorumu).
 
 | Route | `X-Client-Platform` | `X-Device-Id` | `X-App-Version` |
 |---|---|---|---|
@@ -67,15 +74,21 @@ Gerekçe:
 - Yeniden yazma (Go `ServeMux`'un temizleyip 301'lemesi gibi), istemci yolu seçtikten sonra hangi route'un ve hangi yetki kuralının uygulanacağını değiştirir. POST'u 301'lemek de istemcide metodu GET'e çevirir.
 - Spring `StrictHttpFirewall`'ın reddettiği küme budur. Java bugün `/uploads/**` güvenliği için ona dayanıyor.
 
-Fuzz testi (`FuzzCanonicalPath`) şu özelliği sabitler: geçen her istek hedefinin çözülmüş yolu kanoniktir ve bir depolama önekine eklendiğinde önekin dışına çıkamaz. CI tohum korpusunu `go test` ile koşar. Bu, Faz 2'nin "yol geçişi fuzz testi yeşil" çıkış kriterinin temelidir.
+Fuzz testi (`FuzzCanonicalPath`) isteği gerçek bir isteğin yolundan geçirir: hedef net/http'nin ayrıştırıcısıyla (`http.ReadRequest`, yani `ParseRequestURI`) okunur ve `Router.ServeHTTP` ile kök zincirden, yol parametreli bir route'a (`{name}`) ve bir catch-all'a (`*`) gider. Handler'a ulaşan her istek için şunları sabitler:
+- çözülmüş yol kanoniktir,
+- `chi.URLParam`'dan alınıp çözülen `{name}` tek bir parçadır: `/`, `\`, `%` ya da NUL içermez, `.` ya da `..` değildir,
+- çözülmüş catch-all ve yol, bir depolama önekine eklenip dosya sistemi gibi çözüldüğünde önekin dışına çıkamaz.
+
+CI tohum korpusunu `go test` ile koşar. Bu, Faz 2'nin "yol geçişi fuzz testi yeşil" çıkış kriterinin temelidir.
 
 ### 4. İstemci adresi
 
 - `X-Forwarded-For` yalnız TCP eşi `KOALA_TRUSTED_PROXIES` içindeyse okunur.
-- Okunurken sağdan sola yürünür. Her güvenilir proxy kendisine bağlanan adresi sona ekler; güvenilir olmayan ilk girdi istemcidir. Onun solundakileri istemci yazmıştır ve hiç okunmaz.
-- Bütün girdiler güvenilirse en soldaki istemcidir (iç çağıran). Bozuk girdi yürüyüşü durdurur ve son güvenilir atlama kullanılır. Bozuk bir başlık istemciyi en fazla proxy gibi gösterebilir, istediği bir adres gibi gösteremez.
+- Okunurken sağdan sola yürünür ve en fazla 16 girdi okunur; başlık sağdan ayrıştırılır, istemcinin önüne eklediği uzun bir önek hiç bölünmez. Her güvenilir proxy kendisine bağlanan adresi sona ekler; güvenilir olmayan ilk girdi istemcidir. Onun solundakileri istemci yazmıştır ve hiç okunmaz.
+- Okunan girdilerin hepsi güvenilirse en soldaki istemcidir (iç çağıran). Bozuk girdi yürüyüşü durdurur ve son güvenilir atlama kullanılır. Bozuk bir başlık istemciyi en fazla proxy gibi gösterebilir, istediği bir adres gibi gösteremez.
 - **RFC 7239 `Forwarded` okunmaz.** Java onu `X-Forwarded-For`'dan önce okuyordu. Traefik `X-Forwarded-For`'u kendisi yazar, `Forwarded`'ı ise olduğu gibi geçirir; bu durumda başlık istemcinin elindedir (plan: doğrulanmadı, Java için ayrı bulgu).
 - `KOALA_TRUSTED_PROXIES` production'da `serve` için zorunludur. Ayarsız kalırsa bütün istemciler proxy'nin tek adres kovasını paylaşır.
+- Liste çok geniş önek kabul etmez: IPv4'te /8'den, IPv6'da /32'den kısa önek (ve /0) açılışı durdurur. Öyle bir önek internetin büyük kısmını proxy sayar ve her istemci kendi adresini seçebilir. IPv4-mapped önek (`::ffff:10.0.0.0/104`) IPv4 önekine (`10.0.0.0/8`) çevrilir, çünkü istemci adresi de aranmadan önce çevrilir.
 
 ### 5. Oran sınırı: kova modeli
 
@@ -89,28 +102,34 @@ Fuzz testi (`FuzzCanonicalPath`) şu özelliği sabitler: geçen her istek hedef
 
 **Grup** route'tan gelir. Operasyon `x-rate-limit: <grup>` uzantısıyla bir gruba girer. Uzantı yoksa GET, HEAD ve OPTIONS `read`, diğer her metot `write` grubundadır. Hiçbir route unutularak sınırsız kalmaz. Bilinmeyen grup adı açılışı durdurur.
 
-**Sınırlar.** Kimlik başına sınırlar Java'nın değerleridir. Adres başına sınırlar 5 katıdır, çünkü mobil operatörün NAT'ı birçok kullanıcıyı tek adresin arkasına koyar.
+**Sınırlar.** Java'nın bütün kovaları IP anahtarlıydı, dakikalık bir sayaçtı ve burst kavramı yoktu (N01 §4.5). Buradaki değerler onlardan türetildi:
+- **Kimlik başına** katman yenidir. Değerleri Java'nın IP başına değerleridir; tek istisna `read`'dir (2,5x, aşağıda).
+- **Adres başına** sınırlar çoğu grupta Java'nın 5 katıdır, çünkü mobil operatörün NAT'ı birçok kullanıcıyı tek adresin arkasına koyar. İstisnalar: `auth` 3x (hedef anahtarı ayrıca Java'nın 10/dk'sını korur) ve `sitemap` 1x (çağıranı tarayıcı botlarıdır, NAT payı gerekmez).
+- **`read` kapsamı yenidir.** Java PUBLIC kovası yalnız ilan listesi, ilan detayı, ilan görselleri ve adres ağ geçidi için 120/dk idi. Burada bütün GET'ler `read`'dedir. Kimlik başına 300/dk Java'nın 2,5 katıdır; tek bir ekranın birden çok GET'i bunu gerektirir.
+- **Burst'ler yenidir.** Java'da karşılıkları yok. Kova dolu başlar; kısa bir yük (uygulama açılışı, yeniden bağlanma) dakikalık hıza takılmaz.
 
-**Değerler öneridir, ölçülmedi.** Prod trafiği yok; tablo Java'nın değerlerinden ve NAT payından türetildi. İlk gerçek trafikte `koala_http_rate_limited_total` ve 429 oranına bakılarak düzeltilir; değişiklik `internal/app/edge.go` ve `TestRateLimitGroups` ile birlikte yapılır.
+**Değerler öneridir, ölçülmedi.** Prod trafiği yok; tablo Java'nın değerlerinden ve NAT payından türetildi, hiçbiri ölçümle doğrulanmadı. İlk gerçek trafikte `koala_http_rate_limited_total` ve 429 oranına bakılarak düzeltilir. Tablo tek kaynaktır: `TestRateLimitGroups` aşağıdaki tabloyu okur ve `internal/app/edge.go`'daki değerlerle karşılaştırır. Değişiklik ikisinde birlikte yapılır.
 
-| Grup | Adres başına (dk / burst) | Kimlik başına | Özel anahtar | Java karşılığı |
-|---|---|---|---|---|
-| `read` | 600 / 120 | 300 / 60 | — | PUBLIC 120/dk |
-| `write` | 300 / 60 | 60 / 20 | — | WRITE 60/dk |
-| `auth` | 30 / 10 | — | 10 / 5 | AUTH 10/dk (yol + IP + hedef) |
-| `upload` | 100 / 20 | 20 / 5 | — | UPLOAD 20/dk |
-| `message` | 150 / 30 | 30 / 10 | — | MESSAGE 30/dk |
-| `sitemap` | 30 / 10 | — | — | SITEMAP 30/dk |
-| `boarding` | 600 / 60 | 120 / 20 | — | BOARDING 120/dk |
+<!-- rate-limit-groups: internal/app TestRateLimitGroups bu tabloyu okur; ilk dört sütunun biçimi "dk / burst" ya da "—". -->
+| Grup | Adres başına (dk / burst) | Kimlik başına (dk / burst) | Özel anahtar (dk / burst) | Java karşılığı (IP başına) | Java'ya oran |
+|---|---|---|---|---|---|
+| `read` | 600 / 120 | 300 / 60 | — | PUBLIC 120/dk, yalnız herkese açık birkaç GET | adres 5x, kimlik 2,5x; kapsam yeni |
+| `write` | 300 / 60 | 60 / 20 | — | WRITE 60/dk | adres 5x, kimlik 1x |
+| `auth` | 30 / 10 | — | 10 / 5 | AUTH 10/dk (yol + IP + hedef) | adres 3x, hedef 1x |
+| `upload` | 100 / 20 | 20 / 5 | — | UPLOAD 20/dk | adres 5x, kimlik 1x |
+| `message` | 150 / 30 | 30 / 10 | — | MESSAGE 30/dk | adres 5x, kimlik 1x |
+| `sitemap` | 30 / 10 | — | — | SITEMAP 30/dk | adres 1x |
+| `boarding` | 600 / 60 | 120 / 20 | — | BOARDING 120/dk | adres 5x, kimlik 1x |
 
 - Realtime bileti kendi kullanıcı başına sınırını korur (ADR-0018 §2).
-- `TestRateLimitGroups` tabloyu sabitler.
 - Aşımda `429 RATE_LIMITED` döner. `Retry-After`, kovanın bir sonraki jetonuna kalan süredir; saniyeye yukarı yuvarlanır, en az 1'dir. Reddedilen istek jeton harcamaz.
 
 **Bellek.**
 - Kovalar bellekte tutulur (`golang.org/x/time/rate`). Üst sınır `MaxKeys` = 100 000'dir; kova başına ~250 bayttan en kötü durumda ~25 MB eder.
-- Yeni anahtar eklenirken kova sayısı eşiği geçtiyse dolu kovalar (yani boşta kalmış, yeni açılsa aynı davranacak olanlar) silinir. Eşik amortize edilir.
-- Silmeden sonra hâlâ üst sınırdaysa kovalar rastgele atılarak %90'a inilir ve `koala_http_rate_limit_evicted_total` artar. Map sırası rastgele olduğundan, bir anahtar selinde atılanların çoğu selin kendisidir. Atılan kova sıfırlanmış olur (o anahtar için fail-open).
+- Yeni anahtar eklenirken kova sayısı eşiği geçtiyse dolu kovalar (yani boşta kalmış, yeni açılsa aynı davranacak olanlar) silinir.
+- Silmeden sonra kova sayısı üst sınırın %90'ından fazlaysa kovalar atılarak %90'a inilir ve `koala_http_rate_limit_evicted_total` artar. Bir sonraki tarama üst sınırın onda biri (en az 1024) kadar ileridedir; neredeyse hiç boşta kova olmayan dolu bir sınırlayıcı her yeni anahtarda yeniden taranmaz.
+- **Önce adres kovaları atılır.** Kimlik ve özel anahtar (giriş hedefi) kovaları yalnız tek başlarına %90'ı aşarlarsa atılır. Aksi hâlde kaba kuvvet denemesi, çok sayıda adresten sel yollayarak kendi hedefinin tükenmiş kovasını sıfırlatabilirdi.
+- Map sırası rastgele olduğundan, bir adres selinde atılan adres kovalarının çoğu selin kendisidir. Atılan kova sıfırlanmış olur (o anahtar için fail-open).
 - Ayrı bir süpürme goroutine'i yoktur; trafik yoksa bellek de büyümez.
 
 **Çok örnek: bilinçli sınır.**
@@ -126,7 +145,7 @@ Fuzz testi (`FuzzCanonicalPath`) şu özelliği sabitler: geçen her istek hedef
 
 | Metrik | Tür | Etiketler | Not |
 |---|---|---|---|
-| `http_server_request_duration_seconds` | histogram | `http_request_method`, `http_route`, `http_response_status_code` | OpenTelemetry HTTP semconv adı ve kovaları. `http_route` route şablonudur, ham yol değildir (kardinalite); eşleşmeyen istekte boştur. Bilinmeyen metot `_OTHER`'dır. Panic'le kesilen yanıt 500 sayılır. |
+| `http_server_request_duration_seconds` | histogram | `http_request_method`, `http_route`, `http_response_status_code` | OpenTelemetry HTTP semconv adı ve kovaları. `http_route` route şablonudur, ham yol değildir (kardinalite); eşleşmeyen istekte boştur. Bilinmeyen metot `_OTHER`'dır. Panic'le kesilen yanıt 500 sayılır. Stream route'ları (WebSocket) sayılmaz: bağlantının ömrü istek gecikmesi değildir ve dağılımı bozardı. |
 | `koala_http_rate_limited_total` | counter | `group`, `key` | Bilinen grup/tür çiftleri sıfırdan başlar |
 | `koala_http_rate_limit_keys` | gauge | — | Bellekteki kova sayısı |
 | `koala_http_rate_limit_evicted_total` | counter | — | Üst sınırdan atılan kovalar |
@@ -164,6 +183,8 @@ Sözleşmedeki `Timestamp` şeması `x-go-type: jsontime.UTC` ile üretilir. Bu 
 `koala-operation-authz` kuralı üçüncü bir biçim kabul eder: `x-authz-exempt: <en az 20 karakter gerekçe>`. Bu biçim kimlik isteyen (`security` boş değil) ama yetkilendirilecek nesnesi olmayan uç içindir; ör. kendi oturumu için bilet. `x-authz` ve `security: []` ile birlikte kullanılamaz. Lint probu üç yanlış biçimi ve bir doğru biçimi sabitler. Realtime uçları bu biçimle sözleşmeye girdi (ADR-0022).
 
 ## Sonuçlar
+
+- **ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü genişletir (`x-authz-exempt`).** Her operasyon artık `x-authz`, `security: []` ya da `x-authz-exempt`'ten tam birini taşır. Lint kuralı (`koala-operation-authz`), stil rehberi §11 ve ADR README satırı bu dayanağı yazar.
 
 - Yeni kodlar `ErrorCode` listesindedir: `PATH_INVALID`, `RATE_LIMITED`, realtime kodları ve `CONVERSATION_NOT_FOUND`. `TestPlatformCodesAreInTheContract` httpx ve realtime kodlarını birlikte denetler.
 - Yeni değişkenler: `KOALA_MIN_APP_VERSION`, `KOALA_TRUSTED_PROXIES` (ikisi production'da `serve` için zorunlu), `KOALA_METRICS_ADDR`. Yayın hattı (Dokploy) bu adları tanımlamalıdır; değerleri burada yazılmaz.

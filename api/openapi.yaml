@@ -127,8 +127,10 @@ paths:
       tags: [realtime]
       summary: WebSocket bağlantısı için tek kullanımlık bilet verir.
       description: |
-        Çağıranın oturumuna ve cihazına bağlı, 60 saniyelik, tek kullanımlık bilet
-        döner. Bilet `GET /v1/realtime` handshake'inde
+        Çağıranın kullanıcısına ve oturumuna bağlı, 60 saniyelik, tek kullanımlık bilet
+        döner. Bilet oturumun cihazı için verilir; handshake'te cihaz eşitliği yalnız
+        cihazını beyan eden yerel istemcide denetlenir ve bir güvence değildir. Güvence
+        tek kullanım, kısa ömür ve oturum kontrolüdür (ADR-0022). Bilet `GET /v1/realtime` handshake'inde
         `Sec-WebSocket-Protocol: koala.v1, koala.ticket.<bilet>` ile sunulur.
         Kullanıcı başına 5'lik burst, sonra 6 saniyede bir (ADR-0018 §2).
       x-authz-exempt: |
