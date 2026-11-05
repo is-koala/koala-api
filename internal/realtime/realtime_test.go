@@ -109,12 +109,12 @@ func TestHandshakeRejections(t *testing.T) {
 			return dialSpec{protocols: protocols(ticket), header: h}
 		}, http.StatusBadRequest, httpx.CodeAppVersionUnsupported},
 		{"session revoked after issue", func(e *env, ticket string) dialSpec {
-			e.sessions.Revoke(sessionOf(alice, "phone"))
+			e.sessions.Revoke(alicePhoneSession())
 			return dialSpec{protocols: protocols(ticket), header: phone}
 		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
 		{"session revoked between redeem and join", func(e *env, ticket string) dialSpec {
 			// Call 1 is Redeem, call 2 the re-check after join.
-			e.sessions.RevokeOnCall(sessionOf(alice, "phone"), 2)
+			e.sessions.RevokeOnCall(alicePhoneSession(), 2)
 			return dialSpec{protocols: protocols(ticket), header: phone}
 		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
 		{"foreign origin", func(_ *env, ticket string) dialSpec {
@@ -456,7 +456,7 @@ func TestSessionRevocationClosesOnlyThatDevice(t *testing.T) {
 		}
 	}
 
-	e.hub.DisconnectSession(alice, sessionOf(alice, "phone"))
+	e.hub.DisconnectSession(alice, alicePhoneSession())
 	if err := e.hub.PublishUser(alice, after, struct{}{}); err != nil {
 		t.Fatal(err)
 	}
@@ -486,8 +486,8 @@ func TestSessionCheckFailuresCloseTheConnection(t *testing.T) {
 	phone := e.connect(t, alice, "phone")
 	tablet := e.connect(t, alice, "tablet")
 
-	session := sessionOf(alice, "phone")
-	e.sessions.FailThen(session, []bool{true, true, false}, true)
+	session := alicePhoneSession()
+	e.sessions.FailAfter(session, []bool{true, true, false})
 	if got := phone.closeStatus(t); got != websocket.StatusTryAgainLater {
 		t.Fatalf("close status %d, want %d", got, websocket.StatusTryAgainLater)
 	}
@@ -548,7 +548,7 @@ func TestPeriodicSessionCheck(t *testing.T) {
 	phone := e.connect(t, alice, "phone")
 	tablet := e.connect(t, alice, "tablet")
 
-	e.sessions.Revoke(sessionOf(alice, "phone"))
+	e.sessions.Revoke(alicePhoneSession())
 	if got := phone.closeStatus(t); got != realtime.CloseSessionRevoked {
 		t.Fatalf("close status %d, want %d", got, realtime.CloseSessionRevoked)
 	}

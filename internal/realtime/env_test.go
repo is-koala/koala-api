@@ -119,16 +119,15 @@ type fakeSessions struct {
 	// revokeAt revokes a session on its nth Active call.
 	revokeAt map[string]int
 	// script makes the next calls for a session fail (true) or succeed
-	// (false) in order; past its end, failForever decides.
-	script      map[string][]bool
-	failForever map[string]bool
-	failures    map[string]int
+	// (false) in order; past its end every call fails.
+	script   map[string][]bool
+	failures map[string]int
 }
 
 func newFakeSessions() *fakeSessions {
 	return &fakeSessions{
 		revoked: make(map[string]bool), calls: make(map[string]int), revokeAt: make(map[string]int),
-		script: make(map[string][]bool), failForever: make(map[string]bool), failures: make(map[string]int),
+		script: make(map[string][]bool), failures: make(map[string]int),
 	}
 }
 
@@ -138,8 +137,9 @@ func (f *fakeSessions) Active(_ context.Context, p realtime.Principal) (bool, er
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls[p.SessionID]++
-	fail := f.failForever[p.SessionID]
-	if steps := f.script[p.SessionID]; len(steps) > 0 {
+	steps, scripted := f.script[p.SessionID]
+	fail := scripted
+	if len(steps) > 0 {
 		fail, f.script[p.SessionID] = steps[0], steps[1:]
 	}
 	if fail {
@@ -166,13 +166,12 @@ func (f *fakeSessions) RevokeOnCall(session string, n int) {
 	f.revokeAt[session] = n
 }
 
-// FailThen makes the session store fail or answer per steps, then fail on
-// every later call when forever is set.
-func (f *fakeSessions) FailThen(session string, steps []bool, forever bool) {
+// FailAfter makes the session store fail (true) or answer (false) the
+// next calls for session per steps, then fail every later call.
+func (f *fakeSessions) FailAfter(session string, steps []bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.script[session] = steps
-	f.failForever[session] = forever
 }
 
 // Failures returns how many calls for session failed.
@@ -186,10 +185,14 @@ func (f *fakeSessions) Failures(session string) int {
 // for 8 to 128 characters of [A-Za-z0-9._:-].
 func deviceID(name string) string { return name + "-0001" }
 
-// sessionOf is the session id headerAuth gives a user on a named device.
-func sessionOf(user realtime.UserID, device string) string {
-	return "session-" + string(user) + "-" + deviceID(device)
+// sessionID is the session id headerAuth gives a user on a device.
+func sessionID(user realtime.UserID, device string) string {
+	return "session-" + string(user) + "-" + device
 }
+
+// alicePhoneSession is the session of alice's "phone" device, which the
+// session tests revoke or break.
+func alicePhoneSession() string { return sessionID(alice, deviceID("phone")) }
 
 // headerAuth authenticates REST calls by X-Test-User and X-Device-Id, in
 // place of Faz 1's session middleware.
@@ -201,7 +204,7 @@ func (headerAuth) Principal(r *http.Request) (realtime.Principal, error) {
 	if user == "" || device == "" {
 		return realtime.Principal{}, apperr.New(apperr.KindUnauthenticated, "UNAUTHENTICATED")
 	}
-	return realtime.Principal{UserID: user, SessionID: "session-" + string(user) + "-" + device, DeviceID: device}, nil
+	return realtime.Principal{UserID: user, SessionID: sessionID(user, device), DeviceID: device}, nil
 }
 
 // envConfig configures newEnv.

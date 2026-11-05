@@ -23,7 +23,7 @@ import (
 // Path is where the metrics listener serves the registry.
 const Path = "/metrics"
 
-// MetricBuildInfo is 1, labelled with the build version.
+// MetricBuildInfo is 1, labeled with the build version.
 const MetricBuildInfo = "koala_build_info"
 
 // Listener timeouts. A scrape is small; nothing here is slow.

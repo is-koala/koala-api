@@ -137,7 +137,7 @@ func (g *clientGate) check(r *http.Request) (clientInfo, error) {
 
 	if pattern == AdminPathPrefix || strings.HasPrefix(pattern, AdminPathPrefix+"/") {
 		if platform != "" && platform != PlatformAdmin {
-			return clientInfo{}, headerInvalid(HeaderClientPlatform, CodeFieldValueInvalid)
+			return clientInfo{}, headerValueInvalid(HeaderClientPlatform)
 		}
 		return clientInfo{platform: PlatformAdmin}, nil
 	}
@@ -145,7 +145,7 @@ func (g *clientGate) check(r *http.Request) (clientInfo, error) {
 	device := h.Get(HeaderDeviceID)
 	if platform == "" && g.isStream(pattern) && h.Get("Origin") != "" && headerHasToken(h, "Upgrade", "websocket") {
 		if device != "" && !validDeviceID(device) {
-			return clientInfo{}, headerInvalid(HeaderDeviceID, CodeFieldValueInvalid)
+			return clientInfo{}, headerValueInvalid(HeaderDeviceID)
 		}
 		return clientInfo{platform: PlatformWeb, deviceID: device}, nil
 	}
@@ -187,8 +187,8 @@ func headerField(name string, code apperr.Code) apperr.FieldError {
 	return apperr.FieldError{Parameter: name, In: "HEADER", Code: code}
 }
 
-func headerInvalid(name string, code apperr.Code) error {
-	return apperr.New(apperr.KindInvalid, CodeRequestInvalid).WithFields(headerField(name, code))
+func headerValueInvalid(name string) error {
+	return apperr.New(apperr.KindInvalid, CodeRequestInvalid).WithFields(headerField(name, CodeFieldValueInvalid))
 }
 
 // validDeviceID applies [A-Za-z0-9._:-]{8,128}.

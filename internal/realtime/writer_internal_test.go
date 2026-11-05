@@ -46,7 +46,10 @@ func TestWriterSendsNothingAfterCloseRequest(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	for round := range 20 {
-		conn, _, err := websocket.Dial(t.Context(), "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+		conn, resp, err := websocket.Dial(t.Context(), "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close() // the library has replaced it with an empty body
+		}
 		if err != nil {
 			t.Fatal(err)
 		}

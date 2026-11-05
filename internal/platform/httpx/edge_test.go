@@ -514,11 +514,11 @@ func TestRateLimiterBoundsMemory(t *testing.T) {
 		if i%997 != 0 {
 			continue
 		}
-		if keys := gaugeValue(t, reg, httpx.MetricRateLimitKeys); keys > 2000 {
+		if keys := rateLimitKeys(t, reg); keys > 2000 {
 			t.Fatalf("%v buckets held, cap 2000", keys)
 		}
 	}
-	if keys := gaugeValue(t, reg, httpx.MetricRateLimitKeys); keys > 2000 {
+	if keys := rateLimitKeys(t, reg); keys > 2000 {
 		t.Fatalf("%v buckets held, cap 2000", keys)
 	}
 	if got := counterValue(t, reg, httpx.MetricRateLimitEvicted, ""); got == 0 {
@@ -529,7 +529,7 @@ func TestRateLimiterBoundsMemory(t *testing.T) {
 	for i := range 1500 {
 		l.Allow(httpx.GroupRead, httpx.KeyIP, "later-"+strconv.Itoa(i))
 	}
-	if keys := gaugeValue(t, reg, httpx.MetricRateLimitKeys); keys > 1500 {
+	if keys := rateLimitKeys(t, reg); keys > 1500 {
 		t.Fatalf("idle buckets kept: %v held", keys)
 	}
 }
@@ -608,7 +608,7 @@ func TestNewRouterRequiresEdgeOptions(t *testing.T) {
 	}
 }
 
-// TestMetricsUseRouteTemplates: the HTTP histogram is labelled with the
+// TestMetricsUseRouteTemplates: the HTTP histogram is labeled with the
 // route template, never the raw path, and with the status actually sent;
 // a request refused before routing keeps the route it was headed for.
 func TestMetricsUseRouteTemplates(t *testing.T) {
@@ -724,7 +724,7 @@ func counterValue(t *testing.T, reg *prometheus.Registry, name, labels string) f
 	return s[labels]
 }
 
-func gaugeValue(t *testing.T, reg *prometheus.Registry, name string) float64 {
+func rateLimitKeys(t *testing.T, reg *prometheus.Registry) float64 {
 	t.Helper()
-	return counterValue(t, reg, name, "")
+	return counterValue(t, reg, httpx.MetricRateLimitKeys, "")
 }
