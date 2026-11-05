@@ -244,10 +244,6 @@ scenarios:
       - "Alt üye hatasında deneme FAILED olur; ödeme formu açılmaz"
       - "Bekleyen bir deneme varken yeni sağlayıcı oturumu ya da alt üye oluşturulmaz"
       - "İşçinin IBAN'ı doğrulanmamış olsa da alt üye oluşturulur"
-    decision: Java hatası (yetki sırası)
-    target: >
-      Karar: ödeme oturumunda yetki kontrolü durum kontrolünden önce yapılır. Java önce atamanın ödeme
-      kabul edip etmediğine bakıyor; taraf olmayan biri bu sırayla ödeme durumunu öğrenebiliyor.
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/JobAssignmentManager.java:305-319"
       - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theAttemptIsReservedBeforeAnyExternalSubmerchantOrCheckoutCall"
@@ -556,9 +552,66 @@ scenarios:
       - "Kesin ret → deneme FAILED"
       - "Belirsiz yanıt → deneme VERIFY_PENDING; yeni ödeme oturumu aktif deneme yüzünden reddedilir"
       - "Token kaydı yazılamazsa → deneme VERIFY_PENDING"
-    oracle: testdata/oracle/reconcile.csv
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/JobAssignmentManager.java:340-362"
       - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#anExplicitProviderRejectionFailsTheReservedAttemptInsteadOfLeavingItAmbiguous"
       - "src/test/java/com/exskylab/koala/core/utilities/payment/IyzicoProtocolTest.java#aFiveHundredResponseRemainsAmbiguousInsteadOfBecomingAProviderRejection"
+    go_test: null
+
+  - id: PAY-022
+    priority: P0
+    title: Atama tamamlanmadan uyuşmazlık çözülürse emanet kazanan tarafa gider
+    rule: >
+      Personel, atama tamamlanmadan açılmış uyuşmazlığı çözer. İşçi lehine çözüm emaneti işçiye
+      serbest bırakır ve atamayı "çözümle tamamlandı" olarak kapatır. İşveren lehine çözüm tahsilatın
+      tamamını iade eder ve atamayı iptal eder. Atama zaten tamamlanmışsa (emanet uyuşmazlık yüzünden
+      bekliyorsa) işveren lehine çözüm iade yapar ama atama tamamlanmış kalır.
+    given:
+      - "Atama IN_PROGRESS, ödeme durumu HELD_IN_ESCROW, açık uyuşmazlık var; işçinin birincil IBAN'ı var"
+      - "Personel uyuşmazlık çözme ve ilgili para iznine sahip"
+    when:
+      - "Personel uyuşmazlığı işçi lehine çözer"
+      - "Ayrı bir örnekte personel uyuşmazlığı işveren lehine çözer"
+      - "Ayrı bir örnekte atama COMPLETED ve emanette beklerken uyuşmazlık işveren lehine çözülür"
+    then:
+      - "Java: işçi lehine çözüm, atama tamamlanmadığı için PAYOUT_NOT_READY_FOR_RELEASE ile reddedilir ve uyuşmazlık açık kalır"
+      - "Java: işveren lehine çözümde iade yapılır, atama durumu değişmez"
+      - "Uyuşmazlık RESOLVED olur ve çözen personel kaydedilir"
+    decision: karar 05.11 (Upwork pratiği)
+    target: >
+      İşçi lehine: emanet işçiye serbest bırakılır (payout PENDING), atama COMPLETED olur ve
+      tamamlanma nedeni uyuşmazlık çözümüdür. İşveren lehine ve atama tamamlanmamışsa: tam iade, atama
+      CANCELLED. Atama zaten COMPLETED ise: tam iade, atama COMPLETED kalır; COMPLETED'dan CANCELLED'a
+      geçiş yoktur.
+    oracle: testdata/oracle/assignment-transitions.csv
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/DisputeManager.java:133-176"
+      - "src/test/java/com/exskylab/koala/business/concretes/DisputeResolutionAuthorizationTest.java#staffHoldingTheReleasePermissionResolvesAndMovesTheMoney"
+      - "src/test/java/com/exskylab/koala/business/concretes/DisputeResolutionAuthorizationTest.java#staffHoldingTheRefundPermissionResolvesAndRefundsTheEmployer"
+    go_test: null
+
+  - id: PAY-023
+    priority: P0
+    title: Ödeme oturumunda yetki kontrolü durum kontrolünden önce yapılır
+    rule: >
+      Ödeme oturumu yalnız atamanın işvereni tarafından başlatılır: bireysel ilanda ilan sahibi,
+      şirket ilanında şirketin güncel üyesi (D1). Yetkisi olmayan biri, atamanın ödeme durumu ne olursa
+      olsun aynı reddi alır; ödeme durumunu öğrenemez.
+    given:
+      - "Atama CONFIRMED / HELD_IN_ESCROW (zaten ödenmiş)"
+    when:
+      - "Atamayla ilişkisi olmayan bir kullanıcı ödeme oturumu ister"
+      - "İşçi kendi ataması için ödeme oturumu ister"
+    then:
+      - "Java: durum kontrolü önce geldiği için yabancı 'ödeme için hazır değil' çakışmasını alır (durum sızar)"
+      - "Java: ödenmemiş atamada yabancı ve işçi yetki hatası alır"
+    decision: Java hatası (yetki sırası); D1
+    target: >
+      Karar: yetki kontrolü önce yapılır. Yabancı ve işçi, atamanın ödeme durumundan bağımsız olarak
+      var olmayan atamayla aynı reddi alır.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/JobAssignmentManager.java:249-278"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aStrangerCannotInitiatePaymentForAnIndividualJob"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#theWorkerCannotInitiatePaymentForTheirOwnAssignment"
+      - "src/test/java/com/exskylab/koala/business/concretes/PaymentSessionAuthorizationTest.java#aUserWhoIsNotAContactCannotInitiatePaymentForACompanyJob"
     go_test: null

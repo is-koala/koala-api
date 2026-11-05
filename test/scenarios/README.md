@@ -14,7 +14,7 @@ Her alan için bir dosya: `test/scenarios/<alan>.yaml`.
 
 | Dosya | Alan | Senaryo |
 |---|---|---|
-| [`payment.yaml`](payment.yaml) | Ödeme, emanet, payout, iade, iptal cezası | 21 |
+| [`payment.yaml`](payment.yaml) | Ödeme, emanet, payout, iade, iptal cezası, uyuşmazlık çözümü | 23 |
 | [`auth.yaml`](auth.yaml) | Kimlik doğrulama, oturum, parola, personel girişi | 18 |
 
 Diğer alanlar (atama, ilan, mesajlaşma, KVKK, ulaşım…) ilgili fazda eklenir.

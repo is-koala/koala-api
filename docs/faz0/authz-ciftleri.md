@@ -12,7 +12,7 @@ Sektör standardına göre verildi. Hedef (`expect`) bu kararlarla hesaplanır; 
 | D2 | **Liste ile detay tutarlıdır.** | C12: şirket yetkilisi tek tek görebildiği atamayı listede de görür. C14: aramada ve detayda aynı kural (editor). |
 | D3 | **Kapanmış ya da iptal edilmiş ilan herkese görünür kalır** ("süresi doldu" durumuyla) **ama başvuruya kapalıdır.** | `public_viewer` her durumda yazılır (soft-delete'te silinir); başvuru `applicant_pool` ile, o da yalnız OPEN iken. |
 | D4 | **Açık uyuşmazlık varken atama, elle de otomatik de tamamlanamaz.** | Durum kuralı (ön süzgeç), relation değil: `testdata/oracle/assignment-transitions.csv` AT-09, AT-14. |
-| D5 | **Pazaryeri ROLE_ADMIN baypası kalkar** (görsel silme, CV indirme, `/actuator`). | C47, C48 (CV), C52 (görsel), C53 (`/actuator`). |
+| D5 | **Pazaryeri ROLE_ADMIN baypası kalkar** (görsel silme, CV indirme, `/actuator`). | C48, C49 (CV), C53 (görsel), C54 (`/actuator`). |
 
 Java hataları (oracle'da Java davranışı kalır, Go hedefi ayrı kolonda):
 - Geç iptal cezası iptal edilen tarafa gider: işveren iptalinde ceza işçiye geçer, iade 0 ise tahsilatın tamamı ceza sayılır; para emanette kalmaz (`cancellation-fee.csv` `go_beklenen`, `go_ceza_alicisi`; AT-15, AT-15b).
@@ -24,13 +24,13 @@ Java hataları (oracle'da Java davranışı kalır, Go hedefi ayrı kolonda):
 | Ölçü | Değer |
 |---|---|
 | Envanter satırı | 134 |
-| Tekil `(nesne tipi, karar eylemi)` çifti | **70** |
+| Tekil `(nesne tipi, karar eylemi)` çifti | **71** |
 | §5.4 hedefi aynen ifade ediyor (✓) | 21 |
 | §5.4 ifade ediyor ama farklı karar veriyor (≈) | 5 |
-| §5.4'te karşılığı yok (✗) | 23 |
+| §5.4'te karşılığı yok (✗) | 24 |
 | Bilinçli olarak model dışı (dış) | 21 |
 | Önerilen DSL'de karşılığı olmayan çift | 0 (model dışı olanlar `go:<kural>`) |
-| Matris ([`internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml)) | 210 satır; 21'inde Java hedeften farklı. `skip` olmayan her çiftte ≥1 izin ve ≥1 ret; istisna C53 (hedefte izinli pazaryeri öznesi yok). C37 `skip`. |
+| Matris ([`internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml)) | 213 satır; 21'inde Java hedeften farklı. `skip` olmayan her çiftte ≥1 izin ve ≥1 ret; istisna C54 (hedefte izinli pazaryeri öznesi yok). C37 `skip`. `java_conceal` envanterin `gizleme_404` kolonundan türetilir. |
 
 "Uyum" kolonu §5.4'ün **mevcut** modelini hedefe göre değerlendirir. Önerilen DSL (aşağıda) bütün ReBAC çiftlerini karşılar.
 
@@ -62,7 +62,7 @@ Uyum: ✓ aynen · ≈ §5.4 farklı karar verir · ✗ §5.4'te yok · dış = 
 | C12 | `job_assignment` | `list` | AZ-119 | işçi → worker_id; işveren → yalnız creator | Scope(can_read): liste tekil okumayla aynı (D2) | Scope(job_assignment#can_read) | ✓ | `Scope(job_assignment#can_read)` | go_only | şirket yetkilisi listede görmüyor (D2) |
 | C13 | `job` | `read` | AZ-121, AZ-122 | herkes, her durumda | herkes, her durumda (kapanmış/iptal ilan 'süresi doldu' gösterilir); soft-delete'te yok (D3) | job#can_view (public_viewer yalnız OPEN) | ≈ | `job#can_view` | go + openfga | — |
 | C14 | `job` | `read_employer_view` | AZ-041, AZ-042 | detayda editor, aramada yalnız creator | her yerde editor (D2, D1) | job#editor | ✓ | `job#can_edit` | go + openfga | aramada şirket yetkilisi (D2) |
-| C15 | `job` | `read_exact_address` | AZ-043 | creator ∪ atanmış işçi ∪ şirket adresi açık | editor ∪ aktif atamadaki işçi ∪ adres açık; şirket ilanında can_manage_jobs üyeleri (adres iş yeri bilgisi) (D1) | — | ✗ | `job#can_read_exact_address` | go + openfga | şirket üyeleri ve eski creator (D1) |
+| C15 | `job` | `read_exact_address` | AZ-043 | creator ∪ atanmış işçi ∪ şirket adresi açık | individual_owner ∪ can_manage_jobs from owner_company ∪ aktif atamadaki işçi ∪ adres açık (şirket adresi iş yeri bilgisi) (D1) | — | ✗ | `job#can_read_exact_address` | go + openfga | şirket üyeleri ve eski creator (D1) |
 | C16 | `job` | `edit` | AZ-022, AZ-023, AZ-024, AZ-027, AZ-029, AZ-031, AZ-032 | editor (JobEditors) | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#can_edit | ✓ | `job#can_edit` | go + openfga | eski creator (D1) |
 | C17 | `job` | `read_private` | AZ-028, AZ-030 | editor | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#editor | ✓ | `job#can_read_private` | go + openfga | eski creator (D1) |
 | C18 | `job` | `list_applications` | AZ-033, AZ-034 | BİREYSEL: creator (404); ŞİRKET: güncel yetkili (400) | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job_application#can_read (editor from job) | ≈ | `job#can_list_applications` | go + openfga | ret biçimi (400 / farklı 404) |
@@ -93,31 +93,32 @@ Uyum: ✓ aynen · ≈ §5.4 farklı karar verir · ✗ §5.4'te yok · dış = 
 | C43 | `shuttle` | `board` | AZ-088, AZ-089 | koltuk sahibi; koltuksuz taraf 409, yabancı 404 | = Java | — | ✗ | `shuttle#can_board` | go + openfga | — |
 | C44 | `shuttle` | `read_details` | AZ-116 | işveren tarafı tümü; işçi yalnız koltuğu olan servis (VIEW_STATUSES) | can_manage ∪ seat_holder (+ atama durumu ön süzgeci) | — | ✗ | `shuttle#can_read_details` | go + openfga | — |
 | C45 | `seat_assignment` | `mark_boarding` | AZ-090 | koltuğun ilanının editor'ı | can_manage from shuttle (D1) | — | ✗ | `seat_assignment#can_mark_boarding` | go + openfga | — |
-| C46 | `user` | `read_public` | AZ-125, AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131 | tasarım gereği açık | = Java | — | ✗ | `user#public_viewer` | go + openfga | — |
-| C47 | `user` | `read_cv_url` | AZ-094 | kendisi ∪ başvuru almış işveren (projeksiyon) | private_file#can_download (D5) | — | ✗ | `private_file#can_download` | go + openfga | — |
-| C48 | `private_file` | `download` | AZ-093 | sahip ∪ ROLE_ADMIN ∪ başvuru almış işveren | sahip ∪ reviewer (ROLE_ADMIN yok) (D5) | — | ✗ | `private_file#can_download` | go + openfga | ROLE_ADMIN baypası (D5) |
-| C49 | `user` | `read_presence` | AZ-078, AZ-079 | REST'te KONTROL YOK | self ∪ contact | — | ✗ | `user#can_see_presence` | go + openfga | kontrol yok |
-| C50 | `user` | `watch_presence` | AZ-075 | kendisi ∪ ortak sohbet (STOMP) | self ∪ contact | — | ✗ | `user#can_see_presence` | go + openfga | — |
-| C51 | `user` | `create_individual_job` | AZ-044 | öznitelik: isEmployer + kimlik doğrulanmış | = Java | — | dış | `go:attribute_is_employer` | go_only | — |
-| C52 | `image` | `delete` | AZ-095 | yükleyen ∪ ROLE_ADMIN | yalnız yükleyen (D5) | owner (Scope) | dış | `go:owner` | go_only | ROLE_ADMIN baypası (D5); ret biçimi (400) |
-| C53 | `platform` | `read_actuator` | AZ-117 | pazaryeri ROLE_ADMIN | pazaryeri öznesine kapalı (operasyon uçları dış yüzeyde yok) (D5) | — | dış | `go:no_marketplace_admin` | go_only | ROLE_ADMIN baypası (D5) |
-| C54 | `experience` | `write` | AZ-096, AZ-097 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C55 | `education` | `write` | AZ-098, AZ-099 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C56 | `job_alert` | `write` | AZ-100, AZ-101 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C57 | `bank_account` | `write` | AZ-102, AZ-103, AZ-104 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C58 | `device` | `write` | AZ-107 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C59 | `availability_exception` | `write` | AZ-110 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C60 | `job_template` | `read` | AZ-105 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
-| C61 | `job_template` | `write` | AZ-106 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
-| C62 | `session` | `read` | AZ-108 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
-| C63 | `session` | `write` | AZ-109 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
-| C64 | `user_verification` | `confirm` | AZ-111 | yalnız sahibi; ret 403 | yalnız sahibi; gizli ret | owner | dış | `go:owner` | go_only | ret biçimi (403) |
-| C65 | `notification` | `mark_read` | AZ-112 | yalnız alıcı; başkasınınki sessiz 200 | yalnız alıcı; gizli ret | owner | dış | `go:owner` | go_only | sessiz kabul |
-| C66 | `notification` | `mark_opened` | AZ-132 | kimliksiz; bildirim UUID'si | = Java | — | dış | `go:capability_url` | go_only | — |
-| C67 | `address_search_session` | `use` | AZ-114, AZ-115 | bellek içi oturumun sahibi; ret 400 | = Java | owner | dış | `go:owner` | go_only | — |
-| C68 | `payment_attempt` | `complete_callback` | AZ-133 | kimliksiz; sağlayıcı token'ı + sunucudan sorgu | = Java | — | dış | `go:provider_token` | skip | — |
-| C69 | `payment_attempt` | `read_outcome` | AZ-134 | kimliksiz; kayıtlı sonucu okur | = Java | — | dış | `go:provider_token` | skip | — |
-| C70 | `realtime_destination` | `subscribe` | AZ-076 | bilinen hedef dışı SUBSCRIBE reddedilir | = Java (K4 protokolünde) (K4) | — | dış | `go:ws_destination` | go_only | — |
+| C46 | `user` | `read_public` | AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131 | kimliksiz dahil herkes: deneyim, müsaitlik, rozet, yorum, puan, işveren istatistiği | = Java | — | ✗ | `user#public_viewer` | go + openfga | — |
+| C47 | `user` | `read_public_profile` | AZ-125 | kimlikli her kullanıcı (profil) | = Java | — | ✗ | `user#public_viewer` | go + openfga | — |
+| C48 | `user` | `read_cv_url` | AZ-094 | kendisi ∪ başvuru almış işveren (projeksiyon) | private_file#can_download (D5) | — | ✗ | `private_file#can_download` | go + openfga | — |
+| C49 | `private_file` | `download` | AZ-093 | sahip ∪ ROLE_ADMIN ∪ başvuru almış işveren | sahip ∪ reviewer (ROLE_ADMIN yok) (D5) | — | ✗ | `private_file#can_download` | go + openfga | ROLE_ADMIN baypası (D5) |
+| C50 | `user` | `read_presence` | AZ-078, AZ-079 | REST'te KONTROL YOK | self ∪ contact | — | ✗ | `user#can_see_presence` | go + openfga | kontrol yok |
+| C51 | `user` | `watch_presence` | AZ-075 | kendisi ∪ ortak sohbet (STOMP) | self ∪ contact | — | ✗ | `user#can_see_presence` | go + openfga | — |
+| C52 | `user` | `create_individual_job` | AZ-044 | öznitelik: isEmployer + kimlik doğrulanmış | = Java | — | dış | `go:attribute_is_employer` | go_only | — |
+| C53 | `image` | `delete` | AZ-095 | yükleyen ∪ ROLE_ADMIN | yalnız yükleyen (D5) | owner (Scope) | dış | `go:owner` | go_only | ROLE_ADMIN baypası (D5); ret biçimi (400) |
+| C54 | `platform` | `read_actuator` | AZ-117 | pazaryeri ROLE_ADMIN | pazaryeri öznesine kapalı (operasyon uçları dış yüzeyde yok) (D5) | — | dış | `go:no_marketplace_admin` | go_only | ROLE_ADMIN baypası (D5) |
+| C55 | `experience` | `write` | AZ-096, AZ-097 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C56 | `education` | `write` | AZ-098, AZ-099 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C57 | `job_alert` | `write` | AZ-100, AZ-101 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C58 | `bank_account` | `write` | AZ-102, AZ-103, AZ-104 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C59 | `device` | `write` | AZ-107 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C60 | `availability_exception` | `write` | AZ-110 | yalnız sahibi | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C61 | `job_template` | `read` | AZ-105 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
+| C62 | `job_template` | `write` | AZ-106 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
+| C63 | `session` | `read` | AZ-108 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
+| C64 | `session` | `write` | AZ-109 | yalnız sahibi | = Java | owner | dış | `go:owner` | go_only | — |
+| C65 | `user_verification` | `confirm` | AZ-111 | yalnız sahibi; ret 403 | yalnız sahibi; gizli ret | owner | dış | `go:owner` | go_only | ret biçimi (403) |
+| C66 | `notification` | `mark_read` | AZ-112 | yalnız alıcı; başkasınınki sessiz 200 | yalnız alıcı; gizli ret | owner | dış | `go:owner` | go_only | sessiz kabul |
+| C67 | `notification` | `mark_opened` | AZ-132 | kimliksiz; bildirim UUID'si | = Java | — | dış | `go:capability_url` | go_only | — |
+| C68 | `address_search_session` | `use` | AZ-114, AZ-115 | bellek içi oturumun sahibi; ret 400 | = Java | owner | dış | `go:owner` | go_only | — |
+| C69 | `payment_attempt` | `complete_callback` | AZ-133 | kimliksiz; sağlayıcı token'ı + sunucudan sorgu | = Java | — | dış | `go:provider_token` | skip | — |
+| C70 | `payment_attempt` | `read_outcome` | AZ-134 | kimliksiz; kayıtlı sonucu okur | = Java | — | dış | `go:provider_token` | skip | — |
+| C71 | `realtime_destination` | `subscribe` | AZ-076 | bilinen hedef dışı SUBSCRIBE reddedilir | = Java (K4 protokolünde) (K4) | — | dış | `go:ws_destination` | go_only | — |
 
 <!-- tablo:bitir -->
 
@@ -140,8 +141,8 @@ type user
   relations
     define self: [user]                       # her kullanıcı için user:X#self@user:X
     define contact: [user]                    # sohbet kurulurken iki yönlü yazılır
-    define public_viewer: [user:*]            # deneyim, müsaitlik, rozet, yorum, puan
-    define can_see_presence: self or contact  # REST ve WS aynı kural (C49, C50)
+    define public_viewer: [user:*]            # profil (C47, kimlikli) ve deneyim/müsaitlik/rozet/yorum/puan (C46, kimliksiz de: Go)
+    define can_see_presence: self or contact  # REST ve WS aynı kural (C50, C51)
 
 type staff
 type staff_role
@@ -189,7 +190,7 @@ type job
     define can_list_applications: editor      # C18
     define can_apply: applicant_pool but not editor   # C21
     define can_open_conversation: editor      # işçi tarafı ödeme ön süzgeciyle (C22)
-    define can_read_exact_address: editor or active_worker or public_address_viewer   # C15
+    define can_read_exact_address: individual_owner or can_manage_jobs from owner_company or active_worker or public_address_viewer   # C15: şirket adresi iş yeri bilgisi
 
 type job_application
   relations
@@ -247,7 +248,7 @@ type seat_assignment                          # C45
     define shuttle: [shuttle]
     define can_mark_boarding: can_manage from shuttle
 
-type private_file                             # CV (C47, C48); tek tip adı
+type private_file                             # CV (C48, C49); tek tip adı
   relations
     define owner: [user]
     define reviewer: [user, company#member]   # başvuru anında yazılır (Java'da kalıcı)

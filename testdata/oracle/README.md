@@ -19,10 +19,12 @@ Elle düzenlemeyin; betiği güncelleyin.
 | boş | uygulanmaz |
 | `A\|B` | küme: A ya da B |
 | `A+B` | birlikte: A ve B (ör. `REFUND+DISAPPROVE`) |
-| `>=N`, `<N`, `<=N` | karşılaştırma (sayısal kolonlarda ve `kosul` içinde) |
+| `>=N`, `>N`, `<N`, `<=N` | karşılaştırma; N sayı ya da kolon/alan adı (`tutar=>tahsilat`) |
+| `+1` | sayaç bir artar |
 | `null` | açık null değer |
 | `yok` | kayıt yok |
-| `key=değer;key=değer` | `kosul` kolonu: koşulların hepsi |
+| `key=değer;key=değer` | `kosul` / `go_kosul`: koşulların hepsi; değer yukarıdaki sözlükten (küme dahil). Anahtarlar arası "ya da" yazılmaz, ayrı satır açılır. |
+| `paymentStatus=FAILURE` | yalnız `sonuc_failure_reason` kolonunda: Java'nın yazdığı düz metin sebep |
 | `now`, `backoff` | çıktı zamanı: işlem anı; `backoff.csv`'ye göre ileri zaman |
 | Durum adları | Java enum adı (`HELD_IN_ESCROW`); Go adı farklıysa `go_*` kolonunda |
 | Hata kodları | Java `errorCode` (`{a.b.c}` anahtarından türetilir: `A_B_C`); `DB_CHECK_VIOLATION` veritabanı kısıtı |
@@ -30,7 +32,7 @@ Elle düzenlemeyin; betiği güncelleyin.
 | Tutarlar | `_kurus` kolonlarında int64 kuruş (K5); ondalık kolonlar Java `BigDecimal` |
 | Oranlar | ondalık (Java) ve `_bps` (K5, 1250 = %12,5) |
 
-Açıklama yalnız `not` kolonundadır. Kaynak kolonları tam yol taşır: `src/main/java/…/X.java:satır` ve `src/test/java/…/XTest.java#metot`, birden çoksa `; ` ile.
+Açıklama yalnız `not` kolonundadır. Üretici her hücreyi bu sözlüğe karşı **değer düzeyinde** doğrular (`oracle_uret.py` → `value_ok`); `test_kolonlari`'ndaki adlar tablonun kolonları olmak zorundadır. Kaynak kolonları tam yol taşır: `src/main/java/…/X.java:satır` ve `src/test/java/…/XTest.java#metot`, birden çoksa `; ` ile.
 
 ## `dogrulama` ve `test_kolonlari`
 
@@ -54,11 +56,11 @@ Açıklama yalnız `not` kolonundadır. Kaynak kolonları tam yol taşır: `src/
 | [`backoff.csv`](backoff.csv): doğrulama ve settlement geri çekilmesi | 17 | 4 | 2 | 0 | 11 | 0 |
 | [`escrow-transitions.csv`](escrow-transitions.csv): atama ödeme durumu FSM'i, 6×5 tam matris | 30 | 6 | 0 | 24 | 0 | 0 |
 | [`escrow-predicates.csv`](escrow-predicates.csv): `acceptsPayment` / `canRelease` / `canRefund` | 11 | 7 | 0 | 4 | 0 | 0 |
-| [`assignment-transitions.csv`](assignment-transitions.csv): atama durum geçişleri | 29 | 5 | 10 | 14 | 0 | 0 |
-| [`payout-transitions.csv`](payout-transitions.csv): payout, iade, settlement görevi | 30 | 20 | 2 | 6 | 0 | 2 |
-| **Toplam** | **200** | **46** | **50** | **62** | **40** | **2** |
+| [`assignment-transitions.csv`](assignment-transitions.csv): atama durum geçişleri | 30 | 5 | 10 | 15 | 0 | 0 |
+| [`payout-transitions.csv`](payout-transitions.csv): payout, iade, settlement görevi | 31 | 21 | 2 | 6 | 0 | 2 |
+| **Toplam** | **202** | **47** | **50** | **63** | **40** | **2** |
 
-Doğrulanmamış (`kod` + `hesap`): **102 satır**; ayrıca 50 satır kısmi. Iyzico imza vektörleri ayrı: [`../iyzico/vectors.json`](../iyzico/vectors.json).
+Doğrulanmamış (`kod` + `hesap`): **103 satır**; ayrıca 50 satır kısmi. Iyzico imza vektörleri ayrı: [`../iyzico/vectors.json`](../iyzico/vectors.json).
 
 `reconcile.csv` hiç `test` satırı taşımaz: Java testleri her dalda deneme ve atama durumunu iddia ediyor ama `failure_reason`, sayaç, sonraki doğrulama zamanı gibi kolonların çoğunu iddia etmiyor.
 
@@ -66,7 +68,7 @@ Doğrulanmamış (`kod` + `hesap`): **102 satır**; ayrıca 50 satır kısmi. Iy
 
 | Tablo | Go beklentisi |
 |---|---|
-| `payout-transitions.csv` | **Her zaman `go_beklenen` ve `go_hata`.** `go_beklenen` her satırda dolu ve makinece okunur (durum adı ya da `=`). `go_onceki` Go'daki başlangıç durumudur. |
+| `payout-transitions.csv` | **Her zaman `go_beklenen` ve `go_hata`.** `go_beklenen` her satırda dolu ve makinece okunur: durum adı, `=` (değişmez) ya da `yok` (kayıt oluşmaz). `go_onceki` Go'daki başlangıç durumu, `go_kosul` Go durum adlarıyla koşuldur (`=`: `kosul` ile aynı). |
 | `assignment-transitions.csv` | `go_durum`, `go_odeme`, `go_hata` (D4 ve Java hataları burada ayrışır). |
 | `cancellation-fee.csv` | Tutar kolonları (`_kurus`, `_bps`), `go_beklenen` (sağlayıcı işlemleri) ve `go_ceza_alicisi`; `go_uygulanabilir = hayir` satırları atlanır. |
 | `commission.csv` | `_kurus` ve `oran_bps` kolonları; `go_uygulanabilir = hayir` atlanır. |
@@ -86,7 +88,7 @@ Java'da payout APPROVE başarılı olunca doğrudan `COMPLETED` oluyor (`Settlem
 | — | yok | `RETURNED` (`PAID`'den sonra iade, PO-16) |
 | — | yok | `CANCELED` (PO-17; kaynak durumlar Faz 6'da) |
 
-`chk_payouts_completed_requires_evidence` kısıtı Go'da `PAID`'e taşınır (PO-14). Iyzico'da `PAID`'i hangi raporun kanıtladığı sandbox'ta doğrulanacak.
+`chk_payouts_completed_requires_evidence` kısıtı Go'da `PAID`'e taşınır (PO-14, `go_kosul = durum=PAID;kanit=yok`); bekleme saati kısıtı `IN_TRANSIT`'e (PO-15). Iyzico'da `PAID`'i hangi raporun kanıtladığı sandbox'ta doğrulanacak.
 
 ## K5: tutar ve oran
 
@@ -103,7 +105,8 @@ Java'da payout APPROVE başarılı olunca doğrudan `COMPLETED` oluyor (`Settlem
 | Karar 05.11 (CF-02…CF-20, AT-15) | Geç iptal cezası `DISAPPROVE` ile işçiye aktarılmaz | Ceza iptal edilen tarafa: işveren iptalinde `REFUND+APPROVE`, ceza işçiye; platform komisyonu kendi kuralıyla (Faz 6) |
 | Karar 05.11 (CF-10) | Yuvarlama iadeyi 0 yapınca para emanette kalır | Tahsilatın tamamı ceza sayılır, `APPROVE` ile işçiye |
 | Karar 05.11 (AT-20) | Atama tamamlanmadan işçi lehine çözüm geri alınır | Emanet işçiye çıkar, atama `COMPLETED` ("çözümle tamamlandı", Upwork pratiği) |
-| Karar 05.11 (AT-21) | İşveren lehine çözümde atama durumu korunur | İade yapılır, atama `CANCELLED` |
+| Karar 05.11 (AT-21) | Tamamlanmamış atamada işveren lehine çözümde atama durumu korunur | İade yapılır, atama `CANCELLED` |
+| Karar 05.11 (AT-21b) | Tamamlanmış, emanette bekleyen atamada işveren lehine çözüm | İade yapılır, atama `COMPLETED` kalır (COMPLETED→CANCELLED yok) |
 | Java hatası (envanter AZ-004/005) | Ödeme oturumunda durum kontrolü yetkiden önce | Yetki önce |
 
 ## Okurken çıkan bulgular (Java'da)
@@ -124,7 +127,7 @@ Yerelde ağır iş yapılmaz (CLAUDE.md). Plan §6.2-2'deki küçük JUnit üret
 | `commission.csv`, `cancellation-fee.csv` | `CommissionCalculator` / `CancellationPolicy`'yi tablodaki girdiler ve rastgele HALF_UP sınırlarıyla koştur (29 `hesap`). |
 | `backoff.csv` | `verificationBackoffFor` ve `backoffFor` için n = 1…8 (11 `hesap`). |
 | `escrow-transitions.csv`, `escrow-predicates.csv` | 30 çift ve yüklemler (28 `kod`). |
-| `assignment-transitions.csv` | AT-04, AT-05, AT-06, AT-06b, AT-07, AT-07b, AT-07c, AT-11, AT-13, AT-14, AT-15b, AT-16, AT-16b, AT-20 için durum kolonlarını iddia eden manager testi (14 `kod`). |
+| `assignment-transitions.csv` | AT-04, AT-05, AT-06, AT-06b, AT-07, AT-07b, AT-07c, AT-11, AT-13, AT-14, AT-15b, AT-16, AT-16b, AT-20, AT-21b için durum kolonlarını iddia eden manager testi (15 `kod`). |
 | `payout-transitions.csv` | PO-02, PO-05, PO-12, RF-01b, RF-02, ST-01 (6 `kod`). |
 | `../iyzico/vectors.json` | Sabit `randomKey` ile LOOPBACK modunda ham istek gövdeleri; `stripTrailingZeros` örnekleri. |
 

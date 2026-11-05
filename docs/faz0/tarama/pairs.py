@@ -69,10 +69,10 @@ pair("job_assignment", "read", "işçi ∪ creator ∪ şirket yetkilisi (partyO
      [("user:u_worker", "job_assignment:asg_ind", A, A, "worker"),
       ("user:u_co_staff", "job_assignment:asg_co", A, A, "company_member"),
       ("user:u_creator", "job_assignment:asg_ind", A, A, "individual_owner"),
-      ("user:u_stranger", "job_assignment:asg_ind", D, D, True),
-      ("user:u_other_co_admin", "job_assignment:asg_co", D, D, True),
+      ("user:u_stranger", "job_assignment:asg_ind", D, D, True, {"jrow": "AZ-001"}),
+      ("user:u_other_co_admin", "job_assignment:asg_co", D, D, True, {"jrow": "AZ-001"}),
       (FORMER[0], "job_assignment:asg_orphan", A, D, True, FORMER[1]),
-      ("user:u_worker", "job_assignment:asg_deleted", D, D, True, "soft-delete: tuple'lar silinmiş, Check false")])
+      ("user:u_worker", "job_assignment:asg_deleted", D, D, True, {"note": "soft-delete: tuple'lar silinmiş, Check false", "jrow": "missing"})])
 pair("job_assignment", "respond", "yalnız işçi", "= Java", "", "—", "✗", "job_assignment#can_respond", FGA, "",
      [("user:u_worker", "job_assignment:asg_pending", A, A, "worker"),
       ("user:u_creator", "job_assignment:asg_pending", D, D, True),
@@ -141,7 +141,7 @@ pair("job", "read", "herkes, her durumda", "herkes, her durumda (kapanmış/ipta
      [("anonymous", "job:job_ind", A, A, "public", "", GO),
       ("user:u_stranger", "job:job_ind", A, A, "public"),
       ("user:u_stranger", "job:job_closed", A, A, "public", "D3"),
-      ("user:u_stranger", "job:job_deleted", D, D, True, "soft-delete: public_viewer tuple'ı silinmiş")])
+      ("user:u_stranger", "job:job_deleted", D, D, True, {"note": "soft-delete: public_viewer tuple'ı silinmiş", "jrow": "missing"})])
 pair("job", "read_employer_view", "detayda editor, aramada yalnız creator", "her yerde editor", "D2, D1", "job#editor", "✓",
      "job#can_edit", FGA, "aramada şirket yetkilisi (D2)",
      [("user:u_co_admin", "job:job_co", A, A, "company_member", "detay"),
@@ -149,7 +149,7 @@ pair("job", "read_employer_view", "detayda editor, aramada yalnız creator", "he
       ("user:u_creator", "job:job_ind", A, A, "individual_owner"),
       ("user:u_stranger", "job:job_ind", D, D, False, "alan düzeyi: herkese açık görünüm")])
 pair("job", "read_exact_address", "creator ∪ atanmış işçi ∪ şirket adresi açık",
-     "editor ∪ aktif atamadaki işçi ∪ adres açık; şirket ilanında can_manage_jobs üyeleri (adres iş yeri bilgisi)", "D1",
+     "individual_owner ∪ can_manage_jobs from owner_company ∪ aktif atamadaki işçi ∪ adres açık (şirket adresi iş yeri bilgisi)", "D1",
      "—", "✗", "job#can_read_exact_address", FGA, "şirket üyeleri ve eski creator (D1)",
      [("user:u_creator", "job:job_ind", A, A, "individual_owner"),
       ("user:u_worker", "job:job_ind", A, A, "active_worker"),
@@ -160,8 +160,8 @@ pair("job", "read_exact_address", "creator ∪ atanmış işçi ∪ şirket adre
 pair("job", "edit", "editor (JobEditors)", ED, "D1", "job#can_edit", "✓", "job#can_edit", FGA, "eski creator (D1)",
      [("user:u_creator", "job:job_ind", A, A, "individual_owner"),
       ("user:u_co_admin", "job:job_co", A, A, "company_member"),
-      ("user:u_worker", "job:job_ind", D, D, True),
-      ("user:u_stranger", "job:job_ind", D, D, True),
+      ("user:u_worker", "job:job_ind", D, D, True, {"jrow": "AZ-022"}),
+      ("user:u_stranger", "job:job_ind", D, D, True, {"jrow": "AZ-022"}),
       (FORMER[0], "job:job_co_orphan", A, D, True, FORMER[1])])
 pair("job", "read_private", "editor", ED, "D1", "job#editor", "✓", "job#can_read_private", FGA, "eski creator (D1)",
      [("user:u_co_staff", "job:job_co", A, A, "company_member"),
@@ -201,7 +201,7 @@ pair("job", "copy_as_template", "editor (JobEditors kopyası)", ED, "D1", "job#c
 # ---- company
 pair("company", "read", "kimlikli her kullanıcı; galeri herkese", "= Java", "", "—", "✗", "company#viewer", FGA, "",
      [("user:u_stranger", "company:co_1", A, A, "public"),
-      ("anonymous", "company:co_1", D, D, False, "kimlik doğrulaması yok", GO)])
+      ("anonymous", "company:co_1", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"}, GO)])
 pair("company", "read_member_view", "üye: onay notu, kişi listesi, şirket ilanları", "= Java", "", "company#member", "✓",
      "company#can_read_internal", FGA, "ret biçimi (404/403/maske)",
      [("user:u_co_staff", "company:co_1", A, A, "company_member"),
@@ -252,12 +252,12 @@ pair("job_application", "list", "creator → bireysel ilanlar; yetkili → şirk
 # ---- conversation / message
 pair("conversation", "read", "katılımcı", "= Java", "", "conversation#can_read", "✓", "conversation#can_read", FGA, "",
      [("user:u_worker", "conversation:conv_ind", A, A, "participant"),
-      ("user:u_stranger", "conversation:conv_ind", D, D, True)])
+      ("user:u_stranger", "conversation:conv_ind", D, D, True, {"jrow": "AZ-064"})])
 pair("conversation", "post", "katılımcı + engelleme + ödeme/pencere ön süzgeçleri", "= Java", "", "conversation#can_post", "✓",
      "conversation#can_post", FGA, "",
      [("user:u_creator", "conversation:conv_ind", A, A, "participant"),
-      ("user:u_stranger", "conversation:conv_ind", D, D, True),
-      ("user:u_blocked", "conversation:conv_blocked", D, D, False, "engelleme ön süzgeci", GO)])
+      ("user:u_stranger", "conversation:conv_ind", D, D, True, {"jrow": "AZ-068"}),
+      ("user:u_blocked", "conversation:conv_blocked", D, D, False, {"note": "engelleme ön süzgeci", "jrow": "AZ-072"}, GO)])
 pair("conversation", "subscribe", "katılımcı (STOMP)", "katılımcı (K4 düz WS)", "", "conversation#can_read", "✓",
      "conversation#can_read", FGA, "",
      [("user:u_worker", "conversation:conv_ind", A, A, "participant"),
@@ -274,12 +274,12 @@ pair("message", "report", "mesajın sohbetinde katılımcı; gönderen kendi mes
      "message#can_report", FGA, "",
      [("user:u_worker", "message:msg_ind", A, A, "participant"),
       ("user:u_stranger", "message:msg_ind", D, D, True),
-      ("user:u_creator", "message:msg_ind", "deny!", D, False, "gönderen; ret 400 CANNOT_REPORT_SELF")])
+      ("user:u_creator", "message:msg_ind", D, D, False, {"note": "gönderen kendi mesajını raporlayamaz (REPORT_CANNOT_REPORT_SELF; envanterde iş kuralı, ayrı satır yok)", "jrow": "distinct"})])
 # ---- dispute
 pair("dispute", "read", "atamanın tarafı", "party from assignment", "D1", "dispute#can_read", "✓", "dispute#can_read", FGA, "",
      [("user:u_worker", "dispute:dsp_ind", A, A, "worker"),
       ("user:u_creator", "dispute:dsp_ind", A, A, "individual_owner"),
-      ("user:u_stranger", "dispute:dsp_ind", D, D, True)])
+      ("user:u_stranger", "dispute:dsp_ind", D, D, True, {"jrow": "AZ-082"})])
 pair("dispute", "add_evidence", "atamanın tarafı; RESOLVED ise 409", "party from assignment", "D1", "dispute#can_add_evidence", "✓",
      "dispute#can_add_evidence", FGA, "",
      [("user:u_worker", "dispute:dsp_ind", A, A, "worker"),
@@ -303,10 +303,15 @@ pair("seat_assignment", "mark_boarding", "koltuğun ilanının editor'ı", "can_
       ("user:u_stranger", "seat_assignment:seat_w", D, D, True),
       ("user:u_worker", "seat_assignment:seat_w", D, D, True)])
 # ---- user / dosya
-pair("user", "read_public", "tasarım gereği açık", "= Java", "", "—", "✗", "user#public_viewer", FGA, "",
+pair("user", "read_public", "kimliksiz dahil herkes: deneyim, müsaitlik, rozet, yorum, puan, işveren istatistiği", "= Java", "",
+     "—", "✗", "user#public_viewer", FGA, "",
      [("user:u_stranger", "user:u_worker", A, A, "public"),
-      ("anonymous", "user:u_worker", A, A, "public", "deneyim, müsaitlik, rozet, yorum, puan, istatistik", GO),
-      ("anonymous", "user:u_applicant", D, D, False, "profil kimlik ister", GO)])
+      ("anonymous", "user:u_worker", A, A, "public", "kimliksiz okuma", GO),
+      ("user:u_stranger", "user:u_deleted", D, D, True, {"note": "soft-delete: public_viewer tuple'ı silinmiş", "jrow": "missing"})])
+pair("user", "read_public_profile", "kimlikli her kullanıcı (profil)", "= Java", "", "—", "✗", "user#public_viewer", FGA, "",
+     [("user:u_stranger", "user:u_worker", A, A, "public"),
+      ("anonymous", "user:u_worker", D, D, False, {"note": "profil kimlik ister", "jrow": "authn"}, GO),
+      ("user:u_stranger", "user:u_deleted", D, D, True, {"note": "soft-delete", "jrow": "missing"})])
 pair("user", "read_cv_url", "kendisi ∪ başvuru almış işveren (projeksiyon)", "private_file#can_download", "D5", "—", "✗",
      "private_file#can_download", FGA, "",
      [("user:u_applicant", "private_file:cv_applicant", A, A, "self"),
@@ -321,7 +326,7 @@ pair("private_file", "download", "sahip ∪ ROLE_ADMIN ∪ başvuru almış işv
 pair("user", "read_presence", "REST'te KONTROL YOK", "self ∪ contact", "", "—", "✗", "user#can_see_presence", FGA, "kontrol yok",
      [("user:u_creator", "user:u_worker", A, A, "contact"),
       ("user:u_stranger", "user:u_worker", A, D, False, "Java açığı"),
-      ("anonymous", "user:u_worker", D, D, False, "kimlik doğrulaması yok", GO)])
+      ("anonymous", "user:u_worker", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"}, GO)])
 pair("user", "watch_presence", "kendisi ∪ ortak sohbet (STOMP)", "self ∪ contact", "", "—", "✗", "user#can_see_presence", FGA, "",
      [("user:u_worker", "user:u_worker", A, A, "self"),
       ("user:u_creator", "user:u_worker", A, A, "contact"),
@@ -362,18 +367,18 @@ pair("notification", "mark_read", "yalnız alıcı; başkasınınki sessiz 200",
       ("user:u_stranger", "notification:notif_w", A, D, True, "Java 200 döner ama değişiklik yapmaz")])
 pair("notification", "mark_opened", "kimliksiz; bildirim UUID'si", "= Java", "", "—", "dış", "go:capability_url", GO, "",
      [("anonymous", "notification:notif_w", A, A, "capability_url"),
-      ("anonymous", "notification:notif_missing", D, D, False, "var olmayan bildirim; yetki değil")])
+      ("anonymous", "notification:notif_missing", D, D, False, {"note": "var olmayan bildirim; yetki değil", "jrow": "missing_distinct"})])
 pair("address_search_session", "use", "bellek içi oturumun sahibi; ret 400", "= Java", "", "owner", "dış", "go:owner", GO, "",
      [("user:u_worker", "address_search_session:addr_w", A, A, "owner"),
       ("user:u_stranger", "address_search_session:addr_w", "deny!", D, False)])
 pair("payment_attempt", "complete_callback", "kimliksiz; sağlayıcı token'ı + sunucudan sorgu", "= Java", "", "—", "dış",
      "go:provider_token", SKIP, "",
      [("anonymous", "payment_attempt:pay_valid", A, A, "provider_token"),
-      ("anonymous", "payment_attempt:pay_unknown", D, D, False, "bilinmeyen token")],
+      ("anonymous", "payment_attempt:pay_unknown", D, D, False, {"note": "bilinmeyen token", "jrow": "missing_distinct"})],
      "Yetki değil sağlayıcı doğrulaması: testdata/oracle/reconcile.csv RC-01.")
 pair("payment_attempt", "read_outcome", "kimliksiz; kayıtlı sonucu okur", "= Java", "", "—", "dış", "go:provider_token", SKIP, "",
      [("anonymous", "payment_attempt:pay_valid", A, A, "provider_token"),
-      ("anonymous", "payment_attempt:pay_unknown", D, D, False, "bilinmeyen token başarısız sonuç sayfasına yönlenir")])
+      ("anonymous", "payment_attempt:pay_unknown", D, D, False, {"note": "bilinmeyen token başarısız sonuç sayfasına yönlenir", "jrow": "missing_distinct"})])
 pair("realtime_destination", "subscribe", "bilinen hedef dışı SUBSCRIBE reddedilir", "= Java (K4 protokolünde)", "K4", "—", "dış",
      "go:ws_destination", GO, "",
      [("user:u_worker", "realtime_destination:queue_own", A, A, "user_destination"),
@@ -392,6 +397,7 @@ USERS = {
     "u_blocked": dict(is_employer=False, note="u_worker'ın engellediği kullanıcı; conv_blocked katılımcısı"),
     "u_stranger": dict(is_employer=False, note="hiçbir nesneyle ilişkisi yok; img_x'i yükleyen"),
     "u_mkt_admin": dict(is_employer=False, marketplace_role="ROLE_ADMIN", note="pazaryeri ROLE_ADMIN (D5: yetki vermez)"),
+    "u_deleted": dict(is_employer=False, deleted=True, note="soft-delete edilmiş kullanıcı; tuple'ı yok"),
 }
 OBJECTS = {
     "platform:koala": {},
@@ -439,8 +445,8 @@ OBJECTS = {
     "realtime_destination:queue_own": dict(destination="/user/queue/notifications"),
     "realtime_destination:topic_unknown": dict(destination="/topic/admin/secrets"),
 }
-for u in USERS:
-    OBJECTS[f"user:{u}"] = {}
+for u, ua in USERS.items():                    # kullanıcılar nesne olarak da çözülür (başlık sözleşmesi)
+    OBJECTS[f"user:{u}"] = {k: v for k, v in ua.items() if k != "note"}
 TUPLES = [
     "company:co_1#admin@user:u_co_admin", "company:co_1#staff_member@user:u_co_staff",
     "company:co_2#admin@user:u_other_co_admin",
@@ -483,8 +489,45 @@ def q(v):
     return json.dumps(v, ensure_ascii=False)
 
 
+CONCEALED = {"evet", "evet-yardımcısız"}
+
+
+def norm_case(c, pair_engine):
+    """(özne, nesne, java, expect, basis|conceal, [not|{seçenek}], [motor]) -> dict"""
+    d = dict(subj=c[0], obj=c[1], java=c[2], expect=c[3], bc=c[4], note="", jrow=None, engine=pair_engine)
+    for extra in c[5:]:
+        if isinstance(extra, dict):
+            d["note"] = extra.get("note", d["note"])
+            d["jrow"] = extra.get("jrow")
+        elif isinstance(extra, str) and extra in (GO, SKIP):
+            d["engine"] = extra
+        elif isinstance(extra, list):
+            d["engine"] = extra
+        elif isinstance(extra, str):
+            d["note"] = extra
+    return d
+
+
+def java_conceal(case, rows, by_id):
+    """Java'nın ret biçimi envanterdeki gizleme_404 kolonundan türetilir; varsayılan basılmaz."""
+    j = case["jrow"]
+    if j == "authn":            # kimlik doğrulaması yok: 401, kaynak ilişkisi değil
+        return False
+    if j == "missing":          # kaynak gerçekten yok / silinmiş: var olmayanla aynı 404
+        return True
+    if j in ("missing_distinct", "distinct"):  # ayırt edilebilir yanıt (yönlendirme, farklı 404, iş kuralı reddi)
+        return False
+    if j:
+        return by_id[j]["gizleme_404"] in CONCEALED
+    refusing = {r["gizleme_404"] in CONCEALED for r in rows if r["gizleme_404"] != "yok"}
+    if len(refusing) > 1:
+        raise ValueError("karışık gizleme; jrow gerekli")
+    return refusing.pop() if refusing else False
+
+
 def main():
     rows = list(csv.DictReader(open(INV, encoding="utf-8")))
+    by_id = {r["id"]: r for r in rows}
     by = defaultdict(list)
     for r in rows:
         by[(r["nesne_tipi"], r["eylem"])].append(r)
@@ -493,27 +536,37 @@ def main():
         print("eşleşmeyen çiftler:", set(by) - keys, keys - set(by), file=sys.stderr)
         sys.exit(1)
 
-    # --- doğrulama: tanımsız referans, basis sözlüğü, conceal zorunluluğu
+    subjects = {"anonymous"} | {f"user:{u}" for u in USERS}
     errs = []
-    used_objects = set()
+    used = set()
     for i, p in enumerate(P, 1):
+        p["ncases"] = []
         for c in p["cases"]:
-            subj, obj = c[0], c[1]
-            if subj != "anonymous" and subj.split(":", 1)[1] not in USERS:
-                errs.append(f"C{i:02d}: tanımsız özne {subj}")
-            if obj not in OBJECTS:
-                errs.append(f"C{i:02d}: tanımsız nesne {obj}")
-            used_objects.add(obj)
-            if c[3] == A and c[4] not in BASIS:
-                errs.append(f"C{i:02d}: sözlük dışı basis {c[4]}")
-            if c[3] == D and not isinstance(c[4], bool):
+            d = norm_case(c, p["engine"])
+            if d["subj"] not in subjects:
+                errs.append(f"C{i:02d}: fixtures.subjects içinde yok: {d['subj']}")
+            if d["obj"] not in OBJECTS:
+                errs.append(f"C{i:02d}: fixtures.objects içinde yok: {d['obj']}")
+            used.add(d["obj"])
+            if d["expect"] == A and d["bc"] not in BASIS:
+                errs.append(f"C{i:02d}: sözlük dışı basis {d['bc']}")
+            if d["expect"] == D and not isinstance(d["bc"], bool):
                 errs.append(f"C{i:02d}: ret satırında conceal yok")
-    for t in TUPLES:
-        o = t.split("#", 1)[0]
-        used_objects.add(o)
+            if d["java"].startswith("deny"):
+                try:
+                    d["java_conceal"] = java_conceal(d, by[(p["obj"], p["act"])], by_id)
+                except ValueError as e:
+                    errs.append(f"C{i:02d} {d['subj']} {d['obj']}: {e}")
+            p["ncases"].append(d)
+    for t in TUPLES:                 # tuple: <nesne>#<relation>@<özne>; özne bir nesne, user:* ya da <nesne>#<relation>
+        o, rest = t.split("#", 1)
+        subj = rest.split("@", 1)[1]
+        used.add(o)
         if o not in OBJECTS:
-            errs.append(f"tuple tanımsız nesne {t}")
-    unused = set(OBJECTS) - used_objects - {f"user:{u}" for u in USERS}
+            errs.append(f"tuple nesnesi fixtures.objects içinde yok: {t}")
+        if subj != "user:*" and subj.split("#", 1)[0] not in OBJECTS:
+            errs.append(f"tuple öznesi fixtures.objects içinde yok: {t}")
+    unused = {o for o in OBJECTS if not o.startswith("user:")} - used
     if unused:
         errs.append(f"kullanılmayan fikstür: {sorted(unused)}")
     if errs:
@@ -543,49 +596,44 @@ def main():
     for p in P:
         out.append(f"  {p['obj']}.{p['act']}: {q(p['rel'])}")
     out += ["", "fixtures:", "  subjects:", "    anonymous: {type: anonymous}"]
-    for u, a_ in USERS.items():
-        attrs = {k: v for k, v in a_.items() if k != "note"}
-        out.append(f"    user:{u}: {{type: user, attrs: {q(attrs)}, note: {q(a_['note'])}}}")
+    for u, ua in USERS.items():
+        out.append(f"    user:{u}: {{type: user, note: {q(ua['note'])}}}")
     out.append("  objects:")
     for o, attrs in OBJECTS.items():
-        if o.startswith("user:"):
-            continue
         out.append(f"    {o}: {{type: {o.split(':')[0]}, attrs: {q(attrs)}}}")
     out.append("  tuples:")
     out += [f"    - {q(t)}" for t in TUPLES]
     out += ["", "cases:"]
     n = 0
+    diff = 0
     for i, p in enumerate(P, 1):
         rs = by[(p["obj"], p["act"])]
         src = sorted({t.strip().split(" (")[0] for r in rs for t in r["java_testi"].split(";") if t.strip()})
-        for c in p["cases"]:
+        for d in p["ncases"]:
             n += 1
-            subj, obj, java, expect, bc = c[:5]
-            note = c[5] if len(c) > 5 else ""
-            engine = c[6] if len(c) > 6 else p["engine"]
+            jd = "deny" if d["java"].startswith("deny") else d["java"]
+            if jd != d["expect"]:
+                diff += 1
             out.append(f"  - id: AZM-{n:03d}")
             out.append(f"    pair: C{i:02d}")
             out.append(f"    action: {p['obj']}.{p['act']}")
-            out.append(f"    subject: {q(subj)}")
-            out.append(f"    object: {q(obj)}")
-            out.append(f"    expect: {expect}")
-            if expect == A:
-                out.append(f"    basis: {bc}")
+            out.append(f"    subject: {q(d['subj'])}")
+            out.append(f"    object: {q(d['obj'])}")
+            out.append(f"    expect: {d['expect']}")
+            if d["expect"] == A:
+                out.append(f"    basis: {d['bc']}")
             else:
-                out.append(f"    conceal: {'true' if bc else 'false'}")
-            jd = "deny" if java.startswith("deny") else java
+                out.append(f"    conceal: {'true' if d['bc'] else 'false'}")
             out.append(f"    java: {jd}")
-            if java == "deny!":
-                out.append("    java_conceal: false   # Java ayırt edilebilir ret döndürüyor (403/400/farklı 404)")
-            elif jd == D:
-                out.append("    java_conceal: true")
-            out.append(f"    engine: {q(engine) if isinstance(engine, list) else engine}".replace('"', ""))
-            if note:
-                out.append(f"    note: {q(note)}")
+            if jd == D:
+                out.append(f"    java_conceal: {'true' if d['java_conceal'] else 'false'}")
+            eng = d["engine"]
+            out.append(f"    engine: {'[go, openfga]' if isinstance(eng, list) else eng}")
+            if d["note"]:
+                out.append(f"    note: {q(d['note'])}")
             out.append(f"    inventory: [{', '.join(r['id'] for r in rs)}]")
-            out.append(f"    source: [{', '.join(q(s) for s in src)}]")
+            out.append(f"    source: [{', '.join(q(x) for x in src)}]")
     open(YAML_OUT, "w", encoding="utf-8").write("\n".join(out) + "\n")
-    diff = sum(1 for p in P for c in p["cases"] if (c[2].startswith("deny") and c[3] == A) or (c[2] == A and c[3] == D))
     print(f"{len(P)} çift, {n} matris satırı, {diff} satırda Java hedeften farklı", file=sys.stderr)
 
 
@@ -597,12 +645,17 @@ HEADER = '''# TASLAK — internal/authz/testdata/matrix.yaml (plan §5.6-3, ADR-
 # Alanlar
 #   action   : <nesne_tipi>.<karar eylemi>; relation karşılığı `actions:` haritasında.
 #              `go:<kural>` = model dışı Go kuralı (sahiplik, öznitelik, protokol).
-#   subject  : "anonymous" ya da "user:<id>" (fixtures.subjects)
-#   object   : "<tip>:<id>" (fixtures.objects)
+#   subject  : "anonymous" ya da "user:<id>"; fixtures.subjects içinde çözülür.
+#   object   : "<tip>:<id>"; fixtures.objects içinde çözülür. Kullanıcılar (user:<id>)
+#              hem subjects hem objects altında listelenir.
+#   tuples   : "<nesne>#<relation>@<özne>"; özne fixtures.objects'teki bir nesne,
+#              "<nesne>#<relation>" kullanıcı kümesi ya da "user:*" jokeri (her kimlikli
+#              kullanıcı; fikstür değildir, anonymous'u kapsamaz).
 #   expect   : Go HEDEF kararı (allow | deny); karar kaydı D1-D5 uygulanmış.
 #   basis    : allow satırında kararın dayanağı; değer `basis:` sözlüğünden.
 #   conceal  : deny satırında ZORUNLU; true = var olmayan kaynakla bayt bayt aynı 404.
-#   java     : Java'nın bugünkü kararı (origin/main); java_conceal Java'nın ret biçimi.
+#   java     : Java'nın bugünkü kararı (origin/main). java_conceal Java'nın ret biçimi;
+#              docs/faz0/authz-envanteri.csv `gizleme_404` kolonundan türetilir.
 #   engine   : [go, openfga] iki değerlendiricide de koşar · go_only yalnız Go
 #              (ön süzgeç, öznitelik, sahiplik, Scope) · skip koşmaz (gerekçe çiftte).
 #   source   : bağlayan Java testi (src/test/java/...#metot); boşsa bulunamadı.

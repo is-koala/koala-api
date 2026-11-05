@@ -464,7 +464,7 @@ NORMALIZE = {
     ("conversation", "mark_read"): "read", ("conversation", "typing"): "post", ("conversation", "list_mine"): "list",
     ("dispute", "read_evidence"): "read", ("dispute", "download_evidence"): "read",
     ("shuttle", "issue_qr"): "manage", ("shuttle", "rotate_qr"): "manage", ("shuttle", "list_boardings"): "manage",
-    ("user", "read_public_profile"): "read_public", ("user", "read_employer_stats"): "read_public",
+    ("user", "read_employer_stats"): "read_public",
     ("user", "read_experiences"): "read_public", ("user", "read_availability"): "read_public",
     ("user", "read_badges"): "read_public", ("user", "read_reviews"): "read_public",
     ("user", "read_rating_summary"): "read_public",

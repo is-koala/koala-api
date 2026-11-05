@@ -649,11 +649,14 @@ def assignment():
         at("20", "CONFIRMED|IN_PROGRESS", "HELD_IN_ESCROW", "uyusmazlik_release", "personel", "uyusmazlik=acik", "=", "=",
            "PAYOUT_NOT_READY_FOR_RELEASE", "COMPLETED", "RELEASED_TO_WORKER", "", kod="DisputeManager:165-166; PayoutManager:120-122",
            note="Java: canRelease COMPLETED ister; çözüm de geri alınır. Go (karar 05.11, Upwork pratiği): emanet işçiye serbest bırakılır, atama 'çözümle tamamlandı' olarak kapanır (COMPLETED, tamamlanma nedeni DISPUTE_RESOLUTION)."),
-        at("21", "*", "HELD_IN_ESCROW", "uyusmazlik_refund", "personel", "uyusmazlik=acik", "=", "REFUNDED", "",
+        at("21", "CONFIRMED|IN_PROGRESS", "HELD_IN_ESCROW", "uyusmazlik_refund", "personel", "uyusmazlik=acik", "=", "REFUNDED", "",
            "CANCELLED", "REFUNDED", "",
            kod="DisputeManager:168; PayoutManager:172-215",
            test="DisputeResolutionAuthorizationTest#staffHoldingTheRefundPermissionResolvesAndRefundsTheEmployer", cols="java_odeme",
            note="Java: atama iptal edilmez; tam tutar iade edilir. Go (karar 05.11): iade yapılır ve atama CANCELLED olur."),
+        at("21b", "COMPLETED", "HELD_IN_ESCROW", "uyusmazlik_refund", "personel", "uyusmazlik=acik", "=", "REFUNDED", "",
+           "=", "REFUNDED", "", kod="DisputeManager:168; PayoutManager:172-215",
+           note="Atama tamamlanmış ama emanet uyuşmazlık yüzünden bekliyor (AT-09 Java yolu). Go (karar 05.11): emanet işverene iade edilir, atama COMPLETED kalır; COMPLETED->CANCELLED geçişi yoktur."),
     ]
     return ["id", "onceki_durum", "onceki_odeme", "olay", "aktor", "kosul", "java_durum", "java_odeme", "java_hata",
             "go_durum", "go_odeme", "go_hata", "kaynak_kod", "kaynak_test", "test_kolonlari", "dogrulama", "not"], rows
@@ -665,8 +668,10 @@ def assignment():
 PO_OUT = ["java_sonraki", "java_hata"]
 
 
-def po(rid, varlik, onceki, go_onceki, olay, kosul, js, jh, gb, gh=None, kod="", test="", cols="", note="", karar=False):
-    r = dict(id=rid, varlik=varlik, onceki_durum=onceki, go_onceki=go_onceki, olay=olay, kosul=kosul, java_sonraki=js,
+def po(rid, varlik, onceki, go_onceki, olay, kosul, js, jh, gb, gh=None, kod="", test="", cols="", note="", karar=False,
+       go_kosul="="):
+    r = dict(id=rid, varlik=varlik, onceki_durum=onceki, go_onceki=go_onceki, olay=olay, kosul=kosul, go_kosul=go_kosul,
+             java_sonraki=js,
              java_hata=jh, go_beklenen=gb, go_hata=jh if gh is None else gh, kaynak_kod=src(kod), kaynak_test=src(test),
              test_kolonlari=cols, not_=note)
     r["dogrulama"] = "karar" if karar else verdict(r, PO_OUT, "kod")
@@ -722,9 +727,11 @@ def payout():
            test="PayoutSettlementReconciliationIT#oneStatementLineCannotSettleTwoPayoutsEvenWhenTheWritesTrulyOverlap", cols="java_hata",
            note="uk_payouts_settlement_reference."),
         po("PO-14", "payout", "*", "*", "db_yazimi", "durum=COMPLETED;kanit=yok", "=", "DB_CHECK_VIOLATION", "=",
+           go_kosul="durum=PAID;kanit=yok",
            test="PayoutSettlementReconciliationIT#theDatabaseRefusesACompletedPayoutThatCarriesNoSettlementEvidence",
            cols="java_sonraki|java_hata", note="chk_payouts_completed_requires_evidence; Go'da kısıt PAID'e taşınır (ADR-0009)."),
         po("PO-15", "payout", "*", "*", "db_yazimi", "durum=PROCESSING;processing_at=null", "=", "DB_CHECK_VIOLATION", "=",
+           go_kosul="durum=IN_TRANSIT;in_transit_at=null",
            test="PayoutSettlementReconciliationIT#aPayoutCannotEnterProcessingWithoutTheClockThatStartsTheWait",
            cols="java_sonraki|java_hata", note="Go'da IN_TRANSIT için aynı kısıt."),
         po("PO-16", "payout", "", "PAID", "banka_iadesi", "", "", "", "RETURNED", "", note="K2/ADR-0009; Java karşılığı yok.", karar=True),
@@ -750,9 +757,11 @@ def payout():
            test="SettlementRetryTest#aDisapprovalNeverTouchesThePayoutOrTheRefund", cols="java_sonraki|java_hata"),
         po("ST-01", "settlement_task", "yok", "yok", "kuyruga_al", "settlement=acik;islem_kimligi=var;ayni_gorev=yok", "PENDING", "",
            "PENDING", kod="SettlementManager:65-98", note="attempts 0, next_attempt_at = şimdi."),
-        po("ST-01b", "settlement_task", "yok", "yok", "kuyruga_al", "settlement=kapali|islem_kimligi=yok", "yok", "", "yok",
-           kod="SettlementManager:68-77",
-           test="SettlementRetryTest#nothingIsQueuedWhenSettlementIsSwitchedOff; SettlementRetryTest#nothingIsQueuedWithoutAProviderTransactionId",
+        po("ST-01b", "settlement_task", "yok", "yok", "kuyruga_al", "settlement=kapali", "yok", "", "yok",
+           kod="SettlementManager:68-71", test="SettlementRetryTest#nothingIsQueuedWhenSettlementIsSwitchedOff",
+           cols="java_sonraki|java_hata", note="Çağıran PAYOUT_SETTLEMENT_NOT_QUEUED atar ve işlemi geri alır."),
+        po("ST-01c", "settlement_task", "yok", "yok", "kuyruga_al", "islem_kimligi=yok", "yok", "", "yok",
+           kod="SettlementManager:73-77", test="SettlementRetryTest#nothingIsQueuedWithoutAProviderTransactionId",
            cols="java_sonraki|java_hata", note="Çağıran PAYOUT_SETTLEMENT_NOT_QUEUED atar ve işlemi geri alır."),
         po("ST-02", "settlement_task", "*", "*", "kuyruga_al", "ayni_gorev=var", "=", "", "=", kod="SettlementManager:79-84",
            test="SettlementRetryTest#queueingTwiceForTheSamePaymentReusesTheTask", cols="java_sonraki|java_hata"),
@@ -767,13 +776,46 @@ def payout():
         po("ST-06", "settlement_task", "SUCCEEDED|FAILED", "SUCCEEDED|FAILED", "calistir", "", "=", "", "=", kod="SettlementManager:118-121",
            test="SettlementRetryTest#anAlreadySucceededTaskIsNotRunAgain", cols="java_sonraki|java_hata"),
     ]
-    return ["id", "varlik", "onceki_durum", "go_onceki", "olay", "kosul", "java_sonraki", "java_hata", "go_beklenen",
+    return ["id", "varlik", "onceki_durum", "go_onceki", "olay", "kosul", "go_kosul", "java_sonraki", "java_hata", "go_beklenen",
             "go_hata", "kaynak_kod", "kaynak_test", "test_kolonlari", "dogrulama", "not"], rows
 
 
 # ======================================================================
-FREE_TEXT = {"not", "kaynak_kod", "kaynak_test", "dogrulama"}
-TOKEN = re.compile(r"^[A-Za-z0-9_.:{}+|<>=*\-/;]*$")
+FREE_TEXT = {"not", "kaynak_kod", "kaynak_test"}
+SPECIAL = {"*", "=", "null", "yok", "now", "backoff", "+1"}
+ATOM = re.compile(r"^(?:-?[A-Za-z0-9_.]+|\{[a-z0-9_.]+\})$")       # kimlik, enum, sayı, hata kodu, {mesaj.anahtarı}
+CMP = re.compile(r"^(?:>=|<=|>|<)-?[A-Za-z0-9_.]+$")                  # karşılaştırma
+LITERAL = {"sonuc_failure_reason": {"paymentStatus=FAILURE", "paymentStatus=failure"}}  # Java'nın yazdığı düz metin
+DOGRULAMA = {"test", "kısmi", "kod", "hesap", "karar"}
+
+
+ID = re.compile(r"^[A-Z]{2}-\d{2}[a-z]?$")
+
+
+def atom_ok(a):
+    return a in SPECIAL or bool(CMP.match(a)) or bool(ATOM.match(a))
+
+
+def alt_ok(alt):
+    """Küme öğesi: özel değer (ör. +1) ya da '+' ile birleşmiş atomlar."""
+    return alt in SPECIAL or all(atom_ok(x) for x in alt.split("+"))
+
+
+def value_ok(v, col):
+    """Sözlük: boş | özel değer | atom | karşılaştırma | A|B küme | A+B birlikte | kosul: k=v;k=v."""
+    if v == "" or v in LITERAL.get(col, ()):
+        return True
+    if col in ("kosul", "go_kosul"):
+        if v == "=":
+            return True
+        for part in v.split(";"):
+            k, sep, val = part.partition("=")
+            if not sep or not ATOM.match(k) or not val:
+                return False
+            if not all(alt_ok(alt) for alt in val.split("|")):
+                return False
+        return True
+    return all(alt_ok(alt) for alt in v.split("|"))
 
 
 def validate(name, cols, rows):
@@ -788,10 +830,18 @@ def validate(name, cols, rows):
             if v is None:
                 errors.append(f"{name} {r['id']}: kolon yok {c}")
                 continue
-            if c not in FREE_TEXT and not TOKEN.match(v.replace("{payment.", "{payment.")):
+            if c in FREE_TEXT:
+                continue
+            if c == "id":
+                ok = bool(ID.match(v))
+            elif c == "dogrulama":
+                ok = v in DOGRULAMA
+            elif c == "test_kolonlari":
+                ok = all(x in cols for x in v.split("|")) if v else True
+            else:
+                ok = value_ok(v, c)
+            if not ok:
                 errors.append(f"{name} {r['id']}.{c}: sözlük dışı değer {v!r}")
-        if r.get("dogrulama") not in ("test", "kısmi", "kod", "hesap", "karar"):
-            errors.append(f"{name} {r['id']}: dogrulama {r.get('dogrulama')}")
     if name == "payout-transitions.csv":
         for r in rows:
             if not r["go_beklenen"]:
