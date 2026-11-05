@@ -13,7 +13,7 @@ Durum: **Faz 0**. Repo iskeleti, CI'daki kalite kapısı ve ADR'ler hazır. Sunu
 - sıralı graceful shutdown,
 - Dockerfile.
 
-Faz 1'de kalanlar: pgx/`InTx`, goose ve sqlc, metrik, 426 sürüm kapısı, rate limit, path normalizasyonu, River, authn/authz ve soft-delete korumaları.
+Faz 1'de kalanlar: pgx/`InTx`, goose ve sqlc, metrik, sürüm kapısı (`400 APP_VERSION_UNSUPPORTED`, ADR-0019), rate limit, path normalizasyonu, River, authn/authz ve soft-delete korumaları.
 
 Plan belgesi: [`docs/plan/go-gecis-degerlendirme.md`](docs/plan/go-gecis-degerlendirme.md). Kararlar: [`docs/adr/`](docs/adr/README.md). Kodlama kuralları: [`CLAUDE.md`](CLAUDE.md).
 
