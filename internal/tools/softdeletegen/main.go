@@ -5,11 +5,11 @@
 //     SQL blocks: the columns, CHECK, index, active_<t> view and grants of a
 //     soft-deleted table. The SQL lands in the migration file itself, so
 //     sqlc's static catalog sees the views and review sees the DDL.
-//   - It writes the rule line of sqlc.yaml's no-base-table rule from
-//     db/softdelete.yaml.
+//   - It writes the rule lines of sqlc.yaml's vet rules: no-base-table from
+//     db/softdelete.yaml, no-soft-delete-columns from its fixed patterns.
 //
-// With -print-rule it prints the rule for the given catalogs instead
-// (scripts/sqlc-vet-probe.sh).
+// With -print-rule <name> it prints that rule for the catalogs given as
+// arguments instead (scripts/sqlc-vet-probe.sh).
 //
 // A directive is a line
 //
@@ -55,16 +55,20 @@ func main() {
 
 func run() error {
 	fs := flag.NewFlagSet("softdeletegen", flag.ContinueOnError)
-	printRule := fs.Bool("print-rule", false, "print the no-base-table rule for the catalog files given as arguments")
+	printRule := fs.String("print-rule", "", "print the named vet rule for the catalog files given as arguments")
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return fmt.Errorf("parse flags: %w", err)
 	}
-	if *printRule {
+	if *printRule != "" {
 		cat, err := loadCatalog(fs.Args()...)
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintln(os.Stdout, softdelete.NoBaseTableRule(cat)); err != nil {
+		rule, ok := rules(cat)[*printRule]
+		if !ok {
+			return fmt.Errorf("unknown rule %q", *printRule)
+		}
+		if _, err := fmt.Fprintln(os.Stdout, rule); err != nil {
 			return fmt.Errorf("print rule: %w", err)
 		}
 		return nil
@@ -89,8 +93,22 @@ func run() error {
 		return err
 	}
 	return rewrite(sqlcPath, func(src string) (string, error) {
-		return writeRule(src, softdelete.NoBaseTableRule(cat))
+		for name, rule := range rules(cat) {
+			var err error
+			if src, err = writeRule(src, name, rule); err != nil {
+				return "", err
+			}
+		}
+		return src, nil
 	})
+}
+
+// rules maps sqlc.yaml's generated vet rules to their CEL expressions.
+func rules(cat *softdelete.Catalog) map[string]string {
+	return map[string]string{
+		softdelete.RuleNoBaseTable:         softdelete.NoBaseTableRule(cat),
+		softdelete.RuleNoSoftDeleteColumns: softdelete.NoSoftDeleteColumnsRule(),
+	}
 }
 
 func loadCatalog(paths ...string) (*softdelete.Catalog, error) {

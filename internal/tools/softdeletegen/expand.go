@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
 const (
@@ -15,10 +17,6 @@ const (
 
 // directive is `-- +koala <kind> <version> <table> [security_barrier]`.
 var directive = regexp.MustCompile(`^-- \+koala (soft-delete|soft-delete-view) (v[0-9]+) ([a-z][a-z0-9_]*)( security_barrier)?$`)
-
-// maxTable keeps the longest derived name, <table>_deleted_together,
-// within Postgres' 63-byte identifiers (longer names are truncated).
-const maxTable = 63 - len("_deleted_together")
 
 // expand rewrites every directive's generated block of one migration file.
 func expand(src string) (string, error) {
@@ -64,8 +62,8 @@ func render(line string) ([]string, error) {
 	if version != "v1" {
 		return nil, fmt.Errorf("unknown template version %s", version)
 	}
-	if len(table) > maxTable {
-		return nil, fmt.Errorf("table name %s is longer than %d bytes", table, maxTable)
+	if len(table) > softdelete.MaxTableName {
+		return nil, fmt.Errorf("table name %s is longer than %d bytes", table, softdelete.MaxTableName)
 	}
 	if strings.HasPrefix(table, "active_") {
 		return nil, errors.New("a soft-deleted table cannot be named active_*")
@@ -107,22 +105,22 @@ func viewV1(t string, barrier bool) []string {
 	}
 }
 
-// writeRule replaces the rule line of sqlc.yaml's no-base-table rule.
-func writeRule(src, rule string) (string, error) {
+// writeRule replaces the rule line of the named rule in sqlc.yaml.
+func writeRule(src, name, rule string) (string, error) {
 	lines := strings.Split(src, "\n")
 	inRule := false
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		switch {
-		case trimmed == "- name: no-base-table":
+		case trimmed == "- name: "+name:
 			inRule = true
 		case inRule && strings.HasPrefix(trimmed, "- name:"):
-			return "", errors.New("rule no-base-table has no rule line")
+			return "", fmt.Errorf("rule %s has no rule line", name)
 		case inRule && strings.HasPrefix(trimmed, "rule:"):
 			indent := line[:len(line)-len(strings.TrimLeft(line, " "))]
 			lines[i] = indent + "rule: '" + strings.ReplaceAll(rule, "'", "''") + "'"
 			return strings.Join(lines, "\n"), nil
 		}
 	}
-	return "", errors.New("rule no-base-table not found")
+	return "", fmt.Errorf("rule %s not found", name)
 }

@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Proves that sqlc.yaml's no-base-table rule fires (ADR-0020). The rule is
+# Proves that sqlc.yaml's vet rules fire (ADR-0020). no-base-table is
 # generated from the soft-delete catalog; the real catalog may have no
-# soft-deleted table yet, so the probe builds the rule from the real catalog
-# merged with the example tables of the test databases, with the same
-# generator (softdeletegen -print-rule), and runs `sqlc vet` on generated
-# queries:
-#   - application queries that name a base table fail, one finding each;
+# soft-deleted table yet, so the probe builds both rules from the real
+# catalog merged with the example tables of the test databases, with the
+# same generator (softdeletegen -print-rule), and runs `sqlc vet` on
+# generated queries:
+#   - application queries that name a base table fail no-base-table, and
+#     those that assign deleted_at or deletion_id fail
+#     no-soft-delete-columns: exactly one finding each;
 #   - application queries through active_ views, and on M1 tables, pass;
-#   - the same base-table queries in the maint package pass: the rule is
-#     not applied there.
+#   - the same queries in the maint package pass: the rules are not applied
+#     there.
 # The probe files are always removed; they are never committed.
 # Usage: scripts/sqlc-vet-probe.sh <sqlc binary>
 set -euo pipefail
@@ -19,8 +21,12 @@ trap 'rm -rf "$dir"' EXIT
 rm -rf "$dir"
 mkdir -p "$dir/app" "$dir/maint"
 
-rule="$(go run ./internal/tools/softdeletegen -print-rule db/softdelete.yaml internal/platform/dbtest/testdata/softdelete.yaml)"
-if [ "$rule" = "false" ]; then
+catalogs="db/softdelete.yaml internal/platform/dbtest/testdata/softdelete.yaml"
+# shellcheck disable=SC2086 # two catalog paths
+base_rule="$(go run ./internal/tools/softdeletegen -print-rule no-base-table $catalogs)"
+# shellcheck disable=SC2086
+columns_rule="$(go run ./internal/tools/softdeletegen -print-rule no-soft-delete-columns $catalogs)"
+if [ "$base_rule" = "false" ]; then
 	echo "sqlc-vet-probe: the merged catalog has no soft-deleted table" >&2
 	exit 1
 fi
@@ -32,7 +38,7 @@ sql:
     engine: postgresql
     schema: [../db/migrations, ../internal/platform/dbtest/testdata/migrations]
     queries: app
-    rules: [no-base-table]
+    rules: [no-base-table, no-soft-delete-columns]
   - name: maint
     engine: postgresql
     schema: [../db/migrations, ../internal/platform/dbtest/testdata/migrations]
@@ -40,7 +46,10 @@ sql:
 rules:
   - name: no-base-table
     message: probe
-    rule: '${rule//\'/\'\'}'
+    rule: '${base_rule//\'/\'\'}'
+  - name: no-soft-delete-columns
+    message: probe
+    rule: '${columns_rule//\'/\'\'}'
 EOF
 
 cat > "$dir/app/bad.sql" <<'EOF'
@@ -64,6 +73,18 @@ DELETE FROM example_comments WHERE id = $1;
 
 -- name: BadUpperCase :many
 SELECT ID FROM EXAMPLE_PROJECTS;
+
+-- name: BadUsing :exec
+DELETE FROM active_example_notes n USING example_owners o WHERE o.id = n.id;
+
+-- name: BadSetDeletedAt :exec
+UPDATE active_example_tasks SET deleted_at = now() WHERE id = $1;
+
+-- name: BadSetQuotedDeletionID :exec
+UPDATE active_example_tasks SET name = $2, "deletion_id" = $3 WHERE id = $1;
+
+-- name: BadInsertDeletedAt :exec
+INSERT INTO active_example_notes (id, body, deleted_at) VALUES ($1, $2, $3);
 EOF
 
 cat > "$dir/app/good.sql" <<'EOF'
@@ -86,6 +107,9 @@ SELECT id FROM example_owners WHERE deletion_id = $1;
 
 -- name: MaintRestore :exec
 UPDATE example_tasks SET deleted_at = NULL, deletion_id = NULL WHERE deletion_id = $1;
+
+-- name: MaintInsert :exec
+INSERT INTO example_notes (id, body, deleted_at, deletion_id) VALUES ($1, $2, $3, $4);
 EOF
 
 if out="$("$sqlc" vet -f "$dir/sqlc.yaml" 2>&1)"; then
@@ -93,18 +117,25 @@ if out="$("$sqlc" vet -f "$dir/sqlc.yaml" 2>&1)"; then
 	exit 1
 fi
 
+want="bad.sql: BadSelect: no-base-table: probe
+bad.sql: BadQualified: no-base-table: probe
+bad.sql: BadJoin: no-base-table: probe
+bad.sql: BadInsert: no-base-table: probe
+bad.sql: BadUpdate: no-base-table: probe
+bad.sql: BadDelete: no-base-table: probe
+bad.sql: BadUpperCase: no-base-table: probe
+bad.sql: BadUsing: no-base-table: probe
+bad.sql: BadSetDeletedAt: no-soft-delete-columns: probe
+bad.sql: BadSetQuotedDeletionID: no-soft-delete-columns: probe
+bad.sql: BadInsertDeletedAt: no-soft-delete-columns: probe"
+
+# The output must be exactly the expected findings: no finding on the good
+# or maint queries, no second rule on a bad query, and no compile error (the
+# views must be in sqlc's catalog).
 status=0
-for q in BadSelect BadQualified BadJoin BadInsert BadUpdate BadDelete BadUpperCase; do
-	if ! grep -qF -- "bad.sql: $q: no-base-table: probe" <<<"$out"; then
-		echo "sqlc-vet-probe: missing expected finding for $q" >&2
-		status=1
-	fi
-done
-# Every line must be one of the expected findings: no finding on the good
-# or maint queries, and no compile error (the views must be in sqlc's
-# catalog).
-if grep -vE '^bad\.sql: Bad[A-Za-z]+: no-base-table: probe$' <<<"$out" | grep -q .; then
-	echo "sqlc-vet-probe: unexpected output" >&2
+if [ "$(sort <<<"$out")" != "$(sort <<<"$want")" ]; then
+	echo "sqlc-vet-probe: findings differ from the expected ones" >&2
+	diff <(sort <<<"$want") <(sort <<<"$out") >&2 || true
 	status=1
 fi
 if [ "$status" -ne 0 ]; then

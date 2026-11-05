@@ -236,6 +236,25 @@ func checkExempt(t *testing.T, q *pgxpool.Pool, tb softdelete.Table) {
 			t.Errorf("exempt table %s (%s) has %s; soft-deleted tables are class soft_delete", tb.Name, tb.Class, c.Name)
 		}
 	}
+	if tb.Class == softdelete.ClassTool {
+		// A tool's table: no application role holds anything on it,
+		// table- or column-level.
+		var privs []string
+		err := q.QueryRow(t.Context(), `
+			WITH privs(p) AS (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER'), ('MAINTAIN')),
+			     colprivs(p) AS (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('REFERENCES'))
+			SELECT ARRAY(SELECT r || ' ' || p FROM unnest(ARRAY['koala_app', 'koala_maint']) r, privs
+			             WHERE has_table_privilege(r, to_regclass($1), p))
+			    || ARRAY(SELECT r || ' column ' || p FROM unnest(ARRAY['koala_app', 'koala_maint']) r, colprivs
+			             WHERE has_any_column_privilege(r, to_regclass($1), p))`, tb.Name).Scan(&privs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(privs) > 0 {
+			t.Errorf("tool table %s grants %v; tool tables grant nothing to application roles", tb.Name, privs)
+		}
+		return
+	}
 	if tb.Class != softdelete.ClassLedger {
 		return
 	}
@@ -297,6 +316,10 @@ func checkEdges(t *testing.T, q *pgxpool.Pool, cat *softdelete.Catalog) {
 			t.Errorf("foreign key %s -> %s has no policy in db/softdelete.yaml (cascade, restrict or detach)", key, fk.Parent)
 		case e.Parent != fk.Parent:
 			t.Errorf("edge %s names parent %s, the foreign key references %s", key, e.Parent, fk.Parent)
+		case e.Policy != softdelete.Detach && !leadingIndex(t, q, fk.Child, fk.Column):
+			// Delete, Restore and Orphans look children up by this
+			// column; without an index each lookup scans the table.
+			t.Errorf("%s edge %s has no index whose first column is %s", e.Policy, key, fk.Column)
 		}
 	}
 	for key := range policies {
@@ -317,4 +340,20 @@ func queryStrings(t *testing.T, q *pgxpool.Pool, sql string, args ...any) []stri
 		t.Fatal(err)
 	}
 	return out
+}
+
+// leadingIndex reports whether table has a valid index whose first column
+// is column.
+func leadingIndex(t *testing.T, q *pgxpool.Pool, table, column string) bool {
+	t.Helper()
+	var ok bool
+	err := q.QueryRow(t.Context(), `
+		SELECT EXISTS (SELECT FROM pg_index i
+		               JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+		               WHERE i.indrelid = to_regclass($1) AND a.attname = $2 AND i.indisvalid)`,
+		table, column).Scan(&ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ok
 }

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
 const migration = `-- +goose Up
@@ -86,7 +88,7 @@ func TestExpandRejects(t *testing.T) {
 		"unknown directive":  {"-- +koala soft-delete-all v1 notes", "unknown directive"},
 		"unknown version":    {"-- +koala soft-delete v2 notes", "template version"},
 		"view-like name":     {"-- +koala soft-delete v1 active_notes", "active_"},
-		"long name":          {"-- +koala soft-delete v1 " + strings.Repeat("n", maxTable+1), "longer than"},
+		"long name":          {"-- +koala soft-delete v1 " + strings.Repeat("n", softdelete.MaxTableName+1), "longer than"},
 		"stray block":        {beginMarker + "\n" + endMarker, "without a directive"},
 		"unterminated block": {"-- +koala soft-delete v1 notes\n" + beginMarker + "\nSELECT 1;", "has no"},
 		"trailing garbage":   {"-- +koala soft-delete v1 notes please", "unknown directive"},
@@ -105,7 +107,7 @@ func TestWriteRule(t *testing.T) {
 	t.Parallel()
 
 	src := "rules:\n  - name: other\n    rule: 'true'\n  - name: no-base-table\n    message: m\n    rule: 'false'\n"
-	got, err := writeRule(src, `query.sql.matches(r"it's")`)
+	got, err := writeRule(src, "no-base-table", `query.sql.matches(r"it's")`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +115,7 @@ func TestWriteRule(t *testing.T) {
 	if got != want {
 		t.Errorf("got\n%s\nwant\n%s", got, want)
 	}
-	if _, err := writeRule("rules:\n  - name: other\n    rule: 'true'\n", "x"); err == nil {
+	if _, err := writeRule("rules:\n  - name: other\n    rule: 'true'\n", "no-base-table", "x"); err == nil {
 		t.Error("missing rule: no error")
 	}
 }
@@ -145,5 +147,62 @@ func TestCommittedMigrationsAreExpanded(t *testing.T) {
 				t.Errorf("%s is not expanded: run make generate", f)
 			}
 		}
+	}
+}
+
+// The v1 templates are frozen: applied migrations contain their output.
+// This golden test fails on any change; a new template is v2.
+func TestV1TemplatesAreFrozen(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"-- +koala soft-delete v1 notes": `-- +koala soft-delete v1 notes
+-- +koala begin generated (make generate); do not edit
+ALTER TABLE notes
+    ADD COLUMN deleted_at timestamptz,
+    ADD COLUMN deletion_id uuid REFERENCES deletions (id),
+    ADD CONSTRAINT notes_deleted_together CHECK ((deleted_at IS NULL) = (deletion_id IS NULL));
+CREATE INDEX notes_deletion_id_idx ON notes (deletion_id) WHERE deletion_id IS NOT NULL;
+GRANT SELECT, INSERT, UPDATE, DELETE ON notes TO koala_maint;
+CREATE VIEW active_notes AS
+    SELECT * FROM notes WHERE deleted_at IS NULL;
+GRANT SELECT, INSERT, UPDATE ON active_notes TO koala_app;
+-- +koala end generated`,
+		"-- +koala soft-delete v1 people security_barrier": `-- +koala soft-delete v1 people security_barrier
+-- +koala begin generated (make generate); do not edit
+ALTER TABLE people
+    ADD COLUMN deleted_at timestamptz,
+    ADD COLUMN deletion_id uuid REFERENCES deletions (id),
+    ADD CONSTRAINT people_deleted_together CHECK ((deleted_at IS NULL) = (deletion_id IS NULL));
+CREATE INDEX people_deletion_id_idx ON people (deletion_id) WHERE deletion_id IS NOT NULL;
+GRANT SELECT, INSERT, UPDATE, DELETE ON people TO koala_maint;
+CREATE VIEW active_people WITH (security_barrier) AS
+    SELECT * FROM people WHERE deleted_at IS NULL;
+GRANT SELECT, INSERT, UPDATE ON active_people TO koala_app;
+-- +koala end generated`,
+		"-- +koala soft-delete-view v1 notes": `-- +koala soft-delete-view v1 notes
+-- +koala begin generated (make generate); do not edit
+CREATE VIEW active_notes AS
+    SELECT * FROM notes WHERE deleted_at IS NULL;
+GRANT SELECT, INSERT, UPDATE ON active_notes TO koala_app;
+-- +koala end generated`,
+		"-- +koala soft-delete-view v1 people security_barrier": `-- +koala soft-delete-view v1 people security_barrier
+-- +koala begin generated (make generate); do not edit
+CREATE VIEW active_people WITH (security_barrier) AS
+    SELECT * FROM people WHERE deleted_at IS NULL;
+GRANT SELECT, INSERT, UPDATE ON active_people TO koala_app;
+-- +koala end generated`,
+	}
+	for directive, want := range tests {
+		t.Run(directive, func(t *testing.T) {
+			t.Parallel()
+			got, err := expand(directive)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Errorf("got\n%s\nwant\n%s", got, want)
+			}
+		})
 	}
 }

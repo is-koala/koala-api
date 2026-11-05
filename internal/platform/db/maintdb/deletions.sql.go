@@ -34,20 +34,33 @@ func (q *Queries) LockDeletion(ctx context.Context, id uuid.UUID) (LockDeletionR
 	return i, err
 }
 
-const markDeletionRestored = `-- name: MarkDeletionRestored :exec
+const markDeletionRestored = `-- name: MarkDeletionRestored :execrows
 UPDATE deletions
-SET restored_at = $2
-WHERE id = $1
+SET restored_at = $1::timestamptz,
+    restored_by_kind = $2::text,
+    restored_by = $3::uuid
+WHERE id = $4 AND restored_at IS NULL
 `
 
 type MarkDeletionRestoredParams struct {
-	ID         uuid.UUID
-	RestoredAt *time.Time
+	RestoredAt     time.Time
+	RestoredByKind string
+	RestoredBy     uuid.NullUUID
+	ID             uuid.UUID
 }
 
-// MarkDeletionRestored stamps a restored deletion. The row stays: it is
-// evidence (M1).
-func (q *Queries) MarkDeletionRestored(ctx context.Context, arg MarkDeletionRestoredParams) error {
-	_, err := q.db.Exec(ctx, markDeletionRestored, arg.ID, arg.RestoredAt)
-	return err
+// MarkDeletionRestored stamps a deletion's restore once: an already
+// restored row is not touched (0 rows), and the casts make restored_at and
+// restored_by_kind non-null parameters. The row stays: it is evidence (M1).
+func (q *Queries) MarkDeletionRestored(ctx context.Context, arg MarkDeletionRestoredParams) (int64, error) {
+	result, err := q.db.Exec(ctx, markDeletionRestored,
+		arg.RestoredAt,
+		arg.RestoredByKind,
+		arg.RestoredBy,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

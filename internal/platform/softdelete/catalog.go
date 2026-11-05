@@ -2,15 +2,15 @@ package softdelete
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"regexp"
 	"slices"
 	"strings"
 
-	"github.com/getkin/kin-openapi/openapi3filter"
+	"go.yaml.in/yaml/v3"
 )
 
 // Class is the soft-delete class of a table: ClassSoftDelete, or one of
@@ -35,11 +35,15 @@ const (
 	// ClassLink (M6): link rows and singleton settings; hard delete or
 	// upsert.
 	ClassLink Class = "M6"
+	// ClassTool: a table of a tool that manages it itself, such as goose's
+	// migration history. No application role (koala_app, koala_maint)
+	// holds any privilege on it (ADR-0020).
+	ClassTool Class = "tool"
 )
 
 func (c Class) valid() bool {
 	switch c {
-	case ClassSoftDelete, ClassLedger, ClassShortLived, ClassQueue, ClassReference, ClassDerived, ClassLink:
+	case ClassSoftDelete, ClassLedger, ClassShortLived, ClassQueue, ClassReference, ClassDerived, ClassLink, ClassTool:
 		return true
 	default:
 		return false
@@ -74,7 +78,7 @@ type Table struct {
 	// PII marks a soft-deleted table whose view filters personal data
 	// (KVKK): its view is created WITH (security_barrier) (ADR-0017 §8).
 	PII bool
-	// Reason justifies an exemption; required for M1–M6.
+	// Reason justifies an exemption; required for M1–M6 and tool.
 	Reason string
 	// UniqueExceptions maps a unique index of a soft-deleted table that is
 	// not partial on deleted_at IS NULL to the reason (ADR-0013 Karar 5).
@@ -115,20 +119,20 @@ type Catalog struct {
 // Document shapes of the YAML file.
 type (
 	catalogDoc struct {
-		Tables map[string]tableDoc `json:"tables"`
-		Edges  []edgeDoc           `json:"edges"`
+		Tables map[string]tableDoc `yaml:"tables"`
+		Edges  []edgeDoc           `yaml:"edges"`
 	}
 	tableDoc struct {
-		Class            Class             `json:"class"`
-		PII              bool              `json:"pii"`
-		Reason           string            `json:"reason"`
-		UniqueExceptions map[string]string `json:"unique_exceptions"`
+		Class            Class             `yaml:"class"`
+		PII              bool              `yaml:"pii"`
+		Reason           string            `yaml:"reason"`
+		UniqueExceptions map[string]string `yaml:"unique_exceptions"`
 	}
 	edgeDoc struct {
-		Child  string `json:"child"`
-		Column string `json:"column"`
-		Parent string `json:"parent"`
-		Policy Policy `json:"policy"`
+		Child  string `yaml:"child"`
+		Column string `yaml:"column"`
+		Parent string `yaml:"parent"`
+		Policy Policy `yaml:"policy"`
 	}
 )
 
@@ -136,9 +140,11 @@ type (
 // catalog are written into SQL (quoted), so nothing else is accepted.
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
-// maxTableName leaves room for the active_ prefix within Postgres' 63-byte
-// identifiers.
-const maxTableName = 63 - len(ViewPrefix)
+// MaxTableName is the longest name of a soft-deleted table: the longest
+// name derived from it, <table>_deleted_together, must fit Postgres'
+// 63-byte identifiers (longer ones are silently truncated). The catalog and
+// softdeletegen apply the same limit.
+const MaxTableName = 63 - len("_deleted_together")
 
 // ParseCatalog parses one or more catalog documents into one catalog. Tests
 // merge db/softdelete.yaml with the catalog of their example tables; a
@@ -182,33 +188,32 @@ func ParseCatalog(docs ...[]byte) (*Catalog, error) {
 	return c, nil
 }
 
-// decode reads YAML through kin-openapi's YAML decoder, which the module
-// already depends on for the API contract (ADR-0020: no YAML module of its
-// own), then maps it strictly onto catalogDoc via JSON.
+// decode reads one catalog document strictly (go.yaml.in/yaml/v3,
+// ADR-0020): an unknown key, a key given twice in one mapping, an empty
+// input and a second document are errors.
 func decode(data []byte) (catalogDoc, error) {
 	var doc catalogDoc
-	v, err := openapi3filter.YamlBodyDecoder(bytes.NewReader(data), nil, nil, nil)
-	if err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&doc); err != nil {
+		if errors.Is(err, io.EOF) {
+			return doc, errors.New("parse YAML: empty document")
+		}
 		return doc, fmt.Errorf("parse YAML: %w", err)
 	}
-	j, err := json.Marshal(v)
-	if err != nil {
-		return doc, fmt.Errorf("convert YAML: %w", err)
-	}
-	dec := json.NewDecoder(bytes.NewReader(j))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&doc); err != nil {
-		return doc, fmt.Errorf("decode: %w", err)
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return doc, errors.New("parse YAML: more than one document")
 	}
 	return doc, nil
 }
 
 func (t Table) validate() error {
-	if !identifier.MatchString(t.Name) || len(t.Name) > maxTableName {
-		return fmt.Errorf("name must match %s and be at most %d bytes", identifier, maxTableName)
+	if !identifier.MatchString(t.Name) || len(t.Name) > MaxTableName {
+		return fmt.Errorf("name must match %s and be at most %d bytes", identifier, MaxTableName)
 	}
 	if !t.Class.valid() {
-		return fmt.Errorf("class %q: want soft_delete or M1–M6", t.Class)
+		return fmt.Errorf("class %q: want soft_delete, M1–M6 or tool", t.Class)
 	}
 	if t.SoftDelete() {
 		if strings.HasPrefix(t.Name, ViewPrefix) {

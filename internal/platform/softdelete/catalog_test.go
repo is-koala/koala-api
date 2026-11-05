@@ -41,6 +41,9 @@ func TestRealCatalogParses(t *testing.T) {
 	if !ok || d.Class != softdelete.ClassLedger {
 		t.Errorf("deletions = %+v, want class M1", d)
 	}
+	if g, _ := cat.Table("goose_db_version"); g.Class != softdelete.ClassTool {
+		t.Errorf("goose_db_version = %+v, want class tool", g)
+	}
 	for _, tb := range cat.Tables() {
 		if !tb.SoftDelete() && tb.Reason == "" {
 			t.Errorf("%s: exempt without a reason", tb.Name)
@@ -52,7 +55,7 @@ func TestExampleCatalog(t *testing.T) {
 	t.Parallel()
 
 	cat := exampleCatalog(t)
-	want := []string{"example_comments", "example_invoices", "example_notes", "example_owners", "example_projects", "example_tasks"}
+	want := []string{"example_comments", "example_folders", "example_invoices", "example_notes", "example_owners", "example_projects", "example_tasks"}
 	if got := cat.SoftDeleteTables(); !slices.Equal(got, want) {
 		t.Errorf("soft-deleted tables = %v, want %v", got, want)
 	}
@@ -60,8 +63,8 @@ func TestExampleCatalog(t *testing.T) {
 	if !owners.PII || owners.View() != "active_example_owners" {
 		t.Errorf("example_owners = %+v, want pii and view active_example_owners", owners)
 	}
-	if n := len(cat.Edges()); n != 4 {
-		t.Errorf("edges = %d, want 4", n)
+	if n := len(cat.Edges()); n != 7 {
+		t.Errorf("edges = %d, want 7", n)
 	}
 }
 
@@ -73,8 +76,8 @@ func TestParseCatalogRejects(t *testing.T) {
 		docs []string
 		want string
 	}{
-		"unknown key":             {[]string{"tables:\n  a:\n    class: soft_delete\n    kind: x\n"}, "unknown field"},
-		"unknown top-level key":   {[]string{"table: {}\n"}, "unknown field"},
+		"unknown key":             {[]string{"tables:\n  a:\n    class: soft_delete\n    kind: x\n"}, "field kind not found"},
+		"unknown top-level key":   {[]string{"table: {}\n"}, "field table not found"},
 		"unknown class":           {[]string{"tables:\n  a:\n    class: M7\n"}, "class"},
 		"exempt without reason":   {[]string{"tables:\n  a:\n    class: M2\n"}, "reason"},
 		"pii on exempt":           {[]string{"tables:\n  a:\n    class: M2\n    reason: r\n    pii: true\n"}, "pii"},
@@ -90,6 +93,9 @@ func TestParseCatalogRejects(t *testing.T) {
 			"  - {child: ledger, column: parent_id, parent: parents, policy: detach}\n"}, "twice"},
 		"unique exception without reason": {[]string{"tables:\n  a:\n    class: soft_delete\n    unique_exceptions:\n      a_key: ''\n"}, "unique exception"},
 		"not YAML":                        {[]string{"tables: [\n"}, "parse YAML"},
+		"tool without reason":             {[]string{"tables:\n  a:\n    class: tool\n"}, "reason"},
+		"name over the limit": {[]string{"tables:\n  " + strings.Repeat("n", softdelete.MaxTableName+1) + ":\n    class: soft_delete\n"},
+			"at most 46 bytes"},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -141,5 +147,42 @@ func TestDeleteValidatesRequest(t *testing.T) {
 				t.Fatalf("err = %v, want one containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+// TestCatalogYAMLIsStrict pins the YAML reader (go.yaml.in/yaml/v3 with
+// KnownFields, ADR-0020): every way a hand-edited catalog can silently mean
+// something else is an error.
+func TestCatalogYAMLIsStrict(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct{ doc, want string }{
+		"duplicate table":          {"tables:\n  a:\n    class: soft_delete\n  a:\n    class: M1\n    reason: r\n", "already defined"},
+		"duplicate key in a table": {"tables:\n  a:\n    class: M1\n    class: soft_delete\n", "already defined"},
+		"second document":          {"tables:\n  a:\n    class: soft_delete\n---\ntables: {}\n", "more than one document"},
+		"empty":                    {"", "empty document"},
+		"only a comment":           {"# nothing\n", "empty document"},
+		"wrong type":               {"tables:\n  - a\n", "cannot unmarshal"},
+		"pii as a string":          {"tables:\n  a:\n    class: soft_delete\n    pii: maybe\n", "cannot unmarshal"},
+		"unknown edge key":         {"tables:\n  a:\n    class: soft_delete\nedges:\n  - {child: a, column: b_id, parent: a, policy: detach, why: x}\n", "field why not found"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := softdelete.ParseCatalog([]byte(tt.doc))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want one containing %q", err, tt.want)
+			}
+		})
+	}
+
+	// The limit is shared with softdeletegen: exactly MaxTableName bytes is
+	// accepted.
+	ok := "tables:\n  " + strings.Repeat("n", softdelete.MaxTableName) + ":\n    class: soft_delete\n"
+	if _, err := softdelete.ParseCatalog([]byte(ok)); err != nil {
+		t.Errorf("name of %d bytes: %v", softdelete.MaxTableName, err)
+	}
+	if softdelete.MaxTableName != 46 {
+		t.Errorf("MaxTableName = %d, want 46 (63 - len(\"_deleted_together\"))", softdelete.MaxTableName)
 	}
 }

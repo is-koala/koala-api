@@ -225,10 +225,17 @@ func TestRoleGrants(t *testing.T) {
 		// Base tables with an explicit decision; every other base table
 		// gets nothing for koala_app.
 		app := map[string][]string{
-			"deletions": {"SELECT", "INSERT"}, // record of deletions: insert-only (0010_deletions.sql)
+			"deletions":        {"INSERT"},           // record of deletions: insert-only, no read-back (0010_deletions.sql)
+			"example_receipts": {"SELECT", "INSERT"}, // example M1 table (dbtest testdata)
 		}
 		maint := map[string][]string{
-			"deletions": {"SELECT", "UPDATE"}, // restore stamps restored_at; never deleted (M1)
+			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below
+			"example_receipts": {"SELECT"},
+		}
+		// Column-level privileges beyond the table-level ones; the exact
+		// columns are checked in "column grants".
+		maintColumns := map[string][]string{
+			"deletions": {"SELECT", "UPDATE"},
 		}
 		relations := collect[relationGrants](t, rows)
 		// A soft-deleted base table (one with an active_ view) is
@@ -256,6 +263,9 @@ func TestRoleGrants(t *testing.T) {
 			}
 			want.AppColumns = columnPart(want.App)
 			want.MaintColumns = columnPart(want.Maint)
+			if cols, ok := maintColumns[name]; ok {
+				want.MaintColumns = cols
+			}
 			checkGrants(t, name, grants{
 				App: r.App, AppColumns: r.AppColumns,
 				Maint: r.Maint, MaintColumns: r.MaintColumns, Public: r.Public,
@@ -263,6 +273,35 @@ func TestRoleGrants(t *testing.T) {
 		}
 		if !seenRiverJob {
 			t.Error("river_job not found: River's migrations did not run")
+		}
+	})
+
+	// Column-level grants exist only where a role may change some columns
+	// of a table and not others.
+	t.Run("column grants", func(t *testing.T) {
+		t.Parallel()
+		rows, err := q.Query(ctx, `
+			SELECT c.relname || '.' || a.attname || ': ' ||
+			       CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(x.grantee)::text END || ' ' || x.privilege_type
+			FROM pg_attribute a
+			JOIN pg_class c ON c.oid = a.attrelid, aclexplode(a.attacl) x
+			WHERE c.relnamespace = 'public'::regnamespace AND a.attacl IS NOT NULL
+			`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(got) // byte order, not the database's collation
+		want := []string{
+			"deletions.restored_at: koala_maint UPDATE",
+			"deletions.restored_by: koala_maint UPDATE",
+			"deletions.restored_by_kind: koala_maint UPDATE",
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("column grants = %v, want %v", got, want)
 		}
 	})
 

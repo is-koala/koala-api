@@ -72,12 +72,15 @@ type operation struct {
 
 var pathParam = regexp.MustCompile(`\{[^}]+\}`)
 
-// Run runs the test, one subtest per table.
+// Run runs the test, one subtest per soft-deleted table.
 func (rt ReadTest) Run(t *testing.T) {
 	t.Helper()
-	byTable := rt.operations(t)
-	if len(byTable) == 0 {
-		t.Fatalf("no GET operation carries %s", Extension)
+	byTable, problems := rt.plan()
+	for _, p := range problems {
+		t.Error(p)
+	}
+	if len(problems) > 0 {
+		t.FailNow()
 	}
 	for _, table := range slices.Sorted(maps.Keys(byTable)) {
 		ops := byTable[table]
@@ -88,11 +91,18 @@ func (rt ReadTest) Run(t *testing.T) {
 	}
 }
 
-func (rt ReadTest) operations(t *testing.T) map[string][]operation {
-	t.Helper()
+// plan checks the contract against the catalog and the fixtures, without a
+// database, and returns the operations of every soft-deleted table and the
+// problems found: an x-resource that is not a table name or not in the
+// catalog, a soft-deleted table without a fixture, an operation with more
+// than one path parameter, or no operation with x-resource at all. Exempt
+// tables have nothing to hide and are left out.
+func (rt ReadTest) plan() (map[string][]operation, []string) {
 	out := map[string][]operation{}
-	for path, item := range rt.Spec.Paths.Map() {
-		op := item.Get
+	var problems []string
+	seen := false
+	for _, path := range slices.Sorted(maps.Keys(rt.Spec.Paths.Map())) {
+		op := rt.Spec.Paths.Value(path).Get
 		if op == nil {
 			continue
 		}
@@ -100,14 +110,36 @@ func (rt ReadTest) operations(t *testing.T) map[string][]operation {
 		if !ok {
 			continue
 		}
+		seen = true
 		table, ok := extensionString(raw)
 		if !ok || table == "" {
-			t.Errorf("GET %s: %s must be a table name, got %v", path, Extension, raw)
+			problems = append(problems, fmt.Sprintf("GET %s: %s must be a table name, got %v", path, Extension, raw))
 			continue
 		}
-		out[table] = append(out[table], operation{path: path, params: len(pathParam.FindAllString(path, -1))})
+		tb, ok := rt.Catalog.Table(table)
+		if !ok {
+			problems = append(problems, fmt.Sprintf("GET %s: %s %s is not in the soft-delete catalog", path, Extension, table))
+			continue
+		}
+		if !tb.SoftDelete() {
+			continue
+		}
+		params := len(pathParam.FindAllString(path, -1))
+		if params > 1 {
+			problems = append(problems, fmt.Sprintf("GET %s: operations with %d path parameters are not supported yet; extend softdeletetest", path, params))
+			continue
+		}
+		out[table] = append(out[table], operation{path: path, params: params})
 	}
-	return out
+	if !seen {
+		problems = append(problems, fmt.Sprintf("no GET operation carries %s", Extension))
+	}
+	for _, table := range slices.Sorted(maps.Keys(out)) {
+		if _, ok := rt.Fixtures[table]; !ok {
+			problems = append(problems, fmt.Sprintf("no fixture for the soft-deleted table %s", table))
+		}
+	}
+	return out, problems
 }
 
 // extensionString reads a string extension value; kin-openapi keeps
@@ -129,29 +161,11 @@ func extensionString(v any) (string, bool) {
 
 func (rt ReadTest) runTable(t *testing.T, table string, ops []operation) {
 	t.Helper()
-	tb, ok := rt.Catalog.Table(table)
-	if !ok {
-		t.Fatalf("%s %s is not in the soft-delete catalog", Extension, table)
-	}
-	if !tb.SoftDelete() {
-		t.Logf("%s is exempt (%s); nothing to hide", table, tb.Class)
-		return
-	}
-	fixture, ok := rt.Fixtures[table]
-	if !ok {
-		t.Fatalf("no fixture for the soft-deleted table %s", table)
-	}
-	for _, op := range ops {
-		if op.params > 1 {
-			t.Fatalf("GET %s: operations with %d path parameters are not supported yet; extend softdeletetest", op.path, op.params)
-		}
-	}
-
 	ctx := t.Context()
 	var id uuid.UUID
 	err := rt.App.InTx(ctx, func(ctx context.Context, q db.Querier) error {
 		var err error
-		if id, err = fixture(ctx, q); err != nil {
+		if id, err = rt.Fixtures[table](ctx, q); err != nil {
 			return fmt.Errorf("fixture: %w", err)
 		}
 		return nil
@@ -162,7 +176,9 @@ func (rt ReadTest) runTable(t *testing.T, table string, ops []operation) {
 	// Before the deletion every operation shows the object, so the checks
 	// after it cannot pass by accident.
 	for _, op := range ops {
-		rt.check(t, op, id, true)
+		if err := rt.visibility(ctx, op, id, true); err != nil {
+			t.Error(err)
+		}
 	}
 
 	err = rt.App.InTx(ctx, func(ctx context.Context, q db.Querier) error {
@@ -180,42 +196,43 @@ func (rt ReadTest) runTable(t *testing.T, table string, ops []operation) {
 		t.Fatalf("delete %s %s: %v", table, id, err)
 	}
 	for _, op := range ops {
-		rt.check(t, op, id, false)
+		if err := rt.visibility(ctx, op, id, false); err != nil {
+			t.Error(err)
+		}
 	}
 }
 
-// check asserts that op shows (visible) or hides the object id.
-func (rt ReadTest) check(t *testing.T, op operation, id uuid.UUID, visible bool) {
-	t.Helper()
+// visibility checks that op shows (visible) or hides the object id and
+// describes the failure.
+func (rt ReadTest) visibility(ctx context.Context, op operation, id uuid.UUID, visible bool) error {
 	if op.params == 0 {
-		status, body := rt.get(t, op.path)
+		status, body := rt.get(ctx, op.path)
 		if status != http.StatusOK {
-			t.Errorf("GET %s = %d, want 200: %s", op.path, status, body)
-			return
+			return fmt.Errorf("GET %s = %d, want 200: %s", op.path, status, body)
 		}
 		if got := strings.Contains(body, id.String()); got != visible {
-			t.Errorf("GET %s lists %s: %v, want %v", op.path, id, got, visible)
+			return fmt.Errorf("GET %s lists %s: %v, want %v", op.path, id, got, visible)
 		}
-		return
+		return nil
 	}
 
-	status, body := rt.get(t, pathParam.ReplaceAllString(op.path, id.String()))
+	status, body := rt.get(ctx, pathParam.ReplaceAllString(op.path, id.String()))
 	if visible {
 		if status != http.StatusOK {
-			t.Errorf("GET %s for an active object = %d, want 200: %s", op.path, status, body)
+			return fmt.Errorf("GET %s for an active object = %d, want 200: %s", op.path, status, body)
 		}
-		return
+		return nil
 	}
-	missingStatus, missingBody := rt.get(t, pathParam.ReplaceAllString(op.path, uuid.NewString()))
+	missingStatus, missingBody := rt.get(ctx, pathParam.ReplaceAllString(op.path, uuid.NewString()))
 	if status != http.StatusNotFound || status != missingStatus || body != missingBody {
-		t.Errorf("GET %s for a deleted object = %d %s; for a missing one = %d %s; want the same 404",
+		return fmt.Errorf("GET %s for a deleted object = %d %s; for a missing one = %d %s; want the same 404",
 			op.path, status, body, missingStatus, missingBody)
 	}
+	return nil
 }
 
-func (rt ReadTest) get(t *testing.T, path string) (int, string) {
-	t.Helper()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
+func (rt ReadTest) get(ctx context.Context, path string) (int, string) {
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, path, http.NoBody)
 	req.Header.Set(httpx.HeaderRequestID, requestID)
 	rec := httptest.NewRecorder()
 	rt.Handler.ServeHTTP(rec, req)

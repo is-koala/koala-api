@@ -15,6 +15,11 @@ tables:
     class: soft_delete
   example_comments:
     class: soft_delete
+  example_folders:
+    class: soft_delete
+  example_receipts:
+    class: M1
+    reason: Example ledger table; an exempt child on a restrict edge.
 
 edges:
   - child: example_projects
@@ -29,7 +34,19 @@ edges:
     column: project_id
     parent: example_projects
     policy: restrict
+  - child: example_invoices
+    column: task_id
+    parent: example_tasks
+    policy: cascade
   - child: example_comments
     column: author_id
     parent: example_owners
     policy: detach
+  - child: example_folders
+    column: parent_id
+    parent: example_folders
+    policy: cascade
+  - child: example_receipts
+    column: project_id
+    parent: example_projects
+    policy: restrict

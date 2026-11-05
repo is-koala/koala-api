@@ -1,8 +1,6 @@
 package db_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"io/fs"
 	"os"
 	"path"
@@ -11,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/getkin/kin-openapi/openapi3filter"
+	"go.yaml.in/yaml/v3"
 
 	dbsrc "github.com/is-koala/koala-api/db"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
@@ -63,20 +61,20 @@ func TestQueriesJoinLint(t *testing.T) {
 
 type sqlcConfig struct {
 	SQL []struct {
-		Name    string   `json:"name"`
-		Queries string   `json:"queries"`
-		Rules   []string `json:"rules"`
+		Name    string   `yaml:"name"`
+		Queries string   `yaml:"queries"`
+		Rules   []string `yaml:"rules"`
 		Gen     struct {
 			Go struct {
-				Package string `json:"package"`
-				Out     string `json:"out"`
-			} `json:"go"`
-		} `json:"gen"`
-	} `json:"sql"`
+				Package string `yaml:"package"`
+				Out     string `yaml:"out"`
+			} `yaml:"go"`
+		} `yaml:"gen"`
+	} `yaml:"sql"`
 	Rules []struct {
-		Name string `json:"name"`
-		Rule string `json:"rule"`
-	} `json:"rules"`
+		Name string `yaml:"name"`
+		Rule string `yaml:"rule"`
+	} `yaml:"rules"`
 }
 
 const (
@@ -86,8 +84,8 @@ const (
 
 // TestSQLCConfig keeps the layout of sqlc.yaml (ADR-0020): every query
 // directory is one sql entry; the koala_maint queries are one package,
-// maintdb, without the no-base-table rule; every other entry has the rule;
-// and the rule is the one the catalog generates.
+// maintdb, without rules; every other entry has both rules; and the rules
+// are the ones softdeletegen writes.
 func TestSQLCConfig(t *testing.T) {
 	t.Parallel()
 
@@ -95,16 +93,8 @@ func TestSQLCConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := openapi3filter.YamlBodyDecoder(bytes.NewReader(data), nil, nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	j, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var cfg sqlcConfig
-	if err := json.Unmarshal(j, &cfg); err != nil {
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,6 +114,9 @@ func TestSQLCConfig(t *testing.T) {
 			if s.Name != "maint" || s.Gen.Go.Out != maintOut || s.Gen.Go.Package != "maintdb" {
 				t.Errorf("maint entry = %s -> %s (%s), want maint -> %s (maintdb)", s.Name, s.Gen.Go.Out, s.Gen.Go.Package, maintOut)
 			}
+			if len(s.Rules) > 0 {
+				t.Errorf("maint entry has rules %v; koala_maint works on base tables", s.Rules)
+			}
 			continue
 		}
 		if !strings.HasPrefix(s.Queries, "db/queries/") || strings.Count(s.Queries, "/") != 2 {
@@ -132,8 +125,10 @@ func TestSQLCConfig(t *testing.T) {
 		if s.Gen.Go.Out == maintOut {
 			t.Errorf("sql entry %s generates into %s; only db/queries/maint may", s.Name, maintOut)
 		}
-		if !slices.Contains(s.Rules, "no-base-table") {
-			t.Errorf("sql entry %s (application queries) lacks the no-base-table rule", s.Name)
+		for _, rule := range []string{softdelete.RuleNoBaseTable, softdelete.RuleNoSoftDeleteColumns} {
+			if !slices.Contains(s.Rules, rule) {
+				t.Errorf("sql entry %s (application queries) lacks the %s rule", s.Name, rule)
+			}
 		}
 	}
 	if !sawMaint {
@@ -145,17 +140,17 @@ func TestSQLCConfig(t *testing.T) {
 		}
 	}
 
-	want := softdelete.NoBaseTableRule(catalog(t))
-	found := false
-	for _, r := range cfg.Rules {
-		if r.Name == "no-base-table" {
-			found = true
-			if r.Rule != want {
-				t.Errorf("no-base-table rule = %s, want %s (run make generate)", r.Rule, want)
-			}
-		}
+	want := map[string]string{
+		softdelete.RuleNoBaseTable:         softdelete.NoBaseTableRule(catalog(t)),
+		softdelete.RuleNoSoftDeleteColumns: softdelete.NoSoftDeleteColumnsRule(),
 	}
-	if !found {
-		t.Error("sqlc.yaml has no no-base-table rule")
+	got := map[string]string{}
+	for _, r := range cfg.Rules {
+		got[r.Name] = r.Rule
+	}
+	for name, rule := range want {
+		if got[name] != rule {
+			t.Errorf("%s rule = %q, want %q (run make generate)", name, got[name], rule)
+		}
 	}
 }

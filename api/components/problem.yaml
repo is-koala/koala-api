@@ -136,6 +136,10 @@ components:
         - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
         - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
           ebeveyni başka bir silmeyle hâlâ silinmiş.
+        - `RESTORE_EXPIRED` (409): silmenin kök kaydı artık yok (temizlenmiş ya da anonimleştirilmiş);
+          geri alınamaz.
+        - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
+        - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
 
         Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
         - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -161,6 +165,9 @@ components:
         - SOFT_DELETE_RESTRICTED
         - RESTORE_CONFLICT
         - RESTORE_PARENT_DELETED
+        - RESTORE_EXPIRED
+        - DELETION_NOT_FOUND
+        - DELETION_ALREADY_RESTORED
         - FIELD_REQUIRED
         - FIELD_UNKNOWN
         - FIELD_TYPE_INVALID

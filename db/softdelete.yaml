@@ -10,12 +10,15 @@
 #   M1–M6        an exemption class of ADR-0013 with its reason:
 #                M1 ledger and evidence (never deleted), M2 short-lived,
 #                M3 queue, M4 reference, M5 derived, M6 link and setting.
+#   tool         a table its tool manages (goose); koala_app and koala_maint
+#                hold no privilege on it (ADR-0020).
 #
 # edges: every foreign key to a soft-deleted table, with its policy.
 #   cascade   the child is deleted with the parent (same deletion_id)
 #   restrict  deleting a parent with an active child is 409
 #   detach    the child stays; queries reach the parent only by
 #             LEFT JOIN active_<parent> (CheckJoins)
+# A cascade or restrict child column needs an index that starts with it.
 #
 # The catalog tests (internal/platform/softdelete) hold this file equal to
 # the database: a new table or foreign key fails them until it is listed
@@ -28,10 +31,10 @@ tables:
       The record of soft deletions: who deleted which root, when and why.
       Evidence for restores and audits; rows are never deleted.
   goose_db_version:
-    class: M3
+    class: tool
     reason: >-
-      goose's migration history. Like River's tables, a tool table that its
-      tool manages; no application role can read it.
+      goose's migration history, managed by goose as koala_owner. No
+      application role holds any privilege on it.
   river_job:
     class: M3
     reason: River's job queue (ADR-0010); River manages its rows.
