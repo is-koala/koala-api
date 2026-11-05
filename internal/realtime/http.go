@@ -18,11 +18,12 @@ import (
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/jsontime"
 )
 
 // HeaderDeviceID is the device header of ADR-0015. Native clients must
 // send it on the handshake too; browsers cannot.
-const HeaderDeviceID = "X-Device-Id"
+const HeaderDeviceID = httpx.HeaderDeviceID
 
 // Retry-After values (seconds) of refused handshakes.
 const (
@@ -37,10 +38,11 @@ type Authenticator interface {
 	Principal(r *http.Request) (Principal, error)
 }
 
-// TicketResponse is the body of POST /v1/realtime/tickets.
+// TicketResponse is the body of POST /v1/realtime/tickets (the contract's
+// RealtimeTicket; api.TestRealtimeTicketMatchesContract compares them).
 type TicketResponse struct {
-	Ticket    string    `json:"ticket"`
-	ExpiresAt time.Time `json:"expiresAt"`
+	Ticket    string       `json:"ticket"`
+	ExpiresAt jsontime.UTC `json:"expiresAt"`
 }
 
 // HandlerOptions configure the HTTP side of the realtime layer.
@@ -117,7 +119,7 @@ func (h *Handler) IssueTicket(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, r, h.logger, err)
 		return
 	}
-	body, err := json.Marshal(TicketResponse{Ticket: t.Value, ExpiresAt: t.ExpiresAt.UTC()})
+	body, err := json.Marshal(TicketResponse{Ticket: t.Value, ExpiresAt: jsontime.From(t.ExpiresAt)})
 	if err != nil {
 		httpx.WriteError(w, r, h.logger, fmt.Errorf("realtime: encode ticket: %w", err))
 		return
@@ -219,10 +221,14 @@ func validWebSocketKey(keys []string) bool {
 	return err == nil && len(b) == 16
 }
 
-// originAllowed applies the same rule as websocket.Accept with
-// OriginPatterns set to exact origins, before the ticket is spent: no
-// Origin header (native client), the request's own host, or a listed
-// origin.
+// originAllowed applies the rule of websocket.Accept with OriginPatterns
+// set to exact origins, before the ticket is spent, and is stricter in one
+// point: no Origin header (native client), a listed origin, or the
+// request's own host over https. websocket.Accept compares the host only,
+// so a page served over plain http on the API's host would pass it; such a
+// page can be altered in transit, which is why the list refuses http too
+// (ADR-0022). The scheme of the request itself is not known behind the
+// TLS-terminating proxy, so https is required outright.
 func (h *Handler) originAllowed(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -232,7 +238,7 @@ func (h *Handler) originAllowed(r *http.Request) bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-	if strings.EqualFold(u.Host, r.Host) {
+	if u.Scheme == "https" && strings.EqualFold(u.Host, r.Host) {
 		return true
 	}
 	for _, o := range h.origins {

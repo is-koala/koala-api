@@ -3,10 +3,13 @@ package config_test
 import (
 	"fmt"
 	"log/slog"
+	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/is-koala/koala-api/internal/platform/appversion"
 	"github.com/is-koala/koala-api/internal/platform/config"
 )
 
@@ -23,8 +26,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 		LogLevel:           slog.LevelInfo,
 		ShutdownDrainDelay: config.DefaultShutdownDrainDelay,
 		ShutdownTimeout:    config.DefaultShutdownTimeout,
+		MetricsAddr:        config.DefaultMetricsAddr,
 	}
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %+v, want %+v", cfg, want)
 	}
 }
@@ -41,10 +45,14 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		"KOALA_DATABASE_URL=postgres://app@db.internal:5432/koala?sslmode=verify-full",
 		"KOALA_OWNER_DATABASE_URL=postgresql://migrator@db.internal/koala?sslmode=require",
 		"KOALA_BOOTSTRAP_DATABASE_URL=postgres://admin@db.internal/postgres?sslmode=verify-ca",
+		"KOALA_MIN_APP_VERSION=1.4.0",
+		"KOALA_TRUSTED_PROXIES=10.0.0.0/8, 192.0.2.7,2001:db8::/32",
+		"KOALA_METRICS_ADDR=:9100",
 	})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
+	minVersion := appversion.MustParse("1.4.0")
 	want := config.Config{
 		Env:                  config.EnvProduction,
 		HTTPAddr:             "127.0.0.1:9000",
@@ -54,8 +62,15 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		DatabaseURL:          "postgres://app@db.internal:5432/koala?sslmode=verify-full",
 		OwnerDatabaseURL:     "postgresql://migrator@db.internal/koala?sslmode=require",
 		BootstrapDatabaseURL: "postgres://admin@db.internal/postgres?sslmode=verify-ca",
+		MinAppVersion:        &minVersion,
+		TrustedProxies: []netip.Prefix{
+			netip.MustParsePrefix("10.0.0.0/8"),
+			netip.MustParsePrefix("192.0.2.7/32"),
+			netip.MustParsePrefix("2001:db8::/32"),
+		},
+		MetricsAddr: ":9100",
 	}
-	if cfg != want {
+	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %+v, want %+v", cfg, want)
 	}
 }
@@ -91,6 +106,18 @@ func TestLoadFailsClosed(t *testing.T) {
 		{"repeated parameter", []string{"KOALA_ENV=local", "KOALA_OWNER_DATABASE_URL=postgres://o@db/koala?application_name=a&application_name=b"}, "KOALA_OWNER_DATABASE_URL: invalid value"},
 		{"migrate URL wrong scheme", []string{"KOALA_ENV=local", "KOALA_OWNER_DATABASE_URL=http://db/koala"}, "KOALA_OWNER_DATABASE_URL: invalid value"},
 		{"unknown koala variable", []string{"KOALA_ENV=local", "KOALA_LOGLEVEL=debug"}, "KOALA_LOGLEVEL: unknown variable"},
+		{"minimum app version not semver", []string{"KOALA_ENV=local", "KOALA_MIN_APP_VERSION=1.4"}, "KOALA_MIN_APP_VERSION: invalid value"},
+		{"trusted proxy not an address", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=traefik"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted proxy empty entry", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=10.0.0.1,,10.0.0.2"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted proxy with host bits", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=10.0.0.1/8"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted proxy /0", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=0.0.0.0/0"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted IPv6 /0", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=::/0"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted proxy too wide", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=10.0.0.0/7"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted IPv6 too wide", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=2001::/16"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted mapped prefix too wide", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=::ffff:0.0.0.0/96"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"trusted proxy with a zone", []string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=fe80::1%eth0"}, "KOALA_TRUSTED_PROXIES: invalid value"},
+		{"metrics addr without port", []string{"KOALA_ENV=local", "KOALA_METRICS_ADDR=localhost"}, "KOALA_METRICS_ADDR: invalid value"},
+		{"metrics on the API port", []string{"KOALA_ENV=local", "KOALA_HTTP_ADDR=:9000", "KOALA_METRICS_ADDR=127.0.0.1:9000"}, "KOALA_METRICS_ADDR: invalid value"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -103,10 +130,59 @@ func TestLoadFailsClosed(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.wantVar) {
 				t.Fatalf("Load() error = %q, want it to contain %q", err, tt.wantVar)
 			}
-			if cfg != (config.Config{}) {
+			if !reflect.DeepEqual(cfg, config.Config{}) {
 				t.Fatalf("Load() returned a partial config on error: %+v", cfg)
 			}
 		})
+	}
+}
+
+// An IPv4-mapped prefix is stored as its IPv4 prefix: client addresses
+// are unmapped before they are looked up.
+func TestTrustedProxiesUnmapIPv4(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load([]string{"KOALA_ENV=local", "KOALA_TRUSTED_PROXIES=::ffff:10.0.0.0/104,::ffff:192.0.2.7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("192.0.2.7/32")}
+	if !reflect.DeepEqual(cfg.TrustedProxies, want) {
+		t.Fatalf("TrustedProxies = %v, want %v", cfg.TrustedProxies, want)
+	}
+}
+
+// serve needs the edge variables in production; other commands and other
+// environments do not.
+func TestServeEdgeErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		environ []string
+		want    []string
+	}{
+		{[]string{"KOALA_ENV=production"}, []string{"KOALA_MIN_APP_VERSION: required", "KOALA_TRUSTED_PROXIES: required"}},
+		{[]string{"KOALA_ENV=production", "KOALA_MIN_APP_VERSION=1.0.0"}, []string{"KOALA_TRUSTED_PROXIES: required"}},
+		{[]string{"KOALA_ENV=production", "KOALA_MIN_APP_VERSION=0.0.0", "KOALA_TRUSTED_PROXIES=10.0.0.0/8"}, nil},
+		{[]string{"KOALA_ENV=staging"}, nil},
+	}
+	for _, tt := range tests {
+		cfg, err := config.Load(tt.environ)
+		if err != nil {
+			t.Fatalf("Load(%v) error = %v", tt.environ, err)
+		}
+		err = cfg.ServeEdgeErrors()
+		if len(tt.want) == 0 {
+			if err != nil {
+				t.Errorf("%v: ServeEdgeErrors() = %v, want nil", tt.environ, err)
+			}
+			continue
+		}
+		for _, w := range tt.want {
+			if err == nil || !strings.Contains(err.Error(), w) {
+				t.Errorf("%v: ServeEdgeErrors() = %v, want it to mention %q", tt.environ, err, w)
+			}
+		}
 	}
 }
 

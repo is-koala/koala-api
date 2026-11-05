@@ -43,6 +43,7 @@ func PlatformCodes() []apperr.Code {
 		CodeRequestInvalid, CodeBodyMalformed, CodeContentTypeUnsupported,
 		CodeFieldRequired, CodeFieldUnknown, CodeFieldTypeInvalid,
 		CodeFieldFormatInvalid, CodeFieldValueInvalid, CodeFieldOutOfRange,
+		CodePathInvalid, CodeAppVersionUnsupported, CodeRateLimited,
 	}
 }
 

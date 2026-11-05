@@ -11,6 +11,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/log"
+	"github.com/is-koala/koala-api/internal/platform/metrics"
 )
 
 func runServe(ctx context.Context, args []string, sio IO) int {
@@ -25,6 +26,10 @@ func runServe(ctx context.Context, args []string, sio IO) int {
 	logger := log.New(sio.Stdout, cfg.LogLevel)
 	if cfg.DatabaseURL == "" {
 		logger.ErrorContext(ctx, "startup failed", slog.String("error", config.VarDatabaseURL+": required by serve"))
+		return ExitError
+	}
+	if err := cfg.ServeEdgeErrors(); err != nil {
+		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
 		return ExitError
 	}
 
@@ -53,36 +58,69 @@ func runServe(ctx context.Context, args []string, sio IO) int {
 		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
 		return ExitError
 	}
-	if err := serve(ctx, cfg, logger, sio.Version, ln, database.Ready); err != nil {
+	metricsLn, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.MetricsAddr)
+	if err != nil {
+		_ = ln.Close()
+		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
+		return ExitError
+	}
+	if err := serve(ctx, cfg, logger, sio.Version, listeners{api: ln, metrics: metricsLn}, database.Ready); err != nil {
 		logger.ErrorContext(ctx, "server failed", slog.Any("error", err))
 		return ExitError
 	}
 	return ExitOK
 }
 
+// listeners are the sockets serve owns: the API and the internal metrics
+// port (plan §3.10).
+type listeners struct {
+	api     net.Listener
+	metrics net.Listener
+}
+
 // serve wires the application and blocks until ctx is canceled and the
 // shutdown sequence has finished. Order on shutdown (plan §3.10):
-// readiness 503 → HTTP drain → (Faz 1) cancel workers → close pools; the
-// caller closes the pools after serve returns. checks gate /readyz.
-func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version string, ln net.Listener, checks ...httpx.ReadinessCheck) error {
+// readiness 503 → HTTP drain → (Faz 1) cancel workers → metrics listener
+// → close pools; the caller closes the pools after serve returns. The
+// metrics listener stays up through the drain, so the drain itself is
+// observable. checks gate /readyz.
+func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version string, lns listeners, checks ...httpx.ReadinessCheck) error {
 	logger.InfoContext(ctx, "starting",
 		slog.String("version", version),
 		slog.String("env", string(cfg.Env)))
 
-	health := httpx.NewHealth(logger, checks...)
-	router := httpx.NewRouter(logger, health)
-	if err := mountAPI(ctx, router, logger, cfg.Env); err != nil {
-		return err
-	}
-
-	srv := httpx.NewServer(router, health, logger, httpx.ServerOptions{
-		DrainDelay:      cfg.ShutdownDrainDelay,
-		ShutdownTimeout: cfg.ShutdownTimeout,
-	})
-	if err := srv.Serve(ctx, ln); err != nil {
+	reg, err := metrics.NewRegistry(version)
+	if err != nil {
+		_ = lns.api.Close()
+		_ = lns.metrics.Close()
 		return fmt.Errorf("serve: %w", err)
 	}
-	// Faz 1: cancel the worker context, wait for workers, close pools.
+	metricsCtx, stopMetrics := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopMetrics()
+	metricsDone := make(chan error, 1)
+	go func() { metricsDone <- metrics.Serve(metricsCtx, lns.metrics, metrics.Handler(reg, logger), logger) }()
+
+	health := httpx.NewHealth(logger, checks...)
+	router, err := newRouter(ctx, cfg, logger, health, reg, rateLimitGroups())
+	if err == nil {
+		srv := httpx.NewServer(router, health, logger, httpx.ServerOptions{
+			DrainDelay:      cfg.ShutdownDrainDelay,
+			ShutdownTimeout: cfg.ShutdownTimeout,
+		})
+		if serveErr := srv.Serve(ctx, lns.api); serveErr != nil {
+			err = fmt.Errorf("serve: %w", serveErr)
+		}
+	} else {
+		_ = lns.api.Close()
+	}
+	// Faz 1: cancel the worker context, wait for workers.
+	stopMetrics()
+	if metricsErr := <-metricsDone; metricsErr != nil && err == nil {
+		err = metricsErr
+	}
+	if err != nil {
+		return err
+	}
 	logger.InfoContext(context.WithoutCancel(ctx), "stopped")
 	return nil
 }

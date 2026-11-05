@@ -2,7 +2,7 @@
 
 Koala'nın Go backend'i. Koala, İstanbul'da kısa süreli işler için bir pazaryeri. Bu repo, Java/Spring Boot `koala-backend`'in baştan yazımıdır. Hazır olunca Java'nın yerine tek seferde konacak (ADR-0001).
 
-Durum: **Faz 0**. Repo iskeleti, CI'daki kalite kapısı ve ADR'ler hazır. Sunucu yalnız sağlık uçlarını sunuyor; alan modülleri sonraki fazlarda gelecek.
+Durum: **Faz 1**. Repo iskeleti, CI'daki kalite kapısı, ADR'ler ve HTTP platformu hazır. Sunucu yalnız sağlık uçlarını sunuyor; alan modülleri sonraki fazlarda gelecek.
 
 **Faz 1'den öne çekilenler.** Plan §6.1'de Faz 1'e yazılı olan bazı platform kalemleri iskeletin çalışması için bu fazda geldi:
 - `config` (fail-closed),
@@ -20,9 +20,11 @@ Faz 0'daki River + goose spike'ıyla gelenler (ADR-0017):
 - `koala_owner`/`koala_app`/`koala_maint` rol modeli,
 - test başına template DB.
 
-Faz 1'de gelenler: sqlc araç zinciri ve `sqlc vet` kuralı, soft-delete platformu (`deletions`, `active_<t>` view üreticisi, `softdelete` paketi, `db/softdelete.yaml` ve katalog testleri, JOIN lint'i, üretilmiş okuma testi çatısı; ADR-0020).
+Faz 1'de gelenler:
+- sqlc araç zinciri ve `sqlc vet` kuralı, soft-delete platformu (`deletions`, `active_<t>` view üreticisi, `softdelete` paketi, `db/softdelete.yaml` ve katalog testleri, JOIN lint'i, üretilmiş okuma testi çatısı; ADR-0020),
+- HTTP kenarı (ADR-0021): istemci başlığı ve sürüm kapısı (`400 APP_VERSION_UNSUPPORTED`, ADR-0019), oran sınırı, yol normalizasyonu ve Prometheus metrikleri.
 
-Faz 1'de kalanlar: metrik, sürüm kapısı (`400 APP_VERSION_UNSUPPORTED`, ADR-0019), rate limit, path normalizasyonu, River worker'larının sunucuya bağlanması, authn/authz, temiz baseline ve seed.
+Faz 1'de kalanlar: River worker'larının sunucuya bağlanması, authn/authz, realtime'ın sunucuya bağlanması, temiz baseline ve seed.
 
 Plan belgesi: [`docs/plan/go-gecis-degerlendirme.md`](docs/plan/go-gecis-degerlendirme.md). Kararlar: [`docs/adr/`](docs/adr/README.md). Kodlama kuralları: [`CLAUDE.md`](CLAUDE.md).
 
@@ -95,10 +97,13 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_DATABASE_URL` | `serve` için | — | Sunucu girişi; yalnız `koala_app` üyesi. `postgres://` URL |
 | `KOALA_OWNER_DATABASE_URL` | `migrate`, `maint` için | — | `koala_owner` üyesi giriş; süper kullanıcı olamaz |
 | `KOALA_BOOTSTRAP_DATABASE_URL` | `bootstrap` için | — | `CREATEROLE` yetkili giriş, `postgres` DB'sine; süper kullanıcı olamaz |
+| `KOALA_MIN_APP_VERSION` | production'da `serve` için | `0.0.0` | En düşük desteklenen mobil sürüm (semver). `IOS`/`ANDROID` istemcisinin daha eski `X-App-Version`'ı `400 APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` alır (ADR-0021) |
+| `KOALA_TRUSTED_PROXIES` | production'da `serve` için | — | `X-Forwarded-For`'u okunacak proxy'ler: virgülle ayrılmış IP ya da CIDR (`10.0.0.0/8`). Yoksa TCP eşi istemcidir |
+| `KOALA_METRICS_ADDR` | hayır | `:9090` | `/metrics`'in iç dinleyicisi; API portuyla aynı olamaz. Proxy'ye açılmaz |
 
 Üç DB URL'si de sırdır; değerleri log'a ve hata mesajına yazılmaz. Production'da `sslmode=require`, `verify-ca` ya da `verify-full` zorunludur. Bir bağlantı parametresi URL'de iki kez geçemez. Havuz ayarları (`pool_max_conns`, `statement_timeout` ve diğerleri) URL'de verilirse varsayılanların yerine geçer (ADR-0017 §6).
 
-Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace_period`) şu toplamdan uzun olmalı: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT`. Varsayılanlarla bu toplam 5 + 35 = 40 sn'dir; `stop_grace_period` en az 45 sn verilmeli. Docker'ın varsayılanı 10 sn; bu süre aşılırsa süreç SIGKILL ile kesilir.
+Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace_period`) şu toplamdan uzun olmalı: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT`. WebSocket'lerin zorla kapatılması da bu toplamın içindedir: stream'ler `KOALA_SHUTDOWN_TIMEOUT`'un son 5 sn'sini (`httpx.StreamForceCloseMargin`) yanıt vermeyen bağlantıları kesmeye ayırır (ADR-0022). Varsayılanlarla bu toplam 5 + 35 = 40 sn'dir; `stop_grace_period` en az 45 sn verilmeli. Docker'ın varsayılanı 10 sn; bu süre aşılırsa süreç SIGKILL ile kesilir.
 
 ## HTTP platformu
 
@@ -108,6 +113,10 @@ Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace
 - Her isteğin context'inde 25 sn'lik süre sınırı var (sunucunun 30 sn'lik `WriteTimeout`'undan kısa).
 - İstek gövdesi varsayılan olarak 1 MiB ile sınırlı. Aşılırsa `413 REQUEST_BODY_TOO_LARGE` döner; route bazında `httpx.BodyLimit(n)` ile yükseltilir.
 - Her yanıtta şu başlıklar var: `X-Content-Type-Options: nosniff` ve `Content-Security-Policy: frame-ancestors 'none'`.
+- İstemci başlıkları yönlendirmeden önce, WebSocket dahil her yolda denetlenir (ADR-0021): `/v1/admin` dışında `X-Client-Platform` (`IOS`, `ANDROID`, `WEB`) ve `X-Device-Id` zorunludur; `IOS`/`ANDROID` ayrıca `KOALA_MIN_APP_VERSION`'dan eski olmayan bir `X-App-Version` gönderir. Sağlık uçları muaftır.
+- Kanonik olmayan yol (`//`, `.`/`..`, `%2f`, `%5c`, `%25`) yeniden yazılmaz, `400 PATH_INVALID` alır.
+- Oran sınırı iki katmandır: her istek istemci adresi başına (IPv6 için /64), kimliği doğrulanmış istek ayrıca kimlik başına. Grup, operasyonun `x-rate-limit`'inden ya da metottan gelir. Aşımda `429 RATE_LIMITED` + `Retry-After` döner. Kovalar bellek içidir; tek örnek varsayımı ADR-0021'dedir.
+- Prometheus metrikleri `KOALA_METRICS_ADDR`'de `/metrics`'te yayımlanır: `http_server_request_duration_seconds` (route şablonuyla), oran sınırı ve sürüm kapısı sayaçları, `koala_build_info`, Go runtime ve süreç metrikleri. Uyarı kuralları `ops/monitoring/prometheus-alerts.yml`'dedir.
 
 ## Docker ve yayın
 
@@ -144,6 +153,7 @@ Konteynerin durdurma süresi (`stop_grace_period`) `KOALA_SHUTDOWN_DRAIN_DELAY +
 - [ ] GHCR paketinin görünürlüğü ve erişimi: private kalır, repoya bağlanır, Dokploy için `read:packages` token'ı verilir.
 - [ ] Branch protection, `v*` tag ruleset'i ve `production` environment'ı. Free planda private repo için yok; Team planı ya da public repo gerekir.
 - [ ] Dokploy `stop_grace_period` ≥ 45 sn.
+- [ ] Production'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` (ikisi yoksa `serve` açılmaz) ve Prometheus'un `KOALA_METRICS_ADDR`'i iç ağdan kazıması.
 - [ ] Faz 9'da `DOKPLOY_DEPLOY_WEBHOOK` sırrı (HTTPS alan adı) ve `DOKPLOY_DEPLOY_ENABLED` değişkeni.
 
 Elle build gerekirse (CI ya da sunucu ortamında):
@@ -158,7 +168,7 @@ docker build --build-arg VERSION=$(git describe --tags --always) -t koala-api .
 cmd/koala/            ince main: sinyal + app.Run
 internal/app/         elle wiring ve alt komutlar
 internal/apiv1/       spec'ten üretilmiş sunucu arayüzü (make generate; elle düzenlenmez)
-internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr, db (+ maintdb), jobs (River), dbtest, softdelete, clock, fakes (yalnız testler)
+internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr, db (+ maintdb), jobs (River), dbtest, softdelete, clock, fakes (yalnız testler), metrics, appversion, jsontime
 internal/tools/       geliştirme araçları: softdeletegen (make generate)
 internal/archtest/    lint'in ifade edemediği mimari testler
 db/                   goose migration'ları (db/migrations), grup rolleri (db/bootstrap), sqlc sorguları (db/queries), soft-delete kataloğu (softdelete.yaml)
@@ -167,4 +177,5 @@ docs/adr/             mimari karar kayıtları
 docs/plan/            Go geçiş planı
 docs/runbook/         işletim notları
 scripts/              CI ve yayın yardımcıları: lint probları, entegrasyon testleri, release-db, image (build, smoke, publish), release (sürüm kuralları)
+ops/monitoring/       Prometheus uyarı kuralları (her kuralın metriği testle denetlenir)
 ```

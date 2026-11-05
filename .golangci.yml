@@ -251,14 +251,6 @@ linters:
         - apperr.New(
         - apperr.Wrap(
         - .WithFields( # apperr.(*Error).WithFields copies an *apperr.Error
-      # Response writer wrappers (httpx.headerWatcher) must pass the
-      # underlying writer's errors through unchanged.
-      # (ignore-interface-regexps is not enough: wrapcheck still reports
-      # the call as coming from another package.)
-      ignore-sig-regexps:
-        - ^func \(net/http\.ResponseWriter\)\.Write\(
-        - ^func \(io\.ReaderFrom\)\.ReadFrom\(
-        - ^func \(\*net/http\.ResponseController\)\.(Flush|Hijack)\(
 
   exclusions:
     generated: strict
@@ -276,6 +268,14 @@ linters:
         linters:
           - forbidigo
         text: time\.Now
+      # A response writer wrapper (httpx.headerWatcher) passes the
+      # underlying writer's errors through unchanged: the ResponseWriter
+      # contract. Exempt are exactly those calls, in that file only (issue
+      # #7); everywhere else wrapcheck applies.
+      - path: internal/platform/httpx/middleware\.go
+        linters:
+          - wrapcheck
+        text: 'sig: func (\(net/http\.ResponseWriter\)\.Write|\(io\.ReaderFrom\)\.ReadFrom|\(\*net/http\.ResponseController\)\.(Flush|Hijack)|io\.Copy)\('
       # The composition root is the only reader of the process environment.
       - path: cmd/koala/
         linters:

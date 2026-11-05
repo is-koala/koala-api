@@ -39,6 +39,14 @@ const shutdownWriteMargin = 5 * time.Second
 // shutdown_internal_test.go).
 const MinShutdownTimeout = readHeaderTimeout + RequestTimeout + shutdownWriteMargin
 
+// StreamForceCloseMargin is the part of ShutdownTimeout a Stream keeps for
+// cutting the connections that did not close in time. Serve gives the
+// streams a context that ends this much before ShutdownTimeout, and a
+// Stream's Shutdown returns at most this long after its context ends; so
+// the whole shutdown stays within DrainDelay + ShutdownTimeout, the sum
+// the container's stop grace period is sized for (README).
+const StreamForceCloseMargin = 5 * time.Second
+
 // ServerOptions configures the shutdown sequence.
 type ServerOptions struct {
 	// DrainDelay: time between readiness turning 503 and the listener
@@ -59,7 +67,8 @@ type Stream interface {
 	// StartDraining refuses new connections; open ones stay up.
 	StartDraining()
 	// Shutdown closes every open connection with a close frame and waits
-	// for its goroutines until ctx ends.
+	// for its goroutines until ctx ends. It then cuts the rest and returns
+	// within StreamForceCloseMargin.
 	Shutdown(ctx context.Context) error
 }
 
@@ -69,7 +78,8 @@ type Stream interface {
 //  2. /readyz reports 503 and streams refuse new connections for
 //     DrainDelay,
 //  3. the listener closes, streams send close frames, and in-flight
-//     requests and streams get ShutdownTimeout,
+//     requests get ShutdownTimeout; streams get ShutdownTimeout minus
+//     StreamForceCloseMargin, and the margin to cut what is left,
 //  4. Serve returns; the caller then stops workers and closes pools.
 type Server struct {
 	srv    *http.Server
@@ -126,8 +136,10 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	sctx, cancel := context.WithTimeout(shutdownCtx, s.opts.ShutdownTimeout)
 	defer cancel()
+	streamCtx, cancelStreams := context.WithTimeout(shutdownCtx, streamTimeout(s.opts.ShutdownTimeout))
+	defer cancelStreams()
 	streamsDone := make(chan error, 1)
-	go func() { streamsDone <- shutdownStreams(sctx, s.opts.Streams) }()
+	go func() { streamsDone <- shutdownStreams(streamCtx, s.opts.Streams) }()
 	err := s.srv.Shutdown(sctx)
 	streamErr := <-streamsDone
 	if err != nil {
@@ -142,6 +154,16 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	}
 	s.logger.InfoContext(shutdownCtx, "http server stopped")
 	return nil
+}
+
+// streamTimeout is the graceful part of the streams' shutdown: the
+// ShutdownTimeout minus StreamForceCloseMargin. A ShutdownTimeout shorter
+// than the margin (tests) is used whole.
+func streamTimeout(shutdown time.Duration) time.Duration {
+	if shutdown > StreamForceCloseMargin {
+		return shutdown - StreamForceCloseMargin
+	}
+	return shutdown
 }
 
 // shutdownStreams shuts the streams down concurrently and joins their

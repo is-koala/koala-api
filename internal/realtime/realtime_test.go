@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
+	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
@@ -21,8 +23,16 @@ func TestDefaultLimits(t *testing.T) {
 	t.Parallel()
 
 	o := realtime.DefaultOptions()
-	got := []any{o.MaxMessageBytes, o.SendBuffer, o.PingInterval, o.IdleTimeout, o.CommandRate, o.CommandBurst, o.MaxRateStrikes, o.MaxConnsPerUser}
-	want := []any{int64(64 << 10), 64, 20 * time.Second, 60 * time.Second, 5.0, 10, 20, 10}
+	got := []any{
+		o.MaxMessageBytes, o.SendBuffer, o.PingInterval, o.IdleTimeout, o.CommandRate, o.CommandBurst,
+		o.MaxRateStrikes, o.MaxConnsPerUser, o.SessionCheckInterval, o.HandshakeTimeout, o.CommandTimeout,
+		o.WriteTimeout, o.MaxSessionCheckFailures,
+	}
+	want := []any{
+		int64(64 << 10), 64, 20 * time.Second, 60 * time.Second, 5.0, 10,
+		20, 10, time.Minute, 5 * time.Second, 5 * time.Second,
+		10 * time.Second, 3,
+	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("DefaultOptions() limits = %v, want %v", got, want)
 	}
@@ -88,16 +98,23 @@ func TestHandshakeRejections(t *testing.T) {
 		{"other device", func(_ *env, ticket string) dialSpec {
 			return dialSpec{protocols: protocols(ticket), header: deviceHeader("tablet")}
 		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
+		// The router's client gate answers before the handler: a native
+		// handshake meets the same header rules as REST (ADR-0021).
 		{"native client without device", func(_ *env, ticket string) dialSpec {
 			return dialSpec{protocols: protocols(ticket)}
-		}, http.StatusUnauthorized, realtime.CodeDeviceRequired},
+		}, http.StatusBadRequest, httpx.CodeRequestInvalid},
+		{"outdated native build", func(_ *env, ticket string) dialSpec {
+			h := deviceHeader("phone")
+			h.Set(httpx.HeaderAppVersion, "0.9.0")
+			return dialSpec{protocols: protocols(ticket), header: h}
+		}, http.StatusBadRequest, httpx.CodeAppVersionUnsupported},
 		{"session revoked after issue", func(e *env, ticket string) dialSpec {
-			e.sessions.Revoke(sessionOf(alice, "phone"))
+			e.sessions.Revoke(alicePhoneSession())
 			return dialSpec{protocols: protocols(ticket), header: phone}
 		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
 		{"session revoked between redeem and join", func(e *env, ticket string) dialSpec {
 			// Call 1 is Redeem, call 2 the re-check after join.
-			e.sessions.RevokeOnCall(sessionOf(alice, "phone"), 2)
+			e.sessions.RevokeOnCall(alicePhoneSession(), 2)
 			return dialSpec{protocols: protocols(ticket), header: phone}
 		}, http.StatusUnauthorized, realtime.CodeTicketInvalid},
 		{"foreign origin", func(_ *env, ticket string) dialSpec {
@@ -134,7 +151,7 @@ func TestPreTicketRejectionsKeepTicket(t *testing.T) {
 		t.Fatalf("foreign origin: status %d, want 403", foreign.status)
 	}
 	native := e.dial(t, dialSpec{protocols: protocols(ticket)})
-	if native.status != http.StatusUnauthorized || native.code != realtime.CodeDeviceRequired {
+	if native.status != http.StatusBadRequest || native.code != httpx.CodeRequestInvalid {
 		t.Fatalf("native without device: status %d %s", native.status, native.code)
 	}
 
@@ -149,7 +166,7 @@ func TestPreTicketRejectionsKeepTicket(t *testing.T) {
 	req.Header.Set("Sec-WebSocket-Version", "13")
 	req.Header.Set("Sec-WebSocket-Key", "not-sixteen-bytes")
 	req.Header.Set("Sec-WebSocket-Protocol", strings.Join(protocols(ticket), ", "))
-	req.Header.Set(realtime.HeaderDeviceID, "phone")
+	req.Header.Set(realtime.HeaderDeviceID, deviceID("phone"))
 	resp, err := e.client.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -183,6 +200,7 @@ func TestPlainRequestsAreRejected(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		req.Header.Set(realtime.HeaderDeviceID, deviceID("phone"))
 		resp, err := e.client.Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -438,7 +456,7 @@ func TestSessionRevocationClosesOnlyThatDevice(t *testing.T) {
 		}
 	}
 
-	e.hub.DisconnectSession(alice, sessionOf(alice, "phone"))
+	e.hub.DisconnectSession(alice, alicePhoneSession())
 	if err := e.hub.PublishUser(alice, after, struct{}{}); err != nil {
 		t.Fatal(err)
 	}
@@ -450,6 +468,71 @@ func TestSessionRevocationClosesOnlyThatDevice(t *testing.T) {
 	}
 	if ev := tablet.next(t); ev.Type != after {
 		t.Fatalf("tablet got %s, want %s", ev.Type, after)
+	}
+}
+
+// TestSessionCheckFailuresCloseTheConnection: one failed periodic check
+// keeps the connection and a success resets the count; after
+// MaxSessionCheckFailures failures in a row the connection is closed with
+// 1013 so a revoked session cannot stay connected through an outage of the
+// session store (ADR-0022).
+func TestSessionCheckFailuresCloseTheConnection(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultEnv()
+	cfg.hub.SessionCheckInterval = 20 * time.Millisecond
+	cfg.hub.MaxSessionCheckFailures = 3
+	e := newEnv(t, cfg)
+	phone := e.connect(t, alice, "phone")
+	tablet := e.connect(t, alice, "tablet")
+
+	session := alicePhoneSession()
+	e.sessions.FailAfter(session, []bool{true, true, false})
+	if got := phone.closeStatus(t); got != websocket.StatusTryAgainLater {
+		t.Fatalf("close status %d, want %d", got, websocket.StatusTryAgainLater)
+	}
+	// Two failures, a success that resets the count, then three more.
+	if got := e.sessions.Failures(session); got != 5 {
+		t.Fatalf("closed after %d failed checks, want 5", got)
+	}
+	e.assertNothingQueued(t, tablet, alice)
+}
+
+// TestHandlerRequiresDeviceOfNativeClients: the handler keeps its own
+// device check for a handshake that reached it without the router's
+// client gate.
+func TestHandlerRequiresDeviceOfNativeClients(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, defaultEnv())
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, realtime.PathConnect, http.NoBody)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	req.Header.Set("Sec-WebSocket-Protocol", strings.Join(protocols(strings.Repeat("A", 43)), ", "))
+	rec := httptest.NewRecorder()
+	e.handler.Connect(rec, req)
+	var p httpx.Problem
+	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil || rec.Code != http.StatusUnauthorized || p.Code != realtime.CodeDeviceRequired {
+		t.Fatalf("status %d %s, want 401 %s", rec.Code, rec.Body, realtime.CodeDeviceRequired)
+	}
+}
+
+// TestSameHostOriginNeedsHTTPS: the request's own host is an allowed
+// origin only over https (ADR-0022); an allowed https page connects.
+func TestSameHostOriginNeedsHTTPS(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t, defaultEnv())
+	host := strings.TrimPrefix(e.base, "http://")
+	plain := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "phone")), header: http.Header{"Origin": {"http://" + host}}})
+	if plain.status != http.StatusForbidden || plain.code != realtime.CodeOriginForbidden {
+		t.Fatalf("http same-host origin: status %d %s, want 403 %s", plain.status, plain.code, realtime.CodeOriginForbidden)
+	}
+	secure := e.dial(t, dialSpec{protocols: protocols(e.ticket(t, alice, "phone")), header: http.Header{"Origin": {"https://" + host}}})
+	if secure.err != nil {
+		t.Fatalf("https same-host origin: status %d %s: %v", secure.status, secure.code, secure.err)
 	}
 }
 
@@ -465,7 +548,7 @@ func TestPeriodicSessionCheck(t *testing.T) {
 	phone := e.connect(t, alice, "phone")
 	tablet := e.connect(t, alice, "tablet")
 
-	e.sessions.Revoke(sessionOf(alice, "phone"))
+	e.sessions.Revoke(alicePhoneSession())
 	if got := phone.closeStatus(t); got != realtime.CloseSessionRevoked {
 		t.Fatalf("close status %d, want %d", got, realtime.CloseSessionRevoked)
 	}

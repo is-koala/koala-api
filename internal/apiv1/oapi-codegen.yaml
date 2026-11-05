@@ -10,6 +10,10 @@ generate:
   strict-server: true
 output-options:
   name-normalizer: ToCamelCaseWithInitialisms
+  # The realtime operations are mounted by internal/realtime by hand: the
+  # WebSocket route is a Router.Stream route outside the request bounds
+  # (ADR-0018). Their schemas are still generated.
+  exclude-tags: [realtime]
 import-mapping:
   ./components/problem.yaml: "-"
   ./components/money.yaml: "-"

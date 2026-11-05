@@ -33,7 +33,7 @@ type ClientPlatform string
 // IdempotencyKey Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10, "0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"
 type IdempotencyKey = string
 
-// XAppVersion Examples: 0.9.32
+// XAppVersion Examples: 0.9.32, 1.4.0-beta.1, 1.1.1+3
 type XAppVersion = string
 
 // XClientPlatform İstemci platformu.

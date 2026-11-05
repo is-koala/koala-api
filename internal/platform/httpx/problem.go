@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 )
 
@@ -86,12 +84,10 @@ func StatusOf(k apperr.Kind) int {
 // NewProblem builds the problem document for status and code on request r.
 // Instance is the matched route template (/v1/jobs/{id}), never the raw
 // path: path parameters may carry personal data and are not echoed back.
-// An unmatched request has no instance.
+// An unmatched request has no instance. A request refused before routing
+// (rate limit, client headers) carries the route it was headed for.
 func NewProblem(r *http.Request, status int, code apperr.Code) Problem {
-	instance := ""
-	if rctx := chi.RouteContext(r.Context()); rctx != nil {
-		instance = rctx.RoutePattern()
-	}
+	instance := routeOf(r)
 	return Problem{
 		Type:      ProblemTypeBase + strings.ReplaceAll(strings.ToLower(string(code)), "_", "-"),
 		Title:     http.StatusText(status),

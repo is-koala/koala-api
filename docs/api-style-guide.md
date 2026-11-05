@@ -79,7 +79,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - Gövde `application/json`'dur; PATCH'te `application/merge-patch+json` kullanılır (§3).
   - Desteklenmeyen `Content-Type` `415 CONTENT_TYPE_UNSUPPORTED` döner (ADR-0019) **[test]**.
 - **Bilinmeyen alan reddedilir** (plan §3.3, "bilinmeyen alan reddi istekte açık"):
-  - JSON istek gövdesi ve içindeki **her nesne** bilinmeyen alanı reddeder. Düz nesne `additionalProperties: false`, `allOf` ile kurulan nesne `unevaluatedProperties: false` yazar **[lint: koala-closed-request-body]**.
+  - JSON istek gövdesi ve içindeki **her nesne** bilinmeyen alanı reddeder. Düz nesne `additionalProperties: false`, `allOf` ile kurulan nesne `unevaluatedProperties: false` yazar; `allOf` üyesi tek başına kapatılmaz, onu bileşik nesne kapatır **[lint: koala-closed-request-body]** **[test: api TestRequestBodiesAreClosed]**. vacuum yalnız kendi `properties`'i olan nesneye ulaşır; `allOf` ile kurulan özellikleri Go testi denetler.
   - Bilinmeyen alan 400 `REQUEST_INVALID` + `FIELD_UNKNOWN` döner. Gövdesi olmayan operasyona gelen gövde de reddedilir **[test]**.
 - **Doğrulama:**
   - Biçim spec'ten kin-openapi ile doğrulanır; Go'da etiketle ikinci kopya tutulmaz (ADR-0006 madde 2).
@@ -178,6 +178,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - Sayısal `…Rate`, `…Percent`, `…Ratio` alanı yazılmaz **[lint: koala-rate-in-basis-points, koala-bps-integer]**.
 - **Anlık zaman** RFC 3339 `date-time`'dır (`Timestamp`, K11, ADR-0005 madde 5).
   - Değer UTC'dir ve `Z` ile biter; ofsetli değer reddedilir (ADR-0019) **[test: api TestTimestampRequiresZ]**.
+  - Yanıtta `Z` tek yerden zorlanır: `Timestamp` Go'da `jsontime.UTC`'dir ve başka dilimdeki zamanı da UTC yazar; handler `.UTC()` çağırmak zorunda değildir (ADR-0021) **[test: jsontime TestMarshalWritesUTC]**.
   - Alan adı `At` ile biter: `createdAt` **[lint: koala-instant-is-date-time]**.
 - **Yerel anlamı olan zaman** (ilan başlangıcı) `OffsetDateTime`'dır. Değer ofsetli yazılır; saat dilimi aynı nesnede `timeZone` alanında taşınır (K11, plan §3.8): `{"startsAt": "2026-08-27T09:30:00+03:00", "timeZone": "Europe/Istanbul"}`.
 - **Takvim günü** `format: date`'tir (`Date`). Adı `On` ya da `Date` ile biter: `birthDate` (sonek öneri) **[lint: koala-calendar-date-is-date]**.
@@ -194,20 +195,25 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 
 - **Platform başlıkları operasyonlara yazılmaz.** Tanımları `headers.yaml`'dadır ki istemciler tip ve sabit üretsin (ADR-0005 madde 7). Her başlığın zorunluluğunu kendi middleware testi kanıtlar:
   - `X-Request-Id` isteğe bağlı gelir ve her yanıtta döner **[test: httpx middleware testleri]**.
-  - `X-Device-Id` `/v1/admin` dışındaki her istekte zorunludur. Middleware'i ve testi Faz 1'de gelir.
-  - `X-App-Version` semver'dir. Desteklenmeyen sürüm `400 APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` döner (ADR-0019). Middleware'i ve testi Faz 1'de gelir; kapı `/v1` dışında da çalışır.
-  - `X-Client-Platform` değerleri `IOS`, `ANDROID`, `WEB`, `ADMIN`'dir (değerler öneri).
+  - `X-Client-Platform` değerleri `IOS`, `ANDROID`, `WEB`, `ADMIN`'dir ve hangi kuralın uygulanacağını belirler. Kabulde harf duyarsızdır (`web` = `WEB`); kanonik biçim büyük harftir. Değer istemcinin beyanıdır, yetki girdisi değildir. `/v1/admin` dışında zorunludur; `ADMIN` yalnız `/v1/admin` altında geçerlidir (ADR-0021) **[test: httpx TestClientGate]**.
+  - `X-Device-Id` (`[A-Za-z0-9._:-]{8,128}`) `/v1/admin` dışındaki her istekte zorunludur. Tek istisna tarayıcının WebSocket handshake'idir **[test]**.
+  - `X-App-Version` semver'dir; yalnız `IOS` ve `ANDROID` için okunur ve zorunludur. Desteklenmeyen, eksik ya da okunamayan sürüm `400 APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` döner (ADR-0019). Kapı yönlendirmeden önce, WebSocket dahil her yolda çalışır **[test]**.
+  - Başlık hatası `400 REQUEST_INVALID` + `{parameter, in: HEADER, code}` döner.
+  - Koala uygulaması olmayan çağıranın (ödeme callback'i, takip pikseli) route'u `internal/app`'te `ClientPolicy.ExemptRoutes`'a, testiyle eklenir.
 - Operasyona özgü başlık (`Idempotency-Key`) operasyonun `parameters`'ında referanslanır.
 - `Accept-Language` ile mesaj çözümü yoktur (ADR-0005 madde 7).
 
 ## 11. Yetki uzantıları
 
-- **Her operasyon** ya `x-authz` taşır ya da `security: []` ile açıkça public'tir; ikisi birden olmaz (ADR-0005 madde 1, plan §4.1-1) **[lint: koala-operation-authz]**.
+- **Her operasyon** ya `x-authz` taşır, ya `security: []` ile açıkça public'tir, ya da `x-authz-exempt: <gerekçe>` ile belgeli istisnadır; yalnız biri bulunur (ADR-0005 madde 1, plan §4.1-1; `x-authz-exempt` ADR-0021 ile ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü genişletir) **[lint: koala-operation-authz]**.
+  - `x-authz-exempt` kimlik isteyen ama yetkilendirilecek nesnesi olmayan uç içindir (kendi oturumu için bilet gibi). Gerekçe en az 20 karakterdir; `security: []` ile birlikte kullanılmaz.
   - Biçim: `x-authz: {action: can_read, object: job}`. `action`, authz modelindeki (`model.fga`, ADR-0014, plan §5.4) `can_*` relation'ıdır; `object` aynı modeldeki tiptir.
   - Varsayılan güvenlik `marketplaceBearer`'dır (kök `security`).
 - **`/v1/admin` altındaki her operasyon** `security: [{adminBearer: []}]` ve `x-authz-permission: payout.release` taşır. Eşleme eksikse sunucu açılmaz (Faz 1) **[lint: koala-admin-permission]**. `adminBearer` ve `x-authz-permission` başka yerde kullanılmaz **[lint: koala-admin-only-under-admin]**.
 - **Sıra:** authn middleware'i (Faz 1) istek doğrulamasından önce gelir. Kimliksiz istek gövde biçimi hakkında bir şey öğrenmez (ADR-0019).
 - **Her GET operasyonu** okuduğu tabloyu `x-resource: <tablo>` ile adlandırır (`db/softdelete.yaml`'daki ad). Üretilmiş okuma testi (`softdeletetest.ReadTest`) bu operasyonlarda silinmiş nesnenin gizlendiğini sınar (ADR-0020). Zorunluluğu denetleyen vacuum kuralı ilk gerçek kaynakla gelir.
+
+- **Oran sınırı grubu:** Operasyon varsayılan grubundan (GET/HEAD/OPTIONS → `read`, diğerleri → `write`) başka bir gruba `x-rate-limit: <grup>` ile girer (`auth`, `upload`, `message`, `sitemap`, `boarding`). Grup tablosu `internal/app/edge.go`'dadır; bilinmeyen grup açılışı durdurur (ADR-0021) **[test]**.
 
 ## 12. Kullanımdan kaldırma (öneri)
 

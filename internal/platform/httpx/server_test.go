@@ -24,7 +24,7 @@ func TestHealthEndpoints(t *testing.T) {
 		}
 		return nil
 	})
-	h := httpx.NewRouter(logger, health)
+	h := newRouter(t, logger, health)
 
 	if rec := do(h, http.MethodGet, "/livez", nil); rec.Code != http.StatusOK {
 		t.Fatalf("/livez = %d", rec.Code)
@@ -64,7 +64,7 @@ func startTestServer(t *testing.T, opts httpx.ServerOptions) *testServer {
 	t.Helper()
 	logger, _ := newLogger()
 	health := httpx.NewHealth(logger)
-	router := httpx.NewRouter(logger, health)
+	router := newRouter(t, logger, health)
 
 	started := make(chan struct{})
 	var startOnce sync.Once
@@ -81,7 +81,7 @@ func startTestServer(t *testing.T, opts httpx.ServerOptions) *testServer {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httpx.NewServer(router, health, logger, opts)
+	srv := httpx.NewServer(withClient(router), health, logger, opts)
 	ctx, cancel := context.WithCancel(context.Background())
 	served := make(chan error, 1)
 	done := make(chan struct{})

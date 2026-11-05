@@ -252,7 +252,10 @@ func (h *Hub) heartbeat(ctx context.Context, ws *websocket.Conn, c *client, done
 	defer ping.Stop()
 	session := time.NewTicker(h.opts.SessionCheckInterval)
 	defer session.Stop()
-	var idle time.Duration
+	var (
+		idle     time.Duration
+		failures int
+	)
 	for {
 		select {
 		case <-done:
@@ -260,7 +263,10 @@ func (h *Hub) heartbeat(ctx context.Context, ws *websocket.Conn, c *client, done
 		case <-c.closing:
 			return
 		case <-session.C:
-			h.recheckSession(ctx, c)
+			failures = h.recheckSession(ctx, c, failures)
+			if c.isClosing() {
+				return
+			}
 			continue
 		case <-ping.C:
 		}
@@ -281,19 +287,31 @@ func (h *Hub) heartbeat(ctx context.Context, ws *websocket.Conn, c *client, done
 	}
 }
 
-// recheckSession closes c with CloseSessionRevoked when its session ended.
-// A failed lookup keeps the connection (logged at WARN): the next check
-// retries, and a database blip must not disconnect every client at once.
-func (h *Hub) recheckSession(ctx context.Context, c *client) {
+// recheckSession closes c with CloseSessionRevoked when its session ended
+// and returns the number of consecutive failed checks: 0 after a
+// successful check, failures+1 after a failed one. A failed lookup is
+// logged at WARN and, below MaxSessionCheckFailures, keeps the connection:
+// a database blip must not disconnect every client at once. The failure
+// that reaches MaxSessionCheckFailures closes the connection with 1013
+// (try again later); the client reconnects, and a new ticket needs an
+// active session (ADR-0022).
+func (h *Hub) recheckSession(ctx context.Context, c *client, failures int) int {
 	err := h.checkSession(ctx, c.principal)
 	var ae *apperr.Error
 	switch {
 	case err == nil:
+		return 0
 	case errors.As(err, &ae) && ae.Kind == apperr.KindUnauthenticated:
 		h.closeClient(c, CloseSessionRevoked, "session revoked")
-	default:
-		h.logger.WarnContext(ctx, "realtime session check failed",
-			slog.String("connection_id", c.id),
-			slog.Any("error", err))
+		return 0
 	}
+	failures++
+	h.logger.WarnContext(ctx, "realtime session check failed",
+		slog.String("connection_id", c.id),
+		slog.Int("consecutive_failures", failures),
+		slog.Any("error", err))
+	if failures >= h.opts.MaxSessionCheckFailures {
+		h.closeClient(c, websocket.StatusTryAgainLater, "session check unavailable")
+	}
+	return failures
 }

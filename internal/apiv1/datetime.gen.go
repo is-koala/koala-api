@@ -6,6 +6,7 @@ package apiv1
 import (
 	"time"
 
+	"github.com/is-koala/koala-api/internal/platform/jsontime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
@@ -33,7 +34,8 @@ type TimeZone = string
 
 // Timestamp Anlık zaman, RFC 3339, UTC ve `Z` ile (`2026-08-27T06:30:00Z`; K11). Ofsetli
 // değer kabul edilmez: hem sunucu hem istemci UTC yazar. Alan adı `At` ile
-// biter (`createdAt`).
+// biter (`createdAt`). Sunucuda tipi `jsontime.UTC`'dir: başka dilimde verilen
+// zaman da yazılırken UTC'ye çevrilir (ADR-0021).
 //
 // Examples: 2026-08-27T06:30:00Z
-type Timestamp = time.Time
+type Timestamp = jsontime.UTC

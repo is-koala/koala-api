@@ -8,24 +8,47 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/log"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
+	"github.com/is-koala/koala-api/internal/realtime"
 )
+
+// unlimitedGroups keeps the rate limits out of tests about other things.
+func unlimitedGroups() map[string]httpx.GroupLimits {
+	groups := rateLimitGroups()
+	unlimited := httpx.Rate{Every: time.Nanosecond, Burst: 1 << 30}
+	for name := range groups {
+		groups[name] = httpx.GroupLimits{PerIP: unlimited, PerIdentity: unlimited, PerCustom: unlimited}
+	}
+	return groups
+}
 
 func newAPIRouter(tb testing.TB, env config.Env) http.Handler {
 	tb.Helper()
 	logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
-	router := httpx.NewRouter(logger, httpx.NewHealth(logger))
-	if err := mountAPI(context.Background(), router, logger, env); err != nil {
+	router, err := newRouter(context.Background(), config.Config{Env: env}, logger, httpx.NewHealth(logger),
+		prometheus.NewRegistry(), unlimitedGroups())
+	if err != nil {
 		tb.Fatal(err)
 	}
 	return router
+}
+
+// setClient sets the headers of a current iOS build.
+func setClient(h http.Header) {
+	h.Set(httpx.HeaderClientPlatform, string(httpx.PlatformIOS))
+	h.Set(httpx.HeaderAppVersion, "1.0.0")
+	h.Set(httpx.HeaderDeviceID, "app-test-device-01")
 }
 
 func ping(h http.Handler, contentType, body string) *httptest.ResponseRecorder {
@@ -36,6 +59,7 @@ func callPing(h http.Handler, method, contentType, body string) *httptest.Respon
 	req := httptest.NewRequestWithContext(context.Background(), method, "/v1/meta/ping", strings.NewReader(body))
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set(httpx.HeaderRequestID, "req-1")
+	setClient(req.Header)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
@@ -152,7 +176,9 @@ func TestPingWrongMethodIsProblem(t *testing.T) {
 
 	h := newAPIRouter(t, config.EnvTest)
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/meta/ping", http.NoBody))
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/meta/ping", http.NoBody)
+	setClient(req.Header)
+	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != "POST, PATCH" {
 		t.Fatalf("status %d, Allow %q", rec.Code, rec.Header().Get("Allow"))
 	}
@@ -169,6 +195,7 @@ func TestPingIsNotMountedInProduction(t *testing.T) {
 			strings.NewReader(`{"amount":{"amount":1,"currency":"TRY"}}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set(httpx.HeaderRequestID, "req-1")
+		setClient(req.Header)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 
@@ -258,13 +285,13 @@ func TestBindErrorIsALoggedServerError(t *testing.T) {
 	}
 }
 
-// Every code the platform returns (HTTP, soft-delete) is in the contract's
-// ErrorCode list, from which the clients' code lists are generated
-// (ADR-0007 madde 5).
+// Every code the platform returns (HTTP, soft-delete, realtime) is in the
+// contract's ErrorCode list, from which the clients' code lists are
+// generated (ADR-0007 madde 5).
 func TestPlatformCodesAreInTheContract(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range append(httpx.PlatformCodes(), softdelete.Codes()...) {
+	for _, c := range slices.Concat(httpx.PlatformCodes(), softdelete.Codes(), realtime.Codes()) {
 		if !apiv1.ErrorCode(c).Valid() {
 			t.Errorf("code %s is not in api/components/problem.yaml ErrorCode", c)
 		}

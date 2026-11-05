@@ -80,6 +80,22 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
 
 ## Dokploy
 
+**Ortam değişkenleri.** Tam liste README'deki "Yapılandırma" tablosundadır; bilinmeyen `KOALA_*` değişkeni açılışı durdurur. Burada yalnız adlar ve production kuralı yazılır, değer yazılmaz.
+
+| Değişken | Production | Not |
+|---|---|---|
+| `KOALA_ENV` | **her ortamda zorunlu** (`local`, `test`, `staging`, `production`) | Yoksa hiçbir alt komut açılmaz. |
+| `KOALA_DATABASE_URL` | zorunlu (`serve`) | sır; production'da `sslmode=require`, `verify-ca` ya da `verify-full` |
+| `KOALA_MIN_APP_VERSION` | **zorunlu (`serve`)** | En düşük desteklenen mobil sürüm (semver). Yoksa `serve` açılmaz: ayarsız kapı her derlemeyi geçirirdi (ADR-0021). Mobil zorunlu güncelleme bu değeri yükselterek yapılır. |
+| `KOALA_TRUSTED_PROXIES` | **zorunlu (`serve`)** | Traefik'in (ve önünde CDN varsa onun) adresleri ya da CIDR'ları, virgülle; IPv4'te en geniş /8, IPv6'da /32. Yoksa `serve` açılmaz: bütün istemciler proxy'nin tek oran sınırı kovasını paylaşırdı (ADR-0021). **Staging:** kod zorunlu tutmaz ama staging de Traefik arkasındaysa aynı değer verilir; verilmezse staging'deki oran sınırı ölçümleri anlamsızdır. |
+| `KOALA_METRICS_ADDR` | isteğe bağlı (`:9090`) | `/metrics`'in iç portu; aşağıdaki ağ ayarına bakın. |
+| `KOALA_SHUTDOWN_DRAIN_DELAY` | isteğe bağlı (`5s`) | `/readyz` 503'ten dinleyicinin kapanmasına kadar geçen süre. |
+| `KOALA_SHUTDOWN_TIMEOUT` | isteğe bağlı (`35s`, en az `35s`) | Süren isteklere ve WebSocket'lere verilen süre; stream'lerin zorla kapatma payı (5 sn) bunun içindedir (ADR-0022). `stop_grace_period` bu ikisinin toplamından uzun olmalı (aşağıda). |
+| `KOALA_HTTP_ADDR`, `KOALA_LOG_LEVEL` | isteğe bağlı (`:8080`, `info`) | |
+| `KOALA_OWNER_DATABASE_URL`, `KOALA_BOOTSTRAP_DATABASE_URL` | yalnız `migrate`/`maint` ve `bootstrap` adımında | sır |
+
+**Metrik portunun ağ ayarı (Dokploy).** `KOALA_METRICS_ADDR` portu Dokploy'da **yayımlanmaz** (port mapping yok) ve Traefik'e domain/route olarak **bağlanmaz**. Prometheus konteyneri uygulamayla aynı iç Docker ağına (Dokploy'un uygulama ağı ya da ayrı bir `monitoring` ağı) alınır ve `koala-api:9090`'ı oradan kazır. Uygulamanın kendisi bu ayrımı yapamaz: dinleyici bütün arayüzlerde açıktır; kısıt ağ ayarıdır.
+
 - Konteynerin durdurma süresi `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT` toplamından uzun olmalı (README'deki formül). Varsayılanlarla toplam 40 sn olduğundan **`stop_grace_period` en az 45 sn** verilir. Smoke testi SIGTERM'den sonra 50 sn bekler ve drain'i (`/readyz` 503, `/livez` 200) yoklar.
 - Sağlık kontrolü imajın kendisindedir (`koala healthcheck`, `/livez`). Dokploy'da ayrıca HTTP sağlık kontrolü tanımlanırsa `/livez` kullanılır, `/readyz` değil: DB kesintisi konteyneri yeniden başlatmamalı.
 - Dokploy'a verilen imaj `ghcr.io/is-koala/koala-api:<sürüm>@<digest>`'tir. Hareketli etiket yoktur.
@@ -101,6 +117,7 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
   - `main`: PR zorunlu, `verify` ve `image` kontrollerinin yeşili zorunlu, force-push ve silme yasak;
   - `v*` tag'leri için ruleset: oluşturma yalnız GitHub Actions'a ve yayınlayanlara açık, silme ve güncelleme yasak;
   - `production` environment'ı ve sırların oraya taşınması.
+- [ ] **Production ortam değişkenleri.** Dokploy'da `KOALA_MIN_APP_VERSION` ve `KOALA_TRUSTED_PROXIES` tanımlanır (yukarıdaki tablo); ikisi yoksa `serve` açılmaz. Prometheus `KOALA_METRICS_ADDR` portunu iç ağdan kazır; port proxy'ye açılmaz.
 - [ ] **Dokploy `stop_grace_period` ≥ 45 sn.** Formül: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT` toplamından uzun; varsayılanlarla 5 + 35 = 40 sn.
 - [ ] **Webhook sırrı ve anahtarı (Faz 9).**
   - Repo **Settings → Secrets and variables → Actions** altında `DOKPLOY_DEPLOY_WEBHOOK` sırrı tanımlanır. Değeri Dokploy'daki uygulamanın HTTPS deploy webhook URL'sidir.

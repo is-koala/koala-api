@@ -15,6 +15,8 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
+	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/jsontime"
 )
 
 // Conversations answers who takes part in a conversation. The realtime
@@ -52,6 +54,13 @@ type Options struct {
 	// session, so a revocation that DisconnectSession did not reach (for
 	// example on another instance) still ends it.
 	SessionCheckInterval time.Duration
+	// MaxSessionCheckFailures is how many periodic session checks in a row
+	// may fail (an error, not an inactive session) before the connection
+	// is closed with 1013. One failure keeps the connection, so a database
+	// blip does not disconnect everyone at once; an outage cannot keep a
+	// revoked session connected for longer than this many intervals
+	// (ADR-0022).
+	MaxSessionCheckFailures int
 	// CommandRate (per second) and CommandBurst form the command token
 	// bucket of one connection.
 	CommandRate  float64
@@ -67,25 +76,26 @@ type Options struct {
 // DefaultOptions returns the production limits.
 func DefaultOptions() Options {
 	return Options{
-		MaxMessageBytes:      64 << 10,
-		SendBuffer:           64,
-		WriteTimeout:         10 * time.Second,
-		PingInterval:         20 * time.Second,
-		IdleTimeout:          60 * time.Second,
-		HandshakeTimeout:     5 * time.Second,
-		CommandTimeout:       5 * time.Second,
-		SessionCheckInterval: time.Minute,
-		CommandRate:          5,
-		CommandBurst:         10,
-		MaxRateStrikes:       20,
-		MaxConnsPerUser:      10,
+		MaxMessageBytes:         64 << 10,
+		SendBuffer:              64,
+		WriteTimeout:            10 * time.Second,
+		PingInterval:            20 * time.Second,
+		IdleTimeout:             60 * time.Second,
+		HandshakeTimeout:        5 * time.Second,
+		CommandTimeout:          5 * time.Second,
+		SessionCheckInterval:    time.Minute,
+		MaxSessionCheckFailures: 3,
+		CommandRate:             5,
+		CommandBurst:            10,
+		MaxRateStrikes:          20,
+		MaxConnsPerUser:         10,
 	}
 }
 
 func (o *Options) validate() error {
 	var errs []error
 	if o.MaxMessageBytes <= 0 || o.SendBuffer <= 0 || o.CommandBurst <= 0 ||
-		o.MaxRateStrikes <= 0 || o.MaxConnsPerUser <= 0 || o.CommandRate <= 0 {
+		o.MaxRateStrikes <= 0 || o.MaxConnsPerUser <= 0 || o.CommandRate <= 0 || o.MaxSessionCheckFailures <= 0 {
 		errs = append(errs, errors.New("limits must be positive"))
 	}
 	if o.WriteTimeout <= 0 || o.PingInterval <= 0 || o.HandshakeTimeout <= 0 ||
@@ -197,12 +207,15 @@ func (h *Hub) StartDraining() {
 }
 
 // forceCloseWait bounds the wait after Shutdown has canceled the
-// remaining connections.
-const forceCloseWait = 5 * time.Second
+// remaining connections. It is the margin httpx.Server keeps inside
+// ShutdownTimeout for it, so the shutdown total stays DrainDelay +
+// ShutdownTimeout (README, ADR-0022).
+const forceCloseWait = httpx.StreamForceCloseMargin
 
 // Shutdown closes every connection with 1001 (going away) and waits until
 // their goroutines have returned. When ctx ends first, the remaining
-// connections are cut without a close frame and ctx's error is returned.
+// connections are cut without a close frame and ctx's error is returned,
+// within forceCloseWait.
 func (h *Hub) Shutdown(ctx context.Context) error {
 	h.mu.Lock()
 	h.draining = true
@@ -333,7 +346,7 @@ func (h *Hub) encode(typ EventType, data any) ([]byte, error) {
 	msg, err := json.Marshal(Event{
 		Type:       typ,
 		ID:         rand.Text(),
-		OccurredAt: h.clock.Now().UTC(),
+		OccurredAt: jsontime.From(h.clock.Now()),
 		Data:       raw,
 	})
 	if err != nil {

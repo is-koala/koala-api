@@ -42,6 +42,12 @@ security:
 tags:
   - name: meta
     description: Sözleşme ve sunucu sağlığıyla ilgili yardımcı uçlar.
+  - name: realtime
+    description: |
+      WebSocket kanalı (ADR-0011, ADR-0018). Bu uçlar üretilen strict sunucunun
+      parçası değildir (`internal/apiv1/oapi-codegen.yaml` `exclude-tags`):
+      `internal/realtime` onları elle bağlar, çünkü WebSocket ucu istek süre
+      sınırının dışında, `Router.Stream` ile çalışır.
 
 paths:
   /v1/meta/ping:
@@ -115,6 +121,72 @@ paths:
         default:
           $ref: "#/components/responses/InternalError"
 
+  /v1/realtime/tickets:
+    post:
+      operationId: issueRealtimeTicket
+      tags: [realtime]
+      summary: WebSocket bağlantısı için tek kullanımlık bilet verir.
+      description: |
+        Çağıranın kullanıcısına ve oturumuna bağlı, 60 saniyelik, tek kullanımlık bilet
+        döner. Bilet oturumun cihazı için verilir; handshake'te cihaz eşitliği yalnız
+        cihazını beyan eden yerel istemcide denetlenir ve bir güvence değildir. Güvence
+        tek kullanım, kısa ömür ve oturum kontrolüdür (ADR-0022). Bilet `GET /v1/realtime` handshake'inde
+        `Sec-WebSocket-Protocol: koala.v1, koala.ticket.<bilet>` ile sunulur.
+        Kullanıcı başına 5'lik burst, sonra 6 saniyede bir (ADR-0018 §2).
+      x-authz-exempt: |
+        Bilet çağıranın kendi oturumu için verilir; yetkilendirilecek bir nesne yoktur.
+        Kimlik ve oturum kontrolü yeter (ADR-0018 §2, ADR-0021).
+      x-no-idempotency-key: Bilet tek kullanımlık ve 60 saniyeliktir; tekrar eden istek yalnız yeni bir bilet üretir.
+      responses:
+        "201":
+          description: "Bilet. Yanıt önbelleğe alınmaz (`Cache-Control: no-store`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RealtimeTicket"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/realtime:
+    get:
+      operationId: connectRealtime
+      tags: [realtime]
+      summary: WebSocket bağlantısını açar (alt protokol `koala.v1`).
+      description: |
+        RFC 6455 upgrade'i. Bilet `Sec-WebSocket-Protocol` listesinde ikinci girdidir:
+        `koala.v1, koala.ticket.<bilet>`; sunucu yalnız `koala.v1`'i seçer. Bilet
+        harcanmadan önce upgrade başlıkları, origin, cihaz ve drain kontrol edilir; her
+        ret düz bir problem yanıtıdır, soket açılmaz (ADR-0018 §4). Tarayıcı
+        (`Origin` var) platform, sürüm ve cihaz başlığı gönderemez; yerel istemci
+        REST'teki başlık kuralına uyar (ADR-0021). Olay zarfı ve kapanış kodları
+        ADR-0018 §5–6'dadır.
+      security:
+        - realtimeTicket: []
+      x-authz-exempt: |
+        Kimlik biletle gelir; bağlantı hiçbir nesneyi seçmez. Hangi olayın kime
+        gideceğine sunucu authz üzerinden karar verir (ADR-0011 madde 3, ADR-0018 §7).
+      responses:
+        "101":
+          description: Protokol değişti; bağlantı `koala.v1` ile açık.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        default:
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     marketplaceBearer:
@@ -124,6 +196,14 @@ components:
       description: |
         Marketplace kullanıcısının 15 dakikalık erişim token'ı (K12). `/v1/admin`
         dışındaki korunan operasyonlarda geçerlidir.
+    realtimeTicket:
+      type: apiKey
+      in: header
+      name: Sec-WebSocket-Protocol
+      description: |
+        `POST /v1/realtime/tickets`'ten alınan tek kullanımlık bilet, alt protokol
+        listesinde `koala.ticket.<bilet>` girdisi olarak (ADR-0018 §1). Yalnız
+        `GET /v1/realtime`'da geçerlidir.
     adminBearer:
       type: http
       scheme: bearer
@@ -215,14 +295,34 @@ components:
         - set: [amount]
           cleared: [note]
 
+    RealtimeTicket:
+      type: object
+      description: |
+        WebSocket bileti (ADR-0018 §2). Değer opaktır; istemci yorumlamaz. `expiresAt`
+        biletin son kullanılabileceği andır (verilişten 60 saniye sonra).
+      required: [ticket, expiresAt]
+      properties:
+        ticket:
+          type: string
+          description: 32 rastgele baytın base64url kodlaması (43 karakter).
+          minLength: 43
+          maxLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          examples: [q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk]
+        expiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+      examples:
+        - ticket: q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk
+          expiresAt: "2026-11-05T09:01:00Z"
+
   # Ortak hata yanıtları. Her biri Problem gövdesi döner; kodlar
   # ErrorCode'dadır.
   responses:
     BadRequest:
       description: |
-        İstek sözleşmeye uymuyor (`REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`, …) ya da
-        istemci sürümü desteklenmiyor (`APP_VERSION_UNSUPPORTED`; o zaman
-        `X-Minimum-App-Version` döner).
+        İstek sözleşmeye uymuyor (`REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`,
+        `PATH_INVALID`, …) ya da istemci sürümü desteklenmiyor
+        (`APP_VERSION_UNSUPPORTED`; o zaman `X-Minimum-App-Version` döner).
       headers:
         X-Minimum-App-Version:
           $ref: "./components/headers.yaml#/components/headers/XMinimumAppVersion"
@@ -273,7 +373,16 @@ components:
           schema:
             $ref: "./components/problem.yaml#/components/schemas/Problem"
     TooManyRequests:
-      description: Oran sınırı aşıldı.
+      description: Oran sınırı aşıldı (`RATE_LIMITED` ya da uca özgü bir kod); `Retry-After` döner.
+      headers:
+        Retry-After:
+          $ref: "./components/headers.yaml#/components/headers/RetryAfter"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    ServiceUnavailable:
+      description: Örnek şu an isteği alamıyor (kapanış drain'i); `Retry-After` kadar sonra yeniden denenir.
       headers:
         Retry-After:
           $ref: "./components/headers.yaml#/components/headers/RetryAfter"

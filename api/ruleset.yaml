@@ -41,7 +41,7 @@ rules:
               pattern: "^[a-z][a-zA-Z0-9]*$"
 
   koala-operation-authz:
-    description: "Her operasyon ya `x-authz` ({action: model.fga'daki `can_*` relation'ı, object: tip}) taşır ya da `security: []` ile açıkça public'tir; ikisi birden olmaz (stil rehberi §11, ADR-0005 madde 1, ADR-0014)."
+    description: "Her operasyon ya `x-authz` ({action: model.fga'daki `can_*` relation'ı, object: tip}) taşır, ya `security: []` ile açıkça public'tir, ya da `x-authz-exempt: <gerekçe>` ile belgeli istisnadır (kimlik ister ama yetkilendirilecek nesnesi yoktur). Üçünden yalnız biri bulunur (stil rehberi §11, ADR-0005 madde 1, ADR-0014; üçüncü biçim ADR-0021 ile ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü genişletir)."
     severity: error
     given: "$.paths[*][get,put,post,patch,delete]"
     then:
@@ -65,11 +65,25 @@ rules:
                 security:
                   type: array
                   minItems: 1
+              not:
+                required: [x-authz-exempt]
             - required: [security]
               properties:
                 security:
                   type: array
                   maxItems: 0
+              not:
+                anyOf:
+                  - required: [x-authz]
+                  - required: [x-authz-exempt]
+            - required: [x-authz-exempt]
+              properties:
+                x-authz-exempt:
+                  type: string
+                  minLength: 20
+                security:
+                  type: array
+                  minItems: 1
               not:
                 required: [x-authz]
 
