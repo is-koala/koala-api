@@ -15,16 +15,18 @@ type Clock interface {
 	NewTicker(d time.Duration) Ticker
 }
 
-// Timer is a single event, like *time.Timer. As with Go 1.23+ timers, no
-// stale value is received after Stop or Reset returns.
+// Timer is a single event, like *time.Timer with Go 1.23+ semantics: the
+// channel is synchronous, so a timer whose value has not been received
+// has not fired yet. Stop and Reset therefore report true for it, and no
+// stale value is received after they return.
 type Timer interface {
 	// C delivers the time the timer fired.
 	C() <-chan time.Time
 	// Stop prevents the timer from firing. It reports whether the timer
-	// was still pending.
+	// was still pending, which includes fired but not received.
 	Stop() bool
 	// Reset makes the timer fire d from now. It reports whether the timer
-	// was still pending.
+	// was still pending, which includes fired but not received.
 	Reset(d time.Duration) bool
 }
 

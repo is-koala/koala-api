@@ -20,6 +20,18 @@ import (
 // until it has created its timer, then Advance. Advancing first would let
 // the deadline pass before the timer exists.
 //
+// Limits:
+//   - BlockUntil counts every pending timer and ticker of the clock. It
+//     cannot tell whose timer it is, and a ticker stays pending until it
+//     is stopped; a test that shares one Fake between several timers waits
+//     for the total it expects.
+//   - Advance fires a ticker once per period it passes, so Advance(time.Hour)
+//     over a millisecond ticker loops 3.6 million times. Advance in steps
+//     that fit the periods under test. Only one tick is buffered.
+//   - Nothing runs on its own: a goroutine woken by a timer runs after
+//     Advance returns, in real time. Wait for its effect with a bounded
+//     loop or a channel, not with another Advance.
+//
 // A Fake is safe for concurrent use.
 type Fake struct {
 	mu      sync.Mutex
@@ -143,15 +155,18 @@ func (f *Fake) schedule(w *waiter, d time.Duration) {
 
 // cancel disarms w and drops a value it delivered but nobody received, so
 // that nothing stale is read after Stop or Reset. It reports whether w was
-// pending. Callers hold f.mu.
+// pending: armed, or fired with its value still unreceived (Go 1.23+
+// timers count that as not fired). Callers hold f.mu.
 func (f *Fake) cancel(w *waiter) bool {
-	was := w.active
-	w.active = false
-	f.remove(w)
+	drained := false
 	select {
 	case <-w.c:
+		drained = true
 	default:
 	}
+	was := w.active || drained
+	w.active = false
+	f.remove(w)
 	f.notify()
 	return was
 }

@@ -107,14 +107,39 @@ func TestFakeTimerStop(t *testing.T) {
 	f.Advance(time.Hour)
 	empty(t, pending.C())
 
-	// Fired but not received: Stop reports false and drops the value, as
-	// Go 1.23+ timers do.
+	// Fired but not received: with Go 1.23+ synchronous timer channels the
+	// timer has not fired yet, so Stop reports true and drops the value.
 	fired := f.NewTimer(time.Second)
 	f.Advance(time.Second)
-	if fired.Stop() {
-		t.Fatal("Stop of a fired timer = true")
+	if !fired.Stop() {
+		t.Fatal("Stop of a fired, unreceived timer = false")
 	}
 	empty(t, fired.C())
+
+	// Fired and received: Stop reports false.
+	done := f.NewTimer(time.Second)
+	f.Advance(time.Second)
+	received(t, done.C())
+	if done.Stop() {
+		t.Fatal("Stop of a received timer = true")
+	}
+}
+
+// The real timer agrees: a *time.Timer whose deadline has passed but whose
+// value nobody received reports true from Stop (Go 1.23+). The sleep only
+// lets the deadline pass; it waits for no other goroutine.
+func TestRealTimerStopSemanticsMatchTheFake(t *testing.T) {
+	t.Parallel()
+	tm := clock.Real{}.NewTimer(time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
+	if !tm.Stop() {
+		t.Fatal("Stop of a fired, unreceived real timer = false")
+	}
+	select {
+	case v := <-tm.C():
+		t.Fatalf("stale value %v after Stop", v)
+	default:
+	}
 }
 
 func TestFakeTimerReset(t *testing.T) {
@@ -132,11 +157,16 @@ func TestFakeTimerReset(t *testing.T) {
 	f.Advance(time.Minute)
 	empty(t, tm.C())
 
-	// Reset of a fired, unreceived timer re-arms it without the stale value.
-	tm.Reset(time.Second)
-	f.Advance(time.Second)
+	// Reset of a received timer reports false.
 	if tm.Reset(time.Second) {
-		t.Fatal("Reset of a fired timer = true")
+		t.Fatal("Reset of a received timer = true")
+	}
+
+	// Reset of a fired, unreceived timer reports true (Go 1.23+) and
+	// re-arms it without the stale value.
+	f.Advance(time.Second)
+	if !tm.Reset(time.Second) {
+		t.Fatal("Reset of a fired, unreceived timer = false")
 	}
 	empty(t, tm.C())
 	f.Advance(time.Second)
