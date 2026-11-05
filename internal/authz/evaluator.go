@@ -120,6 +120,9 @@ type resolver struct {
 
 // conceal applies the concealment policy to a denial.
 func (r *resolver) conceal(ctx context.Context, o Object, a Action) (bool, error) {
+	if !concealed(o.Type) {
+		return false, nil
+	}
 	visibility, ok := concealUnless(o.Type, a)
 	if !ok {
 		return true, nil

@@ -152,9 +152,29 @@ linters:
             - "!**/internal/platform/db/maintdb/**"
             - "!**/internal/privacy/**"
             - "!**/internal/staff/**"
+            - "!**/internal/audit/**"
           deny:
             - pkg: github.com/is-koala/koala-api/internal/platform/db/maintdb
               desc: koala_maint queries are for restore, cleanup and anonymization only (ADR-0013)
+        # Staff management writes the relationship tables only in its
+        # store, where every write emits its authz.RelationChange (ADR-0024
+        # §10, ADR-0026; internal/archtest TestRelationWritesEmitChanges).
+        staffstore:
+          files:
+            - "**/internal/staff/**"
+            - "!**/internal/staff/store.go"
+          deny:
+            - pkg: github.com/is-koala/koala-api/internal/platform/db/maintdb
+              desc: staff management reaches koala_maint queries through store.go only (ADR-0026)
+        # Relationship tables are read for authorization only by authz
+        # (plan §5.6-4, ADR-0024 §10).
+        authzdb:
+          files:
+            - $all
+            - "!**/internal/authz/**"
+          deny:
+            - pkg: github.com/is-koala/koala-api/internal/authz/authzdb
+              desc: relationship tables are read for authorization only in internal/authz (ADR-0026)
 
     errcheck:
       check-type-assertions: true

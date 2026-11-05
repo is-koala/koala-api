@@ -3,6 +3,7 @@ package authz_test
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/is-koala/koala-api/internal/authz"
@@ -101,6 +102,35 @@ func basisHolds(mx *matrix.Matrix, key string, basis authz.Basis) bool {
 	return false
 }
 
+// TestMatrixStaffBasisNamesTheRole: every allowed staff row's basis
+// passes through a staff role object, staff_role:<id>, so the audit trail
+// shows which role granted the permission (ADR-0026).
+func TestMatrixStaffBasisNamesTheRole(t *testing.T) {
+	t.Parallel()
+	mx := loadMatrix(t)
+	ev := newMatrixEvaluator(t, mx)
+	seen := 0
+	for i := range mx.Cases {
+		c := &mx.Cases[i]
+		if !strings.HasPrefix(c.Subject, "staff:") || !c.Allowed() {
+			continue
+		}
+		seen++
+		s, _ := fixtureSubject(t, c.Subject)
+		_, relation, _ := mx.Relation(c.Action)
+		d, err := ev.Check(context.Background(), s, authz.Action(relation), fixtureObject(t, c.Object))
+		if err != nil || !d.Allowed {
+			t.Fatalf("%s: %+v, %v", c.ID, d, err)
+		}
+		if !strings.Contains(d.Basis.String(), "staff_role:") {
+			t.Errorf("%s: basis %q names no staff_role", c.ID, d.Basis)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no allowed staff row")
+	}
+}
+
 func hasDualCase(mx *matrix.Matrix, id string) bool {
 	for i := range mx.Cases {
 		if mx.Cases[i].ID == id {
@@ -119,13 +149,14 @@ func TestMatrixShape(t *testing.T) {
 	for i := range mx.Cases {
 		counts[mx.Cases[i].Engine]++
 	}
-	want := map[matrix.Engine]int{matrix.EngineBoth: 153, matrix.EngineGoOnly: 55, matrix.EngineSkip: 6}
+	// 98 staff rows (pairs S01-S26, ADR-0026) run on both engines.
+	want := map[matrix.Engine]int{matrix.EngineBoth: 251, matrix.EngineGoOnly: 55, matrix.EngineSkip: 6}
 	for engine, n := range want {
 		if counts[engine] != n {
 			t.Errorf("%s rows: %d, want %d", engine, counts[engine], n)
 		}
 	}
-	if len(mx.Cases) != 214 {
-		t.Errorf("cases: %d, want 214", len(mx.Cases))
+	if len(mx.Cases) != 312 {
+		t.Errorf("cases: %d, want 312", len(mx.Cases))
 	}
 }

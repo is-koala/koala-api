@@ -7,7 +7,7 @@
 # Alanlar
 #   action   : <nesne_tipi>.<karar eylemi>; relation karşılığı `actions:` haritasında.
 #              `go:<kural>` = model dışı Go kuralı (sahiplik, öznitelik, protokol).
-#   subject  : "anonymous" ya da "user:<id>"; fixtures.subjects içinde çözülür.
+#   subject  : "anonymous", "user:<id>" ya da "staff:<id>"; fixtures.subjects içinde çözülür.
 #   object   : "<tip>:<id>"; fixtures.objects içinde çözülür. Kullanıcılar (user:<id>)
 #              hem subjects hem objects altında listelenir.
 #   tuples   : "<nesne>#<relation>@<özne>"; özne fixtures.objects'teki bir nesne,
@@ -22,8 +22,10 @@
 #              (ön süzgeç, öznitelik, sahiplik, Scope) · skip koşmaz (gerekçe çiftte).
 #   source   : bağlayan Java testi (src/test/java/...#metot); boşsa bulunamadı.
 #
-# Kapsam: pazaryeri tarafı. Personel RBAC (uç izni + 18 dinamik kontrol) kapsam dışı;
-# kaynağı docs/faz0/authz-personel-izinleri.csv (docs/faz0/README.md).
+# Kapsam: pazaryeri tarafı ve personel RBAC'ın uç izinleri (ADR-0026): platform:koala'nın
+# 25 izin relation'ı, Java seed'indeki 10 rol ve rol DAG'ı (pair S01-S26; kaynak
+# docs/faz0/authz-personel-izinleri.csv). Personel öznesi "staff:<id>"dir. Personelin 18
+# servis içi dinamik kontrolü (PI-084-101) alanlarıyla gelir.
 # OpenFGA'ya yüklenecek tuple'lar `fixtures.tuples` listesindedir; soft-delete'li
 # nesnelerin (deleted: true) tuple'ı yoktur, Check false döner (§5.7).
 
@@ -55,6 +57,7 @@ basis:
   capability_url: "tahmin edilemez kimlik taşıyan URL"
   provider_token: "sağlayıcı ödeme token'ı"
   user_destination: "kullanıcının kendi WS kuyruğu"
+  staff_role: "personel rolünün atanmışı, doğrudan ya da rol kapsamasıyla (staff_role#assignee)"
 
 actions:
   job_assignment.read: "job_assignment#can_read"
@@ -128,6 +131,32 @@ actions:
   payment_attempt.complete_callback: "go:provider_token"
   payment_attempt.read_outcome: "go:provider_token"
   realtime_destination.subscribe: "go:ws_destination"
+  platform.audit_read: "platform#audit_read"
+  platform.badge_manage: "platform#badge_manage"
+  platform.bank_account_verify: "platform#bank_account_verify"
+  platform.category_manage: "platform#category_manage"
+  platform.company_approve: "platform#company_approve"
+  platform.content_moderate: "platform#content_moderate"
+  platform.dispute_resolve: "platform#dispute_resolve"
+  platform.finance_read: "platform#finance_read"
+  platform.flag_manage: "platform#flag_manage"
+  platform.identity_review: "platform#identity_review"
+  platform.job_read: "platform#job_read"
+  platform.note_read: "platform#note_read"
+  platform.note_write: "platform#note_write"
+  platform.payment_read: "platform#payment_read"
+  platform.payment_refund: "platform#payment_refund"
+  platform.payout_reconcile: "platform#payout_reconcile"
+  platform.payout_release: "platform#payout_release"
+  platform.role_manage: "platform#role_manage"
+  platform.settings_manage: "platform#settings_manage"
+  platform.staff_manage: "platform#staff_manage"
+  platform.staff_read: "platform#staff_read"
+  platform.user_deletion_manage: "platform#user_deletion_manage"
+  platform.user_read: "platform#user_read"
+  platform.user_read_pii: "platform#user_read_pii"
+  platform.user_role_manage: "platform#user_role_manage"
+  staff_role.assignee: "staff_role#assignee"
 
 fixtures:
   subjects:
@@ -145,6 +174,17 @@ fixtures:
     user:u_stranger: {type: user, note: "hiçbir nesneyle ilişkisi yok; img_x'i yükleyen"}
     user:u_mkt_admin: {type: user, note: "pazaryeri ROLE_ADMIN (D5: yetki vermez)"}
     user:u_deleted: {type: user, note: "soft-delete edilmiş kullanıcı; tuple'ı yok"}
+    staff:s_catalog_editor: {type: staff, note: "CATALOG_EDITOR rolü atanmış personel"}
+    staff:s_support_agent: {type: staff, note: "SUPPORT_AGENT rolü atanmış personel"}
+    staff:s_moderator: {type: staff, note: "MODERATOR rolü atanmış personel"}
+    staff:s_dispute_handler: {type: staff, note: "DISPUTE_HANDLER rolü atanmış personel"}
+    staff:s_company_approver: {type: staff, note: "COMPANY_APPROVER rolü atanmış personel"}
+    staff:s_trust_lead: {type: staff, note: "TRUST_LEAD rolü atanmış personel"}
+    staff:s_finance_analyst: {type: staff, note: "FINANCE_ANALYST rolü atanmış personel"}
+    staff:s_finance_officer: {type: staff, note: "FINANCE_OFFICER rolü atanmış personel"}
+    staff:s_auditor: {type: staff, note: "AUDITOR rolü atanmış personel"}
+    staff:s_owner: {type: staff, note: "OWNER rolü atanmış personel"}
+    staff:s_none: {type: staff, note: "hiçbir rolü olmayan personel"}
   objects:
     platform:koala: {type: platform, attrs: {}}
     company:co_1: {type: company, attrs: {"approval": "APPROVED"}}
@@ -203,6 +243,27 @@ fixtures:
     user:u_stranger: {type: user, attrs: {"is_employer": false}}
     user:u_mkt_admin: {type: user, attrs: {"is_employer": false, "marketplace_role": "ROLE_ADMIN"}}
     user:u_deleted: {type: user, attrs: {"is_employer": false, "deleted": true}}
+    staff_role:catalog_editor: {type: staff_role, attrs: {}}
+    staff_role:support_agent: {type: staff_role, attrs: {}}
+    staff_role:moderator: {type: staff_role, attrs: {}}
+    staff_role:dispute_handler: {type: staff_role, attrs: {}}
+    staff_role:company_approver: {type: staff_role, attrs: {}}
+    staff_role:trust_lead: {type: staff_role, attrs: {}}
+    staff_role:finance_analyst: {type: staff_role, attrs: {}}
+    staff_role:finance_officer: {type: staff_role, attrs: {}}
+    staff_role:auditor: {type: staff_role, attrs: {}}
+    staff_role:owner: {type: staff_role, attrs: {}}
+    staff:s_catalog_editor: {type: staff, attrs: {}}
+    staff:s_support_agent: {type: staff, attrs: {}}
+    staff:s_moderator: {type: staff, attrs: {}}
+    staff:s_dispute_handler: {type: staff, attrs: {}}
+    staff:s_company_approver: {type: staff, attrs: {}}
+    staff:s_trust_lead: {type: staff, attrs: {}}
+    staff:s_finance_analyst: {type: staff, attrs: {}}
+    staff:s_finance_officer: {type: staff, attrs: {}}
+    staff:s_auditor: {type: staff, attrs: {}}
+    staff:s_owner: {type: staff, attrs: {}}
+    staff:s_none: {type: staff, attrs: {}}
   tuples:
     - "company:co_1#admin@user:u_co_admin"
     - "company:co_1#admin@user:u_co_admin2"
@@ -269,6 +330,52 @@ fixtures:
     - "user:u_creator#itself@user:u_creator"
     - "user:u_worker#contact@user:u_creator"
     - "user:u_creator#contact@user:u_worker"
+    - "platform:koala#category_manage@staff_role:catalog_editor#assignee"
+    - "platform:koala#badge_manage@staff_role:catalog_editor#assignee"
+    - "platform:koala#user_read@staff_role:support_agent#assignee"
+    - "platform:koala#job_read@staff_role:support_agent#assignee"
+    - "platform:koala#note_read@staff_role:support_agent#assignee"
+    - "platform:koala#note_write@staff_role:support_agent#assignee"
+    - "platform:koala#content_moderate@staff_role:moderator#assignee"
+    - "platform:koala#dispute_resolve@staff_role:dispute_handler#assignee"
+    - "platform:koala#company_approve@staff_role:company_approver#assignee"
+    - "platform:koala#user_read_pii@staff_role:trust_lead#assignee"
+    - "platform:koala#user_deletion_manage@staff_role:trust_lead#assignee"
+    - "platform:koala#identity_review@staff_role:trust_lead#assignee"
+    - "platform:koala#flag_manage@staff_role:trust_lead#assignee"
+    - "platform:koala#payment_read@staff_role:finance_analyst#assignee"
+    - "platform:koala#finance_read@staff_role:finance_analyst#assignee"
+    - "platform:koala#payout_release@staff_role:finance_officer#assignee"
+    - "platform:koala#payment_refund@staff_role:finance_officer#assignee"
+    - "platform:koala#bank_account_verify@staff_role:finance_officer#assignee"
+    - "platform:koala#payout_reconcile@staff_role:finance_officer#assignee"
+    - "platform:koala#audit_read@staff_role:auditor#assignee"
+    - "platform:koala#staff_manage@staff_role:owner#assignee"
+    - "platform:koala#staff_read@staff_role:owner#assignee"
+    - "platform:koala#role_manage@staff_role:owner#assignee"
+    - "platform:koala#user_role_manage@staff_role:owner#assignee"
+    - "platform:koala#settings_manage@staff_role:owner#assignee"
+    - "staff_role:support_agent#includer@staff_role:moderator"
+    - "staff_role:support_agent#includer@staff_role:dispute_handler"
+    - "staff_role:support_agent#includer@staff_role:company_approver"
+    - "staff_role:moderator#includer@staff_role:trust_lead"
+    - "staff_role:dispute_handler#includer@staff_role:trust_lead"
+    - "staff_role:finance_analyst#includer@staff_role:finance_officer"
+    - "staff_role:catalog_editor#includer@staff_role:owner"
+    - "staff_role:trust_lead#includer@staff_role:owner"
+    - "staff_role:company_approver#includer@staff_role:owner"
+    - "staff_role:finance_officer#includer@staff_role:owner"
+    - "staff_role:auditor#includer@staff_role:owner"
+    - "staff_role:catalog_editor#assignee@staff:s_catalog_editor"
+    - "staff_role:support_agent#assignee@staff:s_support_agent"
+    - "staff_role:moderator#assignee@staff:s_moderator"
+    - "staff_role:dispute_handler#assignee@staff:s_dispute_handler"
+    - "staff_role:company_approver#assignee@staff:s_company_approver"
+    - "staff_role:trust_lead#assignee@staff:s_trust_lead"
+    - "staff_role:finance_analyst#assignee@staff:s_finance_analyst"
+    - "staff_role:finance_officer#assignee@staff:s_finance_officer"
+    - "staff_role:auditor#assignee@staff:s_auditor"
+    - "staff_role:owner#assignee@staff:s_owner"
 
 cases:
   - id: AZM-001
@@ -2776,3 +2883,1134 @@ cases:
     engine: go_only
     inventory: [AZ-076]
     source: ["src/test/java/com/exskylab/koala/core/realtime/StompSubscriptionSecurityTest.java#anUnknownDestinationIsRefusedRatherThanSilentlyAllowed"]
+  - id: AZM-215
+    pair: S01
+    action: platform.audit_read
+    subject: "staff:s_auditor"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#everyFilterNarrowsOnTheServer", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#readingTheAuditLogIsRecordedButNeverReturnsItsOwnRow", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#readingTheLogAgainAddsOneRowNotAnAvalanche", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theAuditLogIsGuardedByItsOwnPermissionAndTheRefusalIsRecorded"]
+  - id: AZM-216
+    pair: S01
+    action: platform.audit_read
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#everyFilterNarrowsOnTheServer", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#readingTheAuditLogIsRecordedButNeverReturnsItsOwnRow", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#readingTheLogAgainAddsOneRowNotAnAvalanche", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theAuditLogIsGuardedByItsOwnPermissionAndTheRefusalIsRecorded"]
+  - id: AZM-217
+    pair: S01
+    action: platform.audit_read
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#everyFilterNarrowsOnTheServer", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#readingTheAuditLogIsRecordedButNeverReturnsItsOwnRow", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#readingTheLogAgainAddsOneRowNotAnAvalanche", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theAuditLogIsGuardedByItsOwnPermissionAndTheRefusalIsRecorded"]
+  - id: AZM-218
+    pair: S01
+    action: platform.audit_read
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-032]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#everyFilterNarrowsOnTheServer", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#readingTheAuditLogIsRecordedButNeverReturnsItsOwnRow", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#readingTheLogAgainAddsOneRowNotAnAvalanche", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theAuditLogIsGuardedByItsOwnPermissionAndTheRefusalIsRecorded"]
+  - id: AZM-219
+    pair: S02
+    action: platform.badge_manage
+    subject: "staff:s_catalog_editor"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-033, PI-034, PI-035, PI-036, PI-037]
+    source: []
+  - id: AZM-220
+    pair: S02
+    action: platform.badge_manage
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-033, PI-034, PI-035, PI-036, PI-037]
+    source: []
+  - id: AZM-221
+    pair: S02
+    action: platform.badge_manage
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-033, PI-034, PI-035, PI-036, PI-037]
+    source: []
+  - id: AZM-222
+    pair: S02
+    action: platform.badge_manage
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-033, PI-034, PI-035, PI-036, PI-037]
+    source: []
+  - id: AZM-223
+    pair: S03
+    action: platform.bank_account_verify
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-013, PI-014]
+    source: ["src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#aFailedAttemptCanBeStartedAgainAndThenSucceed", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#aTransferSentFromTheRegisteredIbanVerifiesTheAccount", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#anExpiredPendingTransferDoesNotAppearOnTheStaffQueue", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#staffCanPagePendingVerificationsWithoutTheFullIban", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#staffWithoutTheFinanceDutyCannotConfirmATransfer"]
+  - id: AZM-224
+    pair: S03
+    action: platform.bank_account_verify
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-013, PI-014]
+    source: ["src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#aFailedAttemptCanBeStartedAgainAndThenSucceed", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#aTransferSentFromTheRegisteredIbanVerifiesTheAccount", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#anExpiredPendingTransferDoesNotAppearOnTheStaffQueue", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#staffCanPagePendingVerificationsWithoutTheFullIban", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#staffWithoutTheFinanceDutyCannotConfirmATransfer"]
+  - id: AZM-225
+    pair: S03
+    action: platform.bank_account_verify
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-013, PI-014]
+    source: ["src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#aFailedAttemptCanBeStartedAgainAndThenSucceed", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#aTransferSentFromTheRegisteredIbanVerifiesTheAccount", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#anExpiredPendingTransferDoesNotAppearOnTheStaffQueue", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#staffCanPagePendingVerificationsWithoutTheFullIban", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#staffWithoutTheFinanceDutyCannotConfirmATransfer"]
+  - id: AZM-226
+    pair: S03
+    action: platform.bank_account_verify
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-013, PI-014]
+    source: ["src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#aFailedAttemptCanBeStartedAgainAndThenSucceed", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#aTransferSentFromTheRegisteredIbanVerifiesTheAccount", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#anExpiredPendingTransferDoesNotAppearOnTheStaffQueue", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#staffCanPagePendingVerificationsWithoutTheFullIban", "src/test/java/com/exskylab/koala/webAPI/IbanVerificationIT.java#staffWithoutTheFinanceDutyCannotConfirmATransfer"]
+  - id: AZM-227
+    pair: S04
+    action: platform.category_manage
+    subject: "staff:s_catalog_editor"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-044, PI-045, PI-046, PI-047]
+    source: ["src/test/java/com/exskylab/koala/dataAccess/StaffRecoveryRunbookIT.java#theRunbookUpdateUnlocksTheLastOwnerAndForcesAPasswordChangeOnTheNextSignIn", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#deactivatingAStaffMemberKillsTheirOpenTokens", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aFreshAccountMustChangeItsPasswordBeforeReachingAnythingElse", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aStaffMemberSignsInWithEmailAndPasswordAndReachesTheirOwnPermissions"]
+  - id: AZM-228
+    pair: S04
+    action: platform.category_manage
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-044, PI-045, PI-046, PI-047]
+    source: ["src/test/java/com/exskylab/koala/dataAccess/StaffRecoveryRunbookIT.java#theRunbookUpdateUnlocksTheLastOwnerAndForcesAPasswordChangeOnTheNextSignIn", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#deactivatingAStaffMemberKillsTheirOpenTokens", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aFreshAccountMustChangeItsPasswordBeforeReachingAnythingElse", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aStaffMemberSignsInWithEmailAndPasswordAndReachesTheirOwnPermissions"]
+  - id: AZM-229
+    pair: S04
+    action: platform.category_manage
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-044, PI-045, PI-046, PI-047]
+    source: ["src/test/java/com/exskylab/koala/dataAccess/StaffRecoveryRunbookIT.java#theRunbookUpdateUnlocksTheLastOwnerAndForcesAPasswordChangeOnTheNextSignIn", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#deactivatingAStaffMemberKillsTheirOpenTokens", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aFreshAccountMustChangeItsPasswordBeforeReachingAnythingElse", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aStaffMemberSignsInWithEmailAndPasswordAndReachesTheirOwnPermissions"]
+  - id: AZM-230
+    pair: S04
+    action: platform.category_manage
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-044, PI-045, PI-046, PI-047]
+    source: ["src/test/java/com/exskylab/koala/dataAccess/StaffRecoveryRunbookIT.java#theRunbookUpdateUnlocksTheLastOwnerAndForcesAPasswordChangeOnTheNextSignIn", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#deactivatingAStaffMemberKillsTheirOpenTokens", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aFreshAccountMustChangeItsPasswordBeforeReachingAnythingElse", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aStaffMemberSignsInWithEmailAndPasswordAndReachesTheirOwnPermissions"]
+  - id: AZM-231
+    pair: S05
+    action: platform.company_approve
+    subject: "staff:s_company_approver"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-015, PI-016, PI-017, PI-018, PI-019]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aModeratorCannotReadACompany", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#aMissingGalleryImageIsNotFoundAndFinanceCannotDownload", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#anApprovedCompanyCannotBeRejected", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#anOperatorRejectsAnApplicationWithAReasonAndItLeavesTheQueue", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#approvalStillWorksWithNoBodyAtAllAndAcceptsANoteWhenGiven", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#theReviewCarriesContactsJobCountProfileFieldsAndTheDecidingStaffMember"]
+  - id: AZM-232
+    pair: S05
+    action: platform.company_approve
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-015, PI-016, PI-017, PI-018, PI-019]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aModeratorCannotReadACompany", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#aMissingGalleryImageIsNotFoundAndFinanceCannotDownload", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#anApprovedCompanyCannotBeRejected", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#anOperatorRejectsAnApplicationWithAReasonAndItLeavesTheQueue", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#approvalStillWorksWithNoBodyAtAllAndAcceptsANoteWhenGiven", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#theReviewCarriesContactsJobCountProfileFieldsAndTheDecidingStaffMember"]
+  - id: AZM-233
+    pair: S05
+    action: platform.company_approve
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-015, PI-016, PI-017, PI-018, PI-019]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aModeratorCannotReadACompany", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#aMissingGalleryImageIsNotFoundAndFinanceCannotDownload", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#anApprovedCompanyCannotBeRejected", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#anOperatorRejectsAnApplicationWithAReasonAndItLeavesTheQueue", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#approvalStillWorksWithNoBodyAtAllAndAcceptsANoteWhenGiven", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#theReviewCarriesContactsJobCountProfileFieldsAndTheDecidingStaffMember"]
+  - id: AZM-234
+    pair: S05
+    action: platform.company_approve
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-015, PI-016, PI-017, PI-018, PI-019]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aModeratorCannotReadACompany", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#aMissingGalleryImageIsNotFoundAndFinanceCannotDownload", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#anApprovedCompanyCannotBeRejected", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#anOperatorRejectsAnApplicationWithAReasonAndItLeavesTheQueue", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#approvalStillWorksWithNoBodyAtAllAndAcceptsANoteWhenGiven", "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#theReviewCarriesContactsJobCountProfileFieldsAndTheDecidingStaffMember"]
+  - id: AZM-235
+    pair: S06
+    action: platform.content_moderate
+    subject: "staff:s_moderator"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-012, PI-053, PI-054, PI-055]
+    source: []
+  - id: AZM-236
+    pair: S06
+    action: platform.content_moderate
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-012, PI-053, PI-054, PI-055]
+    source: []
+  - id: AZM-237
+    pair: S06
+    action: platform.content_moderate
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-012, PI-053, PI-054, PI-055]
+    source: []
+  - id: AZM-238
+    pair: S06
+    action: platform.content_moderate
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-012, PI-053, PI-054, PI-055]
+    source: []
+  - id: AZM-239
+    pair: S07
+    action: platform.dispute_resolve
+    subject: "staff:s_dispute_handler"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-038, PI-039, PI-040, PI-041, PI-042]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aFinanceAnalystCannotReadADispute", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#aDeniedRefundResolutionLeavesATenYearFinancialAuditRecord", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#aStaffDecisionIsPersistedAgainstTheStaffAggregate", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#staffSeesAFormerCompanyContactUploaderAsTheEmployerSide", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#theOtherPartyAndAnAuthorisedOperatorBothSeeTheSameEvidence", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#dismissedIsAResolutionNotAListStatusAndFinanceCannotReadTheQueue", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#omittingStatusKeepsThePendingQueueAndDoesNotLeakClosedRows", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#statusResolvedPagesClosedDisputesHonestlyIncludingDismissedResolutions", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#theRowNamesTheOpeningSideAndTheResolvingStaffMember", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aStaffMemberSignsInWithEmailAndPasswordAndReachesTheirOwnPermissions"]
+  - id: AZM-240
+    pair: S07
+    action: platform.dispute_resolve
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-038, PI-039, PI-040, PI-041, PI-042]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aFinanceAnalystCannotReadADispute", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#aDeniedRefundResolutionLeavesATenYearFinancialAuditRecord", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#aStaffDecisionIsPersistedAgainstTheStaffAggregate", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#staffSeesAFormerCompanyContactUploaderAsTheEmployerSide", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#theOtherPartyAndAnAuthorisedOperatorBothSeeTheSameEvidence", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#dismissedIsAResolutionNotAListStatusAndFinanceCannotReadTheQueue", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#omittingStatusKeepsThePendingQueueAndDoesNotLeakClosedRows", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#statusResolvedPagesClosedDisputesHonestlyIncludingDismissedResolutions", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#theRowNamesTheOpeningSideAndTheResolvingStaffMember", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aStaffMemberSignsInWithEmailAndPasswordAndReachesTheirOwnPermissions"]
+  - id: AZM-241
+    pair: S07
+    action: platform.dispute_resolve
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-038, PI-039, PI-040, PI-041, PI-042]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aFinanceAnalystCannotReadADispute", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#aDeniedRefundResolutionLeavesATenYearFinancialAuditRecord", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#aStaffDecisionIsPersistedAgainstTheStaffAggregate", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#staffSeesAFormerCompanyContactUploaderAsTheEmployerSide", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#theOtherPartyAndAnAuthorisedOperatorBothSeeTheSameEvidence", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#dismissedIsAResolutionNotAListStatusAndFinanceCannotReadTheQueue", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#omittingStatusKeepsThePendingQueueAndDoesNotLeakClosedRows", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#statusResolvedPagesClosedDisputesHonestlyIncludingDismissedResolutions", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#theRowNamesTheOpeningSideAndTheResolvingStaffMember", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aStaffMemberSignsInWithEmailAndPasswordAndReachesTheirOwnPermissions"]
+  - id: AZM-242
+    pair: S07
+    action: platform.dispute_resolve
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-038, PI-039, PI-040, PI-041, PI-042]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aFinanceAnalystCannotReadADispute", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#aDeniedRefundResolutionLeavesATenYearFinancialAuditRecord", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#aStaffDecisionIsPersistedAgainstTheStaffAggregate", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#staffSeesAFormerCompanyContactUploaderAsTheEmployerSide", "src/test/java/com/exskylab/koala/webAPI/DisputeEvidenceIT.java#theOtherPartyAndAnAuthorisedOperatorBothSeeTheSameEvidence", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#dismissedIsAResolutionNotAListStatusAndFinanceCannotReadTheQueue", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#omittingStatusKeepsThePendingQueueAndDoesNotLeakClosedRows", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#statusResolvedPagesClosedDisputesHonestlyIncludingDismissedResolutions", "src/test/java/com/exskylab/koala/webAPI/DisputeQueueIT.java#theRowNamesTheOpeningSideAndTheResolvingStaffMember", "src/test/java/com/exskylab/koala/webAPI/StaffLoginIT.java#aStaffMemberSignsInWithEmailAndPasswordAndReachesTheirOwnPermissions"]
+  - id: AZM-243
+    pair: S08
+    action: platform.finance_read
+    subject: "staff:s_finance_analyst"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-043]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#aDisputeHandlerCannotReadTheFinanceSummary", "src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#aFinanceAnalystReadsAnEmptySummaryWhenNothingSettled", "src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#theSummaryCountsStuckVerificationsAndOverdueSettlementsRegardlessOfThePeriod"]
+  - id: AZM-244
+    pair: S08
+    action: platform.finance_read
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-043]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#aDisputeHandlerCannotReadTheFinanceSummary", "src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#aFinanceAnalystReadsAnEmptySummaryWhenNothingSettled", "src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#theSummaryCountsStuckVerificationsAndOverdueSettlementsRegardlessOfThePeriod"]
+  - id: AZM-245
+    pair: S08
+    action: platform.finance_read
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-043]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#aDisputeHandlerCannotReadTheFinanceSummary", "src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#aFinanceAnalystReadsAnEmptySummaryWhenNothingSettled", "src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#theSummaryCountsStuckVerificationsAndOverdueSettlementsRegardlessOfThePeriod"]
+  - id: AZM-246
+    pair: S08
+    action: platform.finance_read
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-043]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#aDisputeHandlerCannotReadTheFinanceSummary", "src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#aFinanceAnalystReadsAnEmptySummaryWhenNothingSettled", "src/test/java/com/exskylab/koala/webAPI/AdminFinanceSummaryIT.java#theSummaryCountsStuckVerificationsAndOverdueSettlementsRegardlessOfThePeriod"]
+  - id: AZM-247
+    pair: S09
+    action: platform.flag_manage
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-064, PI-065]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aTrustLeadSetsUpdatesAndClearsAFlagWithoutDuplicatingIt", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#theBadgeReadReturnsFlagsForManyResourcesAndCapsTheBatchAtTwoHundred"]
+  - id: AZM-248
+    pair: S09
+    action: platform.flag_manage
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-064, PI-065]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aTrustLeadSetsUpdatesAndClearsAFlagWithoutDuplicatingIt", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#theBadgeReadReturnsFlagsForManyResourcesAndCapsTheBatchAtTwoHundred"]
+  - id: AZM-249
+    pair: S09
+    action: platform.flag_manage
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-064, PI-065]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aTrustLeadSetsUpdatesAndClearsAFlagWithoutDuplicatingIt", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#theBadgeReadReturnsFlagsForManyResourcesAndCapsTheBatchAtTwoHundred"]
+  - id: AZM-250
+    pair: S09
+    action: platform.flag_manage
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-064, PI-065]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aTrustLeadSetsUpdatesAndClearsAFlagWithoutDuplicatingIt", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#theBadgeReadReturnsFlagsForManyResourcesAndCapsTheBatchAtTwoHundred"]
+  - id: AZM-251
+    pair: S10
+    action: platform.identity_review
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-027, PI-028, PI-029, PI-030, PI-031]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aCompanyApproverCannotReadAnIdentityReview", "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aLegacyTwoPhotoReviewCanStillBeRejected", "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aTrustLeadApprovesAPendingReviewThatCarriesAllFourPhotos"]
+  - id: AZM-252
+    pair: S10
+    action: platform.identity_review
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-027, PI-028, PI-029, PI-030, PI-031]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aCompanyApproverCannotReadAnIdentityReview", "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aLegacyTwoPhotoReviewCanStillBeRejected", "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aTrustLeadApprovesAPendingReviewThatCarriesAllFourPhotos"]
+  - id: AZM-253
+    pair: S10
+    action: platform.identity_review
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-027, PI-028, PI-029, PI-030, PI-031]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aCompanyApproverCannotReadAnIdentityReview", "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aLegacyTwoPhotoReviewCanStillBeRejected", "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aTrustLeadApprovesAPendingReviewThatCarriesAllFourPhotos"]
+  - id: AZM-254
+    pair: S10
+    action: platform.identity_review
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-027, PI-028, PI-029, PI-030, PI-031]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aCompanyApproverCannotReadAnIdentityReview", "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aLegacyTwoPhotoReviewCanStillBeRejected", "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aTrustLeadApprovesAPendingReviewThatCarriesAllFourPhotos"]
+  - id: AZM-255
+    pair: S11
+    action: platform.job_read
+    subject: "staff:s_support_agent"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-009, PI-010, PI-011]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStaffMemberWithoutJobReadCannotTellThePlanFromAMissingJob", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aSupportAgentReadsThePlanWithPlatesWithoutBeingTheEmployer"]
+  - id: AZM-256
+    pair: S11
+    action: platform.job_read
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-009, PI-010, PI-011]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStaffMemberWithoutJobReadCannotTellThePlanFromAMissingJob", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aSupportAgentReadsThePlanWithPlatesWithoutBeingTheEmployer"]
+  - id: AZM-257
+    pair: S11
+    action: platform.job_read
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-009, PI-010, PI-011]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStaffMemberWithoutJobReadCannotTellThePlanFromAMissingJob", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aSupportAgentReadsThePlanWithPlatesWithoutBeingTheEmployer"]
+  - id: AZM-258
+    pair: S11
+    action: platform.job_read
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-009, PI-010, PI-011]
+    source: ["src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aStaffMemberWithoutJobReadCannotTellThePlanFromAMissingJob", "src/test/java/com/exskylab/koala/webAPI/TransportPlanIT.java#aSupportAgentReadsThePlanWithPlatesWithoutBeingTheEmployer"]
+  - id: AZM-259
+    pair: S12
+    action: platform.note_read
+    subject: "staff:s_support_agent"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-063, PI-073]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aSupportAgentWritesANoteAndReadsItBackNewestFirstWithItsAuthor", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aTrustLeadSetsUpdatesAndClearsAFlagWithoutDuplicatingIt", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderDeletesANoteAndTheRowStaysSoftDeleted", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#twoLeadsRacingToSetTheSameFlagBothSucceedAndLeaveOneActiveRow"]
+  - id: AZM-260
+    pair: S12
+    action: platform.note_read
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-063, PI-073]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aSupportAgentWritesANoteAndReadsItBackNewestFirstWithItsAuthor", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aTrustLeadSetsUpdatesAndClearsAFlagWithoutDuplicatingIt", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderDeletesANoteAndTheRowStaysSoftDeleted", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#twoLeadsRacingToSetTheSameFlagBothSucceedAndLeaveOneActiveRow"]
+  - id: AZM-261
+    pair: S12
+    action: platform.note_read
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-063, PI-073]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aSupportAgentWritesANoteAndReadsItBackNewestFirstWithItsAuthor", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aTrustLeadSetsUpdatesAndClearsAFlagWithoutDuplicatingIt", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderDeletesANoteAndTheRowStaysSoftDeleted", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#twoLeadsRacingToSetTheSameFlagBothSucceedAndLeaveOneActiveRow"]
+  - id: AZM-262
+    pair: S12
+    action: platform.note_read
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-063, PI-073]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aSupportAgentWritesANoteAndReadsItBackNewestFirstWithItsAuthor", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aTrustLeadSetsUpdatesAndClearsAFlagWithoutDuplicatingIt", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderDeletesANoteAndTheRowStaysSoftDeleted", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#twoLeadsRacingToSetTheSameFlagBothSucceedAndLeaveOneActiveRow"]
+  - id: AZM-263
+    pair: S13
+    action: platform.note_write
+    subject: "staff:s_support_agent"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-074, PI-075, PI-076, PI-095]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aSupportAgentWritesANoteAndReadsItBackNewestFirstWithItsAuthor", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderDeletesANoteAndTheRowStaysSoftDeleted", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderEditsANoteAndOthersCannotTellItExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#theBodyIsValidatedOnTheDto"]
+  - id: AZM-264
+    pair: S13
+    action: platform.note_write
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-074, PI-075, PI-076, PI-095]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aSupportAgentWritesANoteAndReadsItBackNewestFirstWithItsAuthor", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderDeletesANoteAndTheRowStaysSoftDeleted", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderEditsANoteAndOthersCannotTellItExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#theBodyIsValidatedOnTheDto"]
+  - id: AZM-265
+    pair: S13
+    action: platform.note_write
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-074, PI-075, PI-076, PI-095]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aSupportAgentWritesANoteAndReadsItBackNewestFirstWithItsAuthor", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderDeletesANoteAndTheRowStaysSoftDeleted", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderEditsANoteAndOthersCannotTellItExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#theBodyIsValidatedOnTheDto"]
+  - id: AZM-266
+    pair: S13
+    action: platform.note_write
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-074, PI-075, PI-076, PI-095]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#aSupportAgentWritesANoteAndReadsItBackNewestFirstWithItsAuthor", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderDeletesANoteAndTheRowStaysSoftDeleted", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#onlyTheAuthorOrAStaffManageHolderEditsANoteAndOthersCannotTellItExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#staffWithoutThePermissionIsRefusedIdenticallyWhetherOrNotAnythingExists", "src/test/java/com/exskylab/koala/webAPI/StaffNotesAndFlagsIT.java#theBodyIsValidatedOnTheDto"]
+  - id: AZM-267
+    pair: S14
+    action: platform.payment_read
+    subject: "staff:s_finance_analyst"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-004, PI-005, PI-006, PI-007, PI-008]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#aDisputeHandlerCannotPageAssignments", "src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#aDisputeHandlerCannotReadTheEscrowBehindAnAssignment", "src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#staffCanPageAssignmentsWithTheSameSafeSummaryAsTheDetail", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theStaffTimelineKeepsTheBoardingEvidenceAfterThePlanDropsTheSeat"]
+  - id: AZM-268
+    pair: S14
+    action: platform.payment_read
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-004, PI-005, PI-006, PI-007, PI-008]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#aDisputeHandlerCannotPageAssignments", "src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#aDisputeHandlerCannotReadTheEscrowBehindAnAssignment", "src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#staffCanPageAssignmentsWithTheSameSafeSummaryAsTheDetail", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theStaffTimelineKeepsTheBoardingEvidenceAfterThePlanDropsTheSeat"]
+  - id: AZM-269
+    pair: S14
+    action: platform.payment_read
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-004, PI-005, PI-006, PI-007, PI-008]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#aDisputeHandlerCannotPageAssignments", "src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#aDisputeHandlerCannotReadTheEscrowBehindAnAssignment", "src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#staffCanPageAssignmentsWithTheSameSafeSummaryAsTheDetail", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theStaffTimelineKeepsTheBoardingEvidenceAfterThePlanDropsTheSeat"]
+  - id: AZM-270
+    pair: S14
+    action: platform.payment_read
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-004, PI-005, PI-006, PI-007, PI-008]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#aDisputeHandlerCannotPageAssignments", "src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#aDisputeHandlerCannotReadTheEscrowBehindAnAssignment", "src/test/java/com/exskylab/koala/webAPI/AdminAssignmentReadIT.java#staffCanPageAssignmentsWithTheSameSafeSummaryAsTheDetail", "src/test/java/com/exskylab/koala/webAPI/TransportBoardingIT.java#theStaffTimelineKeepsTheBoardingEvidenceAfterThePlanDropsTheSeat"]
+  - id: AZM-271
+    pair: S15
+    action: platform.payment_refund
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-052, PI-089, PI-091]
+    source: []
+  - id: AZM-272
+    pair: S15
+    action: platform.payment_refund
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-052, PI-089, PI-091]
+    source: []
+  - id: AZM-273
+    pair: S15
+    action: platform.payment_refund
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-052, PI-089, PI-091]
+    source: []
+  - id: AZM-274
+    pair: S15
+    action: platform.payment_refund
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-052, PI-089, PI-091]
+    source: []
+  - id: AZM-275
+    pair: S16
+    action: platform.payout_reconcile
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-049, PI-050, PI-051, PI-092, PI-093, PI-094]
+    source: ["src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aFinanceAnalystIsRefusedTheQueueOutrightRatherThanHandedARedactedRow", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aFinanceOfficerSeesTheEvidenceNeededToMatchTheStatementLine", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aMarketplaceUserCannotReachTheQueue", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aPayoutWhoseWorkerDeletedTheirAccountStaysOnTheQueueWithItsEvidence", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#aMarketplaceUserCannotReachTheReconciliationEndpoint", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#reportingTheSameStatementLineTwiceStillLeavesOneCompletedPayout", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#staffWithoutTheReconcilePermissionCannotCompleteAPayout", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#theWorkerSeesTheirPayoutAsCompletedOnceTheStatementLineIsReported"]
+  - id: AZM-276
+    pair: S16
+    action: platform.payout_reconcile
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-049, PI-050, PI-051, PI-092, PI-093, PI-094]
+    source: ["src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aFinanceAnalystIsRefusedTheQueueOutrightRatherThanHandedARedactedRow", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aFinanceOfficerSeesTheEvidenceNeededToMatchTheStatementLine", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aMarketplaceUserCannotReachTheQueue", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aPayoutWhoseWorkerDeletedTheirAccountStaysOnTheQueueWithItsEvidence", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#aMarketplaceUserCannotReachTheReconciliationEndpoint", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#reportingTheSameStatementLineTwiceStillLeavesOneCompletedPayout", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#staffWithoutTheReconcilePermissionCannotCompleteAPayout", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#theWorkerSeesTheirPayoutAsCompletedOnceTheStatementLineIsReported"]
+  - id: AZM-277
+    pair: S16
+    action: platform.payout_reconcile
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-049, PI-050, PI-051, PI-092, PI-093, PI-094]
+    source: ["src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aFinanceAnalystIsRefusedTheQueueOutrightRatherThanHandedARedactedRow", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aFinanceOfficerSeesTheEvidenceNeededToMatchTheStatementLine", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aMarketplaceUserCannotReachTheQueue", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aPayoutWhoseWorkerDeletedTheirAccountStaysOnTheQueueWithItsEvidence", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#aMarketplaceUserCannotReachTheReconciliationEndpoint", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#reportingTheSameStatementLineTwiceStillLeavesOneCompletedPayout", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#staffWithoutTheReconcilePermissionCannotCompleteAPayout", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#theWorkerSeesTheirPayoutAsCompletedOnceTheStatementLineIsReported"]
+  - id: AZM-278
+    pair: S16
+    action: platform.payout_reconcile
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-049, PI-050, PI-051, PI-092, PI-093, PI-094]
+    source: ["src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aFinanceAnalystIsRefusedTheQueueOutrightRatherThanHandedARedactedRow", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aFinanceOfficerSeesTheEvidenceNeededToMatchTheStatementLine", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aMarketplaceUserCannotReachTheQueue", "src/test/java/com/exskylab/koala/webAPI/PayoutQueueIT.java#aPayoutWhoseWorkerDeletedTheirAccountStaysOnTheQueueWithItsEvidence", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#aMarketplaceUserCannotReachTheReconciliationEndpoint", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#reportingTheSameStatementLineTwiceStillLeavesOneCompletedPayout", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#staffWithoutTheReconcilePermissionCannotCompleteAPayout", "src/test/java/com/exskylab/koala/webAPI/PayoutReconciliationIT.java#theWorkerSeesTheirPayoutAsCompletedOnceTheStatementLineIsReported"]
+  - id: AZM-279
+    pair: S17
+    action: platform.payout_release
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-048, PI-089, PI-090]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFinancialActionIsKeptFarLongerThanANormalOne"]
+  - id: AZM-280
+    pair: S17
+    action: platform.payout_release
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-048, PI-089, PI-090]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFinancialActionIsKeptFarLongerThanANormalOne"]
+  - id: AZM-281
+    pair: S17
+    action: platform.payout_release
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-048, PI-089, PI-090]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFinancialActionIsKeptFarLongerThanANormalOne"]
+  - id: AZM-282
+    pair: S17
+    action: platform.payout_release
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-048, PI-089, PI-090]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFinancialActionIsKeptFarLongerThanANormalOne"]
+  - id: AZM-283
+    pair: S18
+    action: platform.role_manage
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-077, PI-078, PI-079, PI-080, PI-081, PI-082, PI-083, PI-096, PI-097, PI-098, PI-099]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aGrantRecordsWhichPermissionJoinedTheRole", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aPermissionGrantedThroughTheEndpointIsVisibleOnTheNextRead", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aRemovedInclusionStopsCarryingTheIncludedRolesPermissions", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aRevokedPermissionDisappearsFromTheRole", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#anInclusionRemovalRecordsWhichRoleLeftTheGraph", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#roleManagementCannotBeRevokedFromARoleTheActorReachesItself", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#staffCannotGiveARoleAPermissionItDoesNotHoldItself", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#staffWithoutRoleManagementIsRefusedByEveryEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#thePermissionCatalogNamesEveryGrantableCodeWithItsMetadata", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#theRoleDetailResolvesInheritedPermissionsTransitively", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#theRoleListCarriesEveryRoleWithItsOwnPermissionsAndItsDirectIncludes", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionThatReachesTheOtherBranchTransitivelyIsAlsoRefused", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionThatWouldSpanTheTrustAndFinanceBranchesIsRefused"]
+  - id: AZM-284
+    pair: S18
+    action: platform.role_manage
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-077, PI-078, PI-079, PI-080, PI-081, PI-082, PI-083, PI-096, PI-097, PI-098, PI-099]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aGrantRecordsWhichPermissionJoinedTheRole", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aPermissionGrantedThroughTheEndpointIsVisibleOnTheNextRead", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aRemovedInclusionStopsCarryingTheIncludedRolesPermissions", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aRevokedPermissionDisappearsFromTheRole", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#anInclusionRemovalRecordsWhichRoleLeftTheGraph", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#roleManagementCannotBeRevokedFromARoleTheActorReachesItself", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#staffCannotGiveARoleAPermissionItDoesNotHoldItself", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#staffWithoutRoleManagementIsRefusedByEveryEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#thePermissionCatalogNamesEveryGrantableCodeWithItsMetadata", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#theRoleDetailResolvesInheritedPermissionsTransitively", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#theRoleListCarriesEveryRoleWithItsOwnPermissionsAndItsDirectIncludes", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionThatReachesTheOtherBranchTransitivelyIsAlsoRefused", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionThatWouldSpanTheTrustAndFinanceBranchesIsRefused"]
+  - id: AZM-285
+    pair: S18
+    action: platform.role_manage
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-077, PI-078, PI-079, PI-080, PI-081, PI-082, PI-083, PI-096, PI-097, PI-098, PI-099]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aGrantRecordsWhichPermissionJoinedTheRole", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aPermissionGrantedThroughTheEndpointIsVisibleOnTheNextRead", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aRemovedInclusionStopsCarryingTheIncludedRolesPermissions", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#aRevokedPermissionDisappearsFromTheRole", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#anInclusionRemovalRecordsWhichRoleLeftTheGraph", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#roleManagementCannotBeRevokedFromARoleTheActorReachesItself", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#staffCannotGiveARoleAPermissionItDoesNotHoldItself", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#staffWithoutRoleManagementIsRefusedByEveryEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#thePermissionCatalogNamesEveryGrantableCodeWithItsMetadata", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#theRoleDetailResolvesInheritedPermissionsTransitively", "src/test/java/com/exskylab/koala/webAPI/StaffRoleAdministrationIT.java#theRoleListCarriesEveryRoleWithItsOwnPermissionsAndItsDirectIncludes", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionThatReachesTheOtherBranchTransitivelyIsAlsoRefused", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionThatWouldSpanTheTrustAndFinanceBranchesIsRefused"]
+  - id: AZM-286
+    pair: S19
+    action: platform.settings_manage
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-056, PI-057]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aDeniedRequestIsTheOnlyTraceOfAnAttemptedEscalation", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFinancialActionIsKeptFarLongerThanANormalOne", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#anAllowedChangeIsWrittenWithItsActorPermissionAndRecord", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theDeletableHalfCarriesTheBodyTheAddressAndTheClient", "src/test/java/com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#aPlainUserStillLogsInAndIsStillRefusedByTheAdminSurface", "src/test/java/com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#theMarketplaceAdminRoleNoLongerOpensTheAdminSurface", "src/test/java/com/exskylab/koala/webAPI/SettingsAdministrationIT.java#theListedSettingCarriesWhenItWasLastChanged"]
+  - id: AZM-287
+    pair: S19
+    action: platform.settings_manage
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-056, PI-057]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aDeniedRequestIsTheOnlyTraceOfAnAttemptedEscalation", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFinancialActionIsKeptFarLongerThanANormalOne", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#anAllowedChangeIsWrittenWithItsActorPermissionAndRecord", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theDeletableHalfCarriesTheBodyTheAddressAndTheClient", "src/test/java/com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#aPlainUserStillLogsInAndIsStillRefusedByTheAdminSurface", "src/test/java/com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#theMarketplaceAdminRoleNoLongerOpensTheAdminSurface", "src/test/java/com/exskylab/koala/webAPI/SettingsAdministrationIT.java#theListedSettingCarriesWhenItWasLastChanged"]
+  - id: AZM-288
+    pair: S19
+    action: platform.settings_manage
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-056, PI-057]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aDeniedRequestIsTheOnlyTraceOfAnAttemptedEscalation", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFinancialActionIsKeptFarLongerThanANormalOne", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#anAllowedChangeIsWrittenWithItsActorPermissionAndRecord", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theDeletableHalfCarriesTheBodyTheAddressAndTheClient", "src/test/java/com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#aPlainUserStillLogsInAndIsStillRefusedByTheAdminSurface", "src/test/java/com/exskylab/koala/webAPI/AuthoritiesLoginRegressionIT.java#theMarketplaceAdminRoleNoLongerOpensTheAdminSurface", "src/test/java/com/exskylab/koala/webAPI/SettingsAdministrationIT.java#theListedSettingCarriesWhenItWasLastChanged"]
+  - id: AZM-289
+    pair: S20
+    action: platform.staff_manage
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-068, PI-069, PI-070, PI-071, PI-072, PI-095, PI-100, PI-101]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anActorCannotGrantARoleWhosePermissionsTheyDoNotHold", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anOwnerCreatesAStaffMemberThatMustChangeItsPasswordOnFirstSignIn", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anOwnerUnlocksAnotherLockedStaffMemberAndAssignsAOneTimePassword", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#deactivatingAStaffMemberKillsTheirOpenTokens", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#grantingAndRevokingARoleIsWrittenToTheAuditTrail", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#resettingAPasswordIsWrittenToTheAuditTrail", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#staffWithoutTheManagePermissionAreRefusedByEveryWritingEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theSameEmailCannotBeRegisteredTwice", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#aMembershipWithinASingleBranchIsStillGranted", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionIsRefusedWhenItWouldSpanTheBranchesForStaffAlreadyCarryingTheParent"]
+  - id: AZM-290
+    pair: S20
+    action: platform.staff_manage
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-068, PI-069, PI-070, PI-071, PI-072, PI-095, PI-100, PI-101]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anActorCannotGrantARoleWhosePermissionsTheyDoNotHold", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anOwnerCreatesAStaffMemberThatMustChangeItsPasswordOnFirstSignIn", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anOwnerUnlocksAnotherLockedStaffMemberAndAssignsAOneTimePassword", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#deactivatingAStaffMemberKillsTheirOpenTokens", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#grantingAndRevokingARoleIsWrittenToTheAuditTrail", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#resettingAPasswordIsWrittenToTheAuditTrail", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#staffWithoutTheManagePermissionAreRefusedByEveryWritingEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theSameEmailCannotBeRegisteredTwice", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#aMembershipWithinASingleBranchIsStillGranted", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionIsRefusedWhenItWouldSpanTheBranchesForStaffAlreadyCarryingTheParent"]
+  - id: AZM-291
+    pair: S20
+    action: platform.staff_manage
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-068, PI-069, PI-070, PI-071, PI-072, PI-095, PI-100, PI-101]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anActorCannotGrantARoleWhosePermissionsTheyDoNotHold", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anOwnerCreatesAStaffMemberThatMustChangeItsPasswordOnFirstSignIn", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#anOwnerUnlocksAnotherLockedStaffMemberAndAssignsAOneTimePassword", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#deactivatingAStaffMemberKillsTheirOpenTokens", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#grantingAndRevokingARoleIsWrittenToTheAuditTrail", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#resettingAPasswordIsWrittenToTheAuditTrail", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#staffWithoutTheManagePermissionAreRefusedByEveryWritingEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theSameEmailCannotBeRegisteredTwice", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#aMembershipWithinASingleBranchIsStillGranted", "src/test/java/com/exskylab/koala/webAPI/StaffSeparationOfDutiesIT.java#anInclusionIsRefusedWhenItWouldSpanTheBranchesForStaffAlreadyCarryingTheParent"]
+  - id: AZM-292
+    pair: S21
+    action: platform.staff_read
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-066, PI-067]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#aRejectedStaffRequestStillLeavesAnAuditRow", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#staffWithoutTheManagePermissionAreRefusedByEveryWritingEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theListAndTheDetailBothCarryTheRoleMemberships", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theStaffListIsServedWhenNoSearchTermIsGiven"]
+  - id: AZM-293
+    pair: S21
+    action: platform.staff_read
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-066, PI-067]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#aRejectedStaffRequestStillLeavesAnAuditRow", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#staffWithoutTheManagePermissionAreRefusedByEveryWritingEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theListAndTheDetailBothCarryTheRoleMemberships", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theStaffListIsServedWhenNoSearchTermIsGiven"]
+  - id: AZM-294
+    pair: S21
+    action: platform.staff_read
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-066, PI-067]
+    source: ["src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#aRejectedStaffRequestStillLeavesAnAuditRow", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#staffWithoutTheManagePermissionAreRefusedByEveryWritingEndpoint", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theListAndTheDetailBothCarryTheRoleMemberships", "src/test/java/com/exskylab/koala/webAPI/StaffAdministrationIT.java#theStaffListIsServedWhenNoSearchTermIsGiven"]
+  - id: AZM-295
+    pair: S22
+    action: platform.user_deletion_manage
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-003]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminListSearchIT.java#aDeletionRequestShowsItsBlockersAndThenTheStaffMemberWhoRejectedIt"]
+  - id: AZM-296
+    pair: S22
+    action: platform.user_deletion_manage
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-003]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminListSearchIT.java#aDeletionRequestShowsItsBlockersAndThenTheStaffMemberWhoRejectedIt"]
+  - id: AZM-297
+    pair: S22
+    action: platform.user_deletion_manage
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-003]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminListSearchIT.java#aDeletionRequestShowsItsBlockersAndThenTheStaffMemberWhoRejectedIt"]
+  - id: AZM-298
+    pair: S22
+    action: platform.user_deletion_manage
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-003]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminListSearchIT.java#aDeletionRequestShowsItsBlockersAndThenTheStaffMemberWhoRejectedIt"]
+  - id: AZM-299
+    pair: S23
+    action: platform.user_read
+    subject: "staff:s_support_agent"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-020, PI-021, PI-024]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFilteredUserSearchIsLoggedBecauseTheQueryItselfIsPersonalData", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#everyFilterNarrowsOnTheServer", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#loadingTheListWithoutAFilterIsNotLogged", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theClosedMarketplaceBridgeIsRefusedAndTheRefusalIsAudited", "src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aCatalogEditorCannotReadAUser", "src/test/java/com/exskylab/koala/webAPI/ErrorContractIT.java#aUserReachingAnAdminEndpointIsForbiddenNotAServerError", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#aPlainUserIsRefusedByAllThreeEndpoints", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingARoleRecordsWhenButNotWhoOnTheStaffPath"]
+  - id: AZM-300
+    pair: S23
+    action: platform.user_read
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-020, PI-021, PI-024]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFilteredUserSearchIsLoggedBecauseTheQueryItselfIsPersonalData", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#everyFilterNarrowsOnTheServer", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#loadingTheListWithoutAFilterIsNotLogged", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theClosedMarketplaceBridgeIsRefusedAndTheRefusalIsAudited", "src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aCatalogEditorCannotReadAUser", "src/test/java/com/exskylab/koala/webAPI/ErrorContractIT.java#aUserReachingAnAdminEndpointIsForbiddenNotAServerError", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#aPlainUserIsRefusedByAllThreeEndpoints", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingARoleRecordsWhenButNotWhoOnTheStaffPath"]
+  - id: AZM-301
+    pair: S23
+    action: platform.user_read
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-020, PI-021, PI-024]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFilteredUserSearchIsLoggedBecauseTheQueryItselfIsPersonalData", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#everyFilterNarrowsOnTheServer", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#loadingTheListWithoutAFilterIsNotLogged", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theClosedMarketplaceBridgeIsRefusedAndTheRefusalIsAudited", "src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aCatalogEditorCannotReadAUser", "src/test/java/com/exskylab/koala/webAPI/ErrorContractIT.java#aUserReachingAnAdminEndpointIsForbiddenNotAServerError", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#aPlainUserIsRefusedByAllThreeEndpoints", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingARoleRecordsWhenButNotWhoOnTheStaffPath"]
+  - id: AZM-302
+    pair: S23
+    action: platform.user_read
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-020, PI-021, PI-024]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#aFilteredUserSearchIsLoggedBecauseTheQueryItselfIsPersonalData", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#everyFilterNarrowsOnTheServer", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#loadingTheListWithoutAFilterIsNotLogged", "src/test/java/com/exskylab/koala/webAPI/AdminAuditTrailIT.java#theClosedMarketplaceBridgeIsRefusedAndTheRefusalIsAudited", "src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aCatalogEditorCannotReadAUser", "src/test/java/com/exskylab/koala/webAPI/ErrorContractIT.java#aUserReachingAnAdminEndpointIsForbiddenNotAServerError", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#aPlainUserIsRefusedByAllThreeEndpoints", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingARoleRecordsWhenButNotWhoOnTheStaffPath"]
+  - id: AZM-303
+    pair: S24
+    action: platform.user_read_pii
+    subject: "staff:s_trust_lead"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-001, PI-002, PI-022, PI-023, PI-088]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aSupportAgentCannotReadAnAccountDeletion", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aRevealByAnEmployerWhoLaterDeletedTheirAccountStaysInTheStaffTrailWithoutAName", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#staffWithThePiiPermissionSeeWhoViewedTheWorkersIdentity"]
+  - id: AZM-304
+    pair: S24
+    action: platform.user_read_pii
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-001, PI-002, PI-022, PI-023, PI-088]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aSupportAgentCannotReadAnAccountDeletion", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aRevealByAnEmployerWhoLaterDeletedTheirAccountStaysInTheStaffTrailWithoutAName", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#staffWithThePiiPermissionSeeWhoViewedTheWorkersIdentity"]
+  - id: AZM-305
+    pair: S24
+    action: platform.user_read_pii
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-001, PI-002, PI-022, PI-023, PI-088]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aSupportAgentCannotReadAnAccountDeletion", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aRevealByAnEmployerWhoLaterDeletedTheirAccountStaysInTheStaffTrailWithoutAName", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#staffWithThePiiPermissionSeeWhoViewedTheWorkersIdentity"]
+  - id: AZM-306
+    pair: S24
+    action: platform.user_read_pii
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-001, PI-002, PI-022, PI-023, PI-088]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aSupportAgentCannotReadAnAccountDeletion", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aRevealByAnEmployerWhoLaterDeletedTheirAccountStaysInTheStaffTrailWithoutAName", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#staffWithThePiiPermissionSeeWhoViewedTheWorkersIdentity"]
+  - id: AZM-307
+    pair: S24
+    action: platform.user_read_pii
+    subject: "user:u_mkt_admin"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    note: "D5: pazaryeri ROLE_ADMIN personel izni vermez"
+    inventory: [PI-001, PI-002, PI-022, PI-023, PI-088]
+    source: ["src/test/java/com/exskylab/koala/webAPI/AdminObjectReadIT.java#aSupportAgentCannotReadAnAccountDeletion", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#aRevealByAnEmployerWhoLaterDeletedTheirAccountStaysInTheStaffTrailWithoutAName", "src/test/java/com/exskylab/koala/webAPI/WorkerIdentityRevealIT.java#staffWithThePiiPermissionSeeWhoViewedTheWorkersIdentity"]
+  - id: AZM-308
+    pair: S25
+    action: platform.user_role_manage
+    subject: "staff:s_owner"
+    object: "platform:koala"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: [PI-025, PI-026]
+    source: ["src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#aPlainUserIsRefusedByAllThreeEndpoints", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#anotherAdminsRoleIsRevoked", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingARoleRecordsWhenButNotWhoOnTheStaffPath", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingTheSameRoleTwiceLeavesASingleRow"]
+  - id: AZM-309
+    pair: S25
+    action: platform.user_role_manage
+    subject: "staff:s_finance_officer"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-025, PI-026]
+    source: ["src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#aPlainUserIsRefusedByAllThreeEndpoints", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#anotherAdminsRoleIsRevoked", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingARoleRecordsWhenButNotWhoOnTheStaffPath", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingTheSameRoleTwiceLeavesASingleRow"]
+  - id: AZM-310
+    pair: S25
+    action: platform.user_role_manage
+    subject: "staff:s_none"
+    object: "platform:koala"
+    expect: deny
+    conceal: false
+    java: deny
+    java_conceal: false
+    engine: [go, openfga]
+    inventory: [PI-025, PI-026]
+    source: ["src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#aPlainUserIsRefusedByAllThreeEndpoints", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#anotherAdminsRoleIsRevoked", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingARoleRecordsWhenButNotWhoOnTheStaffPath", "src/test/java/com/exskylab/koala/webAPI/UserRoleGrantIT.java#grantingTheSameRoleTwiceLeavesASingleRow"]
+  - id: AZM-311
+    pair: S26
+    action: staff_role.assignee
+    subject: "staff:s_owner"
+    object: "staff_role:support_agent"
+    expect: allow
+    basis: staff_role
+    java: allow
+    engine: [go, openfga]
+    inventory: []
+    source: []
+  - id: AZM-312
+    pair: S26
+    action: staff_role.assignee
+    subject: "staff:s_finance_officer"
+    object: "staff_role:trust_lead"
+    expect: deny
+    conceal: true
+    java: deny
+    java_conceal: true
+    engine: [go, openfga]
+    inventory: []
+    source: []

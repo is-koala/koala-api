@@ -41,6 +41,7 @@ BASIS = {
     "capability_url": "tahmin edilemez kimlik taşıyan URL",
     "provider_token": "sağlayıcı ödeme token'ı",
     "user_destination": "kullanıcının kendi WS kuyruğu",
+    "staff_role": "personel rolünün atanmışı, doğrudan ya da rol kapsamasıyla (staff_role#assignee)",
 }
 
 # ----------------------------------------------------------------------------------
@@ -387,6 +388,105 @@ pair("realtime_destination", "subscribe", "bilinen hedef dışı SUBSCRIBE redde
       ("user:u_worker", "realtime_destination:topic_unknown", D, D, False)])
 
 # ----------------------------------------------------------------------------------
+# Personel RBAC (ADR-0026): uç izinleri platform:koala'nın 25 relation'ıdır; roller ve
+# rol DAG'ı Java seed'inden (koala-backend changelog 2026/09: 06-20, 06-21, 06-71, 07-02,
+# 08-01, 11-04, 14-01, 15-05) aynen alınır ve db/migrations/0040_staff_rbac.sql'deki seed'le
+# aynıdır (internal/authz/authzsql TestStaffMatrixOnTheDatabase bunu doğrular).
+# Satırların envanter kaynağı docs/faz0/authz-personel-izinleri.csv (PI-nnn).
+STAFF_CSV = "docs/faz0/authz-personel-izinleri.csv"
+ROLE_PERMS = {
+    "CATALOG_EDITOR": ["category.manage", "badge.manage"],
+    "SUPPORT_AGENT": ["user.read", "job.read", "note.read", "note.write"],
+    "MODERATOR": ["content.moderate"],
+    "DISPUTE_HANDLER": ["dispute.resolve"],
+    "COMPANY_APPROVER": ["company.approve"],
+    "TRUST_LEAD": ["user.read_pii", "user.deletion.manage", "identity.review", "flag.manage"],
+    "FINANCE_ANALYST": ["payment.read", "finance.read"],
+    "FINANCE_OFFICER": ["payout.release", "payment.refund", "bank.account.verify", "payout.reconcile"],
+    "AUDITOR": ["audit.read"],
+    "OWNER": ["staff.manage", "staff.read", "role.manage", "user.role.manage", "settings.manage"],
+}
+ROLE_INCLUDES = [  # (kapsayan, kapsanan)
+    ("MODERATOR", "SUPPORT_AGENT"), ("DISPUTE_HANDLER", "SUPPORT_AGENT"), ("COMPANY_APPROVER", "SUPPORT_AGENT"),
+    ("TRUST_LEAD", "MODERATOR"), ("TRUST_LEAD", "DISPUTE_HANDLER"), ("FINANCE_OFFICER", "FINANCE_ANALYST"),
+    ("OWNER", "CATALOG_EDITOR"), ("OWNER", "TRUST_LEAD"), ("OWNER", "COMPANY_APPROVER"),
+    ("OWNER", "FINANCE_OFFICER"), ("OWNER", "AUDITOR"),
+]
+# Her role bir personel; s_none hiçbir role sahip değil.
+STAFF = {f"s_{r.lower()}": r for r in ROLE_PERMS}
+STAFF["s_none"] = None
+# Ret satırının "karşı dal" öznesi: izni tutmayan ilk personel bu sırayla seçilir.
+FOILS = ["s_finance_officer", "s_trust_lead", "s_support_agent", "s_catalog_editor", "s_auditor"]
+
+
+def role_closure(role):
+    out, todo = {role}, [role]
+    while todo:
+        r = todo.pop()
+        for parent, child in ROLE_INCLUDES:
+            if parent == r and child not in out:
+                out.add(child)
+                todo.append(child)
+    return out
+
+
+def staff_perms(name):
+    role = STAFF[name]
+    if role is None:
+        return set()
+    return {p for r in role_closure(role) for p in ROLE_PERMS[r]}
+
+
+def staff_rows():
+    """PI satırları: izin kodu → (PI kimlikleri, Java testleri)."""
+    enum = {c.upper().replace(".", "_"): c for perms in ROLE_PERMS.values() for c in perms}
+    inv, src = defaultdict(list), defaultdict(set)
+    import re
+    for r in csv.DictReader(open(STAFF_CSV, encoding="utf-8")):
+        for tok in sorted(set(re.findall(r"[A-Z][A-Z_]{2,}", r["izin"]))):
+            code = enum.get(tok)
+            if code is None:
+                continue
+            inv[code].append(r["id"])
+            for col in ("java_testi_ret", "java_testi_izinli"):
+                for t in r[col].split(";"):
+                    if t.strip():
+                        src[code].add(t.strip())
+    return inv, src
+
+
+def staff_pairs():
+    """(çift, eylem, satırlar): her izin için doğrudan sahibi, OWNER (kapsamayla), karşı daldan
+    ve rolsüz personel; ayrıca pazaryeri ROLE_ADMIN'i (D5) ve iki staff_role#assignee satırı."""
+    perms = sorted({c for v in ROLE_PERMS.values() for c in v})
+    assert len(perms) == 25, perms
+    pairs = []
+    for i, code in enumerate(perms, 1):
+        rel = code.replace(".", "_")
+        holder = next(n for n, r in STAFF.items() if r and code in ROLE_PERMS[r])
+        cases = [(f"staff:{holder}", A, "staff_role")]
+        if holder != "s_owner":
+            cases.append(("staff:s_owner", A, "staff_role"))
+        foil = next(n for n in FOILS if code not in staff_perms(n))
+        cases += [(f"staff:{foil}", D, False), ("staff:s_none", D, False)]
+        if code == "user.read_pii":
+            cases.append(("user:u_mkt_admin", D, False))
+        pairs.append((f"S{i:02d}", f"platform.{rel}", f"platform#{rel}", code, cases))
+    pairs.append(("S26", "staff_role.assignee", "staff_role#assignee", None,
+                  [("staff:s_owner", A, "staff_role", "staff_role:support_agent"),
+                   ("staff:s_finance_officer", D, True, "staff_role:trust_lead")]))
+    return pairs
+
+
+STAFF_OBJECTS = {f"staff_role:{r.lower()}": {} for r in ROLE_PERMS}
+STAFF_OBJECTS.update({f"staff:{n}": {} for n in STAFF})
+STAFF_TUPLES = (
+    [f"platform:koala#{c.replace('.', '_')}@staff_role:{r.lower()}#assignee" for r, ps in ROLE_PERMS.items() for c in ps]
+    + [f"staff_role:{child.lower()}#includer@staff_role:{parent.lower()}" for parent, child in ROLE_INCLUDES]
+    + [f"staff_role:{r.lower()}#assignee@staff:{n}" for n, r in STAFF.items() if r]
+)
+
+# ----------------------------------------------------------------------------------
 USERS = {
     "u_worker": dict(is_employer=False, note="asg_ind, asg_co, asg_orphan, asg_pending, asg_done işçisi; conv_ind katılımcısı; seat_w"),
     "u_creator": dict(is_employer=True, note="bireysel işveren; job_ind ve job_closed sahibi; tmpl_c sahibi"),
@@ -540,7 +640,8 @@ def main():
         print("eşleşmeyen çiftler:", set(by) - keys, keys - set(by), file=sys.stderr)
         sys.exit(1)
 
-    subjects = {"anonymous"} | {f"user:{u}" for u in USERS}
+    OBJECTS.update(STAFF_OBJECTS)
+    subjects = {"anonymous"} | {f"user:{u}" for u in USERS} | {f"staff:{n}" for n in STAFF}
     errs = []
     used = set()
     for i, p in enumerate(P, 1):
@@ -562,7 +663,7 @@ def main():
                 except ValueError as e:
                     errs.append(f"C{i:02d} {d['subj']} {d['obj']}: {e}")
             p["ncases"].append(d)
-    for t in TUPLES:                 # tuple: <nesne>#<relation>@<özne>; özne bir nesne, user:* ya da <nesne>#<relation>
+    for t in TUPLES + STAFF_TUPLES:  # tuple: <nesne>#<relation>@<özne>; özne bir nesne, user:* ya da <nesne>#<relation>
         o, rest = t.split("#", 1)
         subj = rest.split("@", 1)[1]
         used.add(o)
@@ -570,7 +671,7 @@ def main():
             errs.append(f"tuple nesnesi fixtures.objects içinde yok: {t}")
         if subj != "user:*" and subj.split("#", 1)[0] not in OBJECTS:
             errs.append(f"tuple öznesi fixtures.objects içinde yok: {t}")
-    unused = {o for o in OBJECTS if not o.startswith("user:")} - used
+    unused = {o for o in OBJECTS if not o.startswith(("user:", "staff:"))} - used
     if unused:
         errs.append(f"kullanılmayan fikstür: {sorted(unused)}")
     if errs:
@@ -599,14 +700,20 @@ def main():
     out += ["", "actions:"]
     for p in P:
         out.append(f"  {p['obj']}.{p['act']}: {q(p['rel'])}")
+    spairs = staff_pairs()
+    for _, action, target, _, _ in spairs:
+        out.append(f"  {action}: {q(target)}")
     out += ["", "fixtures:", "  subjects:", "    anonymous: {type: anonymous}"]
     for u, ua in USERS.items():
         out.append(f"    user:{u}: {{type: user, note: {q(ua['note'])}}}")
+    for n, r in STAFF.items():
+        note = f"{r} rolü atanmış personel" if r else "hiçbir rolü olmayan personel"
+        out.append(f"    staff:{n}: {{type: staff, note: {q(note)}}}")
     out.append("  objects:")
     for o, attrs in OBJECTS.items():
         out.append(f"    {o}: {{type: {o.split(':')[0]}, attrs: {q(attrs)}}}")
     out.append("  tuples:")
-    out += [f"    - {q(t)}" for t in TUPLES]
+    out += [f"    - {q(t)}" for t in TUPLES + STAFF_TUPLES]
     out += ["", "cases:"]
     n = 0
     diff = 0
@@ -637,8 +744,41 @@ def main():
                 out.append(f"    note: {q(d['note'])}")
             out.append(f"    inventory: [{', '.join(r['id'] for r in rs)}]")
             out.append(f"    source: [{', '.join(q(x) for x in src)}]")
+    inv, srcs = staff_rows()
+    nstaff = 0
+    for pid, action, target, code, cases in spairs:
+        for c in cases:
+            subj, expect, bc = c[0], c[1], c[2]
+            obj = c[3] if len(c) > 3 else "platform:koala"
+            if subj not in subjects:
+                errs.append(f"{pid}: fixtures.subjects içinde yok: {subj}")
+            if obj not in OBJECTS:
+                errs.append(f"{pid}: fixtures.objects içinde yok: {obj}")
+            n += 1
+            nstaff += 1
+            out.append(f"  - id: AZM-{n:03d}")
+            out.append(f"    pair: {pid}")
+            out.append(f"    action: {action}")
+            out.append(f"    subject: {q(subj)}")
+            out.append(f"    object: {q(obj)}")
+            out.append(f"    expect: {expect}")
+            if expect == A:
+                out.append(f"    basis: {bc}")
+            else:
+                out.append(f"    conceal: {'true' if bc else 'false'}")
+            out.append(f"    java: {expect}")
+            if expect == D:
+                out.append(f"    java_conceal: {'true' if bc else 'false'}")
+            out.append("    engine: [go, openfga]")
+            if subj.startswith("user:"):
+                out.append(f"    note: {q('D5: pazaryeri ROLE_ADMIN personel izni vermez')}")
+            out.append(f"    inventory: [{', '.join(inv.get(code, []))}]")
+            out.append(f"    source: [{', '.join(q(x) for x in sorted(srcs.get(code, [])))}]")
+    if errs:
+        print("\n".join(errs), file=sys.stderr)
+        sys.exit(1)
     open(YAML_OUT, "w", encoding="utf-8").write("\n".join(out) + "\n")
-    print(f"{len(P)} çift, {n} matris satırı, {diff} satırda Java hedeften farklı", file=sys.stderr)
+    print(f"{len(P)} çift, {n} matris satırı ({nstaff} personel), {diff} satırda Java hedeften farklı", file=sys.stderr)
 
 
 HEADER = '''# TASLAK — internal/authz/testdata/matrix.yaml (plan §5.6-3, ADR-0014)
@@ -650,7 +790,7 @@ HEADER = '''# TASLAK — internal/authz/testdata/matrix.yaml (plan §5.6-3, ADR-
 # Alanlar
 #   action   : <nesne_tipi>.<karar eylemi>; relation karşılığı `actions:` haritasında.
 #              `go:<kural>` = model dışı Go kuralı (sahiplik, öznitelik, protokol).
-#   subject  : "anonymous" ya da "user:<id>"; fixtures.subjects içinde çözülür.
+#   subject  : "anonymous", "user:<id>" ya da "staff:<id>"; fixtures.subjects içinde çözülür.
 #   object   : "<tip>:<id>"; fixtures.objects içinde çözülür. Kullanıcılar (user:<id>)
 #              hem subjects hem objects altında listelenir.
 #   tuples   : "<nesne>#<relation>@<özne>"; özne fixtures.objects'teki bir nesne,
@@ -665,8 +805,10 @@ HEADER = '''# TASLAK — internal/authz/testdata/matrix.yaml (plan §5.6-3, ADR-
 #              (ön süzgeç, öznitelik, sahiplik, Scope) · skip koşmaz (gerekçe çiftte).
 #   source   : bağlayan Java testi (src/test/java/...#metot); boşsa bulunamadı.
 #
-# Kapsam: pazaryeri tarafı. Personel RBAC (uç izni + 18 dinamik kontrol) kapsam dışı;
-# kaynağı docs/faz0/authz-personel-izinleri.csv (docs/faz0/README.md).
+# Kapsam: pazaryeri tarafı ve personel RBAC'ın uç izinleri (ADR-0026): platform:koala'nın
+# 25 izin relation'ı, Java seed'indeki 10 rol ve rol DAG'ı (pair S01-S26; kaynak
+# docs/faz0/authz-personel-izinleri.csv). Personel öznesi "staff:<id>"dir. Personelin 18
+# servis içi dinamik kontrolü (PI-084-101) alanlarıyla gelir.
 # OpenFGA'ya yüklenecek tuple'lar `fixtures.tuples` listesindedir; soft-delete'li
 # nesnelerin (deleted: true) tuple'ı yoktur, Check false döner (§5.7).
 
