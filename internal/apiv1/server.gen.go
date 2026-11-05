@@ -183,7 +183,7 @@ type StaffPasswordChange struct {
 	// Examples: eski parola cümlesi
 	CurrentPassword string `json:"currentPassword"`
 
-	// NewPassword Yeni parola; en az 12 karakter, en çok 72 bayt.
+	// NewPassword Yeni parola; en az 15, en çok 128 karakter.
 	//
 	// Examples: yeni ve uzun bir parola
 	NewPassword string `json:"newPassword"`

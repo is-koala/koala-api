@@ -127,8 +127,9 @@ func TestPasswordHashHonorsContext(t *testing.T) {
 	}
 }
 
-// AUTH-009 (ADR-0025 §5): a new password has 12 to 128 characters; there
-// is no composition rule.
+// AUTH-009 (ADR-0025 §5): a new password has 15 to 128 characters
+// (NIST SP 800-63B-4, password as the only factor); there is no
+// composition rule.
 func TestPasswordRule(t *testing.T) {
 	t.Parallel()
 
@@ -138,9 +139,11 @@ func TestPasswordRule(t *testing.T) {
 		ok   bool
 	}{
 		{"AUTH-009/1 character", "a", false},
-		{"AUTH-009/11 characters", "abcdefghijk", false},
-		{"AUTH-009/12 characters", "abcdefghijkl", true},
-		{"AUTH-009/12 two-byte characters", "çğıöşüÇĞİÖŞÜ", true},
+		{"AUTH-009/12 characters, the old minimum", "abcdefghijkl", false},
+		{"AUTH-009/14 characters", "abcdefghijklmn", false},
+		{"AUTH-009/15 characters", "abcdefghijklmno", true},
+		{"AUTH-009/14 two-byte characters (28 bytes)", "çğıöşüÇĞİÖŞÜçğ", false},
+		{"AUTH-009/15 two-byte characters", "çğıöşüÇĞİÖŞÜçğı", true},
 		{"AUTH-009/128 characters", strings.Repeat("a", 128), true},
 		{"AUTH-009/128 two-byte characters (256 bytes)", strings.Repeat("ş", 128), true},
 		{"AUTH-009/129 characters", strings.Repeat("a", 129), false},

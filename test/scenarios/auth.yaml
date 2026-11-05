@@ -244,9 +244,13 @@ scenarios:
       - "1 karakterlik, 11 karakterlik, 73 baytlık ve rakamsız 20 karakterlik parolalar denenir"
       - "Eski kurala göre belirlenmiş 8 karakterlik parolayla giriş yapılır"
     target: >
-      ADR-0025 §5 (Yusuf, 05.11): üst sınır 72 bayt (bcrypt sınırı) yerine 128 karakter. Argon2id'de
-      72 baytın teknik gerekçesi yok; NIST SP 800-63B en az 64 karaktere izin verilmesini ister,
-      128 de hash işini sınırlar. En az 12 karakter ve bileşim şartı yokluğu aynen kalır.
+      ADR-0025 §5 (Yusuf, 05.11): en az 15, en çok 128 karakter; bileşim şartı yokluğu aynen kalır.
+      Alt sınır NIST SP 800-63B-4'ten: parola tek faktörse en az 15 karakter. Kullanıcı için de
+      personel için de parola bugün tek faktördür; personelde TOTP (Faz 8) gelince alt sınır 8'e
+      inebilir. Üst sınır 72 bayt (bcrypt sınırı) yerine 128 karakter: argon2id'de 72 baytın
+      gerekçesi yok, NIST en az 64 karaktere izin verilmesini ister, 128 hash işini de sınırlar.
+      Go testinde sınır vakaları 14 ve 15 karakter, 129 karakterdir. Mevcut kısa parolayla giriş
+      kurala takılmaz.
     then:
       - "1, 11 karakter ve 73 bayt her yüzeyde reddedilir"
       - "Rakamsız ve büyük harfsiz uzun parola kabul edilir"

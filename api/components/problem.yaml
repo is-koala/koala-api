@@ -180,7 +180,7 @@ components:
           tamamı kapatıldı (K12).
         - `AUTH_SESSION_NOT_FOUND` (404): çağıranın böyle açık bir oturumu yok; başkasınınki de aynı
           yanıtı alır (AUTH-016).
-        - `PASSWORD_POLICY_VIOLATION` (400): yeni parola en az 12 karakter, en çok 72 bayt kuralına
+        - `PASSWORD_POLICY_VIOLATION` (400): yeni parola en az 15, en çok 128 karakter kuralına
           uymuyor (AUTH-009).
         - `STAFF_LOGIN_FAILED` (401): personel hesabı yok, parola yanlış, hesap devre dışı ya da
           kilitli; dördü ayırt edilemez (AUTH-010, AUTH-011).

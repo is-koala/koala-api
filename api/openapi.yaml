@@ -479,7 +479,7 @@ paths:
       summary: Personel parolasını değiştirir.
       description: |
         Mevcut parolayı ister (`403 STAFF_CURRENT_PASSWORD_MISMATCH`). Yeni parola en az
-        12 karakter, en çok 72 bayttır (`400 PASSWORD_POLICY_VIOLATION`, AUTH-009).
+        15, en çok 128 karakterdir (`400 PASSWORD_POLICY_VIOLATION`, AUTH-009).
         Değişimden sonra isteği yapan dahil bütün token'lar ölür; personel yeniden giriş
         yapar (AUTH-013). "Parola değişmeli" işaretli hesabın erişebildiği tek uç budur
         (ve çıkış; AUTH-014).
@@ -717,7 +717,7 @@ components:
           type: string
           minLength: 1
           maxLength: 1024
-          description: Yeni parola; en az 12 karakter, en çok 72 bayt.
+          description: Yeni parola; en az 15, en çok 128 karakter.
           examples: [yeni ve uzun bir parola]
       examples:
         - currentPassword: eski parola cümlesi

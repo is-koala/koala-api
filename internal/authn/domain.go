@@ -132,12 +132,13 @@ const (
 // counting as reuse (ADR-0025 §3): a client retry, not a theft.
 const RefreshGraceWindow = 10 * time.Second
 
-// Password rule (AUTH-009, ADR-0025 §5): at least 12 and at most 128
-// characters, no composition rule. NIST SP 800-63B asks to allow at least
-// 64; the ceiling also bounds the hashing work. Sign-in accepts whatever
-// the account has.
+// Password rule (AUTH-009, ADR-0025 §5): at least 15 and at most 128
+// characters, no composition rule. NIST SP 800-63B-4 asks for 15 when the
+// password is the only factor, which it is for users and, until TOTP
+// (Faz 8), for staff; it asks to allow at least 64, and the ceiling also
+// bounds the hashing work. Sign-in accepts whatever the account has.
 const (
-	PasswordMinChars = 12
+	PasswordMinChars = 15
 	PasswordMaxChars = 128
 )
 

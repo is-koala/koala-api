@@ -253,7 +253,7 @@ func TestStaffLogoutAndPasswordChange(t *testing.T) {
 	}
 	err = e.staff.ChangePassword(ctx, p, wrongPw, newStaffPw, officeIP)
 	wantErr(t, err, apperr.KindForbidden, authn.CodeStaffCurrentPasswordMismatch)
-	err = e.staff.ChangePassword(ctx, p, opsPw, "onbir harf", officeIP)
+	err = e.staff.ChangePassword(ctx, p, opsPw, "on dört harfli", officeIP)
 	if apperr.From(err).Code != authn.CodePasswordPolicy {
 		t.Errorf("AUTH-009 on the staff surface: %v, want %s", err, authn.CodePasswordPolicy)
 	}
