@@ -1,6 +1,9 @@
 package config_test
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/netip"
@@ -33,9 +36,21 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 }
 
+// testRing is a key ring value made for this test run; no key is written
+// anywhere.
+func testRing(t *testing.T, kid string) string {
+	t.Helper()
+	seed := make([]byte, ed25519.SeedSize)
+	if _, err := rand.Read(seed); err != nil {
+		t.Fatal(err)
+	}
+	return kid + ":" + base64.RawURLEncoding.EncodeToString(seed)
+}
+
 func TestLoadReadsEveryVariable(t *testing.T) {
 	t.Parallel()
 
+	mpKeys, staffKeys := testRing(t, "mp-1"), testRing(t, "st-1")
 	cfg, err := config.Load([]string{
 		"KOALA_ENV=production",
 		"KOALA_HTTP_ADDR=127.0.0.1:9000",
@@ -48,6 +63,9 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		"KOALA_MIN_APP_VERSION=1.4.0",
 		"KOALA_TRUSTED_PROXIES=10.0.0.0/8, 192.0.2.7,2001:db8::/32",
 		"KOALA_METRICS_ADDR=:9100",
+		"KOALA_JWT_MARKETPLACE_KEYS=" + mpKeys,
+		"KOALA_JWT_STAFF_KEYS=" + staffKeys,
+		"KOALA_REALTIME_ORIGINS=https://iskoala.com",
 	})
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
@@ -68,7 +86,10 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 			netip.MustParsePrefix("192.0.2.7/32"),
 			netip.MustParsePrefix("2001:db8::/32"),
 		},
-		MetricsAddr: ":9100",
+		MetricsAddr:        ":9100",
+		JWTMarketplaceKeys: config.Secret(mpKeys),
+		JWTStaffKeys:       config.Secret(staffKeys),
+		RealtimeOrigins:    "https://iskoala.com",
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %+v, want %+v", cfg, want)
@@ -259,5 +280,60 @@ func TestSecretIsNotFormatted(t *testing.T) {
 	}
 	if !strings.Contains(cfg.DatabaseURL.Reveal(), password) {
 		t.Error("Reveal() lost the value")
+	}
+}
+
+// TestServeAuthErrors: staging and production need both key rings for
+// serve; elsewhere an unset ring is generated per process.
+func TestServeAuthErrors(t *testing.T) {
+	t.Parallel()
+
+	for _, env := range []config.Env{config.EnvLocal, config.EnvTest} {
+		if err := (config.Config{Env: env}).ServeAuthErrors(); err != nil {
+			t.Errorf("%s: ServeAuthErrors() = %v, want nil", env, err)
+		}
+	}
+	for _, env := range []config.Env{config.EnvStaging, config.EnvProduction} {
+		err := (config.Config{Env: env}).ServeAuthErrors()
+		for _, v := range []string{config.VarJWTMarketplaceKeys, config.VarJWTStaffKeys} {
+			if err == nil || !strings.Contains(err.Error(), v+": required by serve") {
+				t.Errorf("%s: ServeAuthErrors() = %v, want an error naming %s", env, err, v)
+			}
+		}
+		ok := config.Config{Env: env, JWTMarketplaceKeys: "set", JWTStaffKeys: "set"}
+		if err := ok.ServeAuthErrors(); err != nil {
+			t.Errorf("%s with both rings: ServeAuthErrors() = %v", env, err)
+		}
+	}
+}
+
+// TestLoadRejectsBadKeyRings: a malformed ring and two classes sharing a
+// key stop every command; the error never echoes a seed.
+func TestLoadRejectsBadKeyRings(t *testing.T) {
+	t.Parallel()
+
+	shared := testRing(t, "k1")
+	cases := map[string]struct {
+		environ []string
+		want    string
+	}{
+		"marketplace malformed": {[]string{"KOALA_ENV=local", "KOALA_JWT_MARKETPLACE_KEYS=k1"}, "KOALA_JWT_MARKETPLACE_KEYS: invalid value"},
+		"staff short seed":      {[]string{"KOALA_ENV=local", "KOALA_JWT_STAFF_KEYS=k1:AAAA"}, "KOALA_JWT_STAFF_KEYS: invalid value"},
+		"classes share a key": {
+			[]string{"KOALA_ENV=local", "KOALA_JWT_MARKETPLACE_KEYS=" + shared, "KOALA_JWT_STAFF_KEYS=" + shared},
+			"must not share a key",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			_, err := config.Load(tc.environ)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load() error = %v, want it to contain %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), shared) {
+				t.Errorf("error %q echoes a key", err)
+			}
+		})
 	}
 }

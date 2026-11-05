@@ -227,6 +227,16 @@ func TestRoleGrants(t *testing.T) {
 		app := map[string][]string{
 			"deletions":        {"INSERT"},           // record of deletions: insert-only, no read-back (0010_deletions.sql)
 			"example_receipts": {"SELECT", "INSERT"}, // example M1 table (dbtest testdata)
+			// M2 sessions, tokens and attempts: written directly and
+			// purged by the application (0020, 0021, ADR-0025).
+			"user_sessions":        dml,
+			"user_refresh_tokens":  dml,
+			"login_attempts":       dml,
+			"staff_sessions":       dml,
+			"staff_refresh_tokens": dml,
+			// Realtime tickets are inserted, redeemed by DELETE … RETURNING
+			// and purged; never updated (0022).
+			"realtime_tickets": {"SELECT", "INSERT", "DELETE"},
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below

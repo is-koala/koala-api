@@ -24,6 +24,13 @@ const (
 	LoginAttemptRetention = 90 * 24 * time.Hour
 )
 
+// PasswordHasher is what the services need of Passwords.
+type PasswordHasher interface {
+	Hash(ctx context.Context, password string) (string, error)
+	Verify(ctx context.Context, stored, password string) (ok, rehash bool, err error)
+	VerifyDummy(ctx context.Context, password string) error
+}
+
 // RevokeHook learns of each revoked session after the revoking
 // transaction commits. The realtime hub closes the session's connections
 // with it. It must not block.
@@ -33,7 +40,7 @@ type RevokeHook func(ctx context.Context, userID, sessionID uuid.UUID)
 type Service struct {
 	db        *db.DB
 	reads     *authndb.Queries
-	passwords *Passwords
+	passwords PasswordHasher
 	tokens    *TokenClass
 	clock     clock.Clock
 	logger    *slog.Logger
@@ -42,7 +49,7 @@ type Service struct {
 
 // NewService returns the marketplace authentication service. tokens is
 // the marketplace class.
-func NewService(database *db.DB, passwords *Passwords, tokens *TokenClass, clk clock.Clock, logger *slog.Logger, onRevoke RevokeHook) (*Service, error) {
+func NewService(database *db.DB, passwords PasswordHasher, tokens *TokenClass, clk clock.Clock, logger *slog.Logger, onRevoke RevokeHook) (*Service, error) {
 	if tokens.audience != AudienceMarketplace {
 		return nil, fmt.Errorf("authn: marketplace service needs the %s token class, got %s", AudienceMarketplace, tokens.audience)
 	}

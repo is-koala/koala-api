@@ -45,7 +45,9 @@ scenarios:
     source:              # Java deposuna göreli tam yol
       - "src/test/java/com/exskylab/koala/…/XxxIT.java#metot"
       - "src/main/java/com/exskylab/koala/…/Xxx.java:120-135"
-    go_test: null        # Go testinin tam adı: "internal/payment.TestReconcile/PAY-001"
+    go_test: null        # Go testinin tam adı ya da adlarının listesi: "internal/payment.TestReconcile/PAY-001"
+    deferred: "…"        # isteğe bağlı: fazı başlamış alanda bağlanmayan P0'ın beklediği faz ve gerekçe
+    partial: "…"         # isteğe bağlı: bağlı testlerin kuralın hangi kısmını sonraya bıraktığı
 ```
 
 ### Alan kuralları
@@ -60,7 +62,9 @@ scenarios:
   - Biçim tektir ve envanter, matris ve oracle ile aynıdır: test için `src/test/java/…/X.java#metot`, kod için `src/main/java/…/X.java:satır`.
 - **`id_prefix`** dosya başında bir kez yazılır; her `id` bu önekle başlar.
 - **API sızıntısı yok:** HTTP statüsü (403…), yol (`/admin/…`), metot (GET/POST) ve "uç" sözcüğü senaryoda geçmez. Ret iş diliyle yazılır ("izin yok hatası", "var olmayan kaynaktan ayırt edilemez").
-- **`go_test`**, Go testi yazılana kadar `null` kalır.
+- **`go_test`**, Go testi yazılana kadar `null` kalır. Kural birden çok testle kanıtlanıyorsa liste yazılır. Bağlı her test fonksiyonu, doc yorumunda ya da gövdesinde senaryo kimliğini (`AUTH-001`) taşır.
+- **`deferred`**, fazı başlamış bir alanda henüz bağlanamayan P0 için yazılır: beklediği faz ve gerekçe. `go_test` ile birlikte bulunmaz.
+- **`partial`**, bağlı testler kuralın bir kısmını sonraki bir PR'a ya da faza bırakıyorsa yazılır; kapsama raporunda ayrıca sayılır.
 
 ### Öncelik
 
@@ -72,13 +76,13 @@ scenarios:
 
 Dosya içinde P0'lar önce gelir.
 
-## CI kuralı (Faz 1'de kurulacak)
+## CI kuralı
 
-Bir Go testi her `test/scenarios/*.yaml` dosyasını okur ve şunları doğrular:
+`scenarios_test.go` her `test/scenarios/*.yaml` dosyasını katı okur (bilinmeyen alan hatadır) ve şunları doğrular:
 
-1. `id`'ler tekil ve `<id_prefix>-<nnn>` biçiminde; `id_prefix` dosya başında var.
+1. `id`'ler tekil ve `<id_prefix>-<nnn>` biçiminde; `id_prefix` dosya başında var (`TestCatalogsAreWellFormed`).
 2. `priority` ∈ {P0, P1, P2}; `source` boş değil.
-3. Alanın fazı başladıktan sonra her P0 satırının `go_test`'i dolu, test var ve geçiyor. Eksik olan kırmızıdır.
+3. Fazı başlamış alanda (`activeDomains`; Faz 1'den beri `auth`) her P0'ın ya `go_test`'i ya `deferred`'ı var, ikisi birden değil. Bağlı her test, hangi öncelikte olursa olsun, paketinin test dosyalarında var ve senaryo kimliğini taşıyor (`TestScenariosAreBoundToTests`). Testin geçtiğini kapı kanıtlar: birim testleri `make verify`, DB'li olanları `make test-integration` koşar.
 
 Kapsama oranı (P0/P1 için `go_test` dolu ve yeşil olanlar / toplam) faz çıkışında ölçülür.
 

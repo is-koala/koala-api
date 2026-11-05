@@ -23,7 +23,7 @@ import (
 type StaffService struct {
 	db        *db.DB
 	reads     *authndb.Queries
-	passwords *Passwords
+	passwords PasswordHasher
 	tokens    *TokenClass
 	clock     clock.Clock
 	logger    *slog.Logger
@@ -31,7 +31,7 @@ type StaffService struct {
 
 // NewStaffService returns the staff authentication service. tokens is the
 // staff class.
-func NewStaffService(database *db.DB, passwords *Passwords, tokens *TokenClass, clk clock.Clock, logger *slog.Logger) (*StaffService, error) {
+func NewStaffService(database *db.DB, passwords PasswordHasher, tokens *TokenClass, clk clock.Clock, logger *slog.Logger) (*StaffService, error) {
 	if tokens.audience != AudienceStaff {
 		return nil, fmt.Errorf("authn: staff service needs the %s token class, got %s", AudienceStaff, tokens.audience)
 	}

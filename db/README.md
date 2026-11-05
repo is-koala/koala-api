@@ -8,6 +8,7 @@ Veritabanı kaynakları (ADR-0012, ADR-0013, ADR-0017). İşletim: [runbook](../
   - `NNNN_river_main_vVVV.sql`: River şemasının her sürümü ayrı bir dosyadır ve `river migrate-get` çıktısıdır; elle düzenlenmez. `migrations_test.go` bu dosyaları `go.mod`'daki River sürümüyle karşılaştırır.
   - `0009_river_grants.sql`: `koala_app`'e River tablolarında DML, dizilerde `USAGE, SELECT`, River fonksiyonunda `EXECUTE` verir.
   - `0010_deletions.sql`: soft-delete kayıt tablosu `deletions` (M1, ADR-0020 Karar 5).
+  - `0020_authn_users.sql`, `0021_authn_staff.sql`, `0022_realtime_tickets.sql`: kimlik doğrulama (ADR-0025). `users`, `devices` ve `staff_members` soft-delete'li ve KVKK view'lı; oturum, refresh token, giriş denemesi ve realtime bileti tabloları M2.
   - Faz 1'in temiz baseline'ı (hedef şema) ve seed `0010`'dan sonra gelir.
 - `queries/<alan>/*.sql`: sqlc girdisi (`sqlc.yaml`, ADR-0020). Uygulama sorguları temel tablolardan değil `active_<t>` view'larından okur; `sqlc vet`'in `no-base-table` kuralı aksini reddeder. `queries/maint/*.sql` `koala_maint` sorgularıdır ve `internal/platform/db/maintdb`'ye üretilir.
 - `softdelete.yaml`: her tablonun soft-delete sınıfı (view'lı ya da gerekçeli M1–M6 muaf) ve soft-delete'li tabloya giden her FK'nin politikası (`cascade` / `restrict` / `detach`). `catalog.go` onu gömer; `TestCatalogMatchesDatabase` DB'yle eşit tutar.
