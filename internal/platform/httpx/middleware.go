@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"net"
@@ -158,8 +157,10 @@ func recoverPanic(hw *headerWatcher, r *http.Request, logger *slog.Logger) {
 }
 
 // headerWatcher records whether the response header has been sent. A status
-// code alone is not enough: Flush and Hijack commit the response without a
-// WriteHeader call, and 1xx informational headers do not commit it.
+// code alone is not enough: Flush, ReadFrom and Hijack commit the response
+// without a WriteHeader call, and 1xx informational headers do not commit
+// it. Errors from the underlying writer pass through unchanged (wrapcheck
+// exempts http.ResponseWriter, io.ReaderFrom and http.ResponseController).
 type headerWatcher struct {
 	http.ResponseWriter
 	wroteHeader bool
@@ -174,29 +175,41 @@ func (hw *headerWatcher) WriteHeader(code int) {
 
 func (hw *headerWatcher) Write(b []byte) (int, error) {
 	hw.wroteHeader = true
-	n, err := hw.ResponseWriter.Write(b)
-	if err != nil {
-		return n, fmt.Errorf("write response: %w", err)
-	}
-	return n, nil
+	return hw.ResponseWriter.Write(b)
 }
 
-// Flush implements http.Flusher. Flushing sends the header (status 200 if
-// none was set).
-func (hw *headerWatcher) Flush() {
+// ReadFrom implements io.ReaderFrom so io.Copy keeps the sendfile path of
+// the underlying writer.
+func (hw *headerWatcher) ReadFrom(r io.Reader) (int64, error) {
 	hw.wroteHeader = true
-	_ = http.NewResponseController(hw.ResponseWriter).Flush() // http.Flusher has no error return
+	if rf, ok := hw.ResponseWriter.(io.ReaderFrom); ok {
+		return rf.ReadFrom(r)
+	}
+	// Hide this method from io.Copy so it does not call ReadFrom again.
+	return io.Copy(writerOnly{hw}, r) //nolint:wrapcheck // ResponseWriter contract: the copy error passes through unchanged
 }
 
-// Hijack implements http.Hijacker; after it the response belongs to the
-// handler.
+type writerOnly struct{ io.Writer }
+
+// FlushError flushes the underlying writer; http.ResponseController uses
+// it. Flushing sends the header (status 200 if none was set).
+func (hw *headerWatcher) FlushError() error {
+	hw.wroteHeader = true
+	return http.NewResponseController(hw.ResponseWriter).Flush()
+}
+
+// Flush implements http.Flusher, which has no error return.
+func (hw *headerWatcher) Flush() { _ = hw.FlushError() }
+
+// Hijack implements http.Hijacker. After a successful hijack the
+// connection belongs to the handler; a failed one leaves the response
+// untouched.
 func (hw *headerWatcher) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	hw.wroteHeader = true
 	conn, rw, err := http.NewResponseController(hw.ResponseWriter).Hijack()
-	if err != nil {
-		return nil, nil, fmt.Errorf("hijack: %w", err)
+	if err == nil {
+		hw.wroteHeader = true
 	}
-	return conn, rw, nil
+	return conn, rw, err
 }
 
 // Unwrap lets http.ResponseController reach the underlying writer.

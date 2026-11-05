@@ -22,10 +22,20 @@ const (
 
 // RequestTimeout bounds every request's context (Timeout middleware). It is
 // shorter than the server's write timeout so handlers can still write an
-// error before net/http closes the connection. The shutdown timeout must be
-// at least this long (config.MinShutdownTimeout), so a request accepted
-// during the drain is not force-closed before its own deadline.
+// error before net/http closes the connection.
 const RequestTimeout = writeTimeout - 5*time.Second
+
+// shutdownWriteMargin is the time a request that hit RequestTimeout still
+// gets to write its (error) response.
+const shutdownWriteMargin = 5 * time.Second
+
+// MinShutdownTimeout is the shortest ShutdownTimeout that never cuts off an
+// accepted request early: a connection accepted just before the listener
+// closes may take readHeaderTimeout to send its headers, then runs for up
+// to RequestTimeout and needs shutdownWriteMargin to write the response.
+// config.MinShutdownTimeout must equal it (checked at compile time in
+// shutdown_internal_test.go).
+const MinShutdownTimeout = readHeaderTimeout + RequestTimeout + shutdownWriteMargin
 
 // ServerOptions configures the shutdown sequence.
 type ServerOptions struct {
@@ -33,7 +43,7 @@ type ServerOptions struct {
 	// closing.
 	DrainDelay time.Duration
 	// ShutdownTimeout: time in-flight requests get to finish. In
-	// production it is at least RequestTimeout; config enforces that.
+	// production it is at least MinShutdownTimeout; config enforces that.
 	ShutdownTimeout time.Duration
 }
 

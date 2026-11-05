@@ -233,6 +233,13 @@ linters:
         - errors.Join(
         - apperr.New(
         - apperr.Wrap(
+      # Response writer wrappers (httpx.headerWatcher) must pass the
+      # underlying writer's errors through unchanged.
+      ignore-sig-regexps:
+        - ^func \(\*net/http\.ResponseController\)\.(Flush|Hijack)\(
+      ignore-interface-regexps:
+        - ^http\.ResponseWriter$
+        - ^io\.ReaderFrom$
 
   exclusions:
     generated: strict

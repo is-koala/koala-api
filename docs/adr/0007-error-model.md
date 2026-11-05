@@ -26,7 +26,7 @@ Java'da `IllegalStateException → 409` gibi örtük eşlemeler var. Bunlar bir 
    - `Kind=Internal` ya da boş `Code`, istemciye her zaman `INTERNAL` olarak gider.
    - Sebep (`cause`) yalnız log'a yazılır. 5xx'ler `request_id` ile loglanır.
    - 4xx'ler ayrıca loglanmaz; erişim log'u durumu zaten yazar. Bu kısım bu PR'ın önerisi.
-   - Tek istisna gövde sınırıdır: hiçbir `*apperr.Error`'ın sarmadığı `*http.MaxBytesError`, `413 REQUEST_BODY_TOO_LARGE` olur. Handler'lar decode hatasını olduğu gibi döner.
+   - Tek istisna gövde sınırıdır: zincirinde `*http.MaxBytesError` bulunan hata, onu hiçbir `*apperr.Error` sarmıyorsa ya da saran `KindInvalid` ise `413 REQUEST_BODY_TOO_LARGE` olur. Başka bir türle (ör. `KindConflict`) bilerek sarılmışsa o tür korunur. Handler'lar decode hatasını olduğu gibi döner (PR #3 ile değişti: önce yalnız hiç sarılmamış hata 413 oluyordu).
 4. **Var olmayı gizleme** authz kararının çıktısıdır. Okuma reddi, kaynağın kendi 404 gövdesiyle bayt bayt aynı döner (§3.4, ADR-0014).
 5. **Kod kaydı:** Kodlar OpenAPI'de enum ya da `x-error-codes` olarak listelenir. İstemcilerin listesi buradan üretilir.
 

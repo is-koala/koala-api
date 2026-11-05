@@ -10,23 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
-
-// TestShutdownTimeoutCoversRequestTimeout pins config's shutdown bounds to
-// RequestTimeout: a request accepted during the drain must be able to reach
-// its own deadline before Shutdown gives up and force-closes connections.
-func TestShutdownTimeoutCoversRequestTimeout(t *testing.T) {
-	t.Parallel()
-
-	if config.MinShutdownTimeout < httpx.RequestTimeout {
-		t.Fatalf("config.MinShutdownTimeout %s < httpx.RequestTimeout %s", config.MinShutdownTimeout, httpx.RequestTimeout)
-	}
-	if config.DefaultShutdownTimeout < httpx.RequestTimeout {
-		t.Fatalf("config.DefaultShutdownTimeout %s < httpx.RequestTimeout %s", config.DefaultShutdownTimeout, httpx.RequestTimeout)
-	}
-}
 
 func TestHealthEndpoints(t *testing.T) {
 	t.Parallel()

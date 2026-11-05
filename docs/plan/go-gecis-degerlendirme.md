@@ -523,7 +523,7 @@ River onaylanmazsa: core-backend'deki `FOR UPDATE SKIP LOCKED` + lease token kal
   - Domain sayaçları adlarını korur: `koala_payment_operations_total{operation,outcome}`, `koala_payout_settlement_overdue`…
   - İş hataları için `koala_job_failures_total{kind}`. Bu, Spring'in otomatik ürettiği `tasks_scheduled_*` serisinin yerini alır.
   - `/metrics` ayrı bir iç portta yayımlanır, proxy'ye açılmaz. Bugünkü "`/actuator/prometheus` marketplace ADMIN token'ı istiyor" tuhaflığı kalkar [N01 §8.3].
-- **Sağlık**: `/livez` ve `/readyz`. Drain başlayınca readiness 503 döner; sonra HTTP 20 sn içinde boşaltılır, ardından worker iptal edilir. core-backend'in `serve.go` sırası [N05 A1].
+- **Sağlık**: `/livez` ve `/readyz`. Drain başlayınca readiness 503 döner; sonra HTTP 35 sn içinde boşaltılır (PR #3 ile değişti: 20 sn idi; alt sınır `ReadHeaderTimeout` 5 sn + istek süre sınırı 25 sn + 5 sn yazma payı), ardından worker iptal edilir. core-backend'in `serve.go` sırası [N05 A1].
 
 ### 3.11 Yapılandırma, sırlar, Docker
 

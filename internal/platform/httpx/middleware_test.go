@@ -1,11 +1,14 @@
 package httpx_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -37,6 +40,14 @@ func newTestRouter(t *testing.T) (http.Handler, *logSink) {
 		}
 		flusher.Flush()
 		panic("flushed kaboom")
+	})
+	r.Get("/panic-after-hijack", func(w http.ResponseWriter, _ *http.Request) {
+		_, _, err := http.NewResponseController(w).Hijack()
+		panic(fmt.Sprintf("kaboom after hijack (err=%v)", err))
+	})
+	r.Get("/panic-after-early-hints", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusEarlyHints)
+		panic("kaboom after 103")
 	})
 	r.Get("/abort", func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) })
 	r.Get("/deadline", func(w http.ResponseWriter, req *http.Request) {
@@ -248,6 +259,97 @@ func TestRecoverAbortsWhenFlushedWithoutWriteHeader(t *testing.T) {
 	}
 	if line := sink.find(t, "http request"); line["aborted"] != true {
 		t.Fatalf("access log = %v, want aborted", line)
+	}
+}
+
+// hijackRecorder is a ResponseRecorder that supports http.Hijacker, as the
+// net/http HTTP/1 writer does. With err set, Hijack fails.
+type hijackRecorder struct {
+	*httptest.ResponseRecorder
+	err      error
+	hijacked bool
+}
+
+func (h *hijackRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h.err != nil {
+		return nil, nil, h.err
+	}
+	h.hijacked = true
+	return nil, nil, nil
+}
+
+// TestRecoverAbortsAfterHijack: once the connection is hijacked the
+// response belongs to the handler; Recover must not write a 500 into it.
+func TestRecoverAbortsAfterHijack(t *testing.T) {
+	t.Parallel()
+
+	h, sink := newTestRouter(t)
+	w := &hijackRecorder{ResponseRecorder: httptest.NewRecorder()}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/panic-after-hijack", http.NoBody)
+	v := recovered(func() { h.ServeHTTP(w, req) })
+
+	if v != http.ErrAbortHandler { //nolint:errorlint // identity check on the recovered value
+		t.Fatalf("recovered %v, want http.ErrAbortHandler", v)
+	}
+	if !w.hijacked {
+		t.Fatal("handler did not reach the hijacker")
+	}
+	if w.Body.Len() != 0 {
+		t.Fatalf("problem written into a hijacked connection: %s", w.Body.String())
+	}
+	if logged := sink.find(t, "panic"); logged["panic"] != "kaboom after hijack (err=<nil>)" {
+		t.Fatalf("panic log = %v", logged)
+	}
+}
+
+// TestRecoverWritesProblemAfterFailedHijack: a failed hijack does not
+// commit the response, so the panic still becomes a 500 problem.
+func TestRecoverWritesProblemAfterFailedHijack(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestRouter(t)
+	w := &hijackRecorder{ResponseRecorder: httptest.NewRecorder(), err: errors.New("hijack not possible")}
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/panic-after-hijack", http.NoBody)
+	if v := recovered(func() { h.ServeHTTP(w, req) }); v != nil {
+		t.Fatalf("recovered %v, want a written 500", v)
+	}
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), `"code":"INTERNAL"`) {
+		t.Fatalf("body = %s", w.Body.String())
+	}
+}
+
+// TestRecoverWritesProblemAfterInformationalHeader: a 1xx header (here 103
+// Early Hints) does not commit the response, so the panic still becomes a
+// 500. It runs on a real server because httptest.ResponseRecorder treats
+// any first WriteHeader as final.
+func TestRecoverWritesProblemAfterInformationalHeader(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestRouter(t)
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL+"/panic-after-early-hints", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", resp.StatusCode)
+	}
+	if !strings.Contains(string(body), `"code":"INTERNAL"`) {
+		t.Fatalf("body = %s", body)
 	}
 }
 
