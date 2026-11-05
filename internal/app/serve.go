@@ -45,7 +45,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	// Faz 1: open the pgx pool here and pass its Ping as a readiness check.
 	health := httpx.NewHealth(logger)
 	router := httpx.NewRouter(logger, health)
-	// Modules mount their routes here: wireIdentity(router, ...), ...
+	if err := mountAPI(ctx, router, logger); err != nil {
+		return err
+	}
 
 	srv := httpx.NewServer(router, health, logger, httpx.ServerOptions{
 		DrainDelay:      cfg.ShutdownDrainDelay,

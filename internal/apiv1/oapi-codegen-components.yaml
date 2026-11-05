@@ -1,0 +1,13 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/oapi-codegen/oapi-codegen/v2.8.2/configuration-schema.json
+# One api/components/*.yaml file: its schemas only. The output file is given
+# with -o in generate.go. skip-prune keeps schemas no operation uses yet.
+package: apiv1
+generate:
+  models: true
+output-options:
+  skip-prune: true
+  name-normalizer: ToCamelCaseWithInitialisms
+allow-remote-refs-from: []
+# ErrorCodeInternal, not a bare INTERNAL that the next enum could clash with.
+compatibility:
+  always-prefix-enum-values: true
