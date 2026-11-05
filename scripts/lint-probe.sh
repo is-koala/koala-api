@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Proves that the depguard/forbidigo/sloglint rules in .golangci.yml fire
-# (and that depguard's platform allow/deny overlap resolves as intended).
+# (and that depguard's platform allow/deny overlap resolves as intended),
+# including the maint rule that keeps koala_maint's queries (maintdb) out of
+# application code.
 # The probe packages are generated here, linted, and always removed; they
 # are never committed. Usage: scripts/lint-probe.sh <golangci-lint binary>
 set -euo pipefail
@@ -20,10 +22,13 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/is-koala/koala-api/internal/platform/db/maintdb"
 )
 
 // F is a probe.
 func F() time.Time {
+	_ = maintdb.New
 	log.Println(http.MethodGet)
 	slog.Info("probe")
 	return time.Now()
@@ -53,6 +58,7 @@ for want in \
 	"internal/app' is not allowed from list 'platform'" \
 	"import 'log' is not allowed from list 'rejected'" \
 	"import 'net/http' is not allowed from list 'domain'" \
+	"internal/platform/db/maintdb' is not allowed from list 'maint'" \
 	"use of \`time.Now\` forbidden" \
 	"(sloglint)"; do
 	if ! grep -qF -- "$want" <<<"$out"; then

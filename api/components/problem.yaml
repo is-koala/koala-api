@@ -131,6 +131,15 @@ components:
         - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
           `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
           başlığını zorunlu tutuyor (ADR-0019).
+        - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
+          varken silinemez (ADR-0013, ADR-0020).
+        - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
+        - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
+          ebeveyni başka bir silmeyle hâlâ silinmiş.
+        - `RESTORE_EXPIRED` (409): silmenin kök kaydı artık yok (temizlenmiş ya da anonimleştirilmiş);
+          geri alınamaz.
+        - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
+        - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
 
         Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
         - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -153,6 +162,12 @@ components:
         - IDEMPOTENCY_KEY_REUSED
         - IDEMPOTENCY_KEY_IN_USE
         - APP_VERSION_UNSUPPORTED
+        - SOFT_DELETE_RESTRICTED
+        - RESTORE_CONFLICT
+        - RESTORE_PARENT_DELETED
+        - RESTORE_EXPIRED
+        - DELETION_NOT_FOUND
+        - DELETION_ALREADY_RESTORED
         - FIELD_REQUIRED
         - FIELD_UNKNOWN
         - FIELD_TYPE_INVALID

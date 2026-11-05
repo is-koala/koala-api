@@ -48,9 +48,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	dbsrc "github.com/is-koala/koala-api/db"
 	"github.com/is-koala/koala-api/db/bootstrap"
 	"github.com/is-koala/koala-api/db/migrations"
 	"github.com/is-koala/koala-api/internal/platform/db"
+	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
 // examples are migrations that exist only in test databases: the ADR-0013
@@ -58,7 +60,7 @@ import (
 // (CREATE INDEX CONCURRENTLY) migration. Their versions start at 9001 so
 // they apply after the real ones.
 //
-//go:embed testdata/migrations/*.sql
+//go:embed testdata/migrations/*.sql testdata/softdelete.yaml
 var examples embed.FS
 
 const (
@@ -562,6 +564,22 @@ func randomHex(t *testing.T, n int) string {
 		t.Fatal(err)
 	}
 	return hex.EncodeToString(b)
+}
+
+// SoftDeleteCatalog returns the soft-delete catalog of a test database:
+// db/softdelete.yaml merged with the catalog of the example tables
+// (testdata/softdelete.yaml).
+func SoftDeleteCatalog(t *testing.T) *softdelete.Catalog {
+	t.Helper()
+	examplesCatalog, err := examples.ReadFile("testdata/softdelete.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cat, err := softdelete.ParseCatalog(dbsrc.SoftDeleteCatalog(), examplesCatalog)
+	if err != nil {
+		t.Fatalf("dbtest: %v", err)
+	}
+	return cat
 }
 
 // Eventually polls cond every 25ms until it reports true, failing the test

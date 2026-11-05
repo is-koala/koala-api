@@ -5,25 +5,31 @@ package apiv1
 
 // Defines values for ErrorCode.
 const (
-	ErrorCodeAPPVERSIONUNSUPPORTED  ErrorCode = "APP_VERSION_UNSUPPORTED"
-	ErrorCodeCONTENTTYPEUNSUPPORTED ErrorCode = "CONTENT_TYPE_UNSUPPORTED"
-	ErrorCodeCURSORINVALID          ErrorCode = "CURSOR_INVALID"
-	ErrorCodeFIELDFORMATINVALID     ErrorCode = "FIELD_FORMAT_INVALID"
-	ErrorCodeFIELDOUTOFRANGE        ErrorCode = "FIELD_OUT_OF_RANGE"
-	ErrorCodeFIELDREQUIRED          ErrorCode = "FIELD_REQUIRED"
-	ErrorCodeFIELDTYPEINVALID       ErrorCode = "FIELD_TYPE_INVALID"
-	ErrorCodeFIELDUNKNOWN           ErrorCode = "FIELD_UNKNOWN"
-	ErrorCodeFIELDVALUEINVALID      ErrorCode = "FIELD_VALUE_INVALID"
-	ErrorCodeIDEMPOTENCYKEYINUSE    ErrorCode = "IDEMPOTENCY_KEY_IN_USE"
-	ErrorCodeIDEMPOTENCYKEYREQUIRED ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
-	ErrorCodeIDEMPOTENCYKEYREUSED   ErrorCode = "IDEMPOTENCY_KEY_REUSED"
-	ErrorCodeINTERNAL               ErrorCode = "INTERNAL"
-	ErrorCodeMETHODNOTALLOWED       ErrorCode = "METHOD_NOT_ALLOWED"
-	ErrorCodeREQUESTBODYMALFORMED   ErrorCode = "REQUEST_BODY_MALFORMED"
-	ErrorCodeREQUESTBODYTOOLARGE    ErrorCode = "REQUEST_BODY_TOO_LARGE"
-	ErrorCodeREQUESTINVALID         ErrorCode = "REQUEST_INVALID"
-	ErrorCodeROUTENOTFOUND          ErrorCode = "ROUTE_NOT_FOUND"
-	ErrorCodeSORTFIELDNOTALLOWED    ErrorCode = "SORT_FIELD_NOT_ALLOWED"
+	ErrorCodeAPPVERSIONUNSUPPORTED   ErrorCode = "APP_VERSION_UNSUPPORTED"
+	ErrorCodeCONTENTTYPEUNSUPPORTED  ErrorCode = "CONTENT_TYPE_UNSUPPORTED"
+	ErrorCodeCURSORINVALID           ErrorCode = "CURSOR_INVALID"
+	ErrorCodeDELETIONALREADYRESTORED ErrorCode = "DELETION_ALREADY_RESTORED"
+	ErrorCodeDELETIONNOTFOUND        ErrorCode = "DELETION_NOT_FOUND"
+	ErrorCodeFIELDFORMATINVALID      ErrorCode = "FIELD_FORMAT_INVALID"
+	ErrorCodeFIELDOUTOFRANGE         ErrorCode = "FIELD_OUT_OF_RANGE"
+	ErrorCodeFIELDREQUIRED           ErrorCode = "FIELD_REQUIRED"
+	ErrorCodeFIELDTYPEINVALID        ErrorCode = "FIELD_TYPE_INVALID"
+	ErrorCodeFIELDUNKNOWN            ErrorCode = "FIELD_UNKNOWN"
+	ErrorCodeFIELDVALUEINVALID       ErrorCode = "FIELD_VALUE_INVALID"
+	ErrorCodeIDEMPOTENCYKEYINUSE     ErrorCode = "IDEMPOTENCY_KEY_IN_USE"
+	ErrorCodeIDEMPOTENCYKEYREQUIRED  ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
+	ErrorCodeIDEMPOTENCYKEYREUSED    ErrorCode = "IDEMPOTENCY_KEY_REUSED"
+	ErrorCodeINTERNAL                ErrorCode = "INTERNAL"
+	ErrorCodeMETHODNOTALLOWED        ErrorCode = "METHOD_NOT_ALLOWED"
+	ErrorCodeREQUESTBODYMALFORMED    ErrorCode = "REQUEST_BODY_MALFORMED"
+	ErrorCodeREQUESTBODYTOOLARGE     ErrorCode = "REQUEST_BODY_TOO_LARGE"
+	ErrorCodeREQUESTINVALID          ErrorCode = "REQUEST_INVALID"
+	ErrorCodeRESTORECONFLICT         ErrorCode = "RESTORE_CONFLICT"
+	ErrorCodeRESTOREEXPIRED          ErrorCode = "RESTORE_EXPIRED"
+	ErrorCodeRESTOREPARENTDELETED    ErrorCode = "RESTORE_PARENT_DELETED"
+	ErrorCodeROUTENOTFOUND           ErrorCode = "ROUTE_NOT_FOUND"
+	ErrorCodeSOFTDELETERESTRICTED    ErrorCode = "SOFT_DELETE_RESTRICTED"
+	ErrorCodeSORTFIELDNOTALLOWED     ErrorCode = "SORT_FIELD_NOT_ALLOWED"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
@@ -34,6 +40,10 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeCONTENTTYPEUNSUPPORTED:
 		return true
 	case ErrorCodeCURSORINVALID:
+		return true
+	case ErrorCodeDELETIONALREADYRESTORED:
+		return true
+	case ErrorCodeDELETIONNOTFOUND:
 		return true
 	case ErrorCodeFIELDFORMATINVALID:
 		return true
@@ -63,7 +73,15 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeREQUESTINVALID:
 		return true
+	case ErrorCodeRESTORECONFLICT:
+		return true
+	case ErrorCodeRESTOREEXPIRED:
+		return true
+	case ErrorCodeRESTOREPARENTDELETED:
+		return true
 	case ErrorCodeROUTENOTFOUND:
+		return true
+	case ErrorCodeSOFTDELETERESTRICTED:
 		return true
 	case ErrorCodeSORTFIELDNOTALLOWED:
 		return true
@@ -117,6 +135,15 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 //     `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 //     başlığını zorunlu tutuyor (ADR-0019).
+//   - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
+//     varken silinemez (ADR-0013, ADR-0020).
+//   - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
+//   - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
+//     ebeveyni başka bir silmeyle hâlâ silinmiş.
+//   - `RESTORE_EXPIRED` (409): silmenin kök kaydı artık yok (temizlenmiş ya da anonimleştirilmiş);
+//     geri alınamaz.
+//   - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
+//   - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
 //
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -155,6 +182,15 @@ type Problem struct {
 	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 	//   başlığını zorunlu tutuyor (ADR-0019).
+	// - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
+	//   varken silinemez (ADR-0013, ADR-0020).
+	// - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
+	// - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
+	//   ebeveyni başka bir silmeyle hâlâ silinmiş.
+	// - `RESTORE_EXPIRED` (409): silmenin kök kaydı artık yok (temizlenmiş ya da anonimleştirilmiş);
+	//   geri alınamaz.
+	// - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
+	// - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -224,6 +260,15 @@ type ProblemField struct {
 	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 	//   başlığını zorunlu tutuyor (ADR-0019).
+	// - `SOFT_DELETE_RESTRICTED` (409): `restrict` politikalı bir kenarda aktif çocuk kayıt
+	//   varken silinemez (ADR-0013, ADR-0020).
+	// - `RESTORE_CONFLICT` (409): geri alınan kaydın benzersiz anahtarını aktif bir kayıt almış.
+	// - `RESTORE_PARENT_DELETED` (409): geri alınan kaydın `cascade` ya da `restrict` kenarındaki
+	//   ebeveyni başka bir silmeyle hâlâ silinmiş.
+	// - `RESTORE_EXPIRED` (409): silmenin kök kaydı artık yok (temizlenmiş ya da anonimleştirilmiş);
+	//   geri alınamaz.
+	// - `DELETION_NOT_FOUND` (404): geri alınmak istenen silme kaydı yok.
+	// - `DELETION_ALREADY_RESTORED` (409): silme daha önce geri alınmış.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.

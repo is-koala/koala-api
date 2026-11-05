@@ -77,7 +77,8 @@ func TestSoftDeleteThroughView(t *testing.T) {
 		t.Fatalf("insert through view: %v", err)
 	}
 	err := app.InTx(ctx, func(ctx context.Context, q db.Querier) error {
-		if _, err := q.Exec(ctx, "INSERT INTO example_deletions (id, reason) VALUES ($1, 'user request')", deletionID); err != nil {
+		if _, err := q.Exec(ctx, `INSERT INTO deletions (id, root_table, root_id, actor_kind, reason, created_at)
+			VALUES ($1, 'example_notes', $2, 'system', 'retention', now())`, deletionID, id); err != nil {
 			return err
 		}
 		_, err := q.Exec(ctx, "UPDATE active_example_notes SET deleted_at = now(), deletion_id = $1 WHERE id = $2", deletionID, id)
@@ -224,14 +225,28 @@ func TestRoleGrants(t *testing.T) {
 		// Base tables with an explicit decision; every other base table
 		// gets nothing for koala_app.
 		app := map[string][]string{
-			"example_deletions": {"SELECT", "INSERT"}, // record of deletions: insert-only (example)
+			"deletions":        {"INSERT"},           // record of deletions: insert-only, no read-back (0010_deletions.sql)
+			"example_receipts": {"SELECT", "INSERT"}, // example M1 table (dbtest testdata)
 		}
 		maint := map[string][]string{
-			"example_deletions": dml,
-			"example_notes":     dml,
+			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below
+			"example_receipts": {"SELECT"},
+		}
+		// Column-level privileges beyond the table-level ones; the exact
+		// columns are checked in "column grants".
+		maintColumns := map[string][]string{
+			"deletions": {"SELECT", "UPDATE"},
+		}
+		relations := collect[relationGrants](t, rows)
+		// A soft-deleted base table (one with an active_ view) is
+		// koala_maint's: the generated grant of softdeletegen (ADR-0020).
+		for _, r := range relations {
+			if strings.HasPrefix(r.Name, "active_") && r.Kind == "v" {
+				maint[strings.TrimPrefix(r.Name, "active_")] = dml
+			}
 		}
 		seenRiverJob := false
-		for _, r := range collect[relationGrants](t, rows) {
+		for _, r := range relations {
 			name, kind := r.Name, r.Kind
 			if r.Owner != db.RoleOwner {
 				t.Errorf("%s is owned by %s, want %s", name, r.Owner, db.RoleOwner)
@@ -248,6 +263,9 @@ func TestRoleGrants(t *testing.T) {
 			}
 			want.AppColumns = columnPart(want.App)
 			want.MaintColumns = columnPart(want.Maint)
+			if cols, ok := maintColumns[name]; ok {
+				want.MaintColumns = cols
+			}
 			checkGrants(t, name, grants{
 				App: r.App, AppColumns: r.AppColumns,
 				Maint: r.Maint, MaintColumns: r.MaintColumns, Public: r.Public,
@@ -255,6 +273,35 @@ func TestRoleGrants(t *testing.T) {
 		}
 		if !seenRiverJob {
 			t.Error("river_job not found: River's migrations did not run")
+		}
+	})
+
+	// Column-level grants exist only where a role may change some columns
+	// of a table and not others.
+	t.Run("column grants", func(t *testing.T) {
+		t.Parallel()
+		rows, err := q.Query(ctx, `
+			SELECT c.relname || '.' || a.attname || ': ' ||
+			       CASE WHEN x.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(x.grantee)::text END || ' ' || x.privilege_type
+			FROM pg_attribute a
+			JOIN pg_class c ON c.oid = a.attrelid, aclexplode(a.attacl) x
+			WHERE c.relnamespace = 'public'::regnamespace AND a.attacl IS NOT NULL
+			`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(got) // byte order, not the database's collation
+		want := []string{
+			"deletions.restored_at: koala_maint UPDATE",
+			"deletions.restored_by: koala_maint UPDATE",
+			"deletions.restored_by_kind: koala_maint UPDATE",
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("column grants = %v, want %v", got, want)
 		}
 	})
 

@@ -1,0 +1,98 @@
+# sqlc configuration (ADR-0012, ADR-0020). `make generate` runs
+# `sqlc generate` with the version pinned in the Makefile; `make verify`
+# runs `sqlc vet` and fails when the generated code is stale (gen-check).
+#
+# Layout:
+#   db/queries/<area>/*.sql  application queries, run as koala_app. They use
+#                            active_<t> views, never a soft-deleted base table
+#                            (rule no-base-table), and never assign deleted_at
+#                            or deletion_id (rule no-soft-delete-columns). One
+#                            sql entry per area.
+#   db/queries/maint/*.sql   koala_maint queries on base tables (restore,
+#                            cleanup, anonymization). One package, maintdb,
+#                            which depguard opens only to the maintenance
+#                            code (.golangci.yml, rule maint).
+#
+# The schema is the goose migrations; sqlc skips their Down sections.
+version: "2"
+
+sql:
+  - name: softdelete
+    engine: postgresql
+    schema: db/migrations
+    queries: db/queries/softdelete
+    rules:
+      - no-base-table
+      - no-soft-delete-columns
+    gen:
+      go:
+        package: softdeletedb
+        out: internal/platform/softdelete/softdeletedb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: github.com/google/uuid.NullUUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+
+  # koala_maint: base tables. Neither rule applies here, and no application
+  # area may list db/queries/maint (TestSQLCConfig).
+  - name: maint
+    engine: postgresql
+    schema: db/migrations
+    queries: db/queries/maint
+    gen:
+      go:
+        package: maintdb
+        out: internal/platform/db/maintdb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: github.com/google/uuid.NullUUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+
+rules:
+  # An application query that names a soft-deleted base table after FROM,
+  # JOIN, UPDATE, INTO, USING or TRUNCATE fails `sqlc vet`. The database
+  # refuses such a query too (koala_app has no privilege on the base
+  # table); this rule says why before any test runs. It reads the query's
+  # text, so a comma join (`FROM active_a, b`) or a quoted name slips past
+  # it, never past the grants. scripts/sqlc-vet-probe.sh proves it fires.
+  - name: no-base-table
+    message: "a soft-deleted table is read and written through its active_<table> view; base tables belong to db/queries/maint (ADR-0013)"
+    # The rule line is written by `make generate` from db/softdelete.yaml
+    # (internal/tools/softdeletegen); do not edit it. It is `false` while
+    # the catalog has no soft-deleted table.
+    rule: 'false'
+
+  # deleted_at and deletion_id are written by softdelete.Delete and Restore
+  # alone. An application query that assigns them (UPDATE … SET, ON CONFLICT
+  # DO UPDATE SET, or an INSERT column list) fails `sqlc vet`. Reading them is
+  # allowed, though through an active view they are always NULL. The rule
+  # line is written by `make generate` (softdeletegen); do not edit it.
+  - name: no-soft-delete-columns
+    message: "deleted_at and deletion_id are written only by softdelete.Delete and softdelete.Restore (ADR-0020)"
+    rule: 'query.sql.matches(r"(?is)\bupdate\b.*\bset\b.*\x22?\b(?:deleted_at|deletion_id)\b\x22?\s*=") || query.sql.matches(r"(?is)\binsert\s+into\s+[^(]*\([^)]*\x22?\b(?:deleted_at|deletion_id)\b\x22?")'

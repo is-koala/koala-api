@@ -1,0 +1,61 @@
+# Example contract of softdeletetest's own test: two resources over the
+# example tables of the test databases (dbtest/testdata). Real operations
+# carry x-resource the same way.
+openapi: 3.1.0
+info:
+  title: softdeletetest example
+  version: "1"
+paths:
+  /example-owners:
+    get:
+      operationId: listExampleOwners
+      x-resource: example_owners
+      responses:
+        "200":
+          description: Active owners.
+  /example-owners/{ownerId}:
+    get:
+      operationId: getExampleOwner
+      x-resource: example_owners
+      parameters:
+        - name: ownerId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The owner.
+        "404":
+          description: No such owner.
+  /example-projects/{projectId}:
+    get:
+      operationId: getExampleProject
+      x-resource: example_projects
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The project.
+        "404":
+          description: No such project.
+  /example-projects/{projectId}/archive:
+    post:
+      operationId: archiveExampleProject
+      x-resource: example_projects
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Not a read; ReadTest ignores it.
