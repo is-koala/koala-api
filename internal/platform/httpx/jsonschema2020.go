@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"mime"
 	"slices"
 	"strings"
 
@@ -17,14 +16,21 @@ import (
 
 // compiled2020 holds an operation's request body schemas compiled once
 // with the JSON Schema 2020-12 validator, by media type (ADR-0019 Karar 2).
-type compiled2020 map[string]*jsonschema.Schema
+type compiled2020 struct {
+	content openapi3.Content
+	schemas map[*openapi3.MediaType]*jsonschema.Schema
+}
 
 // compileBody2020 compiles the JSON request body schemas of op when one of
 // them uses a keyword kin-openapi's OpenAPI 3.0 validator does not check.
-// It returns nil when none does. A parameter schema with such a keyword
-// is refused: parameters are decoded inside kin-openapi, where only its
-// per-request-compiling 2020 validator could check them.
-func compileBody2020(name string, item *openapi3.PathItem, op *openapi3.Operation) (compiled2020, error) {
+// It returns nil when none does. Refused at start-up:
+//   - a parameter schema with such a keyword: parameters are decoded
+//     inside kin-openapi, where only its per-request-compiling 2020
+//     validator could check them;
+//   - such a keyword under `not` or `oneOf`: the 3.0 validator, which runs
+//     first, ignores it, so `not` would reject every value and `oneOf`
+//     would match several branches, a 400 the body does not deserve.
+func compileBody2020(name string, item *openapi3.PathItem, op *openapi3.Operation) (*compiled2020, error) {
 	for _, p := range slices.Concat(item.Parameters, op.Parameters) {
 		if p != nil && p.Value != nil && p.Value.Schema != nil && schemaUses2020(p.Value.Schema.Value, map[*openapi3.Schema]bool{}) {
 			return nil, fmt.Errorf("parameter %s uses a JSON Schema 2020-only keyword; parameters may not", p.Value.Name)
@@ -34,15 +40,21 @@ func compileBody2020(name string, item *openapi3.PathItem, op *openapi3.Operatio
 		return nil, nil
 	}
 	needed := false
-	for _, mt := range op.RequestBody.Value.Content {
-		if mt.Schema != nil && schemaUses2020(mt.Schema.Value, map[*openapi3.Schema]bool{}) {
+	for media, mt := range op.RequestBody.Value.Content {
+		if mt.Schema == nil {
+			continue
+		}
+		if schemaUses2020(mt.Schema.Value, map[*openapi3.Schema]bool{}) {
 			needed = true
+		}
+		if uses2020UnderNotOrOneOf(mt.Schema.Value, false, map[*openapi3.Schema]bool{}) {
+			return nil, fmt.Errorf("request body %s: a JSON Schema 2020-only keyword under not or oneOf is not supported", media)
 		}
 	}
 	if !needed {
 		return nil, nil
 	}
-	out := compiled2020{}
+	out := &compiled2020{content: op.RequestBody.Value.Content, schemas: map[*openapi3.MediaType]*jsonschema.Schema{}}
 	for media, mt := range op.RequestBody.Value.Content {
 		if mt.Schema == nil {
 			continue
@@ -64,9 +76,34 @@ func compileBody2020(name string, item *openapi3.PathItem, op *openapi3.Operatio
 		if err != nil {
 			return nil, fmt.Errorf("request body %s: compile: %w", media, err)
 		}
-		out[strings.ToLower(media)] = sch
+		out.schemas[mt] = sch
 	}
 	return out, nil
+}
+
+// uses2020UnderNotOrOneOf reports whether a 2020-only keyword appears in s
+// below a `not` or a `oneOf` (under is true once one has been passed).
+func uses2020UnderNotOrOneOf(s *openapi3.Schema, under bool, seen map[*openapi3.Schema]bool) bool {
+	if s == nil || seen[s] {
+		return false
+	}
+	seen[s] = true
+	if under && schemaUses2020Here(s) {
+		return true
+	}
+	walk := func(refs openapi3.SchemaRefs, below bool) bool {
+		for _, r := range refs {
+			if r != nil && uses2020UnderNotOrOneOf(r.Value, below, seen) {
+				return true
+			}
+		}
+		return false
+	}
+	children := slices.Concat(s.AnyOf, s.AllOf, openapi3.SchemaRefs{s.Items, s.AdditionalProperties.Schema})
+	for _, p := range s.Properties {
+		children = append(children, p)
+	}
+	return walk(openapi3.SchemaRefs{s.Not}, true) || walk(s.OneOf, true) || walk(children, under)
 }
 
 func isJSONMediaType(media string) bool {
@@ -148,18 +185,16 @@ func inlineSchema(ref *openapi3.SchemaRef, stack []*openapi3.Schema) (any, error
 	)
 }
 
-// validate checks the validated body value against the compiled
-// schema for the request's media type.
-func (c compiled2020) validate(contentType string, value any) error {
-	media, _, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return fmt.Errorf("validate request: content type: %w", err)
-	}
-	sch, ok := c[strings.ToLower(media)]
+// validate checks the validated body value against the compiled schema for
+// the request's media type, found the way kin-openapi found it (parameters
+// and case ignored, wildcards allowed). A media type without a compiled
+// schema is not one the operation accepts: 415.
+func (c *compiled2020) validate(contentType string, value any) error {
+	sch, ok := c.schemas[c.content.Get(contentType)]
 	if !ok {
-		return fmt.Errorf("validate request: no compiled schema for %s", media)
+		return apperr.New(apperr.KindUnsupportedMediaType, CodeContentTypeUnsupported)
 	}
-	err = sch.Validate(value)
+	err := sch.Validate(value)
 	var verr *jsonschema.ValidationError
 	if err == nil || !errors.As(err, &verr) {
 		if err != nil {

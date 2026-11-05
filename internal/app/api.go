@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"github.com/is-koala/koala-api/api"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/meta"
-	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
@@ -35,12 +35,7 @@ func mountAPI(ctx context.Context, router chi.Router, logger *slog.Logger, env c
 	// Modules implement their part of the strict interface; wire<Module>
 	// functions compose them here as they land.
 	strict := apiv1.NewStrictHandlerWithOptions(meta.NewHandler(), nil, apiv1.StrictHTTPServerOptions{
-		RequestErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {
-			// The validator has accepted the body, so binding its validated
-			// value failed (a Go type narrower than the schema). The body
-			// cannot be read again: there is no second, unvalidated decode.
-			httpx.WriteError(w, r, logger, apperr.New(apperr.KindInvalid, httpx.CodeBodyMalformed))
-		},
+		RequestErrorHandlerFunc: bindError(logger),
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
 			httpx.WriteError(w, r, logger, err)
 		},
@@ -48,15 +43,27 @@ func mountAPI(ctx context.Context, router chi.Router, logger *slog.Logger, env c
 	router.Group(func(g chi.Router) {
 		g.Use(validate)
 		apiv1.HandlerWithOptions(strict, apiv1.ChiServerOptions{
-			BaseRouter: skipRoutes{Router: g, skip: devOnlyPaths(env)},
-			ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, _ error) {
-				// Parameters were validated before binding; this is a
-				// binding gap, reported without the binder's message.
-				httpx.WriteError(w, r, logger, apperr.New(apperr.KindInvalid, httpx.CodeRequestInvalid))
-			},
+			BaseRouter:       skipRoutes{Router: g, skip: devOnlyPaths(env)},
+			ErrorHandlerFunc: bindError(logger),
 		})
 	})
 	return nil
+}
+
+// bindError handles a request the generated code could not bind after the
+// validator accepted it: a body or parameter whose Go type is narrower than
+// its schema. That is a server-side gap, not a client mistake, so it is a
+// 500 and logged. The binder's message may quote the value, so only its
+// type is logged; the raw body cannot be read again, so there is no
+// second, unvalidated decode to fall back on.
+func bindError(logger *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
+	return func(w http.ResponseWriter, r *http.Request, err error) {
+		cause := err
+		for errors.Unwrap(cause) != nil {
+			cause = errors.Unwrap(cause)
+		}
+		httpx.WriteError(w, r, logger, fmt.Errorf("bind validated request: %T (cause %T)", err, cause))
+	}
 }
 
 // devOnlyPaths are the operations not mounted in env. In production they

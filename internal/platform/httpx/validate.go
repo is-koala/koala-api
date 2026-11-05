@@ -56,8 +56,8 @@ var errValidatedBody = errors.New("httpx: the request body was validated; bind i
 
 type validatedRoute struct {
 	route     *routers.Route
-	bodyLimit int64        // 0: the router's limit stays
-	body2020  compiled2020 // nil: no JSON Schema 2020-only keyword in the body
+	bodyLimit int64         // 0: the router's limit stays
+	body2020  *compiled2020 // nil: no JSON Schema 2020-only keyword in the body
 }
 
 // ValidateRequests returns middleware that validates a request against its
@@ -217,12 +217,7 @@ func schemaUses2020(s *openapi3.Schema, seen map[*openapi3.Schema]bool) bool {
 		return false
 	}
 	seen[s] = true
-	if s.Const != nil || len(s.PrefixItems) > 0 || s.Contains != nil || s.MinContains != nil || s.MaxContains != nil ||
-		len(s.PatternProperties) > 0 || len(s.DependentSchemas) > 0 || s.PropertyNames != nil ||
-		s.UnevaluatedItems.Has != nil || s.UnevaluatedItems.Schema != nil ||
-		s.UnevaluatedProperties.Has != nil || s.UnevaluatedProperties.Schema != nil ||
-		s.If != nil || s.Then != nil || s.Else != nil || len(s.DependentRequired) > 0 ||
-		len(s.Defs) > 0 || s.ContentSchema != nil || s.DynamicRef != "" || s.Nullable {
+	if schemaUses2020Here(s) {
 		return true
 	}
 	children := slices.Concat(s.OneOf, s.AnyOf, s.AllOf,
@@ -236,6 +231,17 @@ func schemaUses2020(s *openapi3.Schema, seen map[*openapi3.Schema]bool) bool {
 		}
 	}
 	return false
+}
+
+// schemaUses2020Here reports whether s itself, not its children, uses a
+// 2020-only keyword.
+func schemaUses2020Here(s *openapi3.Schema) bool {
+	return s.Const != nil || len(s.PrefixItems) > 0 || s.Contains != nil || s.MinContains != nil || s.MaxContains != nil ||
+		len(s.PatternProperties) > 0 || len(s.DependentSchemas) > 0 || s.PropertyNames != nil ||
+		s.UnevaluatedItems.Has != nil || s.UnevaluatedItems.Schema != nil ||
+		s.UnevaluatedProperties.Has != nil || s.UnevaluatedProperties.Schema != nil ||
+		s.If != nil || s.Then != nil || s.Else != nil || len(s.DependentRequired) > 0 ||
+		len(s.Defs) > 0 || s.ContentSchema != nil || s.DynamicRef != "" || s.Nullable
 }
 
 // outcome is what one validator error means for the response.

@@ -80,9 +80,19 @@ func TestStatusOfEveryKind(t *testing.T) {
 		{apperr.KindInternal, http.StatusInternalServerError},
 		{apperr.Kind(200), http.StatusInternalServerError},
 	}
+	tested := map[apperr.Kind]bool{}
 	for _, tt := range tests {
+		tested[tt.kind] = true
 		if got := httpx.StatusOf(tt.kind); got != tt.want {
 			t.Errorf("StatusOf(%s) = %d, want %d", tt.kind, got, tt.want)
+		}
+	}
+	// Every declared kind has a case above: a new Kind without one fails
+	// here. Declared kinds are the ones apperr names; the first unnamed
+	// value ("kind(N)") ends the list.
+	for k := apperr.Kind(0); !strings.HasPrefix(k.String(), "kind("); k++ {
+		if !tested[k] {
+			t.Errorf("kind %s has no StatusOf case", k)
 		}
 	}
 }

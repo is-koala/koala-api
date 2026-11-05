@@ -71,8 +71,20 @@ components:
         Tek bir alanın ya da parametrenin hatası (ADR-0019). Gövdedeki üye `pointer`
         ile (RFC 6901; `""` gövdenin tamamı), parametre `parameter` + `in` ile
         gösterilir; ikisi birlikte bulunmaz. JSON:API'nin `source.pointer` /
-        `source.parameter` ayrımıyla aynı.
+        `source.parameter` ayrımıyla aynı. Şema bunu zorlar: `parameter` ile `in`
+        birlikte gelir, `pointer` ile `parameter` birlikte gelmez ve ikisinden biri
+        mutlaka vardır.
       required: [code]
+      dependentRequired:
+        parameter: [in]
+        in: [parameter]
+      not:
+        required: [pointer, parameter]
+      if:
+        not:
+          required: [pointer]
+      then:
+        required: [parameter]
       properties:
         pointer:
           type: string

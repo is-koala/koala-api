@@ -314,6 +314,12 @@ func TestValidateRequestsJSONSchema2020(t *testing.T) {
 			wantErrors: []map[string]any{bodyErr("/x", "FIELD_UNKNOWN")},
 		},
 		{
+			// The media type is matched as kin-openapi matches it.
+			name: "content type with parameters and case", target: "/strict",
+			header: map[string]string{"Content-Type": "Application/JSON; charset=utf-8"},
+			body:   `{"name":"a","kind":"THING"}`, wantStatus: http.StatusNoContent,
+		},
+		{
 			name: "const", target: "/strict", body: `{"name":"a","kind":"OTHER"}`,
 			wantStatus: http.StatusBadRequest, wantCode: "REQUEST_INVALID",
 			wantErrors: []map[string]any{bodyErr("/kind", "FIELD_VALUE_INVALID")},
@@ -332,6 +338,28 @@ func TestValidateRequestsRefuses2020ParameterSchemas(t *testing.T) {
 	logger, _ := newLogger()
 	if _, err := httpx.ValidateRequests(loadValidateSpec(t, spec), logger); err == nil {
 		t.Fatal("a parameter schema with const was accepted")
+	}
+}
+
+// A 2020-only keyword under not or oneOf would make the 3.0 validator,
+// which ignores it, reject valid bodies; such a schema is refused.
+func TestValidateRequestsRefuses2020UnderNotOrOneOf(t *testing.T) {
+	t.Parallel()
+
+	for name, schema := range map[string]string{
+		"not":   "{type: object, not: {const: {}}}",
+		"oneOf": "{type: object, properties: {kind: {oneOf: [{const: A}, {const: B}]}}}",
+	} {
+		spec := strings.Replace(validateSpec,
+			"              type: object\n              additionalProperties: false\n              properties:\n                blob: {type: string}",
+			"              "+schema, 1)
+		if spec == validateSpec {
+			t.Fatal("test spec did not change")
+		}
+		logger, _ := newLogger()
+		if _, err := httpx.ValidateRequests(loadValidateSpec(t, spec), logger); err == nil {
+			t.Errorf("%s: a 2020-only keyword under %s was accepted", name, name)
+		}
 	}
 }
 

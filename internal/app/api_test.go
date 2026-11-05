@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -229,6 +231,29 @@ func TestPatchPingMergePatch(t *testing.T) {
 				t.Fatalf("body mismatch\n got: %s\nwant: %s", got, tt.wantBody)
 			}
 		})
+	}
+}
+
+// A request the validator accepted but the generated code cannot bind is a
+// server-side gap: 500, logged by type only, never with the value.
+func TestBindErrorIsALoggedServerError(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	logger := log.New(&logs, slog.LevelInfo)
+	const secret = "TR330006100519786457841326"
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/v1/meta/ping", http.NoBody)
+	bindError(logger)(rec, req, fmt.Errorf("can't decode JSON body: %w", errors.New("bad value "+secret)))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
+	}
+	if !strings.Contains(logs.String(), "bind validated request") {
+		t.Fatalf("not logged: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), secret) || strings.Contains(rec.Body.String(), secret) {
+		t.Fatalf("the bound value leaked: log %s body %s", logs.String(), rec.Body)
 	}
 }
 

@@ -70,6 +70,32 @@ func TestProblemSchemaMatchesHTTPX(t *testing.T) {
 	}
 }
 
+// A field error names either a body member (pointer) or a parameter
+// (parameter + in), never both and never neither.
+func TestProblemFieldIsPointerXorParameter(t *testing.T) {
+	t.Parallel()
+
+	field := loadFile(t, "components/problem.yaml").Components.Schemas["ProblemField"].Value
+	tests := []struct {
+		value map[string]any
+		valid bool
+	}{
+		{map[string]any{"pointer": "/a", "code": "FIELD_REQUIRED"}, true},
+		{map[string]any{"pointer": "", "code": "FIELD_REQUIRED"}, true},
+		{map[string]any{"parameter": "limit", "in": "QUERY", "code": "FIELD_OUT_OF_RANGE"}, true},
+		{map[string]any{"code": "FIELD_REQUIRED"}, false},
+		{map[string]any{"parameter": "limit", "code": "FIELD_REQUIRED"}, false},
+		{map[string]any{"in": "QUERY", "code": "FIELD_REQUIRED"}, false},
+		{map[string]any{"pointer": "/a", "parameter": "limit", "in": "QUERY", "code": "FIELD_REQUIRED"}, false},
+	}
+	for _, tt := range tests {
+		err := field.VisitJSON(tt.value, openapi3.EnableJSONSchema2020())
+		if (err == nil) != tt.valid {
+			t.Errorf("%v: valid = %v, want %v (%v)", tt.value, err == nil, tt.valid, err)
+		}
+	}
+}
+
 // MoneyInput is Money for requests: the same members and constraints, but
 // closed to unknown members (money.yaml).
 func TestMoneyVariantsMatch(t *testing.T) {

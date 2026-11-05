@@ -197,7 +197,9 @@ type Problem struct {
 // ProblemField Tek bir alanın ya da parametrenin hatası (ADR-0019). Gövdedeki üye `pointer`
 // ile (RFC 6901; `""` gövdenin tamamı), parametre `parameter` + `in` ile
 // gösterilir; ikisi birlikte bulunmaz. JSON:API'nin `source.pointer` /
-// `source.parameter` ayrımıyla aynı.
+// `source.parameter` ayrımıyla aynı. Şema bunu zorlar: `parameter` ile `in`
+// birlikte gelir, `pointer` ile `parameter` birlikte gelmez ve ikisinden biri
+// mutlaka vardır.
 //
 // Examples: {"code":"FIELD_REQUIRED","pointer":"/amount/currency"}, {"code":"FIELD_OUT_OF_RANGE","in":"QUERY","parameter":"limit"}
 type ProblemField struct {
