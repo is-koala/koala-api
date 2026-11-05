@@ -159,7 +159,7 @@ func generatedConstants(t *testing.T, m *authz.Model) []byte {
 }
 
 // TestGeneratedConstants is the gen-check of actions_gen.go: the typed
-// constants keep the interpreter but catch a misspelt relation at compile
+// constants keep the interpreter but catch a misspelled relation at compile
 // time (ADR-0024). Run with -update to rewrite the file.
 func TestGeneratedConstants(t *testing.T) {
 	t.Parallel()

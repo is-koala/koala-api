@@ -23,7 +23,7 @@
 //	go test ./internal/authz -run TestModelJSONMatchesDSL -update
 //
 // and commit both files; the same run rewrites actions_gen.go, the typed
-// constants (TypeJob, ActionJobCanEdit) that catch a misspelt relation at
+// constants (TypeJob, ActionJobCanEdit) that catch a misspelled relation at
 // compile time.
 //
 // # Evaluation
