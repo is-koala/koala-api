@@ -69,8 +69,10 @@ test-integration: ## Integration tests only (build tag integration, tag guards f
 
 .PHONY: test-conformance
 test-conformance: ## Authz conformance (ADR-0024): matrix rows on the Go evaluator and on OpenFGA at FGA_API_URL; CI only
-	@grep -q '^func TestConformanceWithOpenFGA(' internal/authz/openfga_conformance_test.go || { echo "test-conformance: runner not found" >&2; exit 1; }
-	$(GO) test -tags conformance -race -count=1 -v -run '^TestConformanceWithOpenFGA$$' ./internal/authz/
+	@for f in TestConformanceWithOpenFGA TestConformanceFolderModel; do \
+		grep -q "^func $$f(" internal/authz/openfga_conformance_test.go || { echo "test-conformance: $$f not found" >&2; exit 1; }; \
+	done
+	$(GO) test -tags conformance -race -count=1 -v -run '^(TestConformanceWithOpenFGA|TestConformanceFolderModel)$$' ./internal/authz/
 
 .PHONY: fmt
 fmt: $(GOLANGCI_LINT) ## Rewrite files with gofmt and goimports

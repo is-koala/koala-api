@@ -193,8 +193,8 @@ func (r typeRef) allows(u TupleUser) bool {
 }
 
 func buildType(w *wireType) (*typeDef, error) {
-	if !ValidTypeName(w.Type) {
-		return nil, fmt.Errorf("%w: invalid type name %q", ErrModel, w.Type)
+	if !ValidTypeName(w.Type) || reserved(w.Type) {
+		return nil, fmt.Errorf("%w: invalid or reserved type name %q", ErrModel, w.Type)
 	}
 	td := &typeDef{name: w.Type, relations: make(map[string]*relationDef, len(w.Relations))}
 	var meta map[string]wireRelationMetadata
@@ -210,7 +210,7 @@ func buildType(w *wireType) (*typeDef, error) {
 		}
 	}
 	for name, us := range w.Relations {
-		if !ValidRelationName(name) || name == "self" || name == "this" {
+		if !ValidRelationName(name) || reserved(name) {
 			return nil, fmt.Errorf("%w: %s: invalid or reserved relation name %q", ErrModel, w.Type, name)
 		}
 		rw, err := buildRewrite(&us, true)
@@ -300,7 +300,12 @@ func buildChildren(kind rewriteKind, children []wireUserset, plainOnly bool) (*r
 	return rw, nil
 }
 
-// validate checks references across types, as OpenFGA's model write does.
+// reserved reports whether name is a keyword OpenFGA reserves for type
+// and relation names.
+func reserved(name string) bool { return name == "self" || name == "this" }
+
+// validate checks references across types and entrypoints, as OpenFGA's
+// model write does.
 func (m *Model) validate() error {
 	for _, td := range m.types {
 		for _, rd := range td.relations {
@@ -309,7 +314,77 @@ func (m *Model) validate() error {
 			}
 		}
 	}
+	return m.validateEntrypoints()
+}
+
+// validateEntrypoints rejects a relation that can never be granted
+// because no rewrite path reaches a direct assignment, for example two
+// relations defined only as each other (a: b, b: a). This is OpenFGA's
+// "no entrypoint" rule, computed as a fixed point: a relation has an
+// entrypoint when its rewrite does; a direct assignment has one when one
+// of its restrictions does (a type or a wildcard always, a userset when
+// that relation has one); a computed userset and a tuple-to-userset when
+// the relation they name does (on some parent type); a union when any
+// operand does, an intersection when every operand does, an exclusion
+// when its base does.
+func (m *Model) validateEntrypoints() error {
+	has := map[*relationDef]bool{}
+	for changed := true; changed; {
+		changed = false
+		for _, td := range m.types {
+			for _, rd := range td.relations {
+				if !has[rd] && m.reachesDirect(rd, rd.rewrite, has) {
+					has[rd], changed = true, true
+				}
+			}
+		}
+	}
+	for _, name := range m.Types() {
+		for _, rel := range m.Relations(name) {
+			if rd := m.relation(name, rel); !has[rd] {
+				return fmt.Errorf("%w: %s#%s has no entrypoint: no rewrite reaches a direct assignment", ErrModel, name, rel)
+			}
+		}
+	}
 	return nil
+}
+
+func (m *Model) reachesDirect(rd *relationDef, rw *rewrite, has map[*relationDef]bool) bool {
+	switch rw.kind {
+	case rewriteThis:
+		for _, ref := range rd.directTypes {
+			if ref.Relation == "" || has[m.relation(ref.Type, ref.Relation)] {
+				return true
+			}
+		}
+		return false
+	case rewriteComputed:
+		return has[m.relation(rd.typeName, rw.relation)]
+	case rewriteTupleToUserset:
+		for _, ref := range m.relation(rd.typeName, rw.tupleset).directTypes {
+			if target := m.relation(ref.Type, rw.relation); target != nil && has[target] {
+				return true
+			}
+		}
+		return false
+	case rewriteUnion:
+		for _, c := range rw.children {
+			if m.reachesDirect(rd, c, has) {
+				return true
+			}
+		}
+		return false
+	case rewriteIntersection:
+		for _, c := range rw.children {
+			if !m.reachesDirect(rd, c, has) {
+				return false
+			}
+		}
+		return true
+	case rewriteDifference:
+		return m.reachesDirect(rd, rw.children[0], has)
+	}
+	return false
 }
 
 func (m *Model) validateRelation(rd *relationDef) error {

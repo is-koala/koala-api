@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -35,15 +36,23 @@ const (
 	openfgaWriteBatch = 100
 )
 
-func TestConformanceWithOpenFGA(t *testing.T) {
-	t.Parallel()
+// newOpenFGAClient connects to the server at FGA_API_URL and waits until
+// it is ready.
+func newOpenFGAClient(ctx context.Context, t *testing.T) *openfgaClient {
+	t.Helper()
 	base := strings.TrimRight(os.Getenv("FGA_API_URL"), "/") //nolint:forbidigo // test harness: where CI's OpenFGA container listens, like libpq's PGHOST for dbtest
 	if base == "" {
 		t.Fatal("FGA_API_URL is not set; the conformance runner needs an OpenFGA server (CI job authz-conformance)")
 	}
-	ctx := context.Background()
 	fga := &openfgaClient{base: base, http: &http.Client{Timeout: openfgaCallTimeout}}
 	fga.waitReady(ctx, t)
+	return fga
+}
+
+func TestConformanceWithOpenFGA(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fga := newOpenFGAClient(ctx, t)
 
 	modelJSON, err := os.ReadFile("model.json")
 	if err != nil {
@@ -163,8 +172,8 @@ func (c *openfgaClient) waitReady(ctx context.Context, t *testing.T) {
 	}
 }
 
-// post sends a JSON body and decodes the JSON answer into out.
-func (c *openfgaClient) post(ctx context.Context, t *testing.T, path string, body []byte, out any) {
+// send posts a JSON body and returns the status and the answer.
+func (c *openfgaClient) send(ctx context.Context, t *testing.T, path string, body []byte) (int, []byte) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(body))
 	if err != nil {
@@ -180,8 +189,16 @@ func (c *openfgaClient) post(ctx context.Context, t *testing.T, path string, bod
 	if err != nil {
 		t.Fatalf("POST %s: read body: %v", path, err)
 	}
-	if resp.StatusCode/100 != 2 {
-		t.Fatalf("POST %s: %s: %s", path, resp.Status, raw)
+	return resp.StatusCode, raw
+}
+
+// post sends a JSON body and decodes the JSON answer into out; any status
+// other than 2xx fails the test.
+func (c *openfgaClient) post(ctx context.Context, t *testing.T, path string, body []byte, out any) {
+	t.Helper()
+	status, raw := c.send(ctx, t, path, body)
+	if status/100 != 2 {
+		t.Fatalf("POST %s: %d: %s", path, status, raw)
 	}
 	if out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {
@@ -260,4 +277,120 @@ func (c *openfgaClient) check(ctx context.Context, t *testing.T, user, relation,
 		t.Fatalf("Check %s#%s@%s: the response has no allowed field", object, relation, user)
 	}
 	return *resp.Allowed
+}
+
+// checkOutcome is check for the folder cases: an error answer (resolution
+// too complex) is an outcome, not a test failure.
+func (c *openfgaClient) checkOutcome(ctx context.Context, t *testing.T, user, relation, object string) string {
+	t.Helper()
+	body := map[string]any{
+		"authorization_model_id": c.modelID,
+		"tuple_key":              tupleKey{User: user, Relation: relation, Object: object},
+		"consistency":            "HIGHER_CONSISTENCY",
+	}
+	status, raw := c.send(ctx, t, "/stores/"+c.storeID+"/check", mustJSON(t, body))
+	if status/100 != 2 {
+		var e struct {
+			Code string `json:"code"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		return "error:" + e.Code
+	}
+	var resp struct {
+		Allowed *bool `json:"allowed"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil || resp.Allowed == nil {
+		t.Fatalf("Check %s#%s@%s: unexpected answer %s", object, relation, user, raw)
+	}
+	if *resp.Allowed {
+		return "allow"
+	}
+	return "deny"
+}
+
+// goOutcome is the Go evaluator's answer in checkOutcome's form.
+func goOutcome(d authz.Decision, err error) string {
+	switch {
+	case errors.Is(err, authz.ErrResolutionTooComplex):
+		return "error:resolution_too_complex"
+	case err != nil:
+		return "error:" + err.Error()
+	case d.Allowed:
+		return "allow"
+	}
+	return "deny"
+}
+
+// folderCase runs the folder model's cycle and depth rules (ADR-0024 §4)
+// on both engines, each case in its own store.
+type folderCase struct {
+	name     string
+	tuples   []string
+	relation authz.Action
+	goWant   string
+	// fgaWant is OpenFGA's expected answer. Empty: the answer is logged,
+	// not asserted (observed; ADR-0024 §4 records the result).
+	fgaWant string
+}
+
+// folderChain is f0 -> f1 -> ... -> fn by parent with alice owning fn:
+// resolving f0#viewer takes n+1 nested lookups.
+func folderChain(n int) []string {
+	var ts []string
+	for i := range n {
+		ts = append(ts, fmt.Sprintf("folder:f%d#parent@folder:f%d", i, i+1))
+	}
+	ts = append(ts, fmt.Sprintf("folder:f%d#owner@user:alice", n))
+	return append(ts, "folder:f#parent@folder:f0")
+}
+
+func TestConformanceFolderModel(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	m, err := authz.LoadModel([]byte(folderModel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deepest := authz.MaxResolutionDepth - 3 // f -> f0 -> ... : 24 nested lookups in Go
+	cycle := []string{"folder:f#parent@folder:p", "folder:p#parent@folder:f"}
+	cases := []folderCase{
+		{"direct", []string{"folder:f#viewer@user:alice"}, "viewer", "allow", "allow"},
+		{"tuple to userset", []string{"folder:f#parent@folder:p", "folder:p#viewer@user:alice"}, "viewer", "allow", "allow"},
+		{"difference excludes inherited", []string{"folder:f#viewer@user:alice", "folder:f#parent@folder:p", "folder:p#banned@user:alice"}, "can_view", "deny", "deny"},
+		{"intersection", []string{"folder:f#owner@user:alice"}, "can_audit", "allow", "allow"},
+		{"cycle grants nothing", cycle, "viewer", "deny", "deny"},
+		{"cycle under the base still grants", append([]string{"folder:f#viewer@user:alice"}, cycle...), "viewer", "allow", "allow"},
+		{"cycle under but not", append([]string{"folder:f#viewer@user:alice"}, cycle...), "can_view", "deny", ""},
+		{"deepest chain", folderChain(deepest), "viewer", "allow", ""},
+		{"one level deeper", folderChain(deepest + 1), "viewer", "error:resolution_too_complex", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ev, _ := newEvaluator(t, m, tc.tuples...)
+			tuples := make([]authz.Tuple, 0, len(tc.tuples))
+			for _, s := range tc.tuples {
+				tp, err := authz.ParseTuple(fixtureRefs(s))
+				if err != nil {
+					t.Fatal(err)
+				}
+				tuples = append(tuples, tp)
+			}
+			fga := newOpenFGAClient(ctx, t)
+			fga.createStore(ctx, t)
+			fga.writeModel(ctx, t, []byte(folderModel))
+			fga.writeTuples(ctx, t, tuples)
+
+			f := authz.Object{Type: "folder", ID: "f"}
+			got := goOutcome(ev.Check(ctx, alice(), tc.relation, f))
+			remote := fga.checkOutcome(ctx, t, alice().String(), string(tc.relation), f.String())
+			t.Logf("%s: Go %s, OpenFGA %s", tc.name, got, remote)
+			if got != tc.goWant {
+				t.Errorf("Go: %s, want %s", got, tc.goWant)
+			}
+			if tc.fgaWant != "" && remote != tc.fgaWant {
+				t.Errorf("OpenFGA: %s, want %s", remote, tc.fgaWant)
+			}
+		})
+	}
 }

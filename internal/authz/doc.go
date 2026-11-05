@@ -20,11 +20,13 @@
 // file to a real OpenFGA server. TestModelJSONMatchesDSL fails when the two
 // files drift apart; after editing model.fga run
 //
-//	go test ./internal/authz -run TestModelJSONMatchesDSL -update
+//	go test ./internal/authz -run 'TestModelJSONMatchesDSL|TestGeneratedConstants' -update
 //
-// and commit both files; the same run rewrites actions_gen.go, the typed
-// constants (TypeJob, ActionJobCanEdit) that catch a misspelled relation at
-// compile time.
+// and commit the result. That one run rewrites model.json and
+// actions_gen.go, the typed constants (TypeJob, ActionJobCanEdit) that
+// catch a misspelled relation at compile time; TestGeneratedConstants
+// reads OpenFGA's parse of model.fga under -update, not the stale
+// embedded copy.
 //
 // # Evaluation
 //

@@ -64,7 +64,7 @@ func TestModelJSONMatchesDSL(t *testing.T) {
 		t.Fatalf("model.json: %v", err)
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("model.json is stale: run go test ./internal/authz -run TestModelJSONMatchesDSL -update\nmodel.fga parses to:\n%s", official)
+		t.Fatalf("model.json is stale: run go test ./internal/authz -run 'TestModelJSONMatchesDSL|TestGeneratedConstants' -update\nmodel.fga parses to:\n%s", official)
 	}
 }
 
@@ -163,7 +163,23 @@ func generatedConstants(t *testing.T, m *authz.Model) []byte {
 // time (ADR-0024). Run with -update to rewrite the file.
 func TestGeneratedConstants(t *testing.T) {
 	t.Parallel()
-	want := generatedConstants(t, loadModel(t))
+	// Without -update the source is model.json on disk. With -update,
+	// TestModelJSONMatchesDSL rewrites that file in the same run (and the
+	// embedded copy is the old one), so the constants come from OpenFGA's
+	// parse of model.fga, which is what model.json becomes. One run
+	// updates both files.
+	src, err := os.ReadFile("model.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *update {
+		src = officialModelJSON(t)
+	}
+	m, err := authz.LoadModel(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := generatedConstants(t, m)
 	if *update {
 		if err := os.WriteFile("actions_gen.go", want, 0o600); err != nil {
 			t.Fatal(err)
@@ -174,7 +190,7 @@ func TestGeneratedConstants(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("actions_gen.go is stale: run go test ./internal/authz -run TestGeneratedConstants -update\nwant:\n%s", want)
+		t.Fatalf("actions_gen.go is stale: run go test ./internal/authz -run 'TestModelJSONMatchesDSL|TestGeneratedConstants' -update\nwant:\n%s", want)
 	}
 }
 
@@ -222,6 +238,11 @@ func TestLoadModelRejects(t *testing.T) {
 		{"reserved relation self", doc(user, `{"type":"doc","relations":{"self":{"this":{}}},"metadata":{"relations":{"self":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 		{"reserved relation this", doc(user, `{"type":"doc","relations":{"this":{"this":{}}},"metadata":{"relations":{"this":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 		{"invalid type name", doc(user, `{"type":"do c"}`)},
+		{"reserved type self", doc(user, `{"type":"self"}`)},
+		{"reserved type this", doc(user, `{"type":"this"}`)},
+		{"computed cycle without a base", doc(user, `{"type":"doc","relations":{"a":{"computedUserset":{"relation":"b"}},"b":{"computedUserset":{"relation":"a"}}}}`)},
+		{"recursion without a base", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"v"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc"}]}}}}`)},
+		{"intersection with a baseless operand", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"computedUserset":{"relation":"b"}},"b":{"intersection":{"child":[{"computedUserset":{"relation":"owner"}},{"computedUserset":{"relation":"a"}}]}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 		{"invalid relation name", doc(user, `{"type":"doc","relations":{"a#b":{"this":{}}},"metadata":{"relations":{"a#b":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 		{"tupleset parent lacks relation", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"nope"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 	}
