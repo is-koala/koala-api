@@ -23,40 +23,67 @@ const (
 	CodeBodyTooLarge     = "REQUEST_BODY_TOO_LARGE"
 )
 
+// Router is the root handler. Its middleware chain is split in two,
+// because chi cannot take a parent's middleware off a child route:
+//
+//	root:   RequestID → SecurityHeaders → AccessLog → Recover
+//	routes: root + Timeout → BodyLimit → route
+//	stream: root → route
+//
+// The access log sees the request id and the 500 written by Recover, and
+// every response, including 404/405 problems, carries the security
+// headers. Router embeds the bounded routes: modules mount on it with the
+// usual chi methods (Get, Post, Mount, With, ...) and get Timeout and
+// BodyLimit. Only Stream routes, long-lived connections that manage their
+// own deadlines (WebSocket, ADR-0011), skip them. Middleware every request
+// needs, streams included, belongs in the root chain here.
+type Router struct {
+	chi.Router
+	root *chi.Mux
+}
+
 // NewRouter returns the root router with the platform middleware chain
-// and health endpoints. Middleware order is outermost first:
-//
-//	RequestID → SecurityHeaders → AccessLog → Recover → Timeout → BodyLimit → route
-//
-// so the access log sees the request id and the 500 written by Recover,
-// and every response, including 404/405 problems, carries the security
-// headers. Modules mount their routes on the returned router.
-func NewRouter(logger *slog.Logger, health *Health) *chi.Mux {
-	r := chi.NewRouter()
-	r.Use(
+// and health endpoints.
+func NewRouter(logger *slog.Logger, health *Health) *Router {
+	root := chi.NewRouter()
+	root.Use(
 		RequestID,
 		SecurityHeaders,
 		AccessLog(logger),
 		Recover(logger),
-		Timeout(RequestTimeout),
-		BodyLimit(DefaultBodyLimit),
 	)
 
-	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+	// Set before With so that the bounded group copies them.
+	root.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		WriteProblem(w, logger, req, NewProblem(req, http.StatusNotFound, CodeRouteNotFound))
 	})
-	r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
-		if allow := allowedMethods(r, req.URL.Path); allow != "" {
+	root.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+		if allow := allowedMethods(root, req.URL.Path); allow != "" {
 			w.Header().Set("Allow", allow)
 		}
 		WriteProblem(w, logger, req, NewProblem(req, http.StatusMethodNotAllowed, CodeMethodNotAllowed))
 	})
 
-	r.Get(PathLivez, health.Live)
-	r.Head(PathLivez, health.Live)
-	r.Get(PathReadyz, health.Ready)
-	r.Head(PathReadyz, health.Ready)
-	return r
+	bounded := root.With(Timeout(RequestTimeout), BodyLimit(DefaultBodyLimit))
+	bounded.Get(PathLivez, health.Live)
+	bounded.Head(PathLivez, health.Live)
+	bounded.Get(PathReadyz, health.Ready)
+	bounded.Head(PathReadyz, health.Ready)
+	return &Router{Router: bounded, root: root}
+}
+
+// ServeHTTP serves every request through the root chain.
+func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	rt.root.ServeHTTP(w, r)
+}
+
+// Stream registers a GET route for a long-lived connection such as a
+// WebSocket. It runs the root chain only: no Timeout and no BodyLimit,
+// so the handler owns its deadlines. http.Server.Shutdown neither closes
+// nor waits for hijacked connections; their owner goes into
+// ServerOptions.Streams.
+func (rt *Router) Stream(pattern string, h http.HandlerFunc) {
+	rt.root.Get(pattern, h)
 }
 
 var probeMethods = [...]string{ //nolint:gochecknoglobals // read-only method list

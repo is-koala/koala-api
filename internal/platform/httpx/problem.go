@@ -56,6 +56,8 @@ func StatusOf(k apperr.Kind) int {
 		return http.StatusBadGateway
 	case apperr.KindPayloadTooLarge:
 		return http.StatusRequestEntityTooLarge
+	case apperr.KindUnavailable:
+		return http.StatusServiceUnavailable
 	case apperr.KindInternal:
 		return http.StatusInternalServerError
 	default:

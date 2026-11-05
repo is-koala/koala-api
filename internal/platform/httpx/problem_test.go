@@ -65,6 +65,7 @@ func TestStatusOfEveryKind(t *testing.T) {
 		{apperr.KindRateLimited, http.StatusTooManyRequests},
 		{apperr.KindUpstream, http.StatusBadGateway},
 		{apperr.KindPayloadTooLarge, http.StatusRequestEntityTooLarge},
+		{apperr.KindUnavailable, http.StatusServiceUnavailable},
 		{apperr.KindInternal, http.StatusInternalServerError},
 		{apperr.Kind(200), http.StatusInternalServerError},
 	}

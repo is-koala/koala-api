@@ -29,6 +29,11 @@ const (
 	// KindPayloadTooLarge: the request body exceeds the route's limit
 	// (proposal of this PR; not in plan §3.4's list).
 	KindPayloadTooLarge
+	// KindUnavailable: the service cannot take the request right now and
+	// the client should retry later, for example a WebSocket handshake
+	// while the instance drains (proposal of the realtime spike; not in
+	// plan §3.4's list).
+	KindUnavailable
 )
 
 // String returns a stable, lowercase name for logs.
@@ -52,6 +57,8 @@ func (k Kind) String() string {
 		return "upstream"
 	case KindPayloadTooLarge:
 		return "payload_too_large"
+	case KindUnavailable:
+		return "unavailable"
 	default:
 		return fmt.Sprintf("kind(%d)", uint8(k))
 	}
