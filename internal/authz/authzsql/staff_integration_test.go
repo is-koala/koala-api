@@ -475,8 +475,12 @@ func TestGraphWritersQueueOnTheLock(t *testing.T) {
 	}()
 	dbtest.Eventually(t, 10*time.Second, "the second writer waits on the advisory lock", func() (bool, error) {
 		var waiting bool
-		err := s.owner.Pool().QueryRow(ctx,
-			"SELECT EXISTS (SELECT FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)").Scan(&waiting)
+		// pg_locks is cluster-wide: without the database predicate another
+		// test's waiter, in its own database, would satisfy this.
+		err := s.owner.Pool().QueryRow(ctx, `
+			SELECT EXISTS (SELECT FROM pg_locks
+			               WHERE locktype = 'advisory' AND NOT granted
+			                 AND database = (SELECT oid FROM pg_database WHERE datname = current_database()))`).Scan(&waiting)
 		return waiting, err
 	})
 	if err := first.Commit(ctx); err != nil {

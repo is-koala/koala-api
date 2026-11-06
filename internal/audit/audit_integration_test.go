@@ -46,7 +46,9 @@ func interval(t *testing.T, period string) string {
 // TestRetentionMatchesCatalog: the database computes each row's
 // retain_until from the periods db/softdelete.yaml records for the M1
 // tables (ADR-0026): an entry 24 months, a FINANCIAL entry 10 years, the
-// result row its pending row's, a detail 6 months.
+// result row its pending row's, a detail 6 months, a PII access row 24
+// months. Every period in the catalog is read here, so changing one of
+// the two places alone turns the gate red.
 func TestRetentionMatchesCatalog(t *testing.T) {
 	t.Parallel()
 	d := dbtest.New(t)
@@ -55,6 +57,7 @@ func TestRetentionMatchesCatalog(t *testing.T) {
 	cat := dbtest.SoftDeleteCatalog(t)
 	entries, _ := cat.Table("admin_audit_entries")
 	details, _ := cat.Table("admin_audit_entry_details")
+	access, _ := cat.Table("pii_access_log")
 	rec := audit.NewRecorder()
 
 	normal := entry(authz.SensitivityPersonalData)
@@ -70,6 +73,17 @@ func TestRetentionMatchesCatalog(t *testing.T) {
 	}
 	financial := entry(authz.SensitivityFinancial)
 	if _, err := rec.Pending(ctx, app.Pool(), financial); err != nil {
+		t.Fatal(err)
+	}
+	// The PII access log is the third M1 table with a retention, and the
+	// only one no recorder writes: the gate writes it in the reading
+	// transaction (internal/pii). Its row is inserted straight here so
+	// the catalog and the trigger are tied together like the others'.
+	_, err = app.Pool().Exec(ctx, `
+		INSERT INTO pii_access_log (id, created_at, staff_id, basis, data_subject_id, purpose, fields, retain_until)
+		VALUES ($1, now(), $2, 'user.read_pii: platform:koala', $3, 'identity_review', ARRAY['phone'], now())`,
+		uuid.New(), uuid.New(), uuid.New())
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,6 +105,8 @@ func TestRetentionMatchesCatalog(t *testing.T) {
 		JOIN admin_audit_entries p ON p.id = r.result_of WHERE r.result_of = $2`, entries.Retention["entry"], pending)
 	check("detail", `SELECT bool_and(retain_until = created_at + $1::interval) FROM admin_audit_entry_details`,
 		details.Retention["detail"])
+	check("pii access", `SELECT bool_and(retain_until = created_at + $1::interval) FROM pii_access_log`,
+		access.Retention["access"])
 
 	var body string
 	if err := owner.Pool().QueryRow(ctx, "SELECT body::text FROM admin_audit_entry_details").Scan(&body); err != nil {
@@ -267,10 +283,21 @@ func TestCreatedAtIsTheDatabases(t *testing.T) {
 	}
 }
 
+// evidenceTables are the tables whose triggers this test watches: the
+// evidence tables and the role graph's.
+func evidenceTables() []string {
+	return []string{
+		"admin_audit_entries", "admin_audit_entry_details", "authz_change_log", "pii_access_log",
+		"staff_members", "staff_roles", "staff_role_assignments", "staff_role_includes",
+	}
+}
+
 // TestEvidenceTriggersAreEnabled: the triggers that keep the evidence
 // tables immutable and stamped, and the role graph's invariants, exist and
 // are enabled after migration. The table owner can disable a trigger
-// (ADR-0026, AU-9 boundary); a migration that does so fails here.
+// (ADR-0026, AU-9 boundary); a migration that does so fails here. The set
+// on those tables is compared both ways, so a nineteenth trigger added
+// later and left disabled is caught as well as a missing one.
 func TestEvidenceTriggersAreEnabled(t *testing.T) {
 	t.Parallel()
 	owner := dbtest.New(t).Open(t, db.RoleOwner)
@@ -284,16 +311,36 @@ func TestEvidenceTriggersAreEnabled(t *testing.T) {
 		"staff_role_includes_check", "staff_role_includes_lock",
 		"staff_roles_check", "staff_roles_lock",
 	}
-	for _, name := range want {
-		var enabled string
-		err := owner.Pool().QueryRow(t.Context(),
-			"SELECT tgenabled::text FROM pg_trigger WHERE tgname = $1 AND NOT tgisinternal", name).Scan(&enabled)
-		if err != nil {
-			t.Errorf("trigger %s: %v", name, err)
-			continue
+	rows, err := owner.Pool().Query(t.Context(), `
+		SELECT c.relname::text, t.tgname::text, t.tgenabled::text
+		FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+		WHERE NOT t.tgisinternal AND c.relname::text = ANY($1::text[])
+		ORDER BY 1, 2`, evidenceTables())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var table, name, enabled string
+		if err := rows.Scan(&table, &name, &enabled); err != nil {
+			t.Fatal(err)
 		}
+		got[name] = enabled
 		if enabled != "O" {
-			t.Errorf("trigger %s: tgenabled %q, want O (enabled)", name, enabled)
+			t.Errorf("trigger %s on %s: tgenabled %q, want O (enabled)", name, table, enabled)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range want {
+		if _, ok := got[name]; !ok {
+			t.Errorf("trigger %s: not on any of %v", name, evidenceTables())
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("%d triggers on %v, want the %d listed here; a new one joins the list with its reason",
+			len(got), evidenceTables(), len(want))
 	}
 }
