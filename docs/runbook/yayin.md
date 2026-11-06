@@ -98,6 +98,7 @@ Repo private ve organizasyon Free planında. Bu yüzden branch protection, tag r
 | `KOALA_SHUTDOWN_TIMEOUT` | isteğe bağlı (`35s`, en az `35s`) | Süren isteklere ve WebSocket'lere verilen süre; stream'lerin zorla kapatma payı (5 sn) bunun içindedir (ADR-0022). `stop_grace_period` bu ikisinin ve işlerin 5 sn'lik durma payının toplamından uzun olmalı (aşağıda). |
 | `KOALA_HTTP_ADDR`, `KOALA_LOG_LEVEL` | isteğe bağlı (`:8080`, `info`) | |
 | `KOALA_OWNER_DATABASE_URL`, `KOALA_BOOTSTRAP_DATABASE_URL` | yalnız `migrate`/`maint` ve `bootstrap` adımında | sır |
+| `KOALA_MAINT_DATABASE_URL` | yalnız `koala staff create\|disable` ve aylık `koala maint audit-purge` işinde | sır; `koala_maint` üyesi giriş (süper kullanıcı olamaz). Personel hesabı açma/kapatma ve saklama süresi dolan denetim ve PII erişim satırlarının silinmesi bu girişle yapılır (ADR-0026). `serve` bu değişkeni görürse açılmaz. |
 
 **Metrik portunun ağ ayarı (Dokploy).** `KOALA_METRICS_ADDR` portu Dokploy'da **yayımlanmaz** (port mapping yok) ve Traefik'e domain/route olarak **bağlanmaz**. Prometheus konteyneri uygulamayla aynı iç Docker ağına (Dokploy'un uygulama ağı ya da ayrı bir `monitoring` ağı) alınır ve `koala-api:9090`'ı oradan kazır. Uygulamanın kendisi bu ayrımı yapamaz: dinleyici bütün arayüzlerde açıktır; kısıt ağ ayarıdır.
 

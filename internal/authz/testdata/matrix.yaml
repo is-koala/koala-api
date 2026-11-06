@@ -25,7 +25,8 @@
 # Kapsam: pazaryeri tarafı ve personel RBAC'ın uç izinleri (ADR-0026): platform:koala'nın
 # 25 izin relation'ı, Java seed'indeki 10 rol ve rol DAG'ı (pair S01-S26; kaynak
 # docs/faz0/authz-personel-izinleri.csv). Personel öznesi "staff:<id>"dir. Personelin 18
-# servis içi dinamik kontrolü (PI-084-101) alanlarıyla gelir.
+# servis içi dinamik kontrolünden (PI-084-101) 14'ü (PI-088-101) alanlarıyla gelir;
+# PI-084-087'nin karşılıkları docs/faz0/README.md'deki eşleme tablosundadır.
 # OpenFGA'ya yüklenecek tuple'lar `fixtures.tuples` listesindedir; soft-delete'li
 # nesnelerin (deleted: true) tuple'ı yoktur, Check false döner (§5.7).
 

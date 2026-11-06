@@ -143,7 +143,15 @@ BEGIN
             USING ERRCODE = 'integrity_constraint_violation', CONSTRAINT = 'staff_role_includes_acyclic';
     END IF;
 
-    -- A role that is not exempt and reaches both branches.
+    -- A role that is not exempt and reaches both branches. Exemption
+    -- needs retired_at IS NULL, so a retired exempt role exempts nothing:
+    -- OWNER reaches both the TRUST and the FINANCE branch, so once it
+    -- exists it can no longer be retired - every
+    -- `UPDATE staff_roles SET retired_at = now()` on it is refused, and
+    -- so is taking OWNER away from a member who reaches both branches.
+    -- That is deliberate and fail-closed (it is the one role that may
+    -- cross the branches), but it surprises an operator: to retire OWNER
+    -- the branch reach has to go first.
     WITH RECURSIVE closure (root_id, role_id) AS (
         SELECT id, id FROM staff_roles
       UNION
