@@ -150,7 +150,7 @@ paths:
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/both-authz:
-    post: # koala-admin-permission: x-authz next to x-authz-permission
+    post: # koala-admin-permission and koala-operation-authz: x-authz next to x-authz-permission
       operationId: postAdminBothAuthz
       x-authz: {action: can_read, object: thing}
       x-authz-permission: thing.manage
