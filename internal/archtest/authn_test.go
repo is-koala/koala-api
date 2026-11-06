@@ -15,7 +15,9 @@ import (
 // grants the principal it finds that member's real permissions and audits
 // in its name, so production code must never name it. Go has no friend
 // packages: a depguard rule fences an import, not a function, so the
-// fence is here and it holds in every package, cmd included.
+// fence is here and it holds in every package of the module: the walk
+// starts at the repository root, so a new top-level package is in scope
+// the day it appears.
 const staffContextHelper = "ContextWithStaffForTest"
 
 // impersonations returns the positions of every mention of
@@ -53,7 +55,7 @@ func impersonations(fset *token.FileSet, f *ast.File) (found []string, declares 
 func TestNoStaffImpersonationOutsideTests(t *testing.T) {
 	t.Parallel()
 	declared := 0
-	goFilesIn(t, []string{"..", "../../cmd"}, func(fset *token.FileSet, _ string, f *ast.File) {
+	goFilesIn(t, []string{moduleRoot}, func(fset *token.FileSet, _ string, f *ast.File) {
 		found, declares := impersonations(fset, f)
 		if declares {
 			declared++

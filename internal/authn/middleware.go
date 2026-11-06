@@ -52,8 +52,8 @@ func UserFrom(ctx context.Context) (UserPrincipal, bool) {
 // member's authority — a disabled, soft-deleted or revoked one included —
 // past the token version, status and soft-delete checks Handler makes
 // (ADR-0026). Only a _test.go file may name it, and archtest's
-// TestNoStaffImpersonationOutsideTests enforces that in every package,
-// cmd included. The marketplace side has no such constructor on purpose:
+// TestNoStaffImpersonationOutsideTests enforces that in every package of
+// the module. The marketplace side has no such constructor on purpose:
 // a caller composes the user surface through Middleware or not at all.
 func ContextWithStaffForTest(ctx context.Context, p StaffPrincipal) context.Context {
 	return context.WithValue(ctx, staffKey{}, p)

@@ -11,6 +11,11 @@ import (
 	"testing"
 )
 
+// moduleRoot is the repository root from internal/archtest: one module,
+// so a rule that fences a package fences it for every directory of the
+// module, not only internal/ and cmd/.
+const moduleRoot = "../.."
+
 // goFiles parses every non-test, non-generated Go file under internal/
 // and calls fn with it.
 func goFiles(t *testing.T, fn func(fset *token.FileSet, path string, f *ast.File)) {
@@ -19,6 +24,8 @@ func goFiles(t *testing.T, fn func(fset *token.FileSet, path string, f *ast.File
 }
 
 // goFilesIn is goFiles over the given roots, relative to internal/archtest.
+// Directories that hold no source of this module are skipped, so a root
+// may be the module root.
 func goFilesIn(t *testing.T, roots []string, fn func(fset *token.FileSet, path string, f *ast.File)) {
 	t.Helper()
 	fset := token.NewFileSet()
@@ -27,7 +34,13 @@ func goFilesIn(t *testing.T, roots []string, fn func(fset *token.FileSet, path s
 			if err != nil {
 				return err
 			}
-			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+			if d.IsDir() {
+				if name := d.Name(); name != "." && name != ".." && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "bin") {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
 				strings.HasSuffix(path, ".gen.go") || strings.HasSuffix(path, ".sql.go") {
 				return nil
 			}
