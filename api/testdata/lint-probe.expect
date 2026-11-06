@@ -74,3 +74,6 @@ koala-admin-self-service	$.paths['/v1/admin/me/capabilities'].get
 koala-operation-authz	$.paths['/v1/admin/auth/login'].get
 koala-operation-authz	$.paths['/v1/admin/auth/refresh']
 koala-operation-authz	$.paths['/v1/admin/auth/refresh'].get
+koala-admin-permission	$.paths['/v1/admin/both-authz'].post
+koala-get-resource	$.paths['/v1/no-resource'].get
+koala-get-resource	$.paths['/v1/resource-none'].get

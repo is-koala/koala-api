@@ -214,7 +214,10 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - **Personelin kendi hesabına dokunan uçlar** yalnız açık izin listesindedir: `/v1/admin/me`, `/v1/admin/me/capabilities` (ADR-0026), `/v1/admin/auth/logout` ve `/v1/admin/auth/password`. Bunlar adminBearer + `x-authz-exempt` taşır, `x-authz-permission` taşımaz **[lint: koala-admin-self-service]**. Liste dışındaki her yol, `/v1/admin/auth/` altındaki yeni bir uç da, izin ister; orada ne `x-authz-exempt` ne `security: []` izin yerine geçer **[lint: koala-admin-permission]**.
   - Kurallar `head`, `options` ve `trace` dahil her HTTP metoduna uygulanır.
 - **Sıra:** authn middleware'i (Faz 1) istek doğrulamasından önce gelir. Kimliksiz istek gövde biçimi hakkında bir şey öğrenmez (ADR-0019).
-- **Her GET operasyonu** okuduğu tabloyu `x-resource: <tablo>` ile adlandırır (`db/softdelete.yaml`'daki ad). Üretilmiş okuma testi (`softdeletetest.ReadTest`) bu operasyonlarda silinmiş nesnenin gizlendiğini sınar (ADR-0020). Zorunluluğu denetleyen vacuum kuralı ilk gerçek kaynakla gelir.
+- **Her GET operasyonu** okuduğu tabloyu `x-resource: <tablo>` ile adlandırır (`db/softdelete.yaml`'daki ad) **[lint: koala-get-resource]**. Üretilmiş okuma testi (`softdeletetest.ReadTest`) bu operasyonlarda silinmiş nesnenin gizlendiğini sınar (ADR-0020); gerçek sözleşmede `internal/app.TestReadTestOnTheContract` koşar **[test]**.
+  - Tablo okumayan GET `x-resource: none` yazar ve gerekçesini `x-resource-reason` ile verir (en az 20 karakter); gerekçesiz `none` lint'te kırmızıdır.
+  - Çağıranın kendi kaydını döndüren uç (`/v1/me`, `/v1/admin/me`) ayrıca `x-resource-self: true` taşır: okuma testi onu kimliğiyle çağırır ve silinmeden sonra 200 değil 401 bekler (ADR-0026). Yol parametresi olan operasyon `x-resource-self` taşımaz.
+  - Soft-delete'li olmayan tabloyu (M1–M6) adlandıran operasyon okuma testinde atlanır: gizlenecek bir şey yoktur.
 
 - **Oran sınırı grubu:** Operasyon varsayılan grubundan (GET/HEAD/OPTIONS → `read`, diğerleri → `write`) başka bir gruba `x-rate-limit: <grup>` ile girer (`auth`, `upload`, `message`, `sitemap`, `boarding`). Grup tablosu `internal/app/edge.go`'dadır; bilinmeyen grup açılışı durdurur (ADR-0021) **[test]**. `auth_account` grubunun route'u yoktur: giriş, hedef başına (adres fark etmeksizin) kovayı buradan alır (ADR-0025 §8).
 

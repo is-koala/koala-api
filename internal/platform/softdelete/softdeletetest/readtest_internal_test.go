@@ -79,6 +79,7 @@ func TestPlanReportsContractProblems(t *testing.T) {
 				"/example-owners":      "example_owners",
 				"/example-owners/{id}": "example_owners",
 				"/receipts/{id}":       "example_receipts", // exempt: nothing to hide
+				"/catalog":             None,               // reads no table
 				"/livez":               nil,
 			}),
 			Catalog:  catalog(t),
@@ -106,6 +107,8 @@ func TestVisibilityCatchesLeaks(t *testing.T) {
 	deleted := "/owners/" + id.String()
 	detail := operation{path: "/owners/{id}", params: 1}
 	list := operation{path: "/owners", params: 0}
+	self := operation{path: "/me", self: true}
+	unauthenticated := func(string) int { return http.StatusUnauthorized }
 	notFound := func(string) int { return http.StatusNotFound }
 	ok := func(string) int { return http.StatusOK }
 	same := func(string) string { return `{"code":"OWNER_NOT_FOUND"}` }
@@ -130,6 +133,10 @@ func TestVisibilityCatchesLeaks(t *testing.T) {
 		"active object not listed":     {handler(ok, func(string) string { return `{"items":[]}` }), list, true, "lists"},
 		"list fails":                   {handler(notFound, same), list, false, "want 200"},
 		"deleted object left out":      {handler(ok, func(string) string { return `{"items":[]}` }), list, false, ""},
+		"deleted caller still served":  {handler(ok, func(string) string { return `{"id":"` + id.String() + `"}` }), self, false, "want 401"},
+		"deleted caller refused":       {handler(unauthenticated, same), self, false, ""},
+		"active caller refused":        {handler(unauthenticated, same), self, true, "want 200"},
+		"active caller served":         {handler(ok, func(string) string { return `{"id":"` + id.String() + `"}` }), self, true, ""},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
