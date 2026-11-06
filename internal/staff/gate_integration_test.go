@@ -128,7 +128,7 @@ func (e *gateEnv) router(t *testing.T, writes auditdb.DBTX, runs *int) http.Hand
 		gr.Use(func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				id := uuid.MustParse(r.Header.Get("X-Test-Staff"))
-				next.ServeHTTP(w, r.WithContext(authn.ContextWithStaff(r.Context(), authn.StaffPrincipal{StaffID: id})))
+				next.ServeHTTP(w, r.WithContext(authn.ContextWithStaffForTest(r.Context(), authn.StaffPrincipal{StaffID: id})))
 			})
 		}, g.Handler)
 		gr.Post("/v1/admin/settings", handler)

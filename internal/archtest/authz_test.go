@@ -15,24 +15,32 @@ import (
 // and calls fn with it.
 func goFiles(t *testing.T, fn func(fset *token.FileSet, path string, f *ast.File)) {
 	t.Helper()
+	goFilesIn(t, []string{".."}, fn)
+}
+
+// goFilesIn is goFiles over the given roots, relative to internal/archtest.
+func goFilesIn(t *testing.T, roots []string, fn func(fset *token.FileSet, path string, f *ast.File)) {
+	t.Helper()
 	fset := token.NewFileSet()
-	err := filepath.WalkDir("..", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
-			strings.HasSuffix(path, ".gen.go") || strings.HasSuffix(path, ".sql.go") {
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+				strings.HasSuffix(path, ".gen.go") || strings.HasSuffix(path, ".sql.go") {
+				return nil
+			}
+			f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+			if err != nil {
+				return err
+			}
+			fn(fset, path, f)
 			return nil
-		}
-		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		})
 		if err != nil {
-			return err
+			t.Fatal(err)
 		}
-		fn(fset, path, f)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 }
 
