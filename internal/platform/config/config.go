@@ -409,6 +409,24 @@ func loadAuth(vars map[string]string, cfg *Config) []error {
 	return errs
 }
 
+// ServeLoginErrors reports the database logins serve must not see (least
+// privilege, ADR-0026): the owner, maintenance and bootstrap logins belong
+// to one-off commands. A server process that holds them could act as
+// koala_owner or koala_maint if it were compromised, so serve refuses to
+// start while any of them is in its environment, in every environment.
+func (c Config) ServeLoginErrors() error {
+	var errs []error
+	for name, v := range map[string]Secret{
+		VarOwnerDatabaseURL: c.OwnerDatabaseURL, VarMaintDatabaseURL: c.MaintDatabaseURL, VarBootstrapDatabaseURL: c.BootstrapDatabaseURL,
+	} {
+		if v != "" {
+			errs = append(errs, fmt.Errorf("%s: %w: must not be set for serve; it belongs to the command that needs it", name, errInvalidValue))
+		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errors.Join(errs...)
+}
+
 // ServeAuthErrors reports the authentication settings serve cannot start
 // without: in staging and production both signing key rings and the login
 // pepper. Elsewhere an unset one is generated per process (tokens die on

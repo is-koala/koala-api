@@ -32,7 +32,7 @@ func runServe(ctx context.Context, args []string, sio IO) int {
 		logger.ErrorContext(ctx, "startup failed", slog.String("error", config.VarDatabaseURL+": required by serve"))
 		return ExitError
 	}
-	if err := errors.Join(cfg.ServeEdgeErrors(), cfg.ServeAuthErrors()); err != nil {
+	if err := errors.Join(cfg.ServeLoginErrors(), cfg.ServeEdgeErrors(), cfg.ServeAuthErrors()); err != nil {
 		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
 		return ExitError
 	}

@@ -127,6 +127,20 @@ func TestServeNeedsEdgeVariablesInProduction(t *testing.T) {
 	}
 }
 
+// TestServeRefusesPrivilegedLogins: serve does not start while an owner,
+// maintenance or bootstrap login is in its environment (ADR-0026), before
+// it dials anything.
+func TestServeRefusesPrivilegedLogins(t *testing.T) {
+	t.Parallel()
+	for _, v := range []string{"KOALA_OWNER_DATABASE_URL", "KOALA_MAINT_DATABASE_URL", "KOALA_BOOTSTRAP_DATABASE_URL"} {
+		code, stdout, _ := run([]string{"serve"},
+			"KOALA_ENV=test", "KOALA_DATABASE_URL=postgres://app@db.invalid/koala", v+"=postgres://x@db.invalid/koala")
+		if code != ExitError || !strings.Contains(stdout, v+": invalid value: must not be set for serve") {
+			t.Errorf("%s: exit %d, stdout %q; want a refusal naming it", v, code, stdout)
+		}
+	}
+}
+
 // TestMigrateDownRefusedInProduction: the refusal comes before any
 // connection, so the unreachable URL is never dialed.
 func TestMigrateDownRefusedInProduction(t *testing.T) {
