@@ -72,6 +72,73 @@ func TestMaskBodyBySubstringSuffixAndValue(t *testing.T) {
 	}
 }
 
+// The keys a review found open stay out of the trail: a card number
+// (under its key and as a bare value, quoted or not), an Authorization
+// header, an API key and the Turkish spellings of the identity number and
+// the surname.
+func TestMaskBodyMasksSecretsAndCardNumbers(t *testing.T) {
+	t.Parallel()
+	body := map[string]any{
+		"cardNumber":    "4111 1111 1111 1111",
+		"authorization": "Bearer eyJhbGciOiJFZERTQSJ9.e30.sig",
+		"apiKey":        "sk_live_0123456789",
+		"tcKimlikNo":    "10000000146",
+		"soyadi":        "Yılmaz",
+		"doorCode":      "4111111111111111", // a card number under a harmless key
+		"tel":           5551112233,         // a phone number as a JSON number
+		"pan":           4111111111111111,   // a card number as a JSON number
+	}
+	got, err := audit.MaskBody(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	for _, k := range []string{"cardNumber", "authorization", "apiKey", "tcKimlikNo", "soyadi", "doorCode", "tel", "pan"} {
+		if !strings.Contains(s, `"`+k+`":"***"`) {
+			t.Errorf("masked body %s: %s is not masked", s, k)
+		}
+	}
+	for _, leaked := range []string{"4111", "eyJhbGciOiJFZERTQSJ9", "sk_live", "10000000146", "Yılmaz", "5551112233"} {
+		if strings.Contains(s, leaked) {
+			t.Errorf("masked body %s still carries %q", s, leaked)
+		}
+	}
+}
+
+// The mask reads its exceptions as endings too, so the members a staff
+// body really carries survive it: the password flag, the token version
+// and the names of things. Numbers that are not a phone or a card stay as
+// they are.
+func TestMaskBodyKeepsWhatIsNotPersonal(t *testing.T) {
+	t.Parallel()
+	body := map[string]any{
+		"mustChangePassword": true,
+		"tokenVersion":       7,
+		"memberTokenVersion": 7,
+		"targetRoleName":     "OWNER",
+		"tableName":          "staff_members",
+		"eventName":          "STAFF_DISABLED",
+		"statusName":         "ACTIVE",
+		"count":              42,
+		"amount":             15000,
+		"invoiceNo":          "1234567890123456789012", // 22 digits: neither phone nor card
+	}
+	got, err := audit.MaskBody(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	for _, kept := range []string{
+		`"mustChangePassword":true`, `"tokenVersion":7`, `"memberTokenVersion":7`, `"targetRoleName":"OWNER"`,
+		`"tableName":"staff_members"`, `"eventName":"STAFF_DISABLED"`, `"statusName":"ACTIVE"`,
+		`"count":42`, `"amount":15000`, `"invoiceNo":"1234567890123456789012"`,
+	} {
+		if !strings.Contains(s, kept) {
+			t.Errorf("masked body %s lost %s", s, kept)
+		}
+	}
+}
+
 // A body over 8 KB after masking is replaced by a marker with its size.
 func TestMaskBodyCapsTheSize(t *testing.T) {
 	t.Parallel()

@@ -59,12 +59,15 @@ type Entry struct {
 // piiKeyParts are the parts of a body member's key that make its value
 // personal data or a secret: a key that contains one ("contactEmail",
 // "user_phone", "ibanNumber", "refreshToken") is masked. Keys compare
-// without case and without "_" and "-".
+// without case and without "_" and "-". Turkish spellings sit next to
+// the English ones: a body written by the panel may use either.
 func piiKeyParts() []string {
 	return []string{
-		"email", "phone", "mobile", "gsm", "tckn", "nationalid", "identitynumber", "iban", "password", "passwd",
-		"secret", "token", "otp", "address", "street", "postcode", "zipcode", "latitude", "longitude",
-		"coordinate", "location", "birth", "firstname", "lastname", "fullname", "surname", "ipaddress", "clientip",
+		"email", "phone", "mobile", "gsm", "tckn", "nationalid", "identitynumber", "kimlik", "iban", "password", "passwd",
+		"secret", "token", "authorization", "apikey", "otp", "address", "street", "postcode", "zipcode",
+		"latitude", "longitude", "coordinate", "location", "birth", "dogum",
+		"firstname", "lastname", "fullname", "surname", "soyad", "ipaddress", "clientip",
+		"cardnumber", "cardholder", "cardno", "creditcard", "cvv", "cvc",
 	}
 }
 
@@ -73,9 +76,18 @@ func piiKeyParts() []string {
 func piiKeySuffixes() []string { return []string{"lat", "lng", "lon", "name"} }
 
 // piiKeyExceptions end like a personal key but are not personal: names of
-// things, not of people.
+// things, not of people, and two flags of the staff contract that end in
+// a personal part ("mustChangePassword", "tokenVersion"). They are
+// matched as endings too, so "targetRoleName" and "memberTokenVersion"
+// are exempt like the bare keys.
 func piiKeyExceptions() []string {
-	return []string{"rolename", "permissionname", "operationname", "filename", "categoryname", "badgename", "companyname"}
+	return []string{
+		"rolename", "permissionname", "operationname", "filename", "categoryname", "badgename", "companyname",
+		"tablename", "columnname", "fieldname", "schemaname", "indexname", "constraintname", "triggername",
+		"eventname", "statusname", "actionname", "jobname", "queuename", "routename", "methodname",
+		"typename", "tagname", "templatename", "hostname",
+		"mustchangepassword", "tokenversion",
+	}
 }
 
 // Masked is the value a masked body member gets.
