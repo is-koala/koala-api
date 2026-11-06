@@ -78,8 +78,12 @@ func (g *Gate) Open(ctx context.Context, q db.Querier, staff authz.Subject, data
 	if rid := httpx.RequestIDFrom(ctx); rid != "" {
 		requestID = &rid
 	}
-	if rc := chi.RouteContext(ctx); rc != nil && rc.RoutePattern() != "" {
-		pattern := rc.RoutePattern()
+	// The route is the operation, method and pattern, the way the staff
+	// gate and 0041_admin_audit.sql name one:
+	// "GET /v1/admin/users/{userId}" (plan §5.5). Off a router - koala
+	// staff, a River job - there is no route and the column stays NULL.
+	if rc := chi.RouteContext(ctx); rc != nil && rc.RouteMethod != "" && rc.RoutePattern() != "" {
+		pattern := rc.RouteMethod + " " + rc.RoutePattern()
 		route = &pattern
 	}
 	if err := g.log(ctx, q, piidb.InsertPIIAccessParams{

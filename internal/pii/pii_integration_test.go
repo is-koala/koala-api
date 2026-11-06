@@ -4,9 +4,12 @@ package pii_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/is-koala/koala-api/internal/authz"
@@ -93,11 +96,18 @@ func TestGateGrantsWithItsLogRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	var basis string
-	if err := e.maint.Pool().QueryRow(t.Context(), "SELECT basis FROM pii_access_log WHERE staff_id = $1", e.lead).Scan(&basis); err != nil {
+	var route *string
+	err = e.maint.Pool().QueryRow(t.Context(),
+		"SELECT basis, route FROM pii_access_log WHERE staff_id = $1", e.lead).Scan(&basis, &route)
+	if err != nil {
 		t.Fatal(err)
 	}
 	if basis == "" {
 		t.Error("the log row carries no basis")
+	}
+	// This call is off a router: there is no route to name.
+	if route != nil {
+		t.Errorf("route = %q without a router, want NULL", *route)
 	}
 
 	err = e.app.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
@@ -112,6 +122,48 @@ func TestGateGrantsWithItsLogRow(t *testing.T) {
 	}
 	if n := e.logRows(t); n != 1 {
 		t.Errorf("%d log rows, want the grant's only", n)
+	}
+}
+
+// TestGateWritesTheRouteOfTheRequest: on a request the access row names
+// the operation the way 0041_admin_audit.sql documents it, method and
+// route pattern together ("GET /v1/admin/users/{userId}"), not the
+// pattern alone (plan §5.5).
+func TestGateWritesTheRouteOfTheRequest(t *testing.T) {
+	t.Parallel()
+	e := newPIIEnv(t)
+	subject := uuid.New()
+	r := chi.NewRouter()
+	r.Get("/v1/admin/users/{userId}", func(w http.ResponseWriter, req *http.Request) {
+		err := e.app.InTx(req.Context(), func(ctx context.Context, q db.Querier) error {
+			g, err := e.gate.Open(ctx, q, authz.Staff(e.lead), subject, "identity_review", []pii.Field{pii.FieldPhone})
+			if err != nil {
+				return err
+			}
+			if g == nil {
+				t.Error("the gate opened nothing for a member who holds user.read_pii")
+			}
+			return nil
+		})
+		if err != nil {
+			t.Error(err)
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/admin/users/"+subject.String(), http.NoBody))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200", rec.Code)
+	}
+
+	var route *string
+	err := e.maint.Pool().QueryRow(t.Context(),
+		"SELECT route FROM pii_access_log WHERE staff_id = $1", e.lead).Scan(&route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "GET /v1/admin/users/{userId}"; route == nil || *route != want {
+		t.Errorf("route = %v, want %q", route, want)
 	}
 }
 
