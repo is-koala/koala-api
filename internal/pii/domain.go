@@ -17,6 +17,8 @@
 package pii
 
 import (
+	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strings"
@@ -83,6 +85,27 @@ type Value[T any] struct {
 	field   Field
 	subject uuid.UUID
 }
+
+// masked is what a Value prints, logs and encodes as: whatever the way it
+// leaves, without Reveal it leaves masked.
+const masked = "***"
+
+// String implements fmt.Stringer: masked.
+func (Value[T]) String() string { return masked }
+
+// GoString implements fmt.GoStringer (%#v): masked.
+func (Value[T]) GoString() string { return masked }
+
+// Format implements fmt.Formatter, so every verb (%v, %+v, %s, %q, %d,
+// %x) prints masked.
+func (Value[T]) Format(f fmt.State, _ rune) { _, _ = f.Write([]byte(masked)) }
+
+// LogValue implements slog.LogValuer: a logged Value is masked.
+func (Value[T]) LogValue() slog.Value { return slog.StringValue(masked) }
+
+// MarshalJSON implements json.Marshaler: an encoded Value is masked. A
+// projection writes the clear value through Reveal into its own field.
+func (Value[T]) MarshalJSON() ([]byte, error) { return []byte(`"` + masked + `"`), nil }
 
 // NewValue wraps the value of field f of subject, in the store that reads
 // it.
