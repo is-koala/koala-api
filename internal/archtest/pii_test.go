@@ -72,7 +72,7 @@ func valuesInUnexportedFields(fset *token.FileSet, f *ast.File) []string {
 // or %+v would put a phone number in the log.
 func TestPIIValuesStayInExportedFields(t *testing.T) {
 	t.Parallel()
-	goFilesIn(t, []string{moduleRoot}, func(fset *token.FileSet, _ string, f *ast.File) {
+	goFiles(t, func(fset *token.FileSet, _ string, f *ast.File) {
 		if f.Name.Name == "pii" {
 			return
 		}

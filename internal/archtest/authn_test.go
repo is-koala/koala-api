@@ -55,7 +55,7 @@ func impersonations(fset *token.FileSet, f *ast.File) (found []string, declares 
 func TestNoStaffImpersonationOutsideTests(t *testing.T) {
 	t.Parallel()
 	declared := 0
-	goFilesIn(t, []string{moduleRoot}, func(fset *token.FileSet, _ string, f *ast.File) {
+	goFiles(t, func(fset *token.FileSet, _ string, f *ast.File) {
 		found, declares := impersonations(fset, f)
 		if declares {
 			declared++

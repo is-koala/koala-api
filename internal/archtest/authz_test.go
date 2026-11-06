@@ -11,49 +11,44 @@ import (
 	"testing"
 )
 
-// moduleRoot is the repository root from internal/archtest: one module,
-// so a rule that fences a package fences it for every directory of the
-// module, not only internal/ and cmd/.
+// moduleRoot is the repository root from internal/archtest. There is one
+// go.mod, so every rule in this package reads the whole module: a file
+// under api/, db/ or a package added tomorrow imports internal/* as
+// legally as a file inside internal/ does.
 const moduleRoot = "../.."
 
-// goFiles parses every non-test, non-generated Go file under internal/
-// and calls fn with it.
+// goFiles parses every non-test, non-generated Go file of the module and
+// calls fn with it. It walks the module root, not internal/: one go.mod,
+// so a file under api/, db/ or a package added later imports internal/ as
+// legally as internal/ does, and a rule that read internal/ alone was
+// half a rule. Directories that hold no source of the module - dot
+// directories, node_modules, the Makefile's bin - are skipped.
 func goFiles(t *testing.T, fn func(fset *token.FileSet, path string, f *ast.File)) {
 	t.Helper()
-	goFilesIn(t, []string{".."}, fn)
-}
-
-// goFilesIn is goFiles over the given roots, relative to internal/archtest.
-// Directories that hold no source of this module are skipped, so a root
-// may be the module root.
-func goFilesIn(t *testing.T, roots []string, fn func(fset *token.FileSet, path string, f *ast.File)) {
-	t.Helper()
 	fset := token.NewFileSet()
-	for _, root := range roots {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				if name := d.Name(); name != "." && name != ".." && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "bin") {
-					return fs.SkipDir
-				}
-				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
-				strings.HasSuffix(path, ".gen.go") || strings.HasSuffix(path, ".sql.go") {
-				return nil
-			}
-			f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-			if err != nil {
-				return err
-			}
-			fn(fset, path, f)
-			return nil
-		})
+	err := filepath.WalkDir(moduleRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatal(err)
+			return err
 		}
+		if d.IsDir() {
+			if name := d.Name(); name != "." && name != ".." && (strings.HasPrefix(name, ".") || name == "node_modules" || name == "bin") {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") ||
+			strings.HasSuffix(path, ".gen.go") || strings.HasSuffix(path, ".sql.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		fn(fset, path, f)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
