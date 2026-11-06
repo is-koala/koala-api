@@ -119,6 +119,14 @@ type StaffRoleGraphRow struct {
 // DISABLED member reaches nothing. internal/authz/authzsql
 // turns the rows into the member's relationship tuples; the evaluator
 // decides on them, so a revoked assignment counts on the next request.
+// The member is reached by LEFT JOIN because active_staff_members sits on
+// a detach edge of db/softdelete.yaml, and the WHERE then demands
+// m.status = 'ACTIVE'. The pair behaves like an INNER join and that is
+// the intent: the authorization answer is fail-closed, a member who is
+// gone or disabled resolves to no permission at all. The join lint reads
+// the join, not the predicate, so it cannot tell this apart from a query
+// that destroys the nullable side by accident; where NULL has to survive,
+// the query keeps it and Go decides (db/queries/authn/staff.sql).
 func (q *Queries) StaffRoleGraph(ctx context.Context, staffID uuid.UUID) ([]StaffRoleGraphRow, error) {
 	rows, err := q.db.Query(ctx, staffRoleGraph, staffID)
 	if err != nil {
