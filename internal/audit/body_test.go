@@ -111,7 +111,7 @@ func TestMaskBodyMasksSecretsAndCardNumbers(t *testing.T) {
 // and went into the trail all but in clear - so the decoder keeps the
 // digits the writer sent. 19 digit cards are real (Visa, Discover,
 // UnionPay), and `pan` is in no key list: the value layer is the only
-// defence.
+// defense.
 func TestMaskBodyMasksLongCardNumbersSentAsNumbers(t *testing.T) {
 	t.Parallel()
 	// Luhn-valid at 13, 15, 16, 17, 18 and 19 digits.
