@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -18,8 +19,8 @@ import (
 //     number (10 to 15 digits once spaces, dashes, dots and parentheses
 //     are dropped) or is a payment card number (13 to 19 digits that pass
 //     the Luhn checksum) is Masked wherever it appears, whatever its key.
-//     A JSON number is read the same way, so a phone or a card sent
-//     unquoted is masked too.
+//     A JSON number is read the same way, digit for digit, so a phone or
+//     a card sent unquoted is masked too.
 //
 // The two layers are a deny list: free text and a personal value under an
 // unlisted key go through. A move to an allow list (nothing but the keys
@@ -31,8 +32,15 @@ func MaskBody(body any) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("audit: encode body: %w", err)
 	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	// Keep the digits the writer sent. json.Unmarshal decodes every
+	// number into a float64, which holds 15 to 17 significant decimal
+	// digits: a 17 to 19 digit card number comes back rounded, its last
+	// digits changed, and the Luhn check below would miss it - the number
+	// would reach the trail all but in clear.
+	dec.UseNumber()
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
+	if err := dec.Decode(&v); err != nil {
 		return nil, fmt.Errorf("audit: decode body: %w", err)
 	}
 	out, err := json.Marshal(mask(v))
@@ -60,15 +68,26 @@ func numberDigits(s string) string {
 	return strings.NewReplacer(" ", "", "-", "", ".", "", "(", "", ")", "").Replace(s)
 }
 
-// personalNumber reports whether s is a phone number or a payment card
-// number. A 10 to 15 digit run is a phone number, so an epoch in
-// milliseconds is masked with it: masking a timestamp costs a reader of
-// the trail little, printing a phone number costs the data subject a lot.
-// Card numbers are longer and only count when they pass Luhn, which keeps
-// ids and counters out.
+// personalNumber reports whether the string s is a phone number or a
+// payment card number, separators and all. A 10 to 15 digit run is a
+// phone number, so an epoch in milliseconds is masked with it: masking a
+// timestamp costs a reader of the trail little, printing a phone number
+// costs the data subject a lot. Card numbers are longer and only count
+// when they pass Luhn, which keeps ids and counters out.
 func personalNumber(s string) bool {
 	d := numberDigits(s)
 	return phoneValue.MatchString(d) || (cardValue.MatchString(d) && luhn(d))
+}
+
+// personalNumberLiteral is personalNumber for a JSON number literal. Only
+// an integer literal can be a phone or a card number, and the separators
+// numberDigits drops are digits of neither: in "12345678901.23" the dot
+// does not join two halves of one number.
+func personalNumberLiteral(s string) bool {
+	if strings.ContainsAny(s, ".eE+-") {
+		return false
+	}
+	return phoneValue.MatchString(s) || (cardValue.MatchString(s) && luhn(s))
 }
 
 // luhn reports whether the digits satisfy the Luhn checksum (ISO/IEC
@@ -111,8 +130,18 @@ func mask(v any) any {
 			return Masked
 		}
 		return t
-	case float64: // every JSON number decodes into any as a float64
-		if personalNumber(strconv.FormatFloat(t, 'f', -1, 64)) {
+	case json.Number: // UseNumber above: the digits are the writer's own
+		if personalNumberLiteral(t.String()) {
+			return Masked
+		}
+		return t
+	case float64:
+		// Unreachable while MaskBody decodes with UseNumber, and kept so
+		// that dropping UseNumber cannot let a card number through: a
+		// rounded number fails Luhn, so here the whole card length range
+		// is masked without it.
+		s := strconv.FormatFloat(t, 'f', -1, 64)
+		if phoneValue.MatchString(s) || cardValue.MatchString(s) {
 			return Masked
 		}
 		return t

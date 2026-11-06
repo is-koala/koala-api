@@ -105,6 +105,39 @@ func TestMaskBodyMasksSecretsAndCardNumbers(t *testing.T) {
 	}
 }
 
+// A card number sent as a JSON number is masked at every card length.
+// Decoding the body into a float64 used to round the long ones - a 17 to
+// 19 digit number came back with its last digits changed, failed Luhn
+// and went into the trail all but in clear - so the decoder keeps the
+// digits the writer sent. 19 digit cards are real (Visa, Discover,
+// UnionPay), and `pan` is in no key list: the value layer is the only
+// defence.
+func TestMaskBodyMasksLongCardNumbersSentAsNumbers(t *testing.T) {
+	t.Parallel()
+	// Luhn-valid at 13, 15, 16, 17, 18 and 19 digits.
+	cards := []int64{
+		4111111111119, 411111111111116, 4111111111111111,
+		41111111111111113, 411111111111111118, 4111111111111111110,
+	}
+	for _, card := range cards {
+		got, err := audit.MaskBody(map[string]any{"pan": card})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != `{"pan":"***"}` {
+			t.Errorf("MaskBody(%d) = %s, want the masked value", card, got)
+		}
+	}
+	// The digits survive the decoder, so what is not a card stays whole.
+	got, err := audit.MaskBody(map[string]any{"orderNo": int64(4111111111111111109)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"orderNo":4111111111111111109}`; string(got) != want {
+		t.Errorf("MaskBody = %s, want %s", got, want)
+	}
+}
+
 // The mask reads its exceptions as endings too, so the members a staff
 // body really carries survive it: the password flag, the token version
 // and the names of things. Numbers that are not a phone or a card stay as
