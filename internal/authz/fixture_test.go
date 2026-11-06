@@ -23,14 +23,16 @@ func fixtureUserID(name string) uuid.UUID {
 	return uuid.NewSHA1(fixtureNamespace, []byte(name))
 }
 
-// fixtureRef maps "user:<name>" to "user:<uuid>"; other references and
-// wildcards are unchanged.
+// fixtureRef maps "user:<name>" and "staff:<name>" to their UUID form;
+// other references and wildcards are unchanged.
 func fixtureRef(ref string) string {
-	name, ok := strings.CutPrefix(ref, "user:")
-	if !ok || name == authz.Wildcard {
-		return ref
+	for _, prefix := range []string{"user:", "staff:"} {
+		name, ok := strings.CutPrefix(ref, prefix)
+		if ok && name != authz.Wildcard {
+			return prefix + fixtureUserID(name).String()
+		}
 	}
-	return "user:" + fixtureUserID(name).String()
+	return ref
 }
 
 // fixtureSubject returns the subject of a case; false for "anonymous".
@@ -39,9 +41,12 @@ func fixtureSubject(t *testing.T, s string) (authz.Subject, bool) {
 	if s == "anonymous" {
 		return authz.Subject{}, false
 	}
+	if name, ok := strings.CutPrefix(s, "staff:"); ok {
+		return authz.Staff(fixtureUserID(name)), true
+	}
 	name, ok := strings.CutPrefix(s, "user:")
 	if !ok {
-		t.Fatalf("subject %q: want user:<id> or anonymous", s)
+		t.Fatalf("subject %q: want user:<id>, staff:<id> or anonymous", s)
 	}
 	return authz.User(fixtureUserID(name)), true
 }

@@ -48,6 +48,7 @@ type authApp struct {
 	q         *authndb.Queries
 	passwords *authn.Passwords
 	mods      modules
+	dbt       dbtest.DB
 }
 
 func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
@@ -68,7 +69,7 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	}
 	return &authApp{
 		router: router, clock: clk, db: database, maint: d.Open(t, db.RoleMaint),
-		q: authndb.New(database.Pool()), passwords: passwords, mods: mods,
+		q: authndb.New(database.Pool()), passwords: passwords, mods: mods, dbt: d,
 	}
 }
 

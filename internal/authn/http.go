@@ -172,19 +172,6 @@ func (h *HTTP) ChangeStaffPassword(ctx context.Context, req apiv1.ChangeStaffPas
 	return apiv1.ChangeStaffPassword204Response{}, nil
 }
 
-// GetStaffMe returns the caller's staff account.
-func (h *HTTP) GetStaffMe(ctx context.Context, _ apiv1.GetStaffMeRequestObject) (apiv1.GetStaffMeResponseObject, error) {
-	p, ok := StaffFrom(ctx)
-	if !ok {
-		return nil, errNoPrincipal
-	}
-	m, err := h.staff.Me(ctx, p)
-	if err != nil {
-		return nil, err
-	}
-	return apiv1.GetStaffMe200JSONResponse{ID: m.ID, Email: m.Email, MustChangePassword: m.MustChangePassword}, nil
-}
-
 func tokenPair(p TokenPair) apiv1.TokenPair {
 	return apiv1.TokenPair{
 		AccessToken: p.AccessToken, AccessTokenExpiresAt: jsontime.From(p.AccessTokenExpiresAt),

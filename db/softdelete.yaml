@@ -82,6 +82,65 @@ tables:
     reason: >-
       The record of soft deletions: who deleted which root, when and why.
       Evidence for restores and audits; rows are never deleted.
+  staff_roles:
+    class: M4
+    reason: >-
+      The staff role catalog (ADR-0026), seeded by migration with Java's
+      role ids. A role is retired with retired_at, never deleted: audit
+      rows name the roles a decision went through by id (authz.Basis).
+  staff_role_permissions:
+    class: M6
+    reason: >-
+      A role's grant of a staff permission (link). The permission codes are
+      the code's catalog (internal/authz/permissions.go), held by a CHECK.
+      Revoked by hard delete; the change is in authz_change_log.
+  staff_role_includes:
+    class: M6
+    reason: >-
+      The role inclusion DAG (link). Acyclic and separation of duties are
+      database invariants (0040). Removed by hard delete; the change is in
+      authz_change_log.
+  staff_role_assignments:
+    class: M6
+    reason: >-
+      A staff member's role (link). Revoked by hard delete, effective on the
+      next request (AUTH-012); the change is in authz_change_log.
+  authz_change_log:
+    class: M1
+    reason: >-
+      One row per relationship tuple change, written by authz.RelationSink
+      in the writer's transaction (plan §5.2-5, ADR-0024 §10). Evidence;
+      never updated or deleted.
+  admin_audit_entries:
+    class: M1
+    reason: >-
+      The staff audit trail (plan §5.5, ADR-0026): pending and result rows
+      of mutations, refusals and sensitive reads, with actor, basis,
+      target, action, request id and outcome. Never updated (trigger);
+      koala_maint deletes a row only after its retain_until, which the
+      database computes from the retention below (FINANCIAL rows 10 years).
+    retention:
+      entry: P24M
+      financial_entry: P10Y
+  admin_audit_entry_details:
+    class: M1
+    pii: true
+    reason: >-
+      The personal part of an audit entry: the masked request body (at most
+      8 KB) and the client address. Never updated; purged by koala_maint
+      after the retention below (KVKK: personal data is not kept longer
+      than needed).
+    retention:
+      detail: P6M
+  pii_access_log:
+    class: M1
+    pii: true
+    reason: >-
+      One row per PII grant (pii.Gate.Open), written in the reading
+      transaction: no row, no grant (plan §5.5). Never updated; purged by
+      koala_maint after the retention below.
+    retention:
+      access: P24M
   goose_db_version:
     class: tool
     reason: >-
@@ -122,6 +181,13 @@ edges:
     parent: staff_members
     policy: detach
   - child: staff_login_sources
+    column: staff_id
+    parent: staff_members
+    policy: detach
+  # A deleted staff member's role assignments stay (a restore brings them
+  # back); a deleted member cannot sign in, and authz_tuples reaches the
+  # member by LEFT JOIN and drops its tuples.
+  - child: staff_role_assignments
     column: staff_id
     parent: staff_members
     policy: detach

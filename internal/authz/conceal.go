@@ -39,3 +39,10 @@ func concealUnless(objectType string, a Action) (Action, bool) {
 	v, ok := concealPolicy()[objectType+"#"+string(a)]
 	return v, ok
 }
+
+// concealed reports whether a denial on an object of objectType can be
+// concealed at all. A denial on the platform object, a missing staff
+// permission, never is: the platform is no resource whose existence
+// could leak, the admin surface is public in the contract, and the
+// staff member gets 403 STAFF_PERMISSION_DENIED (ADR-0026).
+func concealed(objectType string) bool { return objectType != TypePlatform }

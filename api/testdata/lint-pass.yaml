@@ -28,6 +28,7 @@ paths:
           $ref: "#/components/responses/Problem"
   /v1/things/{thingId}:
     get:
+      x-resource: things
       operationId: getThing
       x-authz: {action: can_read, object: thing}
       parameters:
@@ -121,6 +122,7 @@ paths:
         default:
           $ref: "#/components/responses/Problem"
     get:
+      x-resource: things
       operationId: listThings
       x-authz: {action: can_read, object: thing}
       x-sort-fields: [createdAt, id]
@@ -146,8 +148,8 @@ paths:
           $ref: "#/components/responses/Problem"
   /v1/admin/things:
     get:
+      x-resource: things
       operationId: adminListThings
-      x-authz: {action: can_read, object: thing}
       x-authz-permission: thing.read
       security: [{adminBearer: []}]
       deprecated: true
@@ -157,14 +159,35 @@ paths:
           $ref: "#/components/responses/Problem"
   /v1/admin/me:
     get:
+      x-resource: things
       operationId: adminGetMe
       x-authz-exempt: Personel yalnız kendi hesabını okur; izin gerektiren nesne yok.
       security: [{adminBearer: []}]
       responses:
         default:
           $ref: "#/components/responses/Problem"
+  /v1/admin/me/capabilities:
+    get:
+      x-resource: none
+      x-resource-reason: Yalnız çağıranın izinlerini hesaplar; okunan kaynak tablosu yok.
+      operationId: adminGetCapabilities
+      x-authz-exempt: Personel yalnız kendi izinlerini okur; izin gerektiren nesne yok.
+      security: [{adminBearer: []}]
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
+  /v1/admin/permissions:
+    get:
+      x-resource: things
+      operationId: adminListPermissions
+      x-authz-permission: role.manage
+      security: [{adminBearer: []}]
+      responses:
+        default:
+          $ref: "#/components/responses/Problem"
   /v1/admin/auth/refresh:
     get:
+      x-resource: things
       operationId: adminGetSignInState
       security: []
       responses:

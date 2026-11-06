@@ -242,10 +242,34 @@ func TestRoleGrants(t *testing.T) {
 			// Realtime tickets are inserted, redeemed by DELETE … RETURNING
 			// and purged; never updated (0022).
 			"realtime_tickets": {"SELECT", "INSERT", "DELETE"},
+			// Staff RBAC (0040, ADR-0026): the application resolves
+			// permissions from the role graph and writes nothing in it.
+			"staff_roles":            {"SELECT"},
+			"staff_role_permissions": {"SELECT"},
+			"staff_role_includes":    {"SELECT"},
+			"staff_role_assignments": {"SELECT"},
+			// Evidence (0040, 0041): appended, never updated, deleted or
+			// read back; the stamp triggers run as the owner.
+			"authz_change_log":          {"INSERT"},
+			"admin_audit_entries":       {"INSERT"},
+			"admin_audit_entry_details": {"INSERT"},
+			"pii_access_log":            {"INSERT"},
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below
 			"example_receipts": {"SELECT"},
+			// `koala staff` assigns roles and records the change; the
+			// graph itself changes only by migration until Faz 8.
+			"staff_roles":            {"SELECT"},
+			"staff_role_permissions": {"SELECT"},
+			"staff_role_includes":    {"SELECT"},
+			"staff_role_assignments": {"SELECT", "INSERT", "DELETE"},
+			"authz_change_log":       {"INSERT"},
+			// `koala staff` audits as koala_maint, `koala maint
+			// audit-purge` deletes past the retention (ADR-0026).
+			"admin_audit_entries":       {"SELECT", "INSERT", "DELETE"},
+			"admin_audit_entry_details": {"SELECT", "INSERT", "DELETE"},
+			"pii_access_log":            {"SELECT", "DELETE"},
 		}
 		// Column-level privileges beyond the table-level ones; the exact
 		// columns are checked in "column grants".

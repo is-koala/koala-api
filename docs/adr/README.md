@@ -31,6 +31,7 @@ Her ADR tek bir kararı kaydeder: **Bağlam / Karar / Sonuçlar**. "Neden" kısm
 | [0023](0023-image-release-pipeline-and-test-fakes.md) | İmaj kapısı, yayın hattı ve test sahteleri | §3.11, §6.1 Faz 1 ve 9 |
 | [0024](0024-authz-core-evaluator-and-conformance.md) | Authz çekirdeği: yorumlayıcı değerlendirici, model.json ve OpenFGA uygunluk koşucusu | ADR-0014'ün uygulaması; K17 (ADR-0014 Karar 2'deki alt kümeden `with condition`'ın ve ADR-0017'deki "tek gerekli kontrol" kaleminin yerine geçer) |
 | [0025](0025-authentication-tokens-sessions-and-staff-sign-in.md) | Kimlik doğrulama: token sınıfları, oturumlar, refresh rotasyonu ve personel girişi | K12, K13 (hazırlık), D5 (ADR-0018 §2'deki "Postgres bilet deposu Faz 4'te" notunun ve ADR-0019 §10'un yerine geçer; ADR-0005 madde 1'i, plan §4.1-1 ve §5.5'i `/v1/admin` için genişletir; plan §6.1 Faz 1 ve §6.2-1'den sapmayı kaydeder) |
+| [0026](0026-staff-rbac-audit-trail-and-pii-gate.md) | Personel RBAC, denetim kaydı çekirdeği ve PII kapısı | K13 (hazırlık), K14, S4, D5 (plan §5.5'teki "eşleşmeyen yol 403"ün yerine geçer; ADR-0013 ve S4'ün M1 "silinmez"ini ve ADR-0020 §8 (f)'yi saklama süreli kanıt tabloları için daraltır; ADR-0020 §8 (a)'ya `authz_tuples` istisnasını ekler ve §11'in `x-resource` kuralını getirir; ADR-0017'ye `KOALA_MAINT_DATABASE_URL`'i ekler ve saklama temizliğini Faz 1'e çeker; ADR-0025 §9'un self-servis listesini ve ADR-0005 madde 1'in biçimlerini genişletir) |
 
 **Not:** Plandaki ADR-0013, 0014, 0016 atıfları koala-backend'e aittir; bu dizindeki aynı numaralı ADR'lerle ilgisi yoktur.
 

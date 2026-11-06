@@ -90,6 +90,12 @@ type Table struct {
 	// for example a table only maintenance code inserts into. Empty means
 	// the default.
 	AppView []string
+	// Retention maps a kind of row of an M1 table to how long it is kept,
+	// as an ISO 8601 period of months or years ("P24M", "P10Y"). An M1
+	// table with a retention is still never changed, but koala_maint
+	// deletes its rows once the period has passed (ADR-0026); the
+	// database computes each row's retain_until. Empty: never deleted.
+	Retention map[string]string
 }
 
 // AppViewPrivileges returns koala_app's privileges on the active view, in
@@ -150,6 +156,7 @@ type (
 		Reason           string            `yaml:"reason"`
 		UniqueExceptions map[string]string `yaml:"unique_exceptions"`
 		AppView          []string          `yaml:"app_view"`
+		Retention        map[string]string `yaml:"retention"`
 	}
 	edgeDoc struct {
 		Child  string `yaml:"child"`
@@ -162,6 +169,9 @@ type (
 // identifier is a plain lower-case Postgres identifier. Names from the
 // catalog are written into SQL (quoted), so nothing else is accepted.
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// retentionPeriod is an ISO 8601 period of whole months or years.
+var retentionPeriod = regexp.MustCompile(`^P[1-9]\d*[MY]$`)
 
 // MaxTableName is the longest name of a soft-deleted table: the longest
 // name derived from it, <table>_deleted_together, must fit Postgres'
@@ -184,7 +194,7 @@ func ParseCatalog(docs ...[]byte) (*Catalog, error) {
 			if _, dup := c.tables[name]; dup {
 				return nil, fmt.Errorf("softdelete catalog: table %s listed twice", name)
 			}
-			t := Table{Name: name, Class: td.Class, PII: td.PII, Reason: strings.TrimSpace(td.Reason), UniqueExceptions: td.UniqueExceptions, AppView: td.AppView}
+			t := Table{Name: name, Class: td.Class, PII: td.PII, Reason: strings.TrimSpace(td.Reason), UniqueExceptions: td.UniqueExceptions, AppView: td.AppView, Retention: td.Retention}
 			if err := t.validate(); err != nil {
 				return nil, fmt.Errorf("softdelete catalog: table %s: %w", name, err)
 			}
@@ -255,6 +265,9 @@ func (t Table) validate() error {
 		if len(t.AppView) > 0 && !slices.Contains(t.AppView, "SELECT") {
 			return errors.New("app_view must keep SELECT")
 		}
+		if len(t.Retention) > 0 {
+			return errors.New("retention applies to M1 tables only; other classes state theirs in the reason")
+		}
 		return nil
 	}
 	switch {
@@ -264,6 +277,13 @@ func (t Table) validate() error {
 		return errors.New("app_view applies to soft-deleted tables (their views) only")
 	case len(t.UniqueExceptions) > 0:
 		return errors.New("unique_exceptions apply to soft-deleted tables only")
+	case len(t.Retention) > 0 && t.Class != ClassLedger:
+		return errors.New("retention applies to M1 tables only; other classes state theirs in the reason")
+	}
+	for kind, period := range t.Retention {
+		if !identifier.MatchString(kind) || !retentionPeriod.MatchString(period) {
+			return fmt.Errorf("retention %s: %q: want a lower_snake kind and a period such as P24M or P10Y", kind, period)
+		}
 	}
 	return nil
 }

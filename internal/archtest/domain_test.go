@@ -6,7 +6,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -42,30 +41,23 @@ func jsonTaggedFields(fset *token.FileSet, f *ast.File) []string {
 // TestDomainFilesCarryNoJSONTags enforces plan §3.2-1: domain.go holds
 // types, rules and state machines; wire formats live in http.go. depguard
 // already keeps encoding/json out of domain.go, but a json tag needs no
-// import, so it is checked here.
+// import, so it is checked here. The walk covers the module, not only
+// internal/, so a domain.go in a package added later is in scope.
 func TestDomainFilesCarryNoJSONTags(t *testing.T) {
 	t.Parallel()
 
-	root := ".." // internal/
-	fset := token.NewFileSet()
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	seen := 0
+	goFiles(t, func(fset *token.FileSet, path string, f *ast.File) {
+		if filepath.Base(path) != "domain.go" {
+			return
 		}
-		if d.IsDir() || d.Name() != "domain.go" {
-			return nil
-		}
-		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-		if err != nil {
-			return err
-		}
+		seen++
 		for _, pos := range jsonTaggedFields(fset, f) {
 			t.Errorf("%s: domain.go must not carry json struct tags; map to a DTO in http.go", pos)
 		}
-		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
+	if seen == 0 {
+		t.Error("no domain.go found; the walk no longer reaches the domain packages")
 	}
 }
 

@@ -41,6 +41,11 @@ func TestRunUsage(t *testing.T) {
 		{"maint without command", []string{"maint"}, ExitUsage},
 		{"maint unknown command", []string{"maint", "vacuum"}, ExitUsage},
 		{"maint help", []string{"maint", "help"}, ExitOK},
+		{"staff without command", []string{"staff"}, ExitUsage},
+		{"staff unknown command", []string{"staff", "delete"}, ExitUsage},
+		{"staff create without role", []string{"staff", "create", "--email", "a@iskoala.com"}, ExitUsage},
+		{"staff disable without email", []string{"staff", "disable"}, ExitUsage},
+		{"staff help", []string{"staff", "help"}, ExitOK},
 		{"bootstrap with args", []string{"bootstrap", "now"}, ExitUsage},
 	}
 	for _, tt := range tests {
@@ -87,6 +92,7 @@ func TestCommandsRequireTheirDatabaseURL(t *testing.T) {
 		{[]string{"migrate", "up"}, "KOALA_OWNER_DATABASE_URL"},
 		{[]string{"migrate", "status"}, "KOALA_OWNER_DATABASE_URL"},
 		{[]string{"maint", "reindex"}, "KOALA_OWNER_DATABASE_URL"},
+		{[]string{"maint", "audit-purge"}, "KOALA_MAINT_DATABASE_URL"},
 		{[]string{"bootstrap"}, "KOALA_BOOTSTRAP_DATABASE_URL"},
 	}
 	for _, tt := range tests {
@@ -117,6 +123,20 @@ func TestServeNeedsEdgeVariablesInProduction(t *testing.T) {
 	for _, v := range []string{"KOALA_MIN_APP_VERSION", "KOALA_TRUSTED_PROXIES", "KOALA_JWT_MARKETPLACE_KEYS", "KOALA_JWT_STAFF_KEYS", "KOALA_LOGIN_PEPPER"} {
 		if !strings.Contains(stdout, v+": required by serve in production") {
 			t.Errorf("stdout = %q, want an error naming %s", stdout, v)
+		}
+	}
+}
+
+// TestServeRefusesPrivilegedLogins: serve does not start while an owner,
+// maintenance or bootstrap login is in its environment (ADR-0026), before
+// it dials anything.
+func TestServeRefusesPrivilegedLogins(t *testing.T) {
+	t.Parallel()
+	for _, v := range []string{"KOALA_OWNER_DATABASE_URL", "KOALA_MAINT_DATABASE_URL", "KOALA_BOOTSTRAP_DATABASE_URL"} {
+		code, stdout, _ := run([]string{"serve"},
+			"KOALA_ENV=test", "KOALA_DATABASE_URL=postgres://app@db.invalid/koala", v+"=postgres://x@db.invalid/koala")
+		if code != ExitError || !strings.Contains(stdout, v+": invalid value: must not be set for serve") {
+			t.Errorf("%s: exit %d, stdout %q; want a refusal naming it", v, code, stdout)
 		}
 	}
 }

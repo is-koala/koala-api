@@ -367,16 +367,16 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#revokingTheMembershipTakesEffectOnTheVeryNextRequest"
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#anExpiredStaffTokenIsRejected"
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aRefreshTokenIsNotAnAccessToken"
+    target: >
+      ADR-0026: izin x-authz-permission kapısında her istekte rol DAG'ından tek bir özyinelemeli
+      sorguyla çözülür; aynı token'la önce 403 STAFF_PERMISSION_DENIED, rol verilince 200, rol
+      geri alınınca bir sonraki istekte yine 403. Rol kapsamasının (include) kaldırılması da
+      bir sonraki kararda geçerlidir.
     go_test:
       - internal/authn.TestStaffTokens
       - internal/app.TestTokenClassesOverHTTP
-    partial:
-      phase: 1
-      reason: >-
-        Bağlı testler token'ın izin taşımadığını, süresi dolmuş token'ın ve refresh
-        token'ın erişim token'ı olarak reddedildiğini kanıtlar. İzinlerin her istekte rol
-        DAG'ından okunması ve rol ya da üyelik iptalinin bir sonraki istekte geçerli olması
-        (ilk iki "then" maddesi) Faz 1'de personel RBAC PR'ında (migration 0040+) kapanır.
+      - internal/app.TestStaffPermissionGateOverHTTP
+      - internal/authz/authzsql.TestRevocationCountsOnTheNextCheck
 
   - id: AUTH-013
     priority: P0
@@ -447,6 +447,9 @@ scenarios:
     target: >
       D5: pazaryeri ROLE_ADMIN rolü Go'da yetki vermez; köprü yoktur. Pazaryeri ve personel kimlikleri
       ayrı imzalayıcı ve kitleyle (audience) üretilir; personel kimliği zorunlu TOTP ister (K13).
+      ADR-0026: sözleşmede olmayan personel yolu 404 ROUTE_NOT_FOUND alır (plan §5.5'teki 403'ün
+      yerine); sözleşmedeki her personel operasyonu izin ya da kodda sabit self-servis muafiyeti
+      taşımazsa sunucu açılmaz, izni olmayan personel 403 STAFF_PERMISSION_DENIED alır.
     source:
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aMarketplaceUserTokenCanNeverProduceAStaffPrincipal"
       - "src/test/java/com/exskylab/koala/webAPI/StaffAuthenticationIT.java#aStaffTokenIsUselessOnTheMarketplaceChain"
@@ -550,3 +553,38 @@ scenarios:
       - internal/app.TestAuthRateLimits
       - internal/app.TestKnownDeviceSkipsTheAccountBucket
       - internal/app.TestStaffKnownSourceSkipsTheAccountBucket
+
+  - id: AUTH-019
+    priority: P0
+    title: Rol ve izin verme, verenin kendi izinleriyle sınırlıdır (verilebilirlik)
+    rule: >
+      Personel kendisinde olmayan bir izni bir role ya da bir personele veremez
+      (`requireGrantable`): rol iznini ekleme ve çıkarma, rol kapsaması ekleme ve çıkarma,
+      personele rol atama ve rolü geri alma. Kapsama eklemesi döngü üretemez ve kimse kendi son
+      yönetim rolünü geri alarak kendini kilitleyemez (409). Verme, görev ayrılığını da bozamaz.
+    given:
+      - "`role.manage` izni olan ama `payout.release` izni olmayan personel S; OWNER personel O"
+    when:
+      - "S bir role `payout.release` ekler"
+      - "S bir role, izinleri kendisinde olmayan başka bir rolü kapsatır"
+      - "S bir personele, kendisinde olmayan izni taşıyan rolü atar"
+      - "O kendi son OWNER atamasını geri alır"
+    then:
+      - "S'in üç verme denemesi de reddedilir; aynı denemeler O için kabul edilir"
+      - "Kendini kilitleyen geri alma 409 ile reddedilir"
+      - "Döngü üreten kapsama reddedilir; görev ayrılığını bozan atama reddedilir"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/StaffAuthorizationManager.java:364-440"
+      - "src/main/java/com/exskylab/koala/business/concretes/StaffAccountManager.java:316-341"
+    target: >
+      ADR-0026: Faz 1 rol grafiğini veride tutar; döngüyü ve görev ayrılığını veritabanı her yazım
+      deyiminde, silme dahil, denetler (`staff_rbac_check`; `TestRoleGraphInvariants`,
+      `TestSeparationOfDutiesOnDeleteAndRetire`). Verilebilirlik (PI-096–101) bundan ayrı bir
+      kuraldır: verenin izin kümesi veren işlemi sınırlar. Matristeki `role.manage` ve
+      `staff.manage` satırları yalnız izin sahipliğini ölçer, verilebilirliği ölçmez.
+    go_test: null
+    deferred:
+      phase: 8
+      reason: >-
+        Rol ve izin verme uçları (PI-096–101) Faz 8'in personel yönetimiyle gelir; Faz 1'de rol
+        değişimi yalnız migration ve `koala staff` iledir (ADR-0026 Karar 1 ve 6).

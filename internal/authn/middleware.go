@@ -42,6 +42,23 @@ func UserFrom(ctx context.Context) (UserPrincipal, bool) {
 	return p, ok
 }
 
+// ContextWithStaffForTest returns ctx carrying p as the authenticated
+// staff caller, as Handler stores it, for a test that drives the staff
+// gate without this middleware (internal/staff).
+//
+// It authenticates nothing: it is an impersonation primitive. The staff
+// gate reads the principal it finds and grants that member's real
+// permissions, so a caller in production code would hand itself any
+// member's authority — a disabled, soft-deleted or revoked one included —
+// past the token version, status and soft-delete checks Handler makes
+// (ADR-0026). Only a _test.go file may name it, and archtest's
+// TestNoStaffImpersonationOutsideTests enforces that in every package of
+// the module. The marketplace side has no such constructor on purpose:
+// a caller composes the user surface through Middleware or not at all.
+func ContextWithStaffForTest(ctx context.Context, p StaffPrincipal) context.Context {
+	return context.WithValue(ctx, staffKey{}, p)
+}
+
 // StaffFrom returns the authenticated staff caller.
 func StaffFrom(ctx context.Context) (StaffPrincipal, bool) {
 	p, ok := ctx.Value(staffKey{}).(StaffPrincipal)

@@ -60,5 +60,7 @@ if [ -z "$tests" ]; then
 	exit 1
 fi
 
+# -v names every test in the CI log. Without it the log holds one line
+# per package, so a review cannot tell which tests ran at all.
 # shellcheck disable=SC2086 # pkgs is a list of package paths
-exec go test -tags integration -race -shuffle=on -count=1 -run "^(${tests})\$" $pkgs
+exec go test -tags integration -race -shuffle=on -count=1 -v -run "^(${tests})\$" $pkgs

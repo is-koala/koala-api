@@ -75,6 +75,8 @@ curl -i localhost:8080/readyz              # 200 ok; kapanırken 503
 | `koala healthcheck` | `/livez`'i loopback üzerinden yoklar; Docker `HEALTHCHECK` için. DB kesintisi konteyneri yeniden başlatmasın diye readiness değil liveness kullanılır. |
 | `koala bootstrap` | `koala_owner`, `koala_app` ve `koala_maint` grup rollerini yoksa kurar; `LOGIN`'i olanı `NOLOGIN`'e çeker. İdempotenttir, her yayında `migrate`'ten önce koşar (`scripts/release-db.sh`). `KOALA_BOOTSTRAP_DATABASE_URL` ile `postgres` DB'sine bağlanır; giriş `CREATEROLE` yetkili olmalı, süper kullanıcı olamaz. |
 | `koala migrate up\|down\|status` | Gömülü goose migration'larını (`db/migrations`) `koala_owner` olarak uygular, tek adım geri alır ya da durumu listeler. `KOALA_OWNER_DATABASE_URL` kullanır. `down` yalnız geliştirme içindir, production'da reddedilir. |
+| `koala staff create\|disable` | Personel hesabı açar (rollerle, tek kullanımlık parola) ya da kapatır (`token_version` artar). İlk süper admin `--role OWNER` ile açılır. `KOALA_MAINT_DATABASE_URL` kullanır; her değişiklik denetim kaydına yazılır (ADR-0026). |
+| `koala maint audit-purge` | Saklama süresi dolan denetim ve PII erişim satırlarını `koala_maint` olarak siler; aylık ops işi. `KOALA_MAINT_DATABASE_URL` kullanır (ADR-0026). |
 | `koala maint reindex` | River'ın iş tablosu indekslerini `REINDEX CONCURRENTLY` ile yeniden kurar. Önce yarıda kalmış kurulumların geçersiz artıklarını düşürür. Haftalık zamanlanmış ops işi olarak koşar, `KOALA_OWNER_DATABASE_URL` kullanır. |
 | `koala keygen jwt <kid>\|pepper` | Yeni bir JWT halka girdisi (`kid:tohum`) ya da giriş biberi üretip yalnız stdout'a yazar; yapılandırma okumaz, hiçbir yere dokunmaz (ADR-0025 §2). |
 | `koala version` | Derleme sürümünü yazar. |
@@ -96,7 +98,8 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_SHUTDOWN_DRAIN_DELAY` | hayır | `5s` | Kapanışta `/readyz` 503 döndükten sonra dinleyicinin kapanmasına kadar geçen süre |
 | `KOALA_SHUTDOWN_TIMEOUT` | hayır | `35s` | Süren isteklerin bitmesi için verilen süre; aşılırsa bağlantılar zorla kapatılır. En az `35s`: başlık okuma (5 sn) + istek süre sınırı (25 sn) + yazma payı (5 sn). Daha kısası açılışı durdurur |
 | `KOALA_DATABASE_URL` | `serve` için | — | Sunucu girişi; yalnız `koala_app` üyesi. `postgres://` URL |
-| `KOALA_OWNER_DATABASE_URL` | `migrate`, `maint` için | — | `koala_owner` üyesi giriş; süper kullanıcı olamaz |
+| `KOALA_OWNER_DATABASE_URL` | `migrate`, `maint reindex` için | — | `koala_owner` üyesi giriş; süper kullanıcı olamaz |
+| `KOALA_MAINT_DATABASE_URL` | `staff`, `maint audit-purge` için | — | `koala_maint` üyesi giriş; süper kullanıcı olamaz (ADR-0026) |
 | `KOALA_BOOTSTRAP_DATABASE_URL` | `bootstrap` için | — | `CREATEROLE` yetkili giriş, `postgres` DB'sine; süper kullanıcı olamaz |
 | `KOALA_MIN_APP_VERSION` | production'da `serve` için | `0.0.0` | En düşük desteklenen mobil sürüm (semver). `IOS`/`ANDROID` istemcisinin daha eski `X-App-Version`'ı `400 APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` alır (ADR-0021) |
 | `KOALA_TRUSTED_PROXIES` | staging ve production'da `serve` için | — | `X-Forwarded-For`'u okunacak proxy'ler: virgülle ayrılmış IP ya da CIDR (`10.0.0.0/8`). Yoksa TCP eşi istemcidir |
@@ -175,6 +178,10 @@ cmd/koala/            ince main: sinyal + app.Run
 internal/app/         elle wiring ve alt komutlar
 internal/apiv1/       spec'ten üretilmiş sunucu arayüzü (make generate; elle düzenlenmez)
 internal/platform/    alan bilgisi taşımayan altyapı: config, log, httpx, apperr, db (+ maintdb), jobs (River), dbtest, softdelete, clock, fakes (yalnız testler), metrics, appversion, jsontime
+internal/authz/       yetki kararı (ADR-0014, 0024, 0026): model, değerlendirici, personel izinleri; authzsql tipli SQL kaynakları
+internal/audit/       personel denetim kaydı çekirdeği (pending → sonuç, saklama, temizlik)
+internal/pii/         PII kapısı: Grant, Value, Reveal, pii_access_log
+internal/staff/       x-authz-permission kapısı, /v1/admin/me ve capabilities, koala staff
 internal/tools/       geliştirme araçları: softdeletegen (make generate)
 internal/archtest/    lint'in ifade edemediği mimari testler
 db/                   goose migration'ları (db/migrations), grup rolleri (db/bootstrap), sqlc sorguları (db/queries), soft-delete kataloğu (softdelete.yaml)

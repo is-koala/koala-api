@@ -21,12 +21,13 @@ import (
 )
 
 // modules are the domain modules the router mounts and the workers run.
-// authHTTP implements the whole generated strict server interface today;
-// the next module's handler joins it in a composing struct.
+// authHTTP and admin.http together implement the generated strict server
+// interface (strictServer).
 type modules struct {
 	users    *authn.Service
 	staff    *authn.StaffService
 	authHTTP *authn.HTTP
+	admin    staffModule
 	hub      *realtime.Hub
 	realtime *realtime.Handler
 	purge    *authPurgeWorker
@@ -66,8 +67,12 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, fmt.Errorf("wire realtime: %w", err)
 	}
+	admin, err := wireStaff(database, staff)
+	if err != nil {
+		return modules{}, err
+	}
 	return modules{
-		users: users, staff: staff, authHTTP: authn.NewHTTP(users, staff), hub: hub, realtime: handler,
+		users: users, staff: staff, authHTTP: authn.NewHTTP(users, staff), admin: admin, hub: hub, realtime: handler,
 		purge: &authPurgeWorker{users: users, staff: staff, tickets: ticketStore, clock: clk, logger: logger},
 	}, nil
 }

@@ -58,6 +58,7 @@ const (
 	ErrorCodeSTAFFCURRENTPASSWORDMISMATCH        ErrorCode = "STAFF_CURRENT_PASSWORD_MISMATCH"
 	ErrorCodeSTAFFLOGINFAILED                    ErrorCode = "STAFF_LOGIN_FAILED"
 	ErrorCodeSTAFFPASSWORDCHANGEREQUIRED         ErrorCode = "STAFF_PASSWORD_CHANGE_REQUIRED"
+	ErrorCodeSTAFFPERMISSIONDENIED               ErrorCode = "STAFF_PERMISSION_DENIED"
 	ErrorCodeSTAFFSESSIONENDED                   ErrorCode = "STAFF_SESSION_ENDED"
 )
 
@@ -170,6 +171,8 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeSTAFFPASSWORDCHANGEREQUIRED:
 		return true
+	case ErrorCodeSTAFFPERMISSIONDENIED:
+		return true
 	case ErrorCodeSTAFFSESSIONENDED:
 		return true
 	default:
@@ -279,6 +282,8 @@ func (e ProblemFieldIn) Valid() bool {
 //     bırakmayla sona erdi.
 //   - `STAFF_PASSWORD_CHANGE_REQUIRED` (403): hesap önce parolasını değiştirmeli (AUTH-014).
 //   - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+//   - `STAFF_PERMISSION_DENIED` (403): personel, operasyonun `x-authz-permission` iznini
+//     tutmuyor; ret denetim kaydına yazılır (AUTH-012, ADR-0026).
 //
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -374,6 +379,8 @@ type Problem struct {
 	//   bırakmayla sona erdi.
 	// - `STAFF_PASSWORD_CHANGE_REQUIRED` (403): hesap önce parolasını değiştirmeli (AUTH-014).
 	// - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+	// - `STAFF_PERMISSION_DENIED` (403): personel, operasyonun `x-authz-permission` iznini
+	//   tutmuyor; ret denetim kaydına yazılır (AUTH-012, ADR-0026).
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -500,6 +507,8 @@ type ProblemField struct {
 	//   bırakmayla sona erdi.
 	// - `STAFF_PASSWORD_CHANGE_REQUIRED` (403): hesap önce parolasını değiştirmeli (AUTH-014).
 	// - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+	// - `STAFF_PERMISSION_DENIED` (403): personel, operasyonun `x-authz-permission` iznini
+	//   tutmuyor; ret denetim kaydına yazılır (AUTH-012, ADR-0026).
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.

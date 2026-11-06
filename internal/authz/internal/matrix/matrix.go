@@ -62,7 +62,7 @@ type Case struct {
 	ID          string   `yaml:"id"`
 	Pair        string   `yaml:"pair"`
 	Action      string   `yaml:"action"`  // "<type>.<action>"
-	Subject     string   `yaml:"subject"` // "anonymous" or "user:<id>"
+	Subject     string   `yaml:"subject"` // "anonymous", "user:<id>" or "staff:<id>"
 	Object      string   `yaml:"object"`  // "<type>:<id>"
 	Expect      string   `yaml:"expect"`  // "allow" or "deny"
 	Basis       string   `yaml:"basis"`   // key of Matrix.Basis; allow rows

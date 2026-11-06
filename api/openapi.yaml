@@ -92,6 +92,7 @@ paths:
   /v1/realtime:
     get:
       operationId: connectRealtime
+      x-resource: realtime_tickets
       tags: [realtime]
       summary: WebSocket bağlantısını açar (alt protokol `koala.v1`).
       description: |
@@ -244,6 +245,7 @@ paths:
       x-authz-exempt: |
         Çağıran yalnız kendi kaydını okur; kimlik oturumdan gelir, seçilecek nesne yoktur.
       x-resource: users
+      x-resource-self: true
       responses:
         "200":
           description: Çağıranın kaydı.
@@ -528,6 +530,7 @@ paths:
       x-authz-exempt: |
         Personel yalnız kendi hesabını okur; izin gerektiren bir nesne yoktur.
       x-resource: staff_members
+      x-resource-self: true
       responses:
         "200":
           description: Personelin hesabı.
@@ -535,6 +538,65 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StaffMe"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/me/capabilities:
+    get:
+      operationId: getStaffCapabilities
+      x-resource: staff_role_assignments
+      tags: [admin-auth]
+      summary: Personelin tuttuğu izinleri ve arayüz yeteneklerini döndürür.
+      description: |
+        İzinler her istekte rol DAG'ından tek bir özyinelemeli sorguyla çözülür; rol iptali
+        bir sonraki istekte görünür (AUTH-012, plan §5.5, ADR-0026).
+      security:
+        - adminBearer: []
+      x-authz-exempt: |
+        Personel yalnız kendi izinlerini okur; izin gerektiren bir nesne yoktur.
+      responses:
+        "200":
+          description: Personelin izinleri.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffCapabilities"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/permissions:
+    get:
+      operationId: listStaffPermissions
+      x-resource: none
+      x-resource-reason: İzin kataloğu kodda tanımlıdır (internal/authz/permissions.go); tablo okunmaz.
+      tags: [admin-auth]
+      summary: Personel izin kataloğunu döndürür.
+      description: |
+        25 izin, her birinin durum değiştirip değiştirmediği ve hassasiyeti (Java
+        `GET /admin/permissions`, PI-077). İzni olmayan personel `403 STAFF_PERMISSION_DENIED`
+        alır ve ret denetim kaydına yazılır (ADR-0026).
+      security:
+        - adminBearer: []
+      x-authz-permission: role.manage
+      responses:
+        "200":
+          description: İzin kataloğu.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffPermissionCatalog"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -803,8 +865,10 @@ components:
 
     StaffMe:
       type: object
-      description: Personelin kendi hesabı. Roller ve izinler personel RBAC'ıyla gelir.
-      required: [id, email, mustChangePassword]
+      description: |
+        Personelin kendi hesabı, doğrudan atanmış rolleri ve rol DAG'ından her istekte
+        çözülen izinleri (ADR-0026). İzinler token'da taşınmaz (AUTH-012).
+      required: [id, email, mustChangePassword, roles, permissions]
       properties:
         id:
           type: string
@@ -818,10 +882,101 @@ components:
         mustChangePassword:
           type: boolean
           description: Hesap önce parolasını değiştirmeli.
+        roles:
+          type: array
+          description: Personele doğrudan atanmış roller, koda göre sıralı.
+          items:
+            $ref: "#/components/schemas/StaffRole"
+        permissions:
+          type: array
+          description: Personelin tuttuğu izinler (doğrudan ya da rol kapsamasıyla), koda göre sıralı.
+          items:
+            $ref: "#/components/schemas/StaffPermissionCode"
       examples:
         - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
           email: destek@iskoala.com
           mustChangePassword: false
+          roles:
+            - id: 9a1c0f10-0003-4c00-8000-000000000002
+              code: SUPPORT_AGENT
+              name: Destek görevlisi
+          permissions: [job.read, note.read, note.write, user.read]
+
+    StaffRole:
+      type: object
+      description: Bir personel rolü.
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Rol kimliği; denetim kaydının dayanağında `staff_role:<id>` olarak geçer.
+          examples: [9a1c0f10-0003-4c00-8000-000000000009]
+        code:
+          type: string
+          description: Rol kodu.
+          examples: [FINANCE_OFFICER]
+        name:
+          type: string
+          description: Rolün görünen adı.
+          examples: [Finans yetkilisi]
+
+    StaffPermissionCode:
+      type: string
+      description: Personel izni kodu; `x-authz-permission`'ın değeri (ADR-0026).
+      pattern: "^[a-z][a-z_]*(\\.[a-z][a-z_]*)+$"
+      examples: [payout.release]
+
+    StaffCapabilities:
+      type: object
+      description: |
+        Personel arayüzünün neyi açacağı (plan §5.5). Her değer aynı yetki kararından
+        (`Check`) hesaplanır; istemci token ayrıştırmaz. Uç okunamazsa arayüz kapalı başlar.
+      required: [permissions, can]
+      properties:
+        permissions:
+          type: array
+          description: Personelin tuttuğu izinler, koda göre sıralı.
+          items:
+            $ref: "#/components/schemas/StaffPermissionCode"
+        can:
+          type: object
+          description: Bilinen her izin kodu için personelin onu tutup tutmadığı.
+          additionalProperties:
+            type: boolean
+      examples:
+        - permissions: [audit.read]
+          can:
+            audit.read: true
+            payout.release: false
+
+    StaffPermission:
+      type: object
+      description: İzin kataloğunun bir satırı.
+      required: [code, mutating, sensitivity]
+      properties:
+        code:
+          $ref: "#/components/schemas/StaffPermissionCode"
+        mutating:
+          type: boolean
+          description: İzin durum değiştiren işlemlere verilir.
+        sensitivity:
+          type: string
+          description: |
+            İznin açtığı verinin sınıfı; `FINANCIAL` denetim satırları 10 yıl, diğerleri 24 ay
+            saklanır (ADR-0026).
+          enum: [NORMAL, PERSONAL_DATA, FINANCIAL]
+
+    StaffPermissionCatalog:
+      type: object
+      description: Personel izinlerinin tamamı (25), koda göre sıralı.
+      required: [permissions]
+      properties:
+        permissions:
+          type: array
+          description: İzinler.
+          items:
+            $ref: "#/components/schemas/StaffPermission"
 
   # Ortak hata yanıtları. Her biri Problem gövdesi döner; kodlar
   # ErrorCode'dadır.

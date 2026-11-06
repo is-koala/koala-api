@@ -61,7 +61,10 @@ vuln: $(GOVULNCHECK) ## govulncheck against the Go vulnerability database
 
 .PHONY: test
 test: ## Race-enabled tests in random order, no cache
-	$(GO) test -race -shuffle=on -count=1 ./...
+	# -v names every test in the CI log: without it the log holds one line
+	# per package, so a review cannot tell which tests ran at all. 284 test
+	# functions, so the output stays in the low thousands of lines.
+	$(GO) test -race -shuffle=on -count=1 -v ./...
 
 .PHONY: test-integration
 test-integration: ## Integration tests only (build tag integration, tag guards first) against PGHOST/PGPORT/PGUSER; CI only

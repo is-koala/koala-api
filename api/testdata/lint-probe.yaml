@@ -14,41 +14,48 @@ paths:
   # --- paths and operations ---
   /v2/things: # koala-paths-v1
     get:
+      x-resource: things
       operationId: listThingsV2
       security: []
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/Bad_Path: # koala-paths-kebab-case
     get:
+      x-resource: things
       operationId: getBadPath
       security: []
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/bad-operation-id:
     get:
+      x-resource: things
       operationId: Get_Thing # koala-operation-id-camel-case
       security: []
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/no-authz:
     get: # koala-operation-authz: no x-authz and no `security: []`
+      x-resource: things
       operationId: getNoAuthz
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/authz-not-a-relation:
     get: # koala-operation-authz: the action is not a model.fga can_* relation
+      x-resource: things
       operationId: getAuthzNotARelation
       x-authz: {action: read, object: thing}
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/authz-exempt-short:
     get: # koala-operation-authz: an exemption needs a reason, not a word
+      x-resource: things
       operationId: getAuthzExemptShort
       x-authz-exempt: kendisi
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/authz-exempt-and-authz:
     get: # koala-operation-authz: x-authz and x-authz-exempt together
+      x-resource: things
       operationId: getAuthzExemptAndAuthz
       x-authz: {action: can_read, object: thing}
       x-authz-exempt: Nesnesi olmayan, yalnız kimliği isteyen uç.
@@ -56,6 +63,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/authz-exempt-public:
     get: # koala-operation-authz: a public operation needs no exemption
+      x-resource: things
       operationId: getAuthzExemptPublic
       security: []
       x-authz-exempt: Nesnesi olmayan, yalnız kimliği isteyen uç.
@@ -63,6 +71,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/users:
     get: # koala-admin-permission: no x-authz-permission
+      x-resource: things
       operationId: listUsers
       x-authz: {action: can_read, object: user}
       security: [{adminBearer: []}]
@@ -70,6 +79,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/exempt-elsewhere:
     get: # koala-admin-permission: x-authz-exempt outside the self-service allow list
+      x-resource: things
       operationId: getAdminExemptElsewhere
       x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
       security: [{adminBearer: []}]
@@ -77,6 +87,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/auth/sessions:
     get: # koala-admin-permission: /v1/admin/auth/* outside the explicit allow list needs a permission
+      x-resource: things
       operationId: getAdminAuthSessions
       x-authz: {action: can_read, object: thing}
       security: [{adminBearer: []}]
@@ -84,6 +95,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/reports:
     get: # koala-admin-permission: `security: []` outside the allow list
+      x-resource: things
       operationId: getAdminReports
       security: []
       x-authz-permission: report.read
@@ -98,12 +110,14 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/auth/logout:
     get: # koala-admin-self-service: a self-service operation with `security: []`
+      x-resource: things
       operationId: getAdminAuthLogout
       security: []
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/auth/login:
     get: # koala-admin-public: sign-in without `security: []` (and so koala-operation-authz)
+      x-resource: things
       operationId: getAdminAuthLogin
       responses:
         default: {$ref: "#/components/responses/Problem"}
@@ -115,6 +129,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/auth/refresh:
     get: # koala-admin-public: an exemption on refresh (and so koala-operation-authz)
+      x-resource: things
       operationId: getAdminAuthRefresh
       security: []
       x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
@@ -128,13 +143,45 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/admin/me:
     get: # koala-admin-self-service: an allow-listed operation without x-authz-exempt
+      x-resource: things
       operationId: getAdminMe
       x-authz: {action: can_read, object: thing}
       security: [{adminBearer: []}]
       responses:
         default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/both-authz:
+    post: # koala-admin-permission and koala-operation-authz: x-authz next to x-authz-permission
+      operationId: postAdminBothAuthz
+      x-authz: {action: can_read, object: thing}
+      x-authz-permission: thing.manage
+      security: [{adminBearer: []}]
+      x-no-idempotency-key: Probe operasyonu; yan etkisi olmayan bir eylem.
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/no-resource:
+    get: # koala-get-resource: a GET without x-resource
+      operationId: getNoResource
+      security: []
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/resource-none:
+    get: # koala-get-resource: x-resource none without a reason
+      operationId: getResourceNone
+      x-resource: none
+      security: []
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
+  /v1/admin/me/capabilities:
+    get: # koala-admin-self-service: the capabilities of oneself need no permission
+      x-resource: things
+      operationId: getAdminMeCapabilities
+      x-authz-permission: role.manage
+      security: [{adminBearer: []}]
+      responses:
+        default: {$ref: "#/components/responses/Problem"}
   /v1/admin/auth/password:
     get: # koala-admin-self-service: an allow-listed operation with a permission
+      x-resource: things
       operationId: getAdminAuthPassword
       x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
       x-authz-permission: auth.password
@@ -142,7 +189,8 @@ paths:
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/permission-outside-admin:
-    get: # koala-admin-only-under-admin
+    get: # koala-admin-only-under-admin; also koala-operation-authz: x-authz next to x-authz-permission
+      x-resource: things
       operationId: getPermissionOutsideAdmin
       x-authz: {action: can_read, object: thing}
       x-authz-permission: thing.read
@@ -150,6 +198,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/deprecated:
     get: # koala-deprecation-has-sunset
+      x-resource: things
       operationId: getDeprecated
       security: []
       deprecated: true
@@ -157,6 +206,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/no-default:
     get: # koala-default-problem-response
+      x-resource: things
       operationId: getNoDefault
       security: []
       responses:
@@ -177,6 +227,7 @@ paths:
   # --- responses ---
   /v1/error-not-problem:
     get:
+      x-resource: things
       operationId: getErrorNotProblem
       security: []
       responses:
@@ -188,6 +239,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/error-without-content:
     get:
+      x-resource: things
       operationId: getErrorWithoutContent
       security: []
       responses:
@@ -196,6 +248,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/envelope-success:
     get:
+      x-resource: things
       operationId: getEnvelopeSuccess
       security: []
       responses:
@@ -210,6 +263,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/envelope-message:
     get:
+      x-resource: things
       operationId: getEnvelopeMessage
       security: []
       responses:
@@ -224,6 +278,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/envelope-in-all-of:
     get:
+      x-resource: things
       operationId: getEnvelopeInAllOf
       security: []
       responses:
@@ -241,6 +296,7 @@ paths:
   # --- pagination ---
   /v1/page-param:
     get:
+      x-resource: things
       operationId: getPageParam
       security: []
       parameters:
@@ -249,6 +305,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/include-total:
     get: # koala-include-total-admin-or-seo
+      x-resource: things
       operationId: getIncludeTotal
       security: []
       parameters:
@@ -257,6 +314,7 @@ paths:
         default: {$ref: "#/components/responses/Problem"}
   /v1/sort:
     get: # koala-sort-fields
+      x-resource: things
       operationId: getSort
       security: []
       parameters:

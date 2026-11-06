@@ -35,3 +35,29 @@ groups:
         for: 1h
         labels: { severity: warning, owner: platform }
         annotations: { summary: "TLS sertifikasının bitmesine 14 günden az kaldı" }
+      # Background workers (ADR-0025 §7, issue #7): koala_workers_up is 1
+      # while serve's River client runs; a start that keeps failing shows
+      # as the counter rising while the gauge stays 0.
+      - alert: KoalaWorkersDown
+        expr: min(koala_workers_up) < 1
+        for: 10m
+        labels: { severity: critical, owner: backend }
+        annotations: { summary: "Arka plan işçileri (River) 10 dakikadır çalışmıyor; temizlik ve kuyruk işleri durdu" }
+      - alert: KoalaWorkerStartFailing
+        expr: increase(koala_worker_start_failures_total[15m]) > 3
+        for: 0m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "River istemcisi 15 dakikada 3'ten fazla kez başlatılamadı; veritabanı erişimi ya da yapılandırma" }
+      # Sign-in locks (ADR-0025 §5–6, issue #7). A staff address lock or an
+      # account backoff means someone is guessing a staff password; a burst
+      # of marketplace target locks is credential stuffing.
+      - alert: KoalaStaffLockout
+        expr: sum by (scope) (increase(koala_auth_lockouts_total{principal="staff"}[15m])) > 0
+        for: 0m
+        labels: { severity: warning, owner: security }
+        annotations: { summary: "Bir personel hesabı adres kilidine ya da beklemeye girdi; parola tahmini olabilir" }
+      - alert: KoalaUserLockoutSpike
+        expr: sum by (principal, scope) (increase(koala_auth_lockouts_total{principal="user"}[15m])) > 10
+        for: 5m
+        labels: { severity: warning, owner: security }
+        annotations: { summary: "15 dakikada 10'dan fazla pazaryeri girişi kilitlendi; kimlik bilgisi doldurma saldırısı olabilir" }

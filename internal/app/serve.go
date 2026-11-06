@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
@@ -30,7 +32,7 @@ func runServe(ctx context.Context, args []string, sio IO) int {
 		logger.ErrorContext(ctx, "startup failed", slog.String("error", config.VarDatabaseURL+": required by serve"))
 		return ExitError
 	}
-	if err := errors.Join(cfg.ServeEdgeErrors(), cfg.ServeAuthErrors()); err != nil {
+	if err := errors.Join(cfg.ServeLoginErrors(), cfg.ServeEdgeErrors(), cfg.ServeAuthErrors()); err != nil {
 		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
 		return ExitError
 	}
@@ -105,18 +107,10 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	go func() { metricsDone <- metrics.Serve(metricsCtx, lns.metrics, metrics.Handler(reg, logger), logger) }()
 
 	health := httpx.NewHealth(logger, checks...)
-	mods, err := wireModules(ctx, cfg, database, clock.Real{}, logger, reg)
-	var router *httpx.Router
-	if err == nil {
-		router, err = newRouter(ctx, cfg, logger, health, reg, rateLimitGroups(), mods)
-	}
+	mods, router, wm, err := wireService(ctx, cfg, database, clock.Real{}, logger, health, reg)
 	var workers *jobs.Client
 	if err == nil {
 		workers, err = newWorkerClient(database, mods, logger)
-	}
-	var wm *workerMetrics
-	if err == nil {
-		wm, err = newWorkerMetrics(reg)
 	}
 	stopWorkers := func(context.Context) {}
 	if err == nil {
@@ -151,4 +145,25 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, version 
 	}
 	logger.InfoContext(context.WithoutCancel(ctx), "stopped")
 	return nil
+}
+
+// wireService wires the modules and the router and registers every metric
+// serve exports on reg: the modules', the router's and the workers'.
+// TestAlertRulesUseRegisteredMetrics reads the same registry.
+func wireService(ctx context.Context, cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
+	health *httpx.Health, reg prometheus.Registerer,
+) (modules, *httpx.Router, *workerMetrics, error) {
+	mods, err := wireModules(ctx, cfg, database, clk, logger, reg)
+	if err != nil {
+		return modules{}, nil, nil, err
+	}
+	router, err := newRouter(ctx, cfg, logger, health, reg, rateLimitGroups(), mods)
+	if err != nil {
+		return modules{}, nil, nil, err
+	}
+	wm, err := newWorkerMetrics(reg)
+	if err != nil {
+		return modules{}, nil, nil, err
+	}
+	return mods, router, wm, nil
 }

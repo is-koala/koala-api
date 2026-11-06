@@ -12,6 +12,11 @@
 //     missing one are indistinguishable, ADR-0014);
 //   - a list operation (no path parameter) no longer contains the id.
 //
+// An operation marked `x-resource-self: true` reads the caller itself
+// (/v1/me): before the deletion it answers 200 with the id, after it the
+// caller no longer authenticates (401) and the id does not appear.
+// `x-resource: none` marks a GET that reads no table (ADR-0026).
+//
 // A new operation or table joins the test by itself; a soft-deleted table
 // without a fixture fails it.
 package softdeletetest
@@ -41,6 +46,12 @@ import (
 // reads.
 const Extension = "x-resource"
 
+// ExtensionSelf marks an operation that reads the caller itself.
+const ExtensionSelf = "x-resource-self"
+
+// None is the Extension value of a GET that reads no table.
+const None = "none"
+
 // requestID is sent with every request, so two problem bodies compare
 // byte for byte.
 const requestID = "softdeletetest"
@@ -62,12 +73,19 @@ type ReadTest struct {
 	// Fixtures maps every soft-deleted table that an operation reads to
 	// its fixture.
 	Fixtures map[string]Fixture
+	// Authorize, when set, prepares each request about the object id of
+	// table: the credentials of the caller that may read it (for a self
+	// operation, the object itself) and the client headers. It is called
+	// before and after the deletion with the same id.
+	Authorize func(ctx context.Context, table string, id uuid.UUID, r *http.Request) error
 }
 
 // operation is one GET operation of the contract.
 type operation struct {
 	path   string
 	params int
+	table  string
+	self   bool
 }
 
 var pathParam = regexp.MustCompile(`\{[^}]+\}`)
@@ -116,6 +134,9 @@ func (rt ReadTest) plan() (map[string][]operation, []string) {
 			problems = append(problems, fmt.Sprintf("GET %s: %s must be a table name, got %v", path, Extension, raw))
 			continue
 		}
+		if table == None {
+			continue
+		}
 		tb, ok := rt.Catalog.Table(table)
 		if !ok {
 			problems = append(problems, fmt.Sprintf("GET %s: %s %s is not in the soft-delete catalog", path, Extension, table))
@@ -129,7 +150,12 @@ func (rt ReadTest) plan() (map[string][]operation, []string) {
 			problems = append(problems, fmt.Sprintf("GET %s: operations with %d path parameters are not supported yet; extend softdeletetest", path, params))
 			continue
 		}
-		out[table] = append(out[table], operation{path: path, params: params})
+		self := extensionTrue(op.Extensions[ExtensionSelf])
+		if self && params > 0 {
+			problems = append(problems, fmt.Sprintf("GET %s: a %s operation has no path parameter", path, ExtensionSelf))
+			continue
+		}
+		out[table] = append(out[table], operation{path: path, params: params, table: table, self: self})
 	}
 	if !seen {
 		problems = append(problems, fmt.Sprintf("no GET operation carries %s", Extension))
@@ -156,6 +182,19 @@ func extensionString(v any) (string, bool) {
 		return s, true
 	default:
 		return "", false
+	}
+}
+
+// extensionTrue reads a boolean extension value, decoded or raw JSON.
+func extensionTrue(v any) bool {
+	switch x := v.(type) {
+	case bool:
+		return x
+	case json.RawMessage:
+		var b bool
+		return json.Unmarshal(x, &b) == nil && b
+	default:
+		return false
 	}
 }
 
@@ -205,8 +244,18 @@ func (rt ReadTest) runTable(t *testing.T, table string, ops []operation) {
 // visibility checks that op shows (visible) or hides the object id and
 // describes the failure.
 func (rt ReadTest) visibility(ctx context.Context, op operation, id uuid.UUID, visible bool) error {
+	if op.self {
+		status, body := rt.get(ctx, op, op.path, id)
+		switch {
+		case visible && (status != http.StatusOK || !strings.Contains(body, id.String())):
+			return fmt.Errorf("GET %s as the object itself = %d %s, want 200 with its id", op.path, status, body)
+		case !visible && (status != http.StatusUnauthorized || strings.Contains(body, id.String())):
+			return fmt.Errorf("GET %s as the deleted object = %d %s, want 401 without its id", op.path, status, body)
+		}
+		return nil
+	}
 	if op.params == 0 {
-		status, body := rt.get(ctx, op.path)
+		status, body := rt.get(ctx, op, op.path, id)
 		if status != http.StatusOK {
 			return fmt.Errorf("GET %s = %d, want 200: %s", op.path, status, body)
 		}
@@ -216,14 +265,14 @@ func (rt ReadTest) visibility(ctx context.Context, op operation, id uuid.UUID, v
 		return nil
 	}
 
-	status, body := rt.get(ctx, pathParam.ReplaceAllString(op.path, id.String()))
+	status, body := rt.get(ctx, op, pathParam.ReplaceAllString(op.path, id.String()), id)
 	if visible {
 		if status != http.StatusOK {
 			return fmt.Errorf("GET %s for an active object = %d, want 200: %s", op.path, status, body)
 		}
 		return nil
 	}
-	missingStatus, missingBody := rt.get(ctx, pathParam.ReplaceAllString(op.path, uuid.NewString()))
+	missingStatus, missingBody := rt.get(ctx, op, pathParam.ReplaceAllString(op.path, uuid.NewString()), id)
 	if status != http.StatusNotFound || status != missingStatus || body != missingBody {
 		return fmt.Errorf("GET %s for a deleted object = %d %s; for a missing one = %d %s; want the same 404",
 			op.path, status, body, missingStatus, missingBody)
@@ -231,9 +280,15 @@ func (rt ReadTest) visibility(ctx context.Context, op operation, id uuid.UUID, v
 	return nil
 }
 
-func (rt ReadTest) get(ctx context.Context, path string) (int, string) {
+// get requests path as the caller Authorize sets up for the object id.
+func (rt ReadTest) get(ctx context.Context, op operation, path string, id uuid.UUID) (int, string) {
 	req := httptest.NewRequestWithContext(ctx, http.MethodGet, path, http.NoBody)
 	req.Header.Set(httpx.HeaderRequestID, requestID)
+	if rt.Authorize != nil {
+		if err := rt.Authorize(ctx, op.table, id, req); err != nil {
+			return 0, "authorize: " + err.Error()
+		}
+	}
 	rec := httptest.NewRecorder()
 	rt.Handler.ServeHTTP(rec, req)
 	return rec.Code, rec.Body.String()

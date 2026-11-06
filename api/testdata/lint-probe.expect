@@ -50,6 +50,8 @@ koala-operation-authz	$.paths['/v1/authz-exempt-short'].get
 koala-operation-authz	$.paths['/v1/authz-not-a-relation']
 koala-operation-authz	$.paths['/v1/authz-not-a-relation'].get
 koala-operation-authz	$.paths['/v1/no-authz'].get
+koala-operation-authz	$.paths['/v1/permission-outside-admin']
+koala-operation-authz	$.paths['/v1/permission-outside-admin'].get
 koala-operation-id-camel-case	$.paths['/v1/bad-operation-id'].get
 koala-patch-is-merge-patch	$.paths['/v1/patch-json'].patch.requestBody.content
 koala-paths-kebab-case	$.paths['/v1/Bad_Path']
@@ -70,6 +72,12 @@ koala-admin-public	$.paths['/v1/admin/auth/refresh'].get
 koala-admin-self-service	$.paths['/v1/admin/auth/logout'].get
 koala-admin-self-service	$.paths['/v1/admin/auth/password'].get
 koala-admin-self-service	$.paths['/v1/admin/me'].get
+koala-admin-self-service	$.paths['/v1/admin/me/capabilities'].get
 koala-operation-authz	$.paths['/v1/admin/auth/login'].get
 koala-operation-authz	$.paths['/v1/admin/auth/refresh']
 koala-operation-authz	$.paths['/v1/admin/auth/refresh'].get
+koala-admin-permission	$.paths['/v1/admin/both-authz'].post
+koala-operation-authz	$.paths['/v1/admin/both-authz']
+koala-operation-authz	$.paths['/v1/admin/both-authz'].post
+koala-get-resource	$.paths['/v1/no-resource'].get
+koala-get-resource	$.paths['/v1/resource-none'].get
