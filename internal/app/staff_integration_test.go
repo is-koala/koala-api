@@ -145,7 +145,8 @@ var oneTimePassword = regexp.MustCompile(`one-time password: (\S+)`)
 
 // `koala staff create` opens the first super admin as koala_maint with a
 // one-time password that must be changed; `koala staff disable` moves the
-// token version, so the member's tokens die (issue #7, ADR-0025 §6). Both
+// token version, so the member's tokens die (ADR-0025 §6; issue #7 asked
+// for the command, ADR-0025 open question 3 for the first OWNER). Both
 // are audited (pending, then result) and the role assignment is in the
 // relation change log.
 func TestStaffCommand(t *testing.T) {

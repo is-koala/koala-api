@@ -103,7 +103,7 @@ Envantere girmeyenler:
 
 ## Personel tarafı (`authz-personel-izinleri.csv`)
 
-**Uç izinleri matristedir (ADR-0026).** Personel tarafı uç başına izin tablosudur (RBAC + rol DAG'ı, §5.5). 25 izin `platform:koala`'nın relation'larıdır; `pairs.py` Java seed'indeki 10 rolü ve DAG'ı fikstür tuple'ı olarak yazar ve her izin için doğrudan sahibi, OWNER'ı (kapsamayla), karşı daldan bir personeli ve rolsüz personeli satır olarak üretir (çift `S01`–`S26`, 98 satır, hepsi `[go, openfga]`). Aynı satırlar veritabanında da koşar (`internal/authz/authzsql` `TestStaffMatrixOnTheDatabase`). `/v1/admin/**` operasyonlarının `x-authz-permission` eşlemesi açılışta denetlenir (`staff.NewGate`). 18 servis içi dinamik kontrol (PI-084–101) alanlarıyla gelir. Kaynağı bu CSV'dir; satır kimlikleri `PI-nnn` (oracle'daki `ST-` settlement görevi satırlarıyla çakışmasın diye).
+**Uç izinleri matristedir (ADR-0026).** Personel tarafı uç başına izin tablosudur (RBAC + rol DAG'ı, §5.5). 25 izin `platform:koala`'nın relation'larıdır; `pairs.py` Java seed'indeki 10 rolü ve DAG'ı fikstür tuple'ı olarak yazar ve her izin için doğrudan sahibi, OWNER'ı (kapsamayla), karşı daldan bir personeli ve rolsüz personeli satır olarak üretir (çift `S01`–`S26`, 98 satır, hepsi `[go, openfga]`). Aynı satırlar veritabanında da koşar (`internal/authz/authzsql` `TestStaffMatrixOnTheDatabase`). `/v1/admin/**` operasyonlarının `x-authz-permission` eşlemesi açılışta denetlenir (`staff.NewGate`). Servis içi dinamik kontrollerin (PI-084–101) 14'ü (PI-088–101) matris satırlarının `inventory` etiketlerindedir; geri kalan beşi ve dört kimlik doğrulama ucu matriste değildir, karşılıkları aşağıdaki eşleme tablosundadır. Kaynağı bu CSV'dir; satır kimlikleri `PI-nnn` (oracle'daki `ST-` settlement görevi satırlarıyla çakışmasın diye).
 
 - 79 uç `@RequiresPermission` ile korunuyor, 4'ü kimlik doğrulama ucu.
 - Birden çok izin yazılmışsa hepsi gerekir (`containsAll`). Boş izin "kayıtlı personel yeter" demektir. Annotation yoksa istek fail-closed 403 alır.
@@ -115,6 +115,20 @@ Envantere girmeyenler:
   - verilebilirlik (`requireGrantable`)
   - `StaffPayoutManager`'da ikinci kat kontrol
   - köprü (`ROLE_ADMIN`)
+
+**Matriste eşlenmeyen dokuz satır (ADR-0026).** `pairs.py` 101 satırın 92'sini `inventory` etiketinde anar. Kalan dokuzu izin sahipliği sorusu değildir (kimlik doğrulama ucu ya da kapı davranışı); karşılıkları şunlardır:
+
+| Satır | Karşılığı |
+|---|---|
+| PI-058, PI-059 (`POST /admin/auth/logout`, `…/password`) | AUTH-013 (çıkış ve parola değişimi token sürümünü artırır) |
+| PI-060, PI-061 (`POST /admin/auth/login`, `…/refresh`) | AUTH-010 (ayırt edilemez ret), AUTH-011 (kilit), AUTH-018 (oran sınırı); ikisi de kimlik ucudur, izin istemez |
+| PI-062 (`GET /admin/me`, izin listesi boş) | Self-servis muafiyeti; kapıda kodla sabittir (`staff.SelfService`), AUTH-012 izinleri DB'den okur |
+| PI-084 (eşleşmeyen `/admin/**` fail-closed 403) | ADR-0026 Karar 4 ile 404 `ROUTE_NOT_FOUND`; AUTH-015 `target`'ı ve `go_test`'i (`unmapped staff path`) |
+| PI-085 (kayıtsız personel ya da `mustChangePassword` → ret) | AUTH-014 (`TestStaffMustChangePassword`, `TestStaffMustChangeFlag`) |
+| PI-086 (köprü: pazaryeri `ROLE_ADMIN`) | D5: köprü yok; AUTH-015 (`TestTokenClassesOverHTTP`) |
+| PI-087 (`GET /admin/me`: kayıtlı personel mi) | `getStaffMe` işleyicisi; kayıtsız ya da kapalı personel authn'de reddedilir (ADR-0025 §6) |
+
+**Verilebilirlik (PI-096–101) ölçülmüyor.** Bu altı satır `inventory` etiketlerinde görünür, ama matris yalnız `role.manage`/`staff.manage` sahipliğini ölçer; "verenin kendisinde olmayan izni verememesi" (`requireGrantable`) kuralının kendisi sınanmaz. Rol ve izin verme uçları Faz 8'in personel yönetimiyle gelir; kural AUTH-019 senaryosunda `deferred: phase 8` olarak izlenir.
 
 ## Doğrulanmamış noktalar
 

@@ -213,7 +213,8 @@ func TestAlertRulesUseRegisteredMetrics(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Everything serve registers: the modules' metrics (authentication),
-	// the router's and the workers' (issue #7), not only the router's.
+	// the router's and the workers' (issue #7, the remainders of PR #12),
+	// not only the router's.
 	_, router, _, err := wireService(context.Background(), config.Config{Env: config.EnvTest}, lazyDB(t), clock.Real{},
 		logger, httpx.NewHealth(logger), reg)
 	if err != nil {
