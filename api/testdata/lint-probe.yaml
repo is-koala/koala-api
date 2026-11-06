@@ -189,7 +189,7 @@ paths:
       responses:
         default: {$ref: "#/components/responses/Problem"}
   /v1/permission-outside-admin:
-    get: # koala-admin-only-under-admin
+    get: # koala-admin-only-under-admin; also koala-operation-authz: x-authz next to x-authz-permission
       x-resource: things
       operationId: getPermissionOutsideAdmin
       x-authz: {action: can_read, object: thing}

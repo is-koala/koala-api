@@ -41,7 +41,7 @@ rules:
               pattern: "^[a-z][a-zA-Z0-9]*$"
 
   koala-operation-authz:
-    description: "Her operasyon ya `x-authz` ({action: model.fga'daki `can_*` relation'ı, object: tip}) taşır, ya `security: []` ile açıkça public'tir, ya da `x-authz-exempt: <gerekçe>` ile belgeli istisnadır (kimlik ister ama yetkilendirilecek nesnesi yoktur), ya da yalnız `x-authz-permission` taşıyan bir personel operasyonudur (izin nesnesi platformdur; `x-authz` ile birlikte kullanılmaz, koala-admin-permission). Yalnız biri bulunur (stil rehberi §11, ADR-0005 madde 1, ADR-0014; üçüncü biçim ADR-0021, dördüncü biçim ADR-0026 ile ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü genişletir)."
+    description: "Her operasyon ya `x-authz` ({action: model.fga'daki `can_*` relation'ı, object: tip}) taşır, ya `security: []` ile açıkça public'tir, ya da `x-authz-exempt: <gerekçe>` ile belgeli istisnadır (kimlik ister ama yetkilendirilecek nesnesi yoktur), ya da yalnız `x-authz-permission` taşıyan bir personel operasyonudur (izin nesnesi platformdur). Yalnız biri bulunur: `x-authz` ile `x-authz-permission` ikilisi burada da reddedilir, koala-admin-permission'ın dışladığı self-servis ve kimlik yollarında da (stil rehberi §11, ADR-0005 madde 1, ADR-0014; üçüncü biçim ADR-0021, dördüncü biçim ADR-0026 ile ADR-0005 madde 1'i ve plan §4.1-1/§6.3'ü genişletir)."
     severity: error
     given: "$.paths[*][get,put,post,patch,delete,head,options,trace]"
     then:
@@ -66,7 +66,9 @@ rules:
                   type: array
                   minItems: 1
               not:
-                required: [x-authz-exempt]
+                anyOf:
+                  - required: [x-authz-exempt]
+                  - required: [x-authz-permission]
             - required: [security]
               properties:
                 security:

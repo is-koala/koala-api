@@ -55,4 +55,16 @@ for rule in $(grep -ho '^  koala-[a-z0-9-]*' api/ruleset.yaml api/ruleset-schema
 		status=1
 	fi
 done
+
+# The style guide marks each of its rules with [lint: koala-…]. vacuum
+# reads the ruleset, never the document, so a mark left behind by a
+# renamed or dropped rule would go unnoticed: every name the guide marks
+# must name a rule that exists.
+grep -ho '^  koala-[a-z0-9-]*' api/ruleset.yaml api/ruleset-schemas.yaml | tr -d ' ' | sort -u >"$dir/rules"
+for name in $(grep -o '\[lint: [^]]*\]' docs/api-style-guide.md | grep -o 'koala-[a-z0-9-]*' | sort -u); do
+	if ! grep -qx "$name" "$dir/rules"; then
+		echo "api lint probe: docs/api-style-guide.md marks $name, which api/ruleset*.yaml does not define"
+		status=1
+	fi
+done
 exit "$status"
