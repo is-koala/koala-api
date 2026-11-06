@@ -174,11 +174,13 @@ func backdate(t *testing.T, owner *db.DB, sensitivity string, created time.Time)
 		exec("ALTER TABLE pii_access_log DISABLE TRIGGER pii_access_log_stamp")
 		retain := map[string]string{"FINANCIAL": "10 years", "NORMAL": "24 months"}[sensitivity]
 		exec(`INSERT INTO admin_audit_entries (id, created_at, outcome, actor_kind, action, mutating, sensitivity, retain_until)
-			VALUES ($1, $2, 'DENIED', 'system', 'payout.release', true, $3, $2 + $4::interval)`, id, created, sensitivity, retain)
+			VALUES ($1, $2::timestamptz, 'DENIED', 'system', 'payout.release', true, $3, $2::timestamptz + $4::interval)`,
+			id, created, sensitivity, retain)
 		exec(`INSERT INTO admin_audit_entry_details (entry_id, created_at, body, retain_until)
-			VALUES ($1, $2, '{}', $2 + interval '6 months')`, id, created)
+			VALUES ($1, $2::timestamptz, '{}', $2::timestamptz + interval '6 months')`, id, created)
 		exec(`INSERT INTO pii_access_log (id, created_at, staff_id, basis, data_subject_id, purpose, fields, retain_until)
-			VALUES ($1, $2, $1, 'basis', $1, 'identity_review', '{phone}', $2 + interval '24 months')`, uuid.New(), created)
+			VALUES ($1, $2::timestamptz, $1, 'basis', $1, 'identity_review', '{phone}', $2::timestamptz + interval '24 months')`,
+			uuid.New(), created)
 		exec("ALTER TABLE admin_audit_entries ENABLE TRIGGER admin_audit_entries_stamp")
 		exec("ALTER TABLE admin_audit_entry_details ENABLE TRIGGER admin_audit_entry_details_stamp")
 		exec("ALTER TABLE pii_access_log ENABLE TRIGGER pii_access_log_stamp")

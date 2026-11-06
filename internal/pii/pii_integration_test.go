@@ -17,15 +17,18 @@ import (
 )
 
 type piiEnv struct {
-	app, maint *db.DB
-	gate       *pii.Gate
-	lead, none uuid.UUID
+	app, owner, maint *db.DB
+	gate              *pii.Gate
+	lead, none        uuid.UUID
 }
 
 func newPIIEnv(t *testing.T) *piiEnv {
 	t.Helper()
 	d := dbtest.New(t)
-	e := &piiEnv{app: d.Open(t, db.RoleApp), maint: d.Open(t, db.RoleMaint), lead: uuid.New(), none: uuid.New()}
+	e := &piiEnv{
+		app: d.Open(t, db.RoleApp), owner: d.Open(t, db.RoleOwner), maint: d.Open(t, db.RoleMaint),
+		lead: uuid.New(), none: uuid.New(),
+	}
 	model, err := authz.DefaultModel()
 	if err != nil {
 		t.Fatal(err)
@@ -114,12 +117,16 @@ func TestGateGrantsWithItsLogRow(t *testing.T) {
 
 // TestNoLogRowNoGrant: when the access log row cannot be written there is
 // no grant, and the reading transaction survives to answer masked. The
-// koala_maint role may not insert into the log, which makes the write
-// fail here.
+// write fails here because the application role loses its INSERT on the
+// log in this test's own database; the decision before it still runs on
+// the reading transaction, as it does in the hot path.
 func TestNoLogRowNoGrant(t *testing.T) {
 	t.Parallel()
 	e := newPIIEnv(t)
-	err := e.maint.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+	if _, err := e.owner.Pool().Exec(t.Context(), "REVOKE INSERT ON pii_access_log FROM koala_app"); err != nil {
+		t.Fatal(err)
+	}
+	err := e.app.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
 		g, err := e.gate.Open(ctx, q, authz.Staff(e.lead), uuid.New(), "identity_review", []pii.Field{pii.FieldPhone})
 		if err == nil || g != nil {
 			t.Fatalf("Open = %v, %v; want no grant and the write's error", g, err)

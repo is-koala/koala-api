@@ -29,7 +29,7 @@ func TestValueLeavesMasked(t *testing.T) {
 	for _, format := range []string{"%v", "%+v", "%#v", "%s", "%q", "%d", "%x", "%10.3s"} {
 		out = append(out, fmt.Sprintf(format, v), fmt.Sprintf(format, h))
 	}
-	out = append(out, v.String(), v.GoString(), fmt.Sprint(v), fmt.Sprintln(h))
+	out = append(out, v.String(), v.GoString(), fmt.Sprint(v, h), fmt.Sprintln(h))
 
 	var logs bytes.Buffer
 	slog.New(slog.NewJSONHandler(&logs, nil)).Info("probe", slog.Any("phone", v), slog.Any("holder", h))
