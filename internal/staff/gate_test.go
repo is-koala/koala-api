@@ -90,6 +90,13 @@ func TestGateRefusesAnUnmappedStaffOperation(t *testing.T) {
       x-authz-permission: payout.read_all
       responses: {"200": {description: ok}}
 `, "is not a staff permission"},
+		"exemption outside the self-service list": {`  /v1/admin/payouts:
+    get:
+      operationId: listPayouts
+      security: [{adminBearer: []}]
+      x-authz-exempt: Personelin kendi hesabı; izin gerektiren nesne yok.
+      responses: {"200": {description: ok}}
+`, "outside the self-service list"},
 		"permission outside the staff surface": {`  /v1/jobs:
     get:
       operationId: listJobs

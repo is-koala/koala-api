@@ -30,10 +30,11 @@ type trail interface {
 }
 
 // Admin manages staff accounts on a koala_maint pool: the `koala staff`
-// command, the only way to create staff until staff management lands in
-// the API (Faz 8). The first super admin is made with it (`koala staff
-// create --email … --role OWNER`). Every change is audited with the
-// system as actor: a pending row before, a result row after.
+// command (issue #7; ADR-0025 open question 3), the only way to create
+// staff until staff management lands in the API (Faz 8). The first super
+// admin is made with it (`koala staff create --email … --role OWNER`).
+// Every change is audited with the system as actor: a pending row before,
+// a result row after.
 type Admin struct {
 	maint     *db.DB
 	passwords hasher
@@ -105,8 +106,7 @@ type Disabled struct {
 
 // Disable takes the account with the login address email out of service.
 // Its token version moves (the database does it), so every access and
-// refresh token of the account dies on its next use (ADR-0025 §6, issue
-// #7).
+// refresh token of the account dies on its next use (ADR-0025 §6).
 func (a *Admin) Disable(ctx context.Context, email string) (Disabled, error) {
 	email = normalizeEmail(email)
 	var found member
@@ -157,24 +157,38 @@ func entry(action string, member uuid.UUID) audit.Entry {
 	}
 }
 
-// audited runs fn in a transaction between a pending audit row (written
-// and committed first: no row, no change) and its result row.
+// audited runs fn between a pending audit row, written and committed
+// first (no row, no change), and its result. The detail row and the
+// SUCCEEDED row are written in fn's transaction: if either cannot be
+// written the change rolls back with it, so no account exists whose
+// creation is unrecorded and no one-time password is handed out for a
+// rolled-back account. A failure is recorded as FAILED in a transaction
+// of its own.
 func (a *Admin) audited(ctx context.Context, e audit.Entry, body any, fn func(ctx context.Context, q db.Querier) error) error {
 	pool := a.maint.Pool()
 	pending, err := a.trail.Pending(ctx, pool, e)
 	if err != nil {
 		return fmt.Errorf("staff: %s: %w", e.Action, err)
 	}
-	if body != nil {
-		if err := a.trail.Detail(ctx, pool, pending, body, ""); err != nil {
-			return fmt.Errorf("staff: %s: %w", e.Action, err)
+	err = a.maint.InTx(ctx, func(ctx context.Context, q db.Querier) error {
+		if body != nil {
+			if err := a.trail.Detail(ctx, q, pending, body, ""); err != nil {
+				return fmt.Errorf("audit detail: %w", err)
+			}
 		}
+		if err := fn(ctx, q); err != nil {
+			return err
+		}
+		if err := a.trail.Result(ctx, q, pending, e, true); err != nil {
+			return fmt.Errorf("audit result: %w", err)
+		}
+		return nil
+	})
+	if err == nil {
+		return nil
 	}
-	err = a.maint.InTx(ctx, fn)
-	if err != nil {
-		err = fmt.Errorf("staff: %s: %w", e.Action, err)
-	}
-	if rerr := a.trail.Result(context.WithoutCancel(ctx), pool, pending, e, err == nil); rerr != nil {
+	err = fmt.Errorf("staff: %s: %w", e.Action, err)
+	if rerr := a.trail.Result(context.WithoutCancel(ctx), pool, pending, e, false); rerr != nil {
 		return errors.Join(err, fmt.Errorf("staff: %s: audit result: %w", e.Action, rerr))
 	}
 	return err

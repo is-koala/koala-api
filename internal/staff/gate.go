@@ -81,7 +81,7 @@ func NewGate(spec *openapi3.T, c checker, rec recorder, writes auditdb.DBTX, log
 	var errs []error
 	for _, path := range keys {
 		for method, op := range paths[path].Operations() {
-			rt, err := routeOf(spec, op)
+			rt, err := routeOf(spec, method+" "+path, op)
 			if err != nil {
 				errs = append(errs, fmt.Errorf("%s %s: %w", method, path, err))
 				continue
@@ -95,8 +95,22 @@ func NewGate(spec *openapi3.T, c checker, rec recorder, writes auditdb.DBTX, log
 	return g, nil
 }
 
-// routeOf decides how the gate treats op.
-func routeOf(spec *openapi3.T, op *openapi3.Operation) (route, error) {
+// SelfService lists the staff operations that need no permission because
+// they touch only the caller's own account (ADR-0025 §9, ADR-0026). The
+// lint holds the contract to the same list (koala-admin-self-service); the
+// gate holds it again in code, so an exemption added to the contract
+// without a review of this list stops the server.
+func SelfService() []string {
+	return []string{
+		"GET /v1/admin/me",
+		"GET /v1/admin/me/capabilities",
+		"POST /v1/admin/auth/logout",
+		"POST /v1/admin/auth/password",
+	}
+}
+
+// routeOf decides how the gate treats op, the operation "METHOD /path".
+func routeOf(spec *openapi3.T, key string, op *openapi3.Operation) (route, error) {
 	security := spec.Security
 	if op.Security != nil {
 		security = *op.Security
@@ -115,6 +129,8 @@ func routeOf(spec *openapi3.T, op *openapi3.Operation) (route, error) {
 		return rt, nil
 	case hasPermission == hasExempt:
 		return rt, fmt.Errorf("a staff operation carries exactly one of %s and %s (fail-closed, ADR-0026)", ExtPermission, ExtExempt)
+	case hasExempt && !slices.Contains(SelfService(), key):
+		return rt, fmt.Errorf("%s outside the self-service list (staff.SelfService); a staff operation needs a permission", ExtExempt)
 	case hasExempt:
 		return rt, nil
 	}

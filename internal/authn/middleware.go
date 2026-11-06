@@ -42,6 +42,14 @@ func UserFrom(ctx context.Context) (UserPrincipal, bool) {
 	return p, ok
 }
 
+// ContextWithStaff returns ctx carrying p as the authenticated staff
+// caller, as Handler stores it. It is for code that composes the staff
+// surface outside this middleware, the staff gate's tests; it
+// authenticates nothing.
+func ContextWithStaff(ctx context.Context, p StaffPrincipal) context.Context {
+	return context.WithValue(ctx, staffKey{}, p)
+}
+
 // StaffFrom returns the authenticated staff caller.
 func StaffFrom(ctx context.Context) (StaffPrincipal, bool) {
 	p, ok := ctx.Value(staffKey{}).(StaffPrincipal)
