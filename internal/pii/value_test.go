@@ -16,6 +16,13 @@ import (
 // A Value leaves masked whatever the way out: every fmt verb, a field of
 // a printed struct, slog and JSON. Its clear form leaves only through
 // Reveal (ADR-0026).
+//
+// The holder's field is exported on purpose. fmt calls a nested value's
+// methods only where reflect.Value.CanInterface holds, and a value read
+// out of an unexported field does not: there fmt reflects into the struct
+// and prints its insides, the clear value among them, the way time.Time
+// shows up as {wall ext loc}. Go cannot close that from inside the type,
+// so the rule lives in archtest's TestPIIValuesStayInExportedFields.
 func TestValueLeavesMasked(t *testing.T) {
 	t.Parallel()
 	const inClear = "+905551112233"
