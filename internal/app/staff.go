@@ -128,7 +128,7 @@ func newStaffAdmin(maint *db.DB, clk clock.Clock) (*staff.Admin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("wire staff: %w", err)
 	}
-	return staff.NewAdmin(maint, passwords, audit.NewRecorder(clk), authzsql.NewChangeLog(model, clk), clk), nil
+	return staff.NewAdmin(maint, passwords, audit.NewRecorder(), authzsql.NewChangeLog(model, clk), clk), nil
 }
 
 // staffModule is the staff surface of serve: the permission gate and the
@@ -144,7 +144,7 @@ type staffModule struct {
 
 // wireStaff builds the staff checker and handlers; the gate needs the
 // contract and is built by mountAPI.
-func wireStaff(database *db.DB, users *authn.StaffService, clk clock.Clock) (staffModule, error) {
+func wireStaff(database *db.DB, users *authn.StaffService) (staffModule, error) {
 	model, err := authz.DefaultModel()
 	if err != nil {
 		return staffModule{}, fmt.Errorf("wire staff: %w", err)
@@ -154,7 +154,7 @@ func wireStaff(database *db.DB, users *authn.StaffService, clk clock.Clock) (sta
 	}
 	checker := authzsql.NewStaffChecker(model, database.Pool())
 	return staffModule{
-		http: staff.NewHTTP(checker, users), checker: checker, recorder: audit.NewRecorder(clk),
+		http: staff.NewHTTP(checker, users), checker: checker, recorder: audit.NewRecorder(),
 		writes: database.Pool(),
 	}, nil
 }

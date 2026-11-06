@@ -67,7 +67,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, fmt.Errorf("wire realtime: %w", err)
 	}
-	admin, err := wireStaff(database, staff, clk)
+	admin, err := wireStaff(database, staff)
 	if err != nil {
 		return modules{}, err
 	}

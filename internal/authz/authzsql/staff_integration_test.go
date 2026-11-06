@@ -5,6 +5,7 @@ package authzsql_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/is-koala/koala-api/internal/authz/internal/matrix"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
+	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
 // fixtureNamespace is the matrix runners' namespace (internal/authz
@@ -361,5 +363,131 @@ func TestPermissionCatalogMatchesDatabase(t *testing.T) {
 	slices.Sort(inDB)
 	if !slices.Equal(inDB, inCode) {
 		t.Errorf("CHECK permissions = %v, catalog = %v", inDB, inCode)
+	}
+}
+
+// Separation of duties holds on deletes and retirements too (ADR-0026):
+// taking OWNER away from a member who holds both branches is refused, and
+// a retired OWNER role exempts nobody.
+func TestSeparationOfDutiesOnDeleteAndRetire(t *testing.T) {
+	t.Parallel()
+	s := newStaffDB(t)
+	ctx := t.Context()
+	for _, role := range []string{"moderator", "finance_analyst"} {
+		_, err := s.maint.Pool().Exec(ctx,
+			"INSERT INTO staff_role_assignments (staff_id, role_id, created_at) VALUES ($1, $2, now())",
+			fixtureID("s_owner"), s.roleID[role])
+		if err != nil {
+			t.Fatalf("OWNER with %s: %v", role, err)
+		}
+	}
+	_, err := s.maint.Pool().Exec(ctx, "DELETE FROM staff_role_assignments WHERE staff_id = $1 AND role_id = $2",
+		fixtureID("s_owner"), s.roleID["owner"])
+	if got := constraintOf(err); got != "staff_separation_of_duties" {
+		t.Errorf("removing OWNER from a member of both branches: constraint %q (%v), want staff_separation_of_duties", got, err)
+	}
+	_, err = s.owner.Pool().Exec(ctx, "UPDATE staff_roles SET retired_at = now() WHERE id = $1", s.roleID["owner"])
+	if got := constraintOf(err); got != "staff_separation_of_duties" {
+		t.Errorf("retiring OWNER: constraint %q (%v), want staff_separation_of_duties", got, err)
+	}
+}
+
+// A soft-deleted or DISABLED staff member reaches no role: CheckIn denies,
+// in the caller's transaction, whatever the member was assigned.
+func TestInactiveStaffHoldNothing(t *testing.T) {
+	t.Parallel()
+	s := newStaffDB(t)
+	ctx := t.Context()
+	model, err := authz.DefaultModel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	checker := authzsql.NewStaffChecker(model, s.app.Pool())
+	holds := func(staff string, a authz.Action) bool {
+		t.Helper()
+		var allowed bool
+		err := s.app.InTx(ctx, func(ctx context.Context, q db.Querier) error {
+			d, err := checker.CheckIn(ctx, q, authz.Staff(fixtureID(staff)), a, authz.Platform())
+			if err != nil {
+				return fmt.Errorf("check: %w", err)
+			}
+			allowed = d.Allowed
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return allowed
+	}
+	if !holds("s_finance_officer", authz.ActionPlatformPayoutRelease) || !holds("s_auditor", authz.ActionPlatformAuditRead) {
+		t.Fatal("the active members do not hold their permissions")
+	}
+	if _, err := s.maint.Pool().Exec(ctx, "UPDATE staff_members SET status = 'DISABLED' WHERE id = $1", fixtureID("s_finance_officer")); err != nil {
+		t.Fatal(err)
+	}
+	if holds("s_finance_officer", authz.ActionPlatformPayoutRelease) {
+		t.Error("a DISABLED member still holds payout.release")
+	}
+	cat := dbtest.SoftDeleteCatalog(t)
+	err = s.app.InTx(ctx, func(ctx context.Context, q db.Querier) error {
+		_, err := softdelete.New(cat).Delete(ctx, q, softdelete.DeleteRequest{
+			Table: "staff_members", ID: fixtureID("s_auditor"),
+			Actor: softdelete.Actor{Kind: softdelete.ActorSystem}, Reason: softdelete.ReasonRetention,
+			At: time.Date(2026, 11, 6, 9, 0, 0, 0, time.UTC),
+		})
+		if err != nil {
+			return fmt.Errorf("soft-delete: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if holds("s_auditor", authz.ActionPlatformAuditRead) {
+		t.Error("a soft-deleted member still holds audit.read")
+	}
+}
+
+// Writers of the role graph queue on one advisory lock (ADR-0026): two
+// assignments that are each allowed alone but together break separation
+// of duties cannot both pass. The second waits for the first (Postgres
+// shows it waiting on the advisory lock), then sees its commit and is
+// refused.
+func TestGraphWritersQueueOnTheLock(t *testing.T) {
+	t.Parallel()
+	s := newStaffDB(t)
+	ctx := t.Context()
+	first, err := s.maint.Pool().Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Rollback(context.WithoutCancel(ctx)) })
+	_, err = first.Exec(ctx, "INSERT INTO staff_role_assignments (staff_id, role_id, created_at) VALUES ($1, $2, now())",
+		fixtureID("s_none"), s.roleID["moderator"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := make(chan error, 1)
+	go func() {
+		_, err := s.maint.Pool().Exec(ctx, "INSERT INTO staff_role_assignments (staff_id, role_id, created_at) VALUES ($1, $2, now())",
+			fixtureID("s_none"), s.roleID["finance_analyst"])
+		second <- err
+	}()
+	dbtest.Eventually(t, 10*time.Second, "the second writer waits on the advisory lock", func() (bool, error) {
+		var waiting bool
+		err := s.owner.Pool().QueryRow(ctx,
+			"SELECT EXISTS (SELECT FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)").Scan(&waiting)
+		return waiting, err
+	})
+	if err := first.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-second:
+		if got := constraintOf(err); got != "staff_separation_of_duties" {
+			t.Errorf("second writer: constraint %q (%v), want staff_separation_of_duties", got, err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the second writer did not finish after the first committed")
 	}
 }

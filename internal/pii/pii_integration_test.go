@@ -12,7 +12,6 @@ import (
 	"github.com/is-koala/koala-api/internal/authz"
 	"github.com/is-koala/koala-api/internal/authz/authzsql"
 	"github.com/is-koala/koala-api/internal/pii"
-	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
 )
@@ -31,7 +30,7 @@ func newPIIEnv(t *testing.T) *piiEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.gate = pii.NewGate(authzsql.NewStaffChecker(model, e.app.Pool()), clock.Real{})
+	e.gate = pii.NewGate(authzsql.NewStaffChecker(model, e.app.Pool()))
 	for id, email := range map[uuid.UUID]string{e.lead: "lead@iskoala.com", e.none: "none@iskoala.com"} {
 		_, err := e.maint.Pool().Exec(t.Context(), `
 			INSERT INTO staff_members (id, email, password_hash, status, must_change_password, created_at)

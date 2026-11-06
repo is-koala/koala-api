@@ -9,18 +9,17 @@ import (
 
 	"github.com/is-koala/koala-api/internal/audit/auditdb"
 	"github.com/is-koala/koala-api/internal/authz"
-	"github.com/is-koala/koala-api/internal/platform/clock"
 )
 
 // Recorder writes audit rows. It writes on the DBTX it is given: the
 // caller decides the transaction (a pending row commits on its own, before
-// the mutation; a result row may share the mutation's transaction).
-type Recorder struct {
-	clock clock.Clock
-}
+// the mutation; a result row may share the mutation's transaction). The
+// database stamps every row with the statement's time and derives its
+// retention from it; no client clock moves a retention (0041).
+type Recorder struct{}
 
-// NewRecorder returns a recorder that stamps rows with clk.
-func NewRecorder(clk clock.Clock) *Recorder { return &Recorder{clock: clk} }
+// NewRecorder returns a recorder.
+func NewRecorder() *Recorder { return &Recorder{} }
 
 // Pending writes the PENDING row of a mutation and returns its id. The
 // mutation runs only when this succeeded.
@@ -75,7 +74,7 @@ func (r *Recorder) Detail(ctx context.Context, q auditdb.DBTX, entry uuid.UUID, 
 		}
 	}
 	err := auditdb.New(q).InsertAuditDetail(ctx, auditdb.InsertAuditDetailParams{
-		EntryID: entry, CreatedAt: r.clock.Now(), Body: masked, ClientKey: optional(clientKey),
+		EntryID: entry, Body: masked, ClientKey: optional(clientKey),
 	})
 	if err != nil {
 		return fmt.Errorf("audit: write detail of %s: %w", entry, err)
@@ -96,7 +95,7 @@ func (r *Recorder) insert(ctx context.Context, q auditdb.DBTX, e Entry, o Outcom
 		return uuid.Nil, fmt.Errorf("audit: entry id: %w", err)
 	}
 	p := auditdb.InsertAuditEntryParams{
-		ID: id, CreatedAt: r.clock.Now(), Outcome: string(o),
+		ID: id, Outcome: string(o),
 		ActorKind: kind, ActorID: actor, Action: e.Action,
 		Permission: optional(string(e.Permission)), RequestID: optional(e.RequestID),
 		Mutating: e.Mutating, Sensitivity: string(e.Sensitivity),

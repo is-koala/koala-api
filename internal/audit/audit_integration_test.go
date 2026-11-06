@@ -3,6 +3,7 @@
 package audit_test
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
@@ -54,7 +55,7 @@ func TestRetentionMatchesCatalog(t *testing.T) {
 	cat := dbtest.SoftDeleteCatalog(t)
 	entries, _ := cat.Table("admin_audit_entries")
 	details, _ := cat.Table("admin_audit_entry_details")
-	rec := audit.NewRecorder(clock.NewFake(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)))
+	rec := audit.NewRecorder()
 
 	normal := entry(authz.SensitivityPersonalData)
 	pending, err := rec.Pending(ctx, app.Pool(), normal)
@@ -117,7 +118,7 @@ func TestAuditRowsAreImmutable(t *testing.T) {
 	d := dbtest.New(t)
 	app, owner, maint := d.Open(t, db.RoleApp), d.Open(t, db.RoleOwner), d.Open(t, db.RoleMaint)
 	ctx := t.Context()
-	rec := audit.NewRecorder(clock.Real{})
+	rec := audit.NewRecorder()
 	e := entry(authz.SensitivityNormal)
 	pending, err := rec.Pending(ctx, app.Pool(), e)
 	if err != nil {
@@ -153,34 +154,55 @@ func TestAuditRowsAreImmutable(t *testing.T) {
 	}
 }
 
-// TestPurge: `koala maint audit-purge` deletes, as koala_maint, the rows
-// whose retention has passed and keeps the rest; a FINANCIAL entry
-// outlives a normal one.
-func TestPurge(t *testing.T) {
-	t.Parallel()
-	d := dbtest.New(t)
-	app, maint := d.Open(t, db.RoleApp), d.Open(t, db.RoleMaint)
-	ctx := t.Context()
-	// The database's clock decides the retention: the old rows are three
-	// years older than it.
-	old := audit.NewRecorder(clock.NewFake(clock.Real{}.Now().AddDate(-3, 0, 0)))
-	fresh := audit.NewRecorder(clock.Real{})
-
-	normal, financial := entry(authz.SensitivityNormal), entry(authz.SensitivityFinancial)
-	oldPending, err := old.Pending(ctx, app.Pool(), normal)
+// backdate inserts an audit entry, its detail and a PII access row
+// created years ago. The stamp triggers set created_at to the statement's
+// time whatever the writer sends, so only the table owner, by disabling
+// them for one transaction of the test's own database, can write the
+// past (ADR-0026: the AU-9 boundary is the owner).
+func backdate(t *testing.T, owner *db.DB, sensitivity string, created time.Time) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	err := owner.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		exec := func(sql string, args ...any) {
+			t.Helper()
+			if _, err := q.Exec(ctx, sql, args...); err != nil {
+				t.Fatalf("%s: %v", sql, err)
+			}
+		}
+		exec("ALTER TABLE admin_audit_entries DISABLE TRIGGER admin_audit_entries_stamp")
+		exec("ALTER TABLE admin_audit_entry_details DISABLE TRIGGER admin_audit_entry_details_stamp")
+		exec("ALTER TABLE pii_access_log DISABLE TRIGGER pii_access_log_stamp")
+		retain := map[string]string{"FINANCIAL": "10 years", "NORMAL": "24 months"}[sensitivity]
+		exec(`INSERT INTO admin_audit_entries (id, created_at, outcome, actor_kind, action, mutating, sensitivity, retain_until)
+			VALUES ($1, $2, 'DENIED', 'system', 'payout.release', true, $3, $2 + $4::interval)`, id, created, sensitivity, retain)
+		exec(`INSERT INTO admin_audit_entry_details (entry_id, created_at, body, retain_until)
+			VALUES ($1, $2, '{}', $2 + interval '6 months')`, id, created)
+		exec(`INSERT INTO pii_access_log (id, created_at, staff_id, basis, data_subject_id, purpose, fields, retain_until)
+			VALUES ($1, $2, $1, 'basis', $1, 'identity_review', '{phone}', $2 + interval '24 months')`, uuid.New(), created)
+		exec("ALTER TABLE admin_audit_entries ENABLE TRIGGER admin_audit_entries_stamp")
+		exec("ALTER TABLE admin_audit_entry_details ENABLE TRIGGER admin_audit_entry_details_stamp")
+		exec("ALTER TABLE pii_access_log ENABLE TRIGGER pii_access_log_stamp")
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := old.Result(ctx, app.Pool(), oldPending, normal, true); err != nil {
-		t.Fatal(err)
-	}
-	if err := old.Detail(ctx, app.Pool(), oldPending, map[string]any{"note": "x"}, ""); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := old.Pending(ctx, app.Pool(), financial); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := fresh.Pending(ctx, app.Pool(), normal); err != nil {
+	return id
+}
+
+// TestPurge: `koala maint audit-purge` deletes, as koala_maint, the rows
+// whose retention has passed by the database's clock and keeps the rest; a
+// FINANCIAL entry outlives a normal one. The application role cannot
+// purge.
+func TestPurge(t *testing.T) {
+	t.Parallel()
+	d := dbtest.New(t)
+	app, owner, maint := d.Open(t, db.RoleApp), d.Open(t, db.RoleOwner), d.Open(t, db.RoleMaint)
+	ctx := t.Context()
+	threeYearsAgo := clock.Real{}.Now().AddDate(-3, 0, 0)
+	oldNormal := backdate(t, owner, "NORMAL", threeYearsAgo)
+	oldFinancial := backdate(t, owner, "FINANCIAL", threeYearsAgo)
+	if _, err := audit.NewRecorder().Pending(ctx, app.Pool(), entry(authz.SensitivityNormal)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -188,17 +210,88 @@ func TestPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Details != 1 || p.Entries != 2 {
-		t.Errorf("purged %+v, want the old detail and the old pending and result rows", p)
+	// Both details (6 months) and both PII rows (24 months) are past their
+	// retention; of the entries only the normal one (24 months).
+	if p.Details != 2 || p.Entries != 1 || p.PIIAccess != 2 {
+		t.Errorf("purged %+v, want 2 details, 1 entry and 2 PII access rows", p)
 	}
-	var left int
-	if err := maint.Pool().QueryRow(ctx, "SELECT count(*) FROM admin_audit_entries").Scan(&left); err != nil {
+	var left []uuid.UUID
+	rows, err := maint.Pool().Query(ctx, "SELECT id FROM admin_audit_entries WHERE id = ANY($1)", []uuid.UUID{oldNormal, oldFinancial})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if left != 2 {
-		t.Errorf("%d entries left, want the old FINANCIAL one and the fresh one", left)
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		left = append(left, id)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 1 || left[0] != oldFinancial {
+		t.Errorf("old entries left %v, want only the FINANCIAL one %s", left, oldFinancial)
 	}
 	if _, err := audit.Purge(ctx, app, clock.Real{}); err == nil {
 		t.Error("the application role purged the audit trail")
+	}
+}
+
+// The writer's clock does not move a retention: the database stamps
+// created_at with the statement's time, whatever the insert sends.
+func TestCreatedAtIsTheDatabases(t *testing.T) {
+	t.Parallel()
+	d := dbtest.New(t)
+	app, owner := d.Open(t, db.RoleApp), d.Open(t, db.RoleOwner)
+	ctx := t.Context()
+	id := uuid.New()
+	_, err := app.Pool().Exec(ctx, `
+		INSERT INTO admin_audit_entries (id, created_at, outcome, actor_kind, action, mutating, sensitivity, retain_until)
+		VALUES ($1, '2000-01-01T00:00:00Z', 'DENIED', 'system', 'payout.release', true, 'NORMAL', '2000-01-02T00:00:00Z')`, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var recent bool
+	err = owner.Pool().QueryRow(ctx, `
+		SELECT created_at > now() - interval '1 hour' AND retain_until = created_at + interval '24 months'
+		FROM admin_audit_entries WHERE id = $1`, id).Scan(&recent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recent {
+		t.Error("the database kept the writer's created_at or retain_until")
+	}
+}
+
+// TestEvidenceTriggersAreEnabled: the triggers that keep the evidence
+// tables immutable and stamped, and the role graph's invariants, exist and
+// are enabled after migration. The table owner can disable a trigger
+// (ADR-0026, AU-9 boundary); a migration that does so fails here.
+func TestEvidenceTriggersAreEnabled(t *testing.T) {
+	t.Parallel()
+	owner := dbtest.New(t).Open(t, db.RoleOwner)
+	want := []string{
+		"admin_audit_entries_immutable", "admin_audit_entries_no_truncate", "admin_audit_entries_stamp",
+		"admin_audit_entry_details_immutable", "admin_audit_entry_details_no_truncate", "admin_audit_entry_details_stamp",
+		"authz_change_log_immutable", "authz_change_log_no_truncate",
+		"pii_access_log_immutable", "pii_access_log_no_truncate", "pii_access_log_stamp",
+		"staff_members_disable_bumps_token_version",
+		"staff_role_assignments_check", "staff_role_assignments_lock",
+		"staff_role_includes_check", "staff_role_includes_lock",
+		"staff_roles_check", "staff_roles_lock",
+	}
+	for _, name := range want {
+		var enabled string
+		err := owner.Pool().QueryRow(t.Context(),
+			"SELECT tgenabled::text FROM pg_trigger WHERE tgname = $1 AND NOT tgisinternal", name).Scan(&enabled)
+		if err != nil {
+			t.Errorf("trigger %s: %v", name, err)
+			continue
+		}
+		if enabled != "O" {
+			t.Errorf("trigger %s: tgenabled %q, want O (enabled)", name, enabled)
+		}
 	}
 }

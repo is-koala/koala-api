@@ -12,10 +12,13 @@
 --
 -- Retention (db/softdelete.yaml, ADR-0026): an entry 24 months, a
 -- FINANCIAL one 10 years; the details (masked body ≤ 8 KB, client
--- address) 6 months; the PII access log 24 months. The database computes
--- retain_until; a result row keeps its pending row's. Rows are never
--- updated; only koala_maint deletes them, and only after retain_until
--- (forbid_evidence_change, 0040).
+-- address) 6 months; the PII access log 24 months. The database stamps
+-- every row: created_at is the statement's time whatever the writer
+-- sends, and retain_until follows from it, so no client clock moves a
+-- retention; a result row keeps its pending row's. The stamp functions
+-- run as the owner (SECURITY DEFINER), so the application needs no read
+-- access to the trail. Rows are never updated; only koala_maint deletes
+-- them, and only after retain_until (forbid_evidence_change, 0040).
 
 -- +goose Up
 CREATE TABLE admin_audit_entries (
@@ -85,11 +88,15 @@ CREATE TABLE pii_access_log (
     data_subject_id uuid NOT NULL,
     purpose text NOT NULL,
     fields text[] NOT NULL,
+    -- The operation that read the data, "GET /v1/admin/users/{userId}"
+    -- (plan §5.5: "uç").
+    route text,
     request_id text,
     retain_until timestamptz NOT NULL,
     CONSTRAINT pii_access_log_basis_check CHECK (length(basis) BETWEEN 1 AND 4096),
     CONSTRAINT pii_access_log_purpose_check CHECK (purpose ~ '^[a-z][a-z_]{0,62}$'),
     CONSTRAINT pii_access_log_fields_check CHECK (cardinality(fields) BETWEEN 1 AND 32),
+    CONSTRAINT pii_access_log_route_check CHECK (length(route) BETWEEN 1 AND 256),
     CONSTRAINT pii_access_log_request_id_check CHECK (length(request_id) BETWEEN 1 AND 128)
 );
 
@@ -101,10 +108,11 @@ CREATE INDEX pii_access_log_data_subject_idx ON pii_access_log (data_subject_id,
 -- (and must close a pending row of the same actor and action); any other
 -- row is kept 24 months, 10 years when FINANCIAL.
 CREATE FUNCTION admin_audit_entries_stamp() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
     pending admin_audit_entries%ROWTYPE;
 BEGIN
+    NEW.created_at := statement_timestamp();
     IF NEW.result_of IS NOT NULL THEN
         SELECT * INTO pending FROM admin_audit_entries WHERE id = NEW.result_of;
         IF NOT FOUND OR pending.outcome <> 'PENDING'
@@ -127,8 +135,9 @@ $$;
 
 -- +goose StatementBegin
 CREATE FUNCTION admin_audit_entry_details_stamp() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
+    NEW.created_at := statement_timestamp();
     NEW.retain_until := NEW.created_at + interval '6 months';
     RETURN NEW;
 END
@@ -137,8 +146,9 @@ $$;
 
 -- +goose StatementBegin
 CREATE FUNCTION pii_access_log_stamp() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
+    NEW.created_at := statement_timestamp();
     NEW.retain_until := NEW.created_at + interval '24 months';
     RETURN NEW;
 END
@@ -165,11 +175,11 @@ CREATE TRIGGER pii_access_log_immutable BEFORE UPDATE OR DELETE ON pii_access_lo
 CREATE TRIGGER pii_access_log_no_truncate BEFORE TRUNCATE ON pii_access_log
     FOR EACH STATEMENT EXECUTE FUNCTION forbid_evidence_change();
 
--- The application writes entries (and reads them back: the stamp trigger
--- reads the pending row as the inserting role); the `koala staff` command
--- writes them as koala_maint, which also purges after the retention.
-GRANT SELECT, INSERT ON admin_audit_entries TO koala_app;
-GRANT INSERT ON admin_audit_entry_details, pii_access_log TO koala_app;
+-- The application only appends (the stamp trigger reads the pending row
+-- as the owner); reading the trail is audit.read's, through staff
+-- management (Faz 8). The `koala staff` command writes as koala_maint,
+-- which also purges after the retention.
+GRANT INSERT ON admin_audit_entries, admin_audit_entry_details, pii_access_log TO koala_app;
 GRANT SELECT, INSERT, DELETE ON admin_audit_entries, admin_audit_entry_details TO koala_maint;
 GRANT SELECT, DELETE ON pii_access_log TO koala_maint;
 

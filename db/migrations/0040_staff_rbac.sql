@@ -13,11 +13,14 @@
 --   - separation of duties (staff_separation_of_duties): no role that is
 --     not exempt reaches both the TRUST and the FINANCE branch, and no
 --     staff member without an exempt role does (Java
---     StaffSeparationOfDuties: OWNER is the exemption);
+--     StaffSeparationOfDuties: OWNER is the exemption). A retired role
+--     exempts nobody. Inserts, updates and deletes are all checked: taking
+--     OWNER away from a member who holds both branches is refused too;
 --   - disabling a staff member moves its token_version, so every token of
---     the account dies with it (ADR-0025 §6, issue #7).
--- Writers of the graph serialize on one advisory lock, so two concurrent
--- writes cannot each pass the check and together break it.
+--     the account dies with it (ADR-0025 §6).
+-- Writers of the graph (insert, update, delete) serialize on one advisory
+-- lock, so two concurrent writes cannot each pass the check and together
+-- break it.
 --
 -- Classes (db/softdelete.yaml): staff_roles is reference data (M4, retired
 -- with retired_at, never deleted: audit rows name roles by id); grants,
@@ -113,7 +116,7 @@ $$;
 
 -- +goose StatementBegin
 -- The invariants of the role graph, checked over the whole graph after
--- every write statement (AFTER … FOR EACH STATEMENT). Ten roles and a
+-- every write statement, deletes included (AFTER … FOR EACH STATEMENT). Ten roles and a
 -- handful of staff make the full check cheaper than an incremental one,
 -- and it cannot miss a path.
 CREATE FUNCTION staff_rbac_check() RETURNS trigger
@@ -152,7 +155,7 @@ BEGIN
     FROM closure c
     JOIN staff_roles root ON root.id = c.root_id
     JOIN staff_roles r ON r.id = c.role_id
-    WHERE NOT root.separation_exempt
+    WHERE NOT (root.separation_exempt AND root.retired_at IS NULL)
     GROUP BY root.code
     HAVING bool_or(r.duty_branch = 'TRUST') AND bool_or(r.duty_branch = 'FINANCE')
     LIMIT 1;
@@ -175,7 +178,7 @@ BEGIN
     HAVING bool_or(r.duty_branch = 'TRUST') AND bool_or(r.duty_branch = 'FINANCE')
        AND NOT EXISTS (
            SELECT FROM staff_role_assignments a JOIN staff_roles x ON x.id = a.role_id
-           WHERE a.staff_id = reach.staff_id AND x.separation_exempt)
+           WHERE a.staff_id = reach.staff_id AND x.separation_exempt AND x.retired_at IS NULL)
     LIMIT 1;
     IF bad IS NOT NULL THEN
         RAISE EXCEPTION 'staff member % would hold roles of both the TRUST and the FINANCE branch', bad
@@ -186,21 +189,21 @@ END
 $$;
 -- +goose StatementEnd
 
-CREATE TRIGGER staff_role_includes_lock BEFORE INSERT OR UPDATE ON staff_role_includes
+CREATE TRIGGER staff_role_includes_lock BEFORE INSERT OR UPDATE OR DELETE ON staff_role_includes
     FOR EACH STATEMENT EXECUTE FUNCTION staff_rbac_lock();
-CREATE TRIGGER staff_role_includes_check AFTER INSERT OR UPDATE ON staff_role_includes
+CREATE TRIGGER staff_role_includes_check AFTER INSERT OR UPDATE OR DELETE ON staff_role_includes
     FOR EACH STATEMENT EXECUTE FUNCTION staff_rbac_check();
-CREATE TRIGGER staff_role_assignments_lock BEFORE INSERT OR UPDATE ON staff_role_assignments
+CREATE TRIGGER staff_role_assignments_lock BEFORE INSERT OR UPDATE OR DELETE ON staff_role_assignments
     FOR EACH STATEMENT EXECUTE FUNCTION staff_rbac_lock();
-CREATE TRIGGER staff_role_assignments_check AFTER INSERT OR UPDATE ON staff_role_assignments
+CREATE TRIGGER staff_role_assignments_check AFTER INSERT OR UPDATE OR DELETE ON staff_role_assignments
     FOR EACH STATEMENT EXECUTE FUNCTION staff_rbac_check();
-CREATE TRIGGER staff_roles_lock BEFORE UPDATE ON staff_roles
+CREATE TRIGGER staff_roles_lock BEFORE INSERT OR UPDATE OR DELETE ON staff_roles
     FOR EACH STATEMENT EXECUTE FUNCTION staff_rbac_lock();
-CREATE TRIGGER staff_roles_check AFTER UPDATE ON staff_roles
+CREATE TRIGGER staff_roles_check AFTER INSERT OR UPDATE OR DELETE ON staff_roles
     FOR EACH STATEMENT EXECUTE FUNCTION staff_rbac_check();
 
 -- +goose StatementBegin
--- Disabling an account ends every token of it (ADR-0025 §6, issue #7):
+-- Disabling an account ends every token of it (ADR-0025 §6):
 -- an update that takes a member out of ACTIVE without moving its
 -- token_version gets the move here.
 CREATE FUNCTION staff_members_bump_token_version() RETURNS trigger
@@ -309,8 +312,8 @@ JOIN staff_roles child ON child.code = e.child_code;
 -- The relationship tuples of the staff tables in OpenFGA form (plan
 -- §5.2-1, §5.6-5): for the conformance test, debugging and a future
 -- export, never for decisions (the hot path is the typed query of
--- internal/authz/authzsql). Retired roles and soft-deleted staff have no
--- tuples. No application role reads it.
+-- internal/authz/authzsql). Retired roles and soft-deleted or disabled
+-- staff have no tuples. No application role reads it.
 CREATE VIEW authz_tuples AS
     SELECT 'platform'::text AS object_type, 'koala'::text AS object_id,
            replace(p.permission, '.', '_') AS relation,
@@ -329,7 +332,7 @@ CREATE VIEW authz_tuples AS
     FROM staff_role_assignments a
     JOIN staff_roles r ON r.id = a.role_id
     LEFT JOIN active_staff_members m ON m.id = a.staff_id
-    WHERE r.retired_at IS NULL AND m.id IS NOT NULL;
+    WHERE r.retired_at IS NULL AND m.status = 'ACTIVE';
 
 -- The application resolves permissions from the graph; staff management
 -- (the `koala staff` command, Faz 8 API) assigns roles as koala_maint.

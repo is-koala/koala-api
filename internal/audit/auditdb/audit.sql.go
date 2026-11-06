@@ -7,19 +7,17 @@ package auditdb
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 )
 
 const insertAuditDetail = `-- name: InsertAuditDetail :exec
 INSERT INTO admin_audit_entry_details (entry_id, created_at, body, client_key)
-VALUES ($1, $2, $3, $4)
+VALUES ($1, now(), $2, $3)
 `
 
 type InsertAuditDetailParams struct {
 	EntryID   uuid.UUID
-	CreatedAt time.Time
 	Body      []byte
 	ClientKey *string
 }
@@ -27,12 +25,7 @@ type InsertAuditDetailParams struct {
 // InsertAuditDetail stores the masked body and the client address of an
 // entry (kept 6 months).
 func (q *Queries) InsertAuditDetail(ctx context.Context, arg InsertAuditDetailParams) error {
-	_, err := q.db.Exec(ctx, insertAuditDetail,
-		arg.EntryID,
-		arg.CreatedAt,
-		arg.Body,
-		arg.ClientKey,
-	)
+	_, err := q.db.Exec(ctx, insertAuditDetail, arg.EntryID, arg.Body, arg.ClientKey)
 	return err
 }
 
@@ -41,14 +34,13 @@ INSERT INTO admin_audit_entries (
     id, created_at, outcome, result_of, actor_kind, actor_id, action, permission, basis,
     target_type, target_id, request_id, mutating, sensitivity)
 VALUES (
-    $1, $2, $3, $4, $5, $6, $7,
-    $8, $9, $10, $11,
-    $12, $13, $14)
+    $1, now(), $2, $3, $4, $5, $6,
+    $7, $8, $9, $10,
+    $11, $12, $13)
 `
 
 type InsertAuditEntryParams struct {
 	ID          uuid.UUID
-	CreatedAt   time.Time
 	Outcome     string
 	ResultOf    uuid.NullUUID
 	ActorKind   string
@@ -64,12 +56,12 @@ type InsertAuditEntryParams struct {
 }
 
 // InsertAuditEntry appends one row of the staff audit trail. The database
-// computes retain_until (0041) and checks that a result row closes a
-// pending row of the same actor and action.
+// stamps created_at with the statement's time and computes retain_until
+// (0041); it checks that a result row closes a pending row of the same
+// actor and action.
 func (q *Queries) InsertAuditEntry(ctx context.Context, arg InsertAuditEntryParams) error {
 	_, err := q.db.Exec(ctx, insertAuditEntry,
 		arg.ID,
-		arg.CreatedAt,
 		arg.Outcome,
 		arg.ResultOf,
 		arg.ActorKind,

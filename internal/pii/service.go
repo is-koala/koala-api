@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/is-koala/koala-api/internal/authz"
 	"github.com/is-koala/koala-api/internal/pii/piidb"
-	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
@@ -21,14 +21,14 @@ type checker interface {
 	CheckIn(ctx context.Context, q db.Querier, s authz.Subject, a authz.Action, o authz.Object) (authz.Decision, error)
 }
 
-// Gate opens personal data to staff (plan §5.3).
+// Gate opens personal data to staff (plan §5.3). The database stamps the
+// access row's time (0041).
 type Gate struct {
 	checker checker
-	clock   clock.Clock
 }
 
 // NewGate returns the gate.
-func NewGate(c checker, clk clock.Clock) *Gate { return &Gate{checker: c, clock: clk} }
+func NewGate(c checker) *Gate { return &Gate{checker: c} }
 
 // Open decides whether staff may see fields of dataSubject for purpose
 // and, if so, writes the pii_access_log row in q's transaction and returns
@@ -40,6 +40,11 @@ func NewGate(c checker, clk clock.Clock) *Gate { return &Gate{checker: c, clock:
 // nil and the error says why: no row, no grant (plan §5.5). The row is
 // written under a savepoint, so the caller's transaction survives the
 // failure and can still answer masked.
+//
+// The grant is to be used after q's transaction commits: the log row
+// becomes durable with the commit, and a rollback takes it away. A caller
+// builds the response with the grant only once InTx has returned nil, so
+// no personal value leaves without its committed access row.
 func (g *Gate) Open(ctx context.Context, q db.Querier, staff authz.Subject, dataSubject uuid.UUID, p Purpose, fields []Field) (*Grant, error) {
 	switch {
 	case staff.Kind != authz.SubjectStaff:
@@ -69,13 +74,17 @@ func (g *Gate) Open(ctx context.Context, q db.Querier, staff authz.Subject, data
 	if err != nil {
 		return nil, fmt.Errorf("pii: grant id: %w", err)
 	}
-	var requestID *string
+	var requestID, route *string
 	if rid := httpx.RequestIDFrom(ctx); rid != "" {
 		requestID = &rid
 	}
+	if rc := chi.RouteContext(ctx); rc != nil && rc.RoutePattern() != "" {
+		pattern := rc.RoutePattern()
+		route = &pattern
+	}
 	if err := g.log(ctx, q, piidb.InsertPIIAccessParams{
-		ID: id, CreatedAt: g.clock.Now(), StaffID: staff.ID, Basis: d.Basis.String(),
-		DataSubjectID: dataSubject, Purpose: string(p), Fields: names, RequestID: requestID,
+		ID: id, StaffID: staff.ID, Basis: d.Basis.String(),
+		DataSubjectID: dataSubject, Purpose: string(p), Fields: names, Route: route, RequestID: requestID,
 	}); err != nil {
 		return nil, err
 	}

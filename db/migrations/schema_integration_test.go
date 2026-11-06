@@ -248,10 +248,10 @@ func TestRoleGrants(t *testing.T) {
 			"staff_role_permissions": {"SELECT"},
 			"staff_role_includes":    {"SELECT"},
 			"staff_role_assignments": {"SELECT"},
-			// Evidence (0040, 0041): appended, never updated or deleted.
-			// Audit entries are read back by the result row's trigger.
+			// Evidence (0040, 0041): appended, never updated, deleted or
+			// read back; the stamp triggers run as the owner.
 			"authz_change_log":          {"INSERT"},
-			"admin_audit_entries":       {"SELECT", "INSERT"},
+			"admin_audit_entries":       {"INSERT"},
 			"admin_audit_entry_details": {"INSERT"},
 			"pii_access_log":            {"INSERT"},
 		}

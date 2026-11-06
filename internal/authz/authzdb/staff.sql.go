@@ -82,7 +82,8 @@ WITH RECURSIVE reached (role_id, parent_role_id) AS (
     SELECT a.role_id, NULL::uuid
     FROM staff_role_assignments a
     JOIN staff_roles r ON r.id = a.role_id
-    WHERE a.staff_id = $1::uuid AND r.retired_at IS NULL
+    LEFT JOIN active_staff_members m ON m.id = a.staff_id
+    WHERE a.staff_id = $1::uuid AND r.retired_at IS NULL AND m.status = 'ACTIVE'
   UNION
     SELECT i.child_role_id, i.parent_role_id
     FROM reached
@@ -114,7 +115,8 @@ type StaffRoleGraphRow struct {
 // assignment (kind assignee) or through the inclusion of a reached parent
 // (kind includer, value the parent's id), and the permissions of every
 // reached role (kind permission, value the code).
-// Retired roles neither grant nor pass anything on. internal/authz/authzsql
+// Retired roles neither grant nor pass anything on, and a soft-deleted or
+// DISABLED member reaches nothing. internal/authz/authzsql
 // turns the rows into the member's relationship tuples; the evaluator
 // decides on them, so a revoked assignment counts on the next request.
 func (q *Queries) StaffRoleGraph(ctx context.Context, staffID uuid.UUID) ([]StaffRoleGraphRow, error) {
