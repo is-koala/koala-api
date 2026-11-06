@@ -3,16 +3,21 @@ package audit
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 )
 
-// MaskBody is the JSON a detail row stores for body: every member whose key
-// names personal data or a secret (piiKeys) keeps its key and gets Masked
-// as value, at any depth; a result over MaxBodyBytes is replaced by
-// {"truncated": true, "bytes": n}. The masking is by key, the way log
-// masking works: a body member is personal data by what it is called,
-// whatever its value looks like.
+// MaskBody is the JSON a detail row stores for body, with its personal
+// data masked at any depth:
+//   - by key: a member whose key contains a personal part (piiKeyParts)
+//     or ends in a personal suffix (piiKeySuffixes) keeps its key and
+//     gets Masked as value, whatever the value is;
+//   - by value: a string that contains an e-mail address or is a phone
+//     number (10 to 15 digits once spaces, dashes, dots and parentheses
+//     are dropped) is Masked wherever it appears, whatever its key.
+//
+// A result over MaxBodyBytes is replaced by {"truncated": true, "bytes": n}.
 func MaskBody(body any) ([]byte, error) {
 	raw, err := json.Marshal(body)
 	if err != nil {
@@ -35,6 +40,16 @@ func MaskBody(body any) ([]byte, error) {
 	return out, nil
 }
 
+var (
+	emailInValue = regexp.MustCompile(`[^\s@"]+@[^\s@"]+\.[^\s@"]+`)
+	phoneValue   = regexp.MustCompile(`^\+?\d{10,15}$`)
+)
+
+// phoneDigits drops the separators people write in phone numbers.
+func phoneDigits(s string) string {
+	return strings.NewReplacer(" ", "", "-", "", ".", "", "(", "", ")", "").Replace(s)
+}
+
 func mask(v any) any {
 	switch t := v.(type) {
 	case map[string]any:
@@ -51,6 +66,11 @@ func mask(v any) any {
 			t[i] = mask(member)
 		}
 		return t
+	case string:
+		if emailInValue.MatchString(t) || phoneValue.MatchString(phoneDigits(t)) {
+			return Masked
+		}
+		return t
 	default:
 		return v
 	}
@@ -58,5 +78,9 @@ func mask(v any) any {
 
 func personal(key string) bool {
 	k := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
-	return slices.Contains(piiKeys(), k)
+	if slices.Contains(piiKeyExceptions(), k) {
+		return false
+	}
+	return slices.ContainsFunc(piiKeyParts(), func(p string) bool { return strings.Contains(k, p) }) ||
+		slices.ContainsFunc(piiKeySuffixes(), func(p string) bool { return strings.HasSuffix(k, p) })
 }

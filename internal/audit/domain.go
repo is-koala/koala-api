@@ -56,15 +56,26 @@ type Entry struct {
 	Sensitivity authz.Sensitivity
 }
 
-// piiKeys are the body members whose values are personal data or secrets:
-// a detail row keeps the member and masks its value. Keys compare without
-// case and without "_" and "-".
-func piiKeys() []string {
+// piiKeyParts are the parts of a body member's key that make its value
+// personal data or a secret: a key that contains one ("contactEmail",
+// "user_phone", "ibanNumber", "refreshToken") is masked. Keys compare
+// without case and without "_" and "-".
+func piiKeyParts() []string {
 	return []string{
-		"email", "phone", "phonenumber", "tckn", "nationalid", "iban", "password", "currentpassword",
-		"newpassword", "token", "accesstoken", "refreshtoken", "address", "street", "addressline",
-		"latitude", "longitude", "lat", "lng", "birthdate", "firstname", "lastname", "fullname", "name",
+		"email", "phone", "mobile", "gsm", "tckn", "nationalid", "identitynumber", "iban", "password", "passwd",
+		"secret", "token", "otp", "address", "street", "postcode", "zipcode", "latitude", "longitude",
+		"coordinate", "location", "birth", "firstname", "lastname", "fullname", "surname", "ipaddress", "clientip",
 	}
+}
+
+// piiKeySuffixes are key endings that mark personal data only at the end
+// ("lat", "lng" would match too much inside a key).
+func piiKeySuffixes() []string { return []string{"lat", "lng", "lon", "name"} }
+
+// piiKeyExceptions end like a personal key but are not personal: names of
+// things, not of people.
+func piiKeyExceptions() []string {
+	return []string{"rolename", "permissionname", "operationname", "filename", "categoryname", "badgename", "companyname"}
 }
 
 // Masked is the value a masked body member gets.

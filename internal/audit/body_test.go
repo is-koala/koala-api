@@ -35,6 +35,43 @@ func TestMaskBodyMasksPersonalMembers(t *testing.T) {
 	}
 }
 
+// Keys that contain or end in a personal part are masked, and so are
+// values that are an e-mail address or a phone number under any key;
+// ids, codes and names of things stay.
+func TestMaskBodyBySubstringSuffixAndValue(t *testing.T) {
+	t.Parallel()
+	id := "9a1c0f10-0003-4c00-8000-000000000001"
+	body := map[string]any{
+		"contactEmail": "x",
+		"user_phone":   "y",
+		"ibanNumber":   "z",
+		"refreshToken": "t",
+		"userName":     "ayse",
+		"pickupLat":    41.0,
+		"note":         "beni ayse@example.com adresinden ara",
+		"comment":      "0 (555) 111 22 33",
+		"roleName":     "OWNER",
+		"membership":   "ACTIVE",
+		"targetId":     id,
+		"count":        12,
+	}
+	got, err := audit.MaskBody(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	for _, k := range []string{"contactEmail", "user_phone", "ibanNumber", "refreshToken", "userName", "pickupLat", "note", "comment"} {
+		if !strings.Contains(s, `"`+k+`":"***"`) {
+			t.Errorf("masked body %s: %s is not masked", s, k)
+		}
+	}
+	for _, kept := range []string{`"roleName":"OWNER"`, `"membership":"ACTIVE"`, `"targetId":"` + id + `"`, `"count":12`} {
+		if !strings.Contains(s, kept) {
+			t.Errorf("masked body %s lost %s", s, kept)
+		}
+	}
+}
+
 // A body over 8 KB after masking is replaced by a marker with its size.
 func TestMaskBodyCapsTheSize(t *testing.T) {
 	t.Parallel()
