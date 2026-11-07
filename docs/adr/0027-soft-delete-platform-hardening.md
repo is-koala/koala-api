@@ -26,7 +26,7 @@ ADR-0020 Karar 3 iki desen yazmıştı: `UPDATE … SET <kolon> =` ve `INSERT IN
 | Kolon listesiz `INSERT`: `INSERT INTO t VALUES …`, `… SELECT …`, `… DEFAULT VALUES` | Yeni desen: ilişkiden sonra kolon listesi yerine anahtar kelime gelen `INSERT` |
 | `MERGE … THEN INSERT (… <kolon> …)` (`INTO`'suz `INSERT`) | Yeni desen: `INSERT` + `(` + kolon |
 | `MERGE … THEN INSERT VALUES …` (kolon listesiz) | Yeni desen: `THEN INSERT` + anahtar kelime |
-| Deseni yorumla bölmek: `SET deleted_at /* x */ = now()` | Desenlerdeki `\s*` yerine boşluk **ve yorum** eşleyen `gap` |
+| Deseni yorumla bölmek: `SET deleted_at /* x */ = now()`, `INSERT /* x */ INTO …`, `INSERT INTO t /* x */ VALUES …`, `… AS /* x */ t …`, `THEN INSERT /* x */ VALUES …` | Desenlerin **her** birleşim yerinde boşluk ve yorum eşleyen `gap`/`gap1`; `\s+` kalan tek yer yok |
 
 Kolon listesiz `INSERT` desenleri bir kolon adı değil bir **ifade biçimi** reddeder: kolonlarını saymayan bir `INSERT` ilişkinin bütün kolonlarını sırayla yazar, `deleted_at` ve `deletion_id` de içlerinde; adı yazılmayan kolonu hiçbir metin deseni göremez. Uygulama sorgusu yazdığı kolonları sayar, bu yüzden kural uygulamaya bir yük bindirmez. `MERGE`'ün `UPDATE SET` kolu zaten ilk desene düşüyordu.
 
@@ -34,7 +34,7 @@ Kolon listesiz `INSERT` desenleri bir kolon adı değil bir **ifade biçimi** re
 - `scripts/sqlc-vet-probe.sh` yorumla bölünmüş `SET`'i gerçek `sqlc vet` içinde kanıtlar. Üç biçim proba girmez, çünkü prob derleme hatası kabul etmiyor: `MERGE` ve satır kurucusu `SET` sqlc'de sınanmış yollar değil, **kolon listesiz `INSERT` ise bir view'a hiç derlenmiyor** — sqlc o biçim için view'da hedef kolon saymıyor ve tek ifadeyle bile `INSERT has more expressions than target columns` diyor (CI'da iki turda ölçüldü). Üçünün koruması bugün yalnız `TestNoSoftDeleteColumnsPatterns`'tadır.
 - Bunun bir yan sonucu var: kolon listesiz `INSERT` deseni uygulama sorgularında pratikte ulaşılamazdır. `active_<t>` view'ına yazılan biçim sqlc'de derlenmiyor, temel tabloya yazılan biçimi ise `no-base-table` yakalıyor. Desen gene duruyor: kuralı yazıya geçiriyor ve sqlc'nin davranışı değişirse kapı hazır.
 - **Sınır (DB'de yedeği yok).** ADR-0013 Karar 3'ün "asıl koruma DB'dedir" cümlesi `no-base-table` için geçerlidir, bu kural için değil: `koala_app` `active_<t>` view'ında `UPDATE` yetkisi taşır ve `softdelete.Delete`'in kendisi tam o yetkiyle `deleted_at`'i yazar. Kolon düzeyinde `UPDATE (deleted_at, deletion_id)` iptali `Delete`'i de kırardı. Gerçek yedek işaretlemeyi `koala_maint`'in sahip olduğu bir `SECURITY DEFINER` fonksiyonuna taşımaktır; bu Faz 2'nin kapsamında değil, Sonuçlar'da açık iş olarak duruyor.
-- **Sınır (metin kuralı).** Kalan kaçışlar: dize sabiti ya da yorum içindeki `deleted_at` yanlış pozitif verir; parantez içeren bir yorum kolon listesi desenini (`[^(]*`) böler; `COPY` ve DB tarafında view üzerine konan bir `INSTEAD OF` trigger'ı ya da rule kolonu adlandırmadan yazar ve sorgu metninde hiç görünmez.
+- **Sınır (metin kuralı).** Kalan kaçışlar: dize sabiti ya da yorum içindeki `deleted_at` yanlış pozitif verir; **parantez içeren** bir yorum kolon listesi desenini (`[^(]*`) böler; `COPY` ve DB tarafında view üzerine konan bir `INSTEAD OF` trigger'ı ya da rule kolonu adlandırmadan yazar ve sorgu metninde hiç görünmez. Yorumun kendisi artık bir kaçış değil: `INSERT`, `INTO`, ilişki adı, `AS`, takma ad ve `VALUES`/`SELECT` arasındaki her boşluk yorum da kabul ediyor (`TestNoSoftDeleteColumnsPatterns`'ta yedi kırmızı vaka).
 
 ### 2. Üretilmiş JOIN testi: `softdeletetest.JoinTest`
 
@@ -73,7 +73,9 @@ Bunun yerine, lint'in göremediği durumlarda `detach` kenarının koruması şu
 ADR-0020 Karar 10'un "Sınır" listesi eksikti. Lint'in **bulgu vermediği**, incelemede bakılacak durumlar şunlardır (hepsi `TestCheckJoins`'in kapsamı dışındadır):
 
 - **`WHERE` içindeki skaler alt sorgu:** `WHERE (SELECT name FROM active_<ebeveyn> p WHERE p.id = c.<kolon>) = $1`. Skaler çerçeve güvenli sayılır, ama sonuç `NULL` olduğu için predicate yanlış döner ve çocuk düşer.
-- **LEFT JOIN'lenmiş ebeveynin kolonuna predicate:** üst düzeydeki `WHERE`/`HAVING` biçimi Karar 5'le yakalanır; parantez içine alınmış predicate (`WHERE (p.id IS NOT NULL)`) ve ebeveyn kolonunu başka bir tablonun `INNER JOIN … ON` koşulunda kullanan biçim yakalanmaz.
+- **LEFT JOIN'lenmiş ebeveynin kolonuna predicate:** `WHERE`/`HAVING` biçimi Karar 5'le yakalanır, parantez içindekiler dahil (`WHERE (p.x = $1)`, `WHERE coalesce(p.x, '') = $1`, `WHERE upper(p.x) = $1`, `WHERE a = $1 AND (p.x = $2 OR p.x = $3)`): açılan her parantez kendi düzeyinin yan tümcesini devralır, içinde bir yan tümce anahtar kelimesi geçerse onunla değişir. Yakalanmayan: ebeveyn kolonunu **başka bir tablonun** `INNER JOIN … ON` koşulunda kullanan biçim.
+- **`LEFT JOIN LATERAL` ve dış takma ad:** `LEFT JOIN LATERAL (… p …) x ON true WHERE x.n = $1` yakalanmaz. Dedektör ebeveynin kendi takma adını tutuyor, LATERAL'ın dışarıya verdiği adı (`x`) izlemiyor.
+- **`IS TRUE` / `IS FALSE` ayrımı:** `IS NULL`, `IS NOT DISTINCT FROM`, `IS NOT TRUE` ve `IS NOT FALSE` `NULL` satırını korur ve bulgu değildir; `IS TRUE` ve `IS FALSE` onu düşürür ve bulgudur. Dedektör bu dört biçimi biliyor, ama predicate'in anlamını genel olarak çözmüyor: `NULL`'ı koruyan başka bir yazım yanlış pozitif verir ve muafiyet işareti ister.
 - **`UPDATE … FROM active_<ebeveyn>`:** `UPDATE active_<çocuk> c … FROM active_<ebeveyn> p WHERE p.id = c.<kolon>`. Çocuk `UPDATE`'ten sonra geldiği için "okunuyor" sayılmaz ve kenar hiç denetlenmez; oysa `FROM`'daki ebeveyn, silinmiş ebeveynin çocuğunu güncellemeden düşürür.
 - **İç içe parantezli yarı-join:** `WHERE c.<kolon> IN ((SELECT id FROM active_<ebeveyn>))`. İçteki parantez skaler çerçeve açar ve yarı-join sınıflandırması kaybolur.
 - **Aynı satırda `'--'` dizesi:** tokenizasyon yorumları dizelerden önce siler, bu yüzden bir dize sabitinin içindeki `--` satırın kalanını (gerçek bir `JOIN` dahil) yorum sayıp siler. Ters sıra da simetrik bir kaçış üretir (yorum içindeki tek tırnak), bu yüzden sıra değiştirilmedi.
@@ -101,12 +103,14 @@ WITH RECURSIVE reached (role_id, parent_role_id) AS (
     WHERE … AND m.status = 'ACTIVE'
 ```
 
-- İşaret, muaf tuttuğu `detach` **ebeveynini adlandırır** (tablo adı ya da `active_` view'ı), iki nokta üst üste ve gerekçe izler. Join satırının değil sorgunun kapsamına yazılır; böylece sorgunun önündeki yorum bloğunda durabilir ve sqlc onu üretilmiş doc yorumuna taşır (sorgu gövdesine yazılmış bir yorumun üretilmiş `const`'a nasıl geçtiği sqlc'de garanti değil).
+- İşaret, muaf tuttuğu `detach` **ebeveynini adlandırır** (tablo adı ya da `active_` view'ı), iki nokta üst üste ve gerekçe izler. Join satırının değil sorgunun kapsamına yazılır; böylece sqlc onu üretilmiş doc yorumuna taşır (sorgu gövdesine yazılmış bir yorumun üretilmiş `const`'a nasıl geçtiği sqlc'de garanti değil).
+- **Yeri zorlanır:** işaret yalnız sorgunun **baştaki yorum bloğunda** (ilk SQL token'ına kadarki `--` satırlarında) sayılır. Gövdeye, ifadeden sonraya, bir sonraki sorgunun `-- name:` satırının üstüne ya da `$tag$…$tag$` dizesinin içine yazılan işaret hiçbir şeyi bastırmaz ve join bulgu verir. Bu olmadan, sorgu dilimi bir sonraki `-- name:`'e kadar uzadığı için bir sonraki sorgunun üstüne konan işaret **önceki** sorguyu sessizce muaf tutuyordu; üç biçimin de kırmızı vakası var.
 - Gerekçe en az 20 karakterdir (`x-resource-reason` ile aynı eşik). Ebeveynini adlandırmayan ya da gerekçesiz işaret kendi başına bulgudur **ve** hiçbir şeyi örtmediği için join da bulgu verir: sessiz muafiyet yoktur.
 - Hiçbir bulguyu bastırmayan işaret de bulgudur: bayat muafiyet geride kalmaz.
 - Muafiyet yalnız bu dedektörü kapsar. INNER join, `FROM`'da ebeveyn ve yarı-join (ADR-0020 Karar 10) işaretle muaf olmaz; `TestCheckJoinsNullableSide` bunu da sabitler.
 - Kapsam sorgudur, join değildir: aynı sorguda aynı ebeveyni iki kez LEFT join'leyip birinde bilinçli, ötekinde kazara nullable tarafı yok eden bir yazım ayırt edilmez. Bugün böyle bir sorgu yok; gerektiğinde işaret takma adı da adlandıracak biçimde daraltılır.
 - `TestCheckJoinsNullableSide` her biçim için kırmızı/yeşil vaka taşır; `TestQueriesJoinLint` dedektörü `db/queries/**`'a uygular.
+- **İşaret ile JOIN testinin bildirimi bağlanır.** Aynı karar iki yerde yazılı: SQL'deki işaret ve `JoinTest`'teki sonuç. `JoinTest` `softdelete.MarkedParents`'la taranan ebeveynleri alır (`Marked`) ve işaret taşıyan bir ebeveynin kenarının `Keeps` bildirilmesini reddeder; işaretin kaldırılması da `CheckJoins`'i kırar. Böylece ikisinden birini kaldırmak öteki tarafta kırmızı üretir (`db.Queries()` → `internal/app/jointest_integration_test.go`).
 
 Bu karar ADR-0020 Karar 10'un "çocuktan `LEFT` (ya da `FULL`) join'le, yani nullable tarafta" maddesini daraltır: `LEFT` join artık tek başına yeterli değil, nullable taraf ayakta kalmalı ya da muafiyet yazılmalı.
 
@@ -119,7 +123,11 @@ Bu karar ADR-0020 Karar 10'un "çocuktan `LEFT` (ya da `FULL`) join'le, yani nul
 - Kenarlar **ebeveyn tablosuna** göre gruplanıp dolaşılır (`lockOrder`: ebeveyn, sonra çocuk, sonra kolon). `Edges()`'in çocuk sırası, ebeveyn tablolarını çocuklarının adına göre sıralıyordu; gruplama bir tablonun kilitlerini bir arada ve tabloları tek bir sırada tutar.
 - Kilit ifadesi `ORDER BY p.id` taşır. Postgres'in `LockRows` düğümü sıralamanın üstündedir, bu yüzden satırlar birincil anahtar sırasında kilitlenir.
 
-Böylece örtüşen ebeveynlere dokunan iki `Restore` birbirini kilitlemez, kuyruğa girer. `TestLockOrderGroupsByParent` sırayı sabitler.
+İki `Restore` `FOR SHARE` aldığı için **zaten çakışmaz** (paylaşımlı satır kilitleri uyumludur); sıralamanın bugünkü işi bu değil. Yaptığı şudur: kenar sayısı arttıkça, aynı ebeveyn tablosunun birden çok kenar üzerinden **ayrı ifadelerle** kilitlenmesi çapraz bekleme üretebilir; gruplama bir tablonun ifadelerini bir araya, tabloları tek bir sıraya koyar. Bugün katalogda `detach` olmayan tek kenar var, yani bu durum henüz oluşmuyor.
+
+`ORDER BY p.id`'nin kapsamı **ifadenin içidir**, ifadeler arası değil: `lockOrder` global bir satır sırası kurmuyor.
+
+`TestLockOrderGroupsByParent` ve `TestLockOrderKeepsOneParentTogether` yalnız sıralama fonksiyonunu sabitler; sıralamanın eşzamanlılık iddiası için testi yoktur (olmayan bir bloklanmayı sınamak da mümkün değil).
 
 **Sınır: `Restore` ↔ `Delete` arasındaki `40P01` kalıyor.** Sıralama onu kaldırmaz, çünkü iki işlemin kilit sırası tasarımın kendisinden gelir:
 
@@ -153,10 +161,11 @@ ADR-0013, ADR-0017 ve ADR-0026'nın kararları değişmiyor. ADR-0013 Karar 3'ü
 
 - `detach` kenarı eklemenin yolu uzadı: kenarı `db/softdelete.yaml`'a yazmak yetmez, `JoinTest`'e bir bildirim de gerekir (`Keeps`, `Hides`, `Unauthenticated` ya da `Unread`), ve çocuğu düşüren bir sonuç gerekçe ister. Bildirim yoksa test kırmızıdır.
 - Nullable tarafı bilinçli yok eden bir sorgu artık muaf tuttuğu ebeveyni ve gerekçesini kendi yorum bloğuna yazar. Depoda dört sorgu bu işareti taşıyor: `db/queries/authz/staff.sql`'in `StaffRoleGraph`'ı (`staff_members`) ve `db/queries/authn/sessions.sql`'in `ListOpenUserSessions`, `GetOpenUserSession`, `CountRecentDeviceSessions`'ı (`devices`).
-- Kolonlarını saymayan `INSERT` artık `sqlc vet`'te kırmızıdır.
+- Kolonlarını saymayan `INSERT` için desen kuralı yazıya geçiriyor, korumasını `TestNoSoftDeleteColumnsPatterns` veriyor: o biçim bir view'a sqlc'de hiç derlenmiyor, temel tabloya yazılan biçimi ise `no-base-table` yakalıyor (Karar 1).
 - Bu PR'da kalanlar:
   - `deleted_at`/`deletion_id` yazımının DB tarafında yedeği: işaretlemeyi `koala_maint`'in sahip olduğu bir `SECURITY DEFINER` fonksiyonuna taşımak ve `koala_app`'in view yetkisini kolon düzeyinde daraltmak (Karar 1).
   - `Restore` ↔ `Delete` arasındaki `40P01`: `Restore`'un ebeveynleri satırları açmadan önce kilitlemesi (Karar 6).
   - `x-resource`'u her GET operasyonunda zorunlu kılan vacuum kuralı ADR-0026'yla geldi; ADR-0020'nin "Bu PR'da kalanlar" listesinin ilk maddesi böylece kapandı.
-  - `Keeps` sonucunun gerçek sözleşmede kanıtlanması, Faz 2'nin ilk "ebeveyni silinmiş çocuk listede kalır" ucuyla (Karar 2).
+  - `Keeps` sonucunun gerçek sözleşmede kanıtlanması, Faz 2'nin ilk "ebeveyni silinmiş çocuk listede kalır" ucuyla (Karar 2). O uç geldiğinde `NullFields` kontrolü daraltılacak: bugün alanın gövdeden tümden kaybolması da `null` sayılıyor, oysa sözleşme alanı nullable bildirecekse alan **var ve `null`** olmalıdır.
+  - `LEFT JOIN LATERAL`'ın dış takma adını izlemek ve ebeveyn kolonunu başka bir tablonun `ON` koşulunda kullanan biçimi görmek (Karar 4).
   - Liste sayaçları, `retention` temizliği, anonimleştirme ve `Orphans`'ın metriğe bağlanması ADR-0020'de olduğu yerde duruyor.
