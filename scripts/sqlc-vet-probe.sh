@@ -91,10 +91,12 @@ UPDATE active_example_tasks SET name = $2, "deletion_id" = $3 WHERE id = $1;
 INSERT INTO active_example_notes (id, body, deleted_at) VALUES ($1, $2, $3);
 
 -- name: BadInsertWithoutColumns :exec
-INSERT INTO active_example_notes VALUES ($1, $2, $3, $4, $5);
+-- Fewer expressions than the relation has columns; the rule reads the
+-- shape of the statement, not the count.
+INSERT INTO active_example_notes VALUES ($1);
 
 -- name: BadInsertSelectWithoutColumns :exec
-INSERT INTO active_example_notes SELECT * FROM active_example_notes WHERE id = $1;
+INSERT INTO active_example_notes SELECT n.id FROM active_example_notes n WHERE n.body = $1;
 
 -- name: BadSetSplitByAComment :exec
 UPDATE active_example_tasks SET deleted_at /* no way around the rule */ = now() WHERE id = $1;
