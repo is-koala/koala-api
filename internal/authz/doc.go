@@ -10,10 +10,12 @@
 // (only at the top of a relation, only over plain operands). Conditions
 // ("with condition", CEL) are outside the subset (ADR-0024): a model that
 // uses one fails to load. So is recursion the local evaluator and an
-// OpenFGA server would answer differently (ADR-0028): the subtracted side
-// of "but not" may not reach a recursive relation, and a recursive "from"
-// chain is allowed only on a type whose tuples are a bounded, acyclic
-// graph (boundedDAGTypes: staff_role, kept acyclic by the database).
+// OpenFGA server would answer differently (ADR-0028): a recursive
+// relation - whether the loop closes through a "from" chain or through a
+// userset restriction - is allowed only on a type whose tuples are a
+// bounded, acyclic graph (boundedDAGTypes: staff_role, kept acyclic by
+// the database), and the subtracted side of "but not" may not reach a
+// recursive relation except on such a type.
 // Attribute and status rules (job status, open
 // dispute, blocking) are not part of the model: they are named prefilters
 // outside ReBAC (plan §5.2-3) or become the presence of a tuple (for

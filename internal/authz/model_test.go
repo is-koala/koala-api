@@ -249,6 +249,12 @@ func TestLoadModelRejects(t *testing.T) {
 		// and doc is no bounded DAG type, so only the depth limit stops
 		// the chain - a limit OpenFGA does not have.
 		{"recursive from on an unbounded type", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"owner":{"this":{}},"viewer":{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"viewer"}}}]}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc"}]},"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{}}}}`)},
+		// ADR-0028 rule 2 on a loop that closes through a userset
+		// restriction instead of a "from" chain: doc#viewer admits
+		// [doc#viewer], so resolving it asks for itself and only the local
+		// depth limit stops the chain - the limit OpenFGA does not have.
+		// No "but not" anywhere, so rule 1 never sees this model.
+		{"recursive userset restriction on an unbounded type", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]}}}}`)},
 		// ADR-0028 rule 1 on its own: doc#viewer is recursive through its
 		// own userset restriction ([doc#viewer]), not through a "from"
 		// chain, so rule 2 does not see it; subtracting it makes the

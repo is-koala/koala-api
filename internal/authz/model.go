@@ -487,14 +487,30 @@ func (m *Model) recursive(rd *relationDef) bool {
 //  1. the subtracted side of "but not" may not reach a recursive
 //     relation, because a loop there cannot falsify the exclusion: the
 //     local evaluator denies (ADR-0024 §4) where OpenFGA v1.22.0 allows;
-//  2. a recursive "from" chain is allowed only on a bounded DAG type
-//     (boundedDAGTypes), because an unbounded chain runs into the local
-//     depth limit, which OpenFGA does not have.
+//  2. a recursive relation is allowed only on a bounded DAG type
+//     (boundedDAGTypes), because an unbounded recursion is stopped only
+//     by the local depth limit, which OpenFGA does not have.
 //
 // Both rules guard the same thing: a model the local evaluator and an
 // OpenFGA server would answer differently. Without them the only bound
 // is MaxResolutionDepth at request time, and moving to OpenFGA would
 // change decisions silently.
+//
+// Rule 2 is about recursion, not about "from": a relation is just as
+// recursive when the loop closes through its own userset restriction
+// ("define viewer: [user, doc#viewer]") as when it closes through a
+// chain, and the depth limit is what stops both. Checking only the
+// tuple-to-userset rewrites would have left the first form loading on
+// any type.
+//
+// Rule 1 is narrower than rule 2 and, with rule 2 as it stands, cannot
+// be the only reason a model is refused: the recursive relation it finds
+// is either on an unbounded type, where rule 2 already refuses the
+// model, or on a bounded one, where rule 1 lets it pass. It is kept
+// because it answers with the exclusion's own message, and because it is
+// the rule that ADR-0024 §4's first divergence belongs to; if
+// boundedDAGTypes ever grows a type whose DAG is not guaranteed, rule 1
+// is the one that still has something to say.
 //
 // alsoBounded extends boundedDAGTypes for the tests (loadModel).
 func (m *Model) validateRecursion(alsoBounded []string) error {
@@ -508,7 +524,7 @@ func (m *Model) validateRecursion(alsoBounded []string) error {
 	for _, typ := range m.Types() {
 		for _, rel := range m.Relations(typ) {
 			rd := m.relation(typ, rel)
-			if err := m.validateRecursiveFrom(rd, bounded); err != nil {
+			if err := m.validateRecursive(rd, bounded); err != nil {
 				return err
 			}
 			if err := m.validateExclusion(rd, bounded); err != nil {
@@ -519,37 +535,40 @@ func (m *Model) validateRecursion(alsoBounded []string) error {
 	return nil
 }
 
-// validateRecursiveFrom is rule 2: every tuple-to-userset of rd whose
-// chain comes back to rd must stay inside bounded types, rd's own type
-// and every parent type the chain walks.
-func (m *Model) validateRecursiveFrom(rd *relationDef, bounded map[string]bool) error {
-	self := relationRef{Type: rd.typeName, Relation: rd.name}
-	var walk func(rw *rewrite) error
-	walk = func(rw *rewrite) error {
-		if rw.kind == rewriteTupleToUserset {
-			targets := m.steps(rd, rw)
-			if m.reaches(targets)[self] {
-				types := []string{rd.typeName}
-				for _, t := range targets {
-					types = append(types, t.Type)
-				}
-				slices.Sort(types)
-				for _, t := range slices.Compact(types) {
-					if !bounded[t] {
-						return fmt.Errorf("%w: %s: %q from %q is recursive and %q is not a bounded DAG type, so the chain is bounded only by the depth limit, which OpenFGA does not have (ADR-0028); bounded types: %v",
-							ErrModel, self, rw.relation, rw.tupleset, t, boundedDAGTypes())
-					}
-				}
-			}
-		}
-		for _, c := range rw.children {
-			if err := walk(c); err != nil {
-				return err
-			}
-		}
+// validateRecursive is rule 2: when rd is recursive, every relation on
+// the loop - rd itself and each relation the loop walks through, whatever
+// closes it - must live on a bounded DAG type.
+func (m *Model) validateRecursive(rd *relationDef, bounded map[string]bool) error {
+	if !m.recursive(rd) {
 		return nil
 	}
-	return walk(rd.rewrite)
+	self := relationRef{Type: rd.typeName, Relation: rd.name}
+	for _, ref := range m.loop(rd) {
+		if bounded[ref.Type] {
+			continue
+		}
+		return fmt.Errorf("%w: %s is recursive through %s and %q is not a bounded DAG type, so the recursion is stopped only by the local depth limit, which OpenFGA does not have (ADR-0028); bounded types: %v",
+			ErrModel, self, ref, ref.Type, boundedDAGTypes())
+	}
+	return nil
+}
+
+// loop returns the relations on a loop through rd, rd included and in
+// sorted order: the ones rd can reach that can reach rd again.
+func (m *Model) loop(rd *relationDef) []relationRef {
+	self := relationRef{Type: rd.typeName, Relation: rd.name}
+	var out []relationRef
+	for ref := range m.reaches(m.steps(rd, rd.rewrite)) {
+		target := m.relation(ref.Type, ref.Relation)
+		if target == nil {
+			continue
+		}
+		if ref == self || m.reaches(m.steps(target, target.rewrite))[self] {
+			out = append(out, ref)
+		}
+	}
+	slices.SortFunc(out, func(a, b relationRef) int { return strings.Compare(a.String(), b.String()) })
+	return out
 }
 
 // validateExclusion is rule 1: nothing the subtracted side of rd's "but
