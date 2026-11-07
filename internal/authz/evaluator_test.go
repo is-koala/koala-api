@@ -78,12 +78,35 @@ func newEvaluator(t *testing.T, model *authz.Model, tuples ...string) (*authz.Ev
 	return authz.NewEvaluator(model, counted), counted
 }
 
-func folderEvaluator(t *testing.T, tuples ...string) *authz.Evaluator {
+// loadFolderModel loads folderModel with the recursion rules of
+// ADR-0028 relaxed for the folder type. The model is deliberately built
+// out of the two cases LoadModel now refuses - "viewer"/"banned" are
+// recursive "from" chains on a type that is no bounded DAG, and
+// "can_view" subtracts the recursive "banned" - because those are the
+// two places the Go evaluator and OpenFGA v1.22.0 disagree (ADR-0024
+// §4). The tests below and the conformance runner keep measuring that
+// difference; no model the service loads may contain it.
+func loadFolderModel(t *testing.T) *authz.Model {
 	t.Helper()
-	m, err := authz.LoadModel([]byte(folderModel))
+	m, err := authz.LoadModelAllowingRecursionOn([]byte(folderModel), []string{"folder"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return m
+}
+
+// TestLoadModelRefusesTheFolderModel: the relaxed loader above is the
+// only way in. Through LoadModel the folder model is outside the subset.
+func TestLoadModelRefusesTheFolderModel(t *testing.T) {
+	t.Parallel()
+	if _, err := authz.LoadModel([]byte(folderModel)); !errors.Is(err, authz.ErrModel) {
+		t.Fatalf("LoadModel(folderModel) = %v, want ErrModel (ADR-0028)", err)
+	}
+}
+
+func folderEvaluator(t *testing.T, tuples ...string) *authz.Evaluator {
+	t.Helper()
+	m := loadFolderModel(t)
 	ev, _ := newEvaluator(t, m, tuples...)
 	return ev
 }
@@ -330,10 +353,7 @@ func (failingReader) Read(context.Context, authz.Object, string) ([]authz.TupleU
 
 func TestEvaluatorReaderErrorDenies(t *testing.T) {
 	t.Parallel()
-	m, err := authz.LoadModel([]byte(folderModel))
-	if err != nil {
-		t.Fatal(err)
-	}
+	m := loadFolderModel(t)
 	ev := authz.NewEvaluator(m, failingReader{})
 	d, err := ev.Check(context.Background(), alice(), "viewer", authz.Object{Type: "folder", ID: "f"})
 	if !errors.Is(err, errRead) || d.Allowed || !d.Conceal {
@@ -355,10 +375,7 @@ func (staleReader) Read(context.Context, authz.Object, string) ([]authz.TupleUse
 
 func TestEvaluatorIgnoresTuplesOutsideRestrictions(t *testing.T) {
 	t.Parallel()
-	m, err := authz.LoadModel([]byte(folderModel))
-	if err != nil {
-		t.Fatal(err)
-	}
+	m := loadFolderModel(t)
 	ev := authz.NewEvaluator(m, staleReader{})
 	for _, rel := range []authz.Action{"viewer", "banned"} {
 		d, err := ev.Check(context.Background(), alice(), rel, authz.Object{Type: "folder", ID: "f"})
@@ -386,10 +403,7 @@ func TestCheckBatchAndOptions(t *testing.T) {
 
 func TestNewTuplesValidatesLikeAnOpenFGAWrite(t *testing.T) {
 	t.Parallel()
-	m, err := authz.LoadModel([]byte(folderModel))
-	if err != nil {
-		t.Fatal(err)
-	}
+	m := loadFolderModel(t)
 	for _, s := range []string{
 		"folder:f#owner@user:*",          // owner does not allow a wildcard
 		"folder:f#owner@group:g#member",  // nor a userset

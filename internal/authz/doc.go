@@ -9,7 +9,14 @@
 // [type#relation]), "X from Y", "or", and a limited "and" / "but not"
 // (only at the top of a relation, only over plain operands). Conditions
 // ("with condition", CEL) are outside the subset (ADR-0024): a model that
-// uses one fails to load. Attribute and status rules (job status, open
+// uses one fails to load. So is recursion the local evaluator and an
+// OpenFGA server would answer differently (ADR-0028): a recursive
+// relation - whether the loop closes through a "from" chain or through a
+// userset restriction - is allowed only on a type whose tuples are a
+// bounded, acyclic graph (boundedDAGTypes: staff_role, kept acyclic by
+// the database), and the subtracted side of "but not" may not reach a
+// recursive relation except on such a type.
+// Attribute and status rules (job status, open
 // dispute, blocking) are not part of the model: they are named prefilters
 // outside ReBAC (plan §5.2-3) or become the presence of a tuple (for
 // example job#applicant_pool is written only while the job is OPEN).
@@ -35,7 +42,9 @@
 // tuple-to-userset, union, intersection and exclusion. It is stricter than
 // an OpenFGA server in two documented places (ADR-0024 §4): a cycle denies
 // also under "but not", and the depth limit of 25 also stops recursive
-// "from" chains. It visits rewrites in model order and tuples in sorted order, so
+// "from" chains. Since ADR-0028 no model the service loads can reach
+// either place; the conformance runner still measures them on a model of
+// its own. It visits rewrites in model order and tuples in sorted order, so
 // a decision and its Basis are deterministic, and it resolves each
 // object#relation once per check. The tuple source is an interface on purpose:
 // tests use an in-memory source (authztest), and domain tables get typed

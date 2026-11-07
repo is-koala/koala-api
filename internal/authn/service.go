@@ -15,6 +15,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/db"
+	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
 
 // Retention of ended sessions and of the attempt log before the purge
@@ -648,11 +649,11 @@ func checkDeviceKey(k string) error {
 	if ValidDeviceKey(k) {
 		return nil
 	}
-	code := apperr.Code("FIELD_VALUE_INVALID")
+	var code apperr.Code = httpx.CodeFieldValueInvalid
 	if k == "" {
-		code = "FIELD_REQUIRED"
+		code = httpx.CodeFieldRequired
 	}
-	return apperr.New(apperr.KindInvalid, "REQUEST_INVALID").
+	return apperr.New(apperr.KindInvalid, httpx.CodeRequestInvalid).
 		WithFields(apperr.FieldError{Parameter: "X-Device-Id", In: "HEADER", Code: code})
 }
 
