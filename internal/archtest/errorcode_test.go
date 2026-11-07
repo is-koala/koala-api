@@ -142,6 +142,85 @@ func codeConstants(fset *token.FileSet, f *ast.File) []codeConst {
 	return out
 }
 
+// inlineCodes returns every error code f writes as a string literal at
+// an apperr call instead of declaring it as a constant:
+//
+//	apperr.Code("FIELD_VALUE_INVALID")
+//	apperr.New(apperr.KindInvalid, "REQUEST_INVALID")
+//	apperr.Wrap(err, apperr.KindConflict, "PAYMENT_ATTEMPT_ACTIVE")
+//	apperr.FieldError{Code: "FIELD_REQUIRED"}
+//
+// A code written this way is in no package's list, so the completeness
+// rule above cannot see it and it reaches a client as a code no
+// generated client knows. The constant is the only form both rules see.
+//
+// What this does not see, and what CLAUDE.md therefore says out loud: a
+// literal assigned to an existing apperr.Code variable, a code built by
+// an expression ("PREFIX_" + name), one declared in a function-local
+// const or var, and one aliased into another package. Each needs the type
+// checker. The forms above are the ones the repository has actually
+// written (internal/authn/service.go had three of them until this PR).
+func inlineCodes(fset *token.FileSet, f *ast.File) []codeConst {
+	apperr := importName(f, apperrPath)
+	if apperr == "" || apperr == "." {
+		return nil
+	}
+	// The argument that holds the code, per apperr function.
+	at := map[string]int{"Code": 0, "New": 1, "Wrap": 2}
+	var out []codeConst
+	add := func(e ast.Expr) {
+		lit, ok := e.(*ast.BasicLit)
+		if !ok || lit.Kind != token.STRING {
+			return
+		}
+		if value, err := strconv.Unquote(lit.Value); err == nil && isUpperSnake(value) {
+			out = append(out, codeConst{name: value, pos: fset.Position(lit.Pos()).String()})
+		}
+	}
+	// fromApperr reports whether the selector names the apperr package,
+	// and returns the selected name.
+	fromApperr := func(e ast.Expr) (string, bool) {
+		sel, ok := e.(*ast.SelectorExpr)
+		if !ok {
+			return "", false
+		}
+		pkg, ok := sel.X.(*ast.Ident)
+		if !ok || pkg.Name != apperr {
+			return "", false
+		}
+		return sel.Sel.Name, true
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.CallExpr:
+			name, ok := fromApperr(x.Fun)
+			if !ok {
+				return true
+			}
+			if i, ok := at[name]; ok && i < len(x.Args) {
+				add(x.Args[i])
+			}
+		case *ast.CompositeLit:
+			// apperr.FieldError{Code: "FIELD_REQUIRED"} and any other
+			// apperr struct with a Code field.
+			if _, ok := fromApperr(x.Type); !ok {
+				return true
+			}
+			for _, elt := range x.Elts {
+				kv, ok := elt.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if key, isIdent := kv.Key.(*ast.Ident); isIdent && key.Name == "Code" {
+					add(kv.Value)
+				}
+			}
+		}
+		return true
+	})
+	return out
+}
+
 // codeListFunc returns the package-level function of f that returns
 // []apperr.Code and whose name ends in "Codes" (Codes, PlatformCodes):
 // the list the contract test reads.
@@ -169,6 +248,14 @@ func codeListFunc(f *ast.File) *ast.FuncDecl {
 // identsIn returns every identifier of n, so a constant named anywhere in
 // a list function counts as listed - in the slice literal, through a
 // helper call or appended in a loop.
+//
+// Deliberately loose: "named in the function" is not "returned by it", so
+// a list that mentions a constant without returning it (`_ = CodeFoo`)
+// would satisfy the rule. Proving the constant is in the returned slice
+// needs the type checker, and the failure mode of being loose here is a
+// list that is complete but written strangely, which a review sees; the
+// failure mode of being strict with an AST alone is a rule that breaks on
+// the next way someone writes a list.
 func identsIn(n ast.Node) []string {
 	var out []string
 	ast.Inspect(n, func(n ast.Node) bool {
@@ -183,6 +270,7 @@ func identsIn(n ast.Node) []string {
 // codePackage is what the walk learns about one package.
 type codePackage struct {
 	consts  []codeConst
+	inline  []codeConst
 	listed  map[string]bool
 	list    string // the list function's name, "" when there is none
 	listPos string
@@ -205,6 +293,7 @@ func codePackages(t *testing.T) map[string]*codePackage {
 			out[importPath] = p
 		}
 		p.consts = append(p.consts, codeConstants(fset, f)...)
+		p.inline = append(p.inline, inlineCodes(fset, f)...)
 		if fd := codeListFunc(f); fd != nil {
 			p.list, p.listPos = fd.Name.Name, fset.Position(fd.Pos()).String()
 			for _, name := range identsIn(fd.Body) {
@@ -227,10 +316,14 @@ func TestEveryErrorCodeIsInItsPackageList(t *testing.T) {
 	seen := 0
 	for _, path := range slices.Sorted(maps.Keys(pkgs)) {
 		p := pkgs[path]
+		rel := strings.TrimPrefix(path, modulePath+"/")
+		for _, c := range p.inline {
+			t.Errorf("%s: %s is written as a string literal at an apperr call; declare it as a constant and put it in %s's code list, or no rule can see it",
+				c.pos, c.name, rel)
+		}
 		if len(p.consts) == 0 {
 			continue
 		}
-		rel := strings.TrimPrefix(path, modulePath+"/")
 		if reason, exempt := codeListExemptions()[rel]; exempt {
 			t.Logf("%s: no list function, exempt: %s", rel, reason)
 			continue
@@ -327,6 +420,7 @@ func TestErrorCodeDetector(t *testing.T) {
 		name       string
 		src        string
 		wantConsts int
+		wantInline int
 		wantList   string
 		wantListed []string // constants the list function names
 	}{
@@ -382,6 +476,27 @@ const (
 			wantConsts: 0,
 		},
 		{
+			name: "codes written inline at an apperr call",
+			src: "package authn\n\n" + imports + `
+func checkDeviceKey(k string) error {
+	code := apperr.Code("FIELD_VALUE_INVALID")
+	return apperr.New(apperr.KindInvalid, "REQUEST_INVALID").
+		WithFields(apperr.FieldError{Parameter: "X-Device-Id", In: "HEADER", Code: code},
+			apperr.FieldError{Code: "FIELD_REQUIRED"})
+}
+
+func other(err error) error { return apperr.Wrap(err, apperr.KindConflict, "PAYMENT_ATTEMPT_ACTIVE") }
+
+// Not codes: a constant reference, a header name, a location and a kind.
+func fine(err error) error {
+	_ = apperr.Code(CodeTokenMissing)
+	_ = apperr.FieldError{Parameter: "X-Device-Id", In: "HEADER", Code: CodeTokenMissing}
+	return apperr.Wrap(err, apperr.KindInvalid, CodeTokenMissing)
+}
+`,
+			wantConsts: 0, wantInline: 4,
+		},
+		{
 			name: "a list of the wrong shape is no list",
 			src: "package authn\n\n" + imports + `
 const CodeTokenMissing apperr.Code = "AUTH_TOKEN_MISSING"
@@ -404,6 +519,9 @@ func (s *Service) ServiceCodes() []apperr.Code { return nil }
 			got := codeConstants(fset, f)
 			if len(got) != tt.wantConsts {
 				t.Errorf("detected %d code constants %v, want %d", len(got), names(got), tt.wantConsts)
+			}
+			if inline := inlineCodes(fset, f); len(inline) != tt.wantInline {
+				t.Errorf("detected %d inline codes %v, want %d", len(inline), names(inline), tt.wantInline)
 			}
 			fd := codeListFunc(f)
 			switch {
