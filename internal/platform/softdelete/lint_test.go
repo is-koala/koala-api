@@ -87,8 +87,9 @@ func TestCheckJoins(t *testing.T) {
 
 // The nullable-side detector of ADR-0027 §5: a LEFT (or FULL) join of a
 // detach edge's parent whose NULL rows a WHERE or HAVING predicate drops
-// behaves like an inner join and is a finding, unless the query carries the
-// inner-by-design marker with the parent's name and a reason.
+// behaves like an inner join and is a finding, unless the query's leading
+// comment block carries the inner-by-design marker with the parent's name
+// and a reason.
 func TestCheckJoinsNullableSide(t *testing.T) {
 	t.Parallel()
 
@@ -102,36 +103,56 @@ func TestCheckJoinsNullableSide(t *testing.T) {
 	// join reads the child and LEFT-joins its parent.
 	const join = "SELECT c.id, o.name\nFROM " + c + " c\nLEFT JOIN " + o + " o ON o.id = c.author_id\n"
 
-	red := map[string]string{
-		"equality on the parent":   join + "WHERE o.name = $1",
-		"IS NOT NULL":              join + "WHERE o.id IS NOT NULL",
-		"HAVING":                   join + "GROUP BY c.id, o.name\nHAVING o.name = $1",
-		"alias with AS":            "SELECT c.id FROM " + c + " c LEFT JOIN " + o + " AS o ON o.id = c.author_id WHERE o.name = $1",
-		"no alias":                 "SELECT c.id FROM " + c + " c LEFT JOIN " + o + " ON " + o + ".id = c.author_id WHERE " + o + ".name = $1",
-		"full join":                "SELECT c.id FROM " + c + " c FULL JOIN " + o + " o ON o.id = c.author_id WHERE o.name = $1",
-		"marker on another parent": "-- " + softdelete.Exemption + " example_projects: " + reason + "\n" + join + "WHERE o.name = $1",
-		"marker without a parent":  "-- " + softdelete.Exemption + " " + reason + "\n" + join + "WHERE o.name = $1",
-		"marker with a short why":  "-- " + softdelete.Exemption + " example_owners: short\n" + join + "WHERE o.name = $1",
+	red := map[string]struct {
+		sql  string
+		want int
+	}{
+		"equality on the parent": {join + "WHERE o.name = $1", 1},
+		"IS NOT NULL":            {join + "WHERE o.id IS NOT NULL", 1},
+		"IS TRUE":                {join + "WHERE o.active IS TRUE", 1},
+		"HAVING":                 {join + "GROUP BY c.id, o.name\nHAVING o.name = $1", 1},
+		"alias with AS":          {"SELECT c.id FROM " + c + " c LEFT JOIN " + o + " AS o ON o.id = c.author_id WHERE o.name = $1", 1},
+		"no alias":               {"SELECT c.id FROM " + c + " c LEFT JOIN " + o + " ON " + o + ".id = c.author_id WHERE " + o + ".name = $1", 1},
+		"full join":              {"SELECT c.id FROM " + c + " c FULL JOIN " + o + " o ON o.id = c.author_id WHERE o.name = $1", 1},
+		// A parenthesis inside WHERE keeps the clause (ADR-0027 §4).
+		"predicate in parentheses":   {join + "WHERE (o.name = $1)", 1},
+		"disjunction in parentheses": {join + "WHERE c.body = $1 AND (o.name = $2 OR o.name = $3)", 1},
+		"coalesce":                   {join + "WHERE coalesce(o.name, '') = $1", 1},
+		"function call":              {join + "WHERE upper(o.name) = $1", 1},
+		// The marker counts only in the leading comment block.
+		"marker in the query body":    {"SELECT c.id, o.name\nFROM " + c + " c\nLEFT JOIN " + o + " o ON o.id = c.author_id\n" + mark + "WHERE o.name = $1", 1},
+		"marker after the statement":  {join + "WHERE o.name = $1;\n" + mark, 1},
+		"marker in a quoted string":   {"-- name: X :many\n" + join + "WHERE o.name = $1 AND c.body <> $tag$\n" + mark + "$tag$", 1},
+		"marker above the next query": {join + "WHERE o.name = $1;\n\n" + mark + "-- name: Next :one\nSELECT 1;", 1},
+		// A marker that exempts nothing is a finding of its own, so these
+		// carry two.
+		"marker on another parent": {"-- " + softdelete.Exemption + " example_projects: " + reason + "\n" + join + "WHERE o.name = $1", 2},
+		"marker without a parent":  {"-- " + softdelete.Exemption + " " + reason + "\n" + join + "WHERE o.name = $1", 2},
+		"marker with a short why":  {"-- " + softdelete.Exemption + " example_owners: short\n" + join + "WHERE o.name = $1", 2},
 	}
 	green := map[string]string{
-		"no predicate on the parent": join + "WHERE c.body = $1",
-		"IS NULL":                    join + "WHERE o.id IS NULL",
-		"IS NOT DISTINCT FROM":       join + "WHERE o.name IS NOT DISTINCT FROM $1",
-		"predicate in ON":            "SELECT c.id FROM " + c + " c LEFT JOIN " + o + " o ON o.id = c.author_id AND o.name = $1",
-		"ORDER BY on the parent":     join + "WHERE c.body = $1 ORDER BY o.name",
-		"cascade edge":               "SELECT p.id FROM active_example_projects p LEFT JOIN " + o + " o ON o.id = p.owner_id WHERE o.name = $1",
-		"exempted":                   mark + join + "WHERE o.name = $1",
-		"exempted, view name":        "-- " + softdelete.Exemption + " " + o + ": " + reason + "\n" + join + "WHERE o.name = $1",
-		"exempted, indented marker":  "   " + mark + join + "WHERE o.name = $1",
+		"no predicate on the parent":   join + "WHERE c.body = $1",
+		"IS NULL":                      join + "WHERE o.id IS NULL",
+		"IS NOT DISTINCT FROM":         join + "WHERE o.name IS NOT DISTINCT FROM $1",
+		"IS NOT TRUE":                  join + "WHERE o.active IS NOT TRUE",
+		"IS NOT FALSE":                 join + "WHERE o.active IS NOT FALSE",
+		"predicate in ON":              "SELECT c.id FROM " + c + " c LEFT JOIN " + o + " o ON o.id = c.author_id AND o.name = $1",
+		"ORDER BY on the parent":       join + "WHERE c.body = $1 ORDER BY o.name",
+		"a subquery resets the clause": join + "WHERE c.author_id IN (SELECT id FROM active_example_notes)",
+		"cascade edge":                 "SELECT p.id FROM active_example_projects p LEFT JOIN " + o + " o ON o.id = p.owner_id WHERE o.name = $1",
+		"exempted":                     "-- name: X :many\n" + mark + join + "WHERE o.name = $1",
+		"exempted, view name":          "-- " + softdelete.Exemption + " " + o + ": " + reason + "\n" + join + "WHERE o.name = $1",
+		"exempted, indented marker":    "   " + mark + join + "WHERE o.name = $1",
+		"exempted, blank line between": mark + "\n" + join + "WHERE o.name = $1",
 	}
 
 	cat := exampleCatalog(t)
-	for name, sql := range red {
+	for name, tt := range red {
 		t.Run("red/"+name, func(t *testing.T) {
 			t.Parallel()
-			got := softdelete.CheckJoins(cat, sql)
-			if len(got) == 0 {
-				t.Fatal("no finding, want at least one")
+			got := softdelete.CheckJoins(cat, tt.sql)
+			if len(got) != tt.want {
+				t.Fatalf("findings = %v, want %d", got, tt.want)
 			}
 			if !strings.Contains(got[0].String(), softdelete.Exemption) {
 				t.Errorf("finding %s does not name the exemption marker", got[0])
@@ -166,6 +187,17 @@ func TestCheckJoinsNullableSide(t *testing.T) {
 		}
 		if e := got[0].Edge; e.Policy != softdelete.Detach || e.Child != "example_comments" {
 			t.Errorf("finding %s is not the inner join on the detach edge", got[0])
+		}
+	})
+	// MarkedParents reads the leading block alone; it is what ties the
+	// marker to the JoinTest declaration (ADR-0027 §2).
+	t.Run("marked parents", func(t *testing.T) {
+		t.Parallel()
+		if got := softdelete.MarkedParents("-- name: X :many\n" + mark + join); len(got) != 1 || got[0] != "example_owners" {
+			t.Errorf("MarkedParents of a marked query = %v, want [example_owners]", got)
+		}
+		if got := softdelete.MarkedParents(join + mark); len(got) != 0 {
+			t.Errorf("MarkedParents of a marker below the SQL = %v, want none", got)
 		}
 	})
 }
@@ -233,6 +265,15 @@ func TestNoSoftDeleteColumnsPatterns(t *testing.T) {
 		"MERGE INTO active_example_notes n USING x ON x.id = n.id\nWHEN NOT MATCHED THEN INSERT (id, deleted_at) VALUES ($1, $2)": true,
 		"MERGE INTO active_example_notes n USING x ON x.id = n.id\nWHEN NOT MATCHED THEN INSERT VALUES ($1, $2, $3, $4, $5)":      true,
 		"MERGE INTO active_example_notes n USING x ON x.id = n.id\nWHEN MATCHED THEN UPDATE SET deleted_at = now()":               true,
+		// A comment between any two parts of a form does not get around
+		// the rule: every gap of every pattern accepts one.
+		"INSERT /* c */ INTO active_example_notes (id, body, deleted_at) VALUES ($1, $2, $3)":                 true,
+		"INSERT -- c\n INTO active_example_notes (id, deleted_at) VALUES ($1, $2)":                            true,
+		"INSERT INTO /* c */ active_example_notes VALUES ($1)":                                                true,
+		"INSERT INTO active_example_notes /* c */ VALUES ($1)":                                                true,
+		"INSERT INTO active_example_notes AS /* c */ n VALUES ($1)":                                           true,
+		"INSERT INTO active_example_notes AS n /* c */ VALUES ($1)":                                           true,
+		"MERGE INTO active_example_notes n USING x ON true\nWHEN NOT MATCHED THEN INSERT /* c */ VALUES ($1)": true,
 
 		"SELECT id, deleted_at FROM active_example_notes":                 false,
 		"UPDATE active_example_tasks SET name = $2 WHERE id = $1":         false,
@@ -240,6 +281,7 @@ func TestNoSoftDeleteColumnsPatterns(t *testing.T) {
 		"UPDATE active_example_tasks SET deleted_note = $2 WHERE id = $1": false,
 		// A column list keeps every INSERT shape green.
 		"INSERT INTO active_example_notes (id, body)\nSELECT $1, body FROM active_example_notes WHERE id = $2": false,
+		"INSERT /* c */ INTO active_example_notes (id, body) VALUES ($1, $2)":                                  false,
 		"INSERT INTO public.active_example_notes (id, body) VALUES ($1, $2)":                                   false,
 		"INSERT INTO active_example_notes AS n (id, body) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING":         false,
 		"UPDATE active_example_notes SET (body, created_at) = ($2, $3) WHERE id = $1":                          false,

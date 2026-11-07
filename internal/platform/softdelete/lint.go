@@ -65,19 +65,24 @@ func NoSoftDeleteColumnsPatterns() []string {
 	const column = `\x22?\b(?:deleted_at|deletion_id)\b\x22?`
 	// name is one identifier, quoted or not.
 	const name = `\x22?[a-z_][a-z0-9_$]*\x22?`
-	// gap is whitespace and comments: a form may not be split by one.
+	// gap is whitespace and comments, none or more; gap1 is one or more.
+	// Every place a form can be split carries one, so a comment between
+	// its parts does not get around the rule.
 	const gap = `(?:\s|/\*.*?\*/|--[^\n]*\n)*`
-	// headless is an INSERT whose relation is followed by a keyword
-	// instead of a column list.
-	const headless = `\s+(?:values|select|table|with|overriding|default\s+values)\b`
+	const gap1 = `(?:\s|/\*.*?\*/|--[^\n]*\n)+`
+	// into is INSERT's INTO with its gaps.
+	const into = `\binsert` + gap1 + `into` + gap1
+	// headless is what follows the relation of an INSERT that names no
+	// column list: a keyword instead of a parenthesis.
+	const headless = gap1 + `(?:values|select|table|with|overriding|default` + gap1 + `values)\b`
 	return []string{
 		`(?is)\bupdate\b.*\bset\b.*` + column + gap + `=`,
 		`(?is)\bupdate\b.*\bset\b.*\([^()]*` + column + `[^()]*\)` + gap + `=`,
-		`(?is)\binsert\s+into\s+[^(]*\([^)]*` + column,
+		`(?is)` + into + `[^(]*\([^)]*` + column,
 		`(?is)\binsert` + gap + `\([^)]*` + column,
-		`(?is)\binsert\s+into\s+(?:` + name + gap + `\.` + gap + `)?` + name +
-			`(?:\s+as\s+` + name + `)?` + headless,
-		`(?is)\bthen\s+insert` + headless,
+		`(?is)` + into + `(?:` + name + gap + `\.` + gap + `)?` + name +
+			`(?:` + gap1 + `as` + gap1 + name + `)?` + headless,
+		`(?is)\bthen` + gap1 + `insert` + headless,
 	}
 }
 
@@ -121,9 +126,10 @@ func (f JoinFinding) String() string {
 //
 //	-- softdelete:inner-by-design <parent table>: <reason>
 //
-// It is a comment line of the query (the leading block, so sqlc carries it
-// into the generated doc comment), it names the parent table or its active
-// view, and it needs a reason of at least ExemptionReasonLen characters. A
+// It goes in the query's leading comment block — the lines before its
+// first SQL token, which sqlc carries into the generated doc comment —
+// names the parent table or its active view, and needs a reason of at
+// least ExemptionReasonLen characters. Anywhere else it exempts nothing. A
 // marker without a reason or a parent, and a marker that suppresses
 // nothing, are findings of their own: there is no silent exemption and no
 // stale one.
@@ -215,7 +221,7 @@ func CheckJoins(c *Catalog, sql string) []JoinFinding {
 		}
 	})
 
-	exempt, out := exemptions(sql)
+	exempt, out := exemptions(leadingComments(sql))
 	used := map[string]bool{}
 	for _, e := range c.Edges() {
 		if e.Policy != Detach || !read[e.Child] {
@@ -234,6 +240,32 @@ func CheckJoins(c *Catalog, sql string) []JoinFinding {
 		})
 	}
 	return out
+}
+
+// leadingComments returns the comment block a query opens with: its lines
+// before the first SQL token. The Exemption marker is read from there
+// alone (ADR-0027 §5), so it belongs to the query the reader sees, it ends
+// up in the generated doc comment, and a marker in the query body, inside
+// a dollar-quoted string or above the next query's `-- name:` line exempts
+// nothing.
+func leadingComments(sql string) string {
+	lines := strings.Split(sql, "\n")
+	for i, line := range lines {
+		if t := strings.TrimSpace(line); t == "" || strings.HasPrefix(t, "--") {
+			continue
+		}
+		return strings.Join(lines[:i], "\n")
+	}
+	return sql
+}
+
+// MarkedParents returns the detach parent tables one query exempts with
+// the Exemption marker in its leading comment block, sorted. A marker that
+// names no parent or carries no reason exempts nothing and is left out;
+// CheckJoins reports it.
+func MarkedParents(sql string) []string {
+	exempt, _ := exemptions(leadingComments(sql))
+	return slices.Sorted(maps.Keys(exempt))
 }
 
 // exemptions reads the Exemption markers of one query and returns the
@@ -312,14 +344,19 @@ func checkNullableSide(tokens []string, e Edge, exempt, used map[string]bool) []
 }
 
 // nullSafe reports whether the predicate that starts at the column token
-// tokens[i] keeps the NULL rows: IS NULL and IS NOT DISTINCT FROM are the
-// two forms that do not drop the nullable side.
+// tokens[i] keeps the NULL rows. Four forms do: IS NULL, IS NOT DISTINCT
+// FROM, IS NOT TRUE and IS NOT FALSE (the last two are true of NULL).
+// IS TRUE and IS FALSE drop it, so they are not here.
 func nullSafe(tokens []string, i int) bool {
 	switch {
 	case i+2 < len(tokens) && tokens[i+1] == "is" && tokens[i+2] == "null":
 		return true
-	case i+3 < len(tokens) && tokens[i+1] == "is" && tokens[i+2] == "not" && tokens[i+3] == "distinct":
-		return true
+	case i+3 < len(tokens) && tokens[i+1] == "is" && tokens[i+2] == "not":
+		switch tokens[i+3] {
+		case "distinct", "true", "false":
+			return true
+		}
+		return false
 	default:
 		return false
 	}
@@ -490,27 +527,33 @@ func openFrame(tokens []string, i int, parent *frame) *frame {
 		p = prev(2)
 		i--
 	}
+	// The new level starts in its parent's clause, so a predicate that
+	// only wraps a reference in parentheses — `WHERE (p.x = $1)`,
+	// `WHERE coalesce(p.x, '') = $1` — stays in WHERE for the
+	// nullable-side detector (ADR-0027 §4). A clause keyword inside the
+	// parenthesis replaces it, as it does at any level.
+	c := parent.clause
 	switch p {
 	case "join":
-		return &frame{kind: frameDerived, join: joinKind(tokens[:i-1]) + " join"}
+		return &frame{kind: frameDerived, join: joinKind(tokens[:i-1]) + " join", clause: c}
 	case "from":
-		return &frame{kind: frameDerived, join: "from"}
+		return &frame{kind: frameDerived, join: "from", clause: c}
 	case ",":
 		if parent.clause == "from" || parent.clause == "on" {
-			return &frame{kind: frameDerived, join: "comma join"}
+			return &frame{kind: frameDerived, join: "comma join", clause: c}
 		}
-		return &frame{kind: frameScalar}
+		return &frame{kind: frameScalar, clause: c}
 	case "in", "exists", "any", "some", "all":
 		if prev(2) == "not" {
-			return &frame{kind: frameScalar}
+			return &frame{kind: frameScalar, clause: c}
 		}
-		return &frame{kind: frameSemi}
+		return &frame{kind: frameSemi, clause: c}
 	case "as", "materialized":
 		if name := cteName(tokens, i); name != "" && parent.clause == "with" {
-			return &frame{kind: frameCTE, name: name}
+			return &frame{kind: frameCTE, name: name, clause: c}
 		}
 	}
-	return &frame{kind: frameScalar}
+	return &frame{kind: frameScalar, clause: c}
 }
 
 // cteName returns the name of the CTE whose body opens at tokens[i]:
