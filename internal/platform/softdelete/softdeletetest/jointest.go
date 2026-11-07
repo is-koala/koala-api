@@ -215,7 +215,7 @@ func (jt JoinTest) plan() ([]edgeCase, []string) {
 		// so that removing one fails (ADR-0027 §2); dropping the marker
 		// alone makes CheckJoins red.
 		case decl.Outcome == Keeps && jt.Marked[e.Parent]:
-			problems = append(problems, fmt.Sprintf("%s: a query exempts %s with the `%s` marker, so the child does not stay; declare %s or %s, or drop the marker",
+			problems = append(problems, fmt.Sprintf("%s: a query exempts %s with the %#q marker, so the child does not stay; declare %s or %s, or drop the marker",
 				e, e.Parent, softdelete.Exemption, Hides, Unauthenticated))
 		default:
 			out = append(out, edgeCase{edge: e, decl: decl, ops: ops})
