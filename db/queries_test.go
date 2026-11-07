@@ -3,8 +3,6 @@ package db_test
 import (
 	"io/fs"
 	"os"
-	"path"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -24,38 +22,55 @@ func catalog(t *testing.T) *softdelete.Catalog {
 	return cat
 }
 
-var queryName = regexp.MustCompile(`(?m)^-- name: (\w+)`)
-
 // TestQueriesJoinLint is the JOIN lint of ADR-0013 over every sqlc query:
 // a non-LEFT join to the parent of a detach edge fails (CheckJoins; its
-// own test proves which forms are caught).
+// own test proves which forms are caught). It reads the files on disk, so
+// a file the embed would skip is linted too.
 func TestQueriesJoinLint(t *testing.T) {
 	t.Parallel()
 
 	cat := catalog(t)
-	files, err := fs.Glob(os.DirFS("queries"), "*/*.sql")
+	queries, err := dbsrc.AllQueries(os.DirFS("queries"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) == 0 {
-		t.Fatal("no query files under db/queries")
+	if len(queries) == 0 {
+		t.Fatal("no queries under db/queries")
 	}
-	for _, f := range files {
-		data, err := os.ReadFile(path.Join("queries", f))
-		if err != nil {
-			t.Fatal(err)
+	for _, q := range queries {
+		for _, finding := range softdelete.CheckJoins(cat, q.SQL) {
+			t.Errorf("db/queries/%s: %s: %s", q.File, q.Name, finding)
 		}
-		bounds := queryName.FindAllStringSubmatchIndex(string(data), -1)
-		for i, b := range bounds {
-			end := len(data)
-			if i+1 < len(bounds) {
-				end = bounds[i+1][0]
-			}
-			name := string(data[b[2]:b[3]])
-			for _, finding := range softdelete.CheckJoins(cat, string(data[b[0]:end])) {
-				t.Errorf("db/queries/%s: %s: %s", f, name, finding)
-			}
+	}
+}
+
+// TestEmbeddedQueriesMatchTheDirectory holds the two sources of the query
+// files equal. The join lint reads the directory and the marker rule reads
+// the embed (db.Queries(), ADR-0027 §2); the tie between them assumes the
+// same queries. //go:embed skips a file whose name starts with "." or "_",
+// so such a file would be linted and never checked against a JoinTest
+// declaration.
+func TestEmbeddedQueriesMatchTheDirectory(t *testing.T) {
+	t.Parallel()
+
+	onDisk, err := dbsrc.AllQueries(os.DirFS("queries"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	embedded, err := dbsrc.AllQueries(dbsrc.Queries())
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := func(qs []dbsrc.Query) []string {
+		out := make([]string, len(qs))
+		for i, q := range qs {
+			out[i] = q.File + ":" + q.Name
 		}
+		slices.Sort(out)
+		return out
+	}
+	if d, e := names(onDisk), names(embedded); !slices.Equal(d, e) {
+		t.Errorf("db/queries on disk = %v, embedded = %v; rename a file that //go:embed skips", d, e)
 	}
 }
 
