@@ -808,3 +808,80 @@ func TestDeleteCascadesToAChildInsertedConcurrently(t *testing.T) {
 	}
 	e.noOrphans(t)
 }
+
+// A Delete of a parent while a Restore of its cascade child is uncommitted
+// waits for the Restore and then takes the reopened child along: the child
+// carries the parent's deletion_id and there is no 409. The sibling
+// TestDeleteWaitsForConcurrentRestore covers the restrict edge, where the
+// same wait ends in SOFT_DELETE_RESTRICTED instead (ADR-0027 §7).
+func TestDeleteCascadesOverAConcurrentRestore(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	project := e.project(t, e.owner(t))
+	task := e.task(t, project, "a")
+	taskDeletion := e.mustDelete(t, "example_tasks", task)
+
+	restoring := hold(t, e.maint, func(ctx context.Context, q db.Querier) error {
+		_, err := e.del.Restore(ctx, q, e.restoreRequest(taskDeletion.DeletionID))
+		return err
+	})
+	var deleted softdelete.Deleted
+	pid, deleting := background(t, e.app, func(ctx context.Context, q db.Querier) error {
+		var err error
+		deleted, err = e.del.Delete(ctx, q, deleteRequest("example_projects", project, system))
+		return err
+	})
+	e.waitBlocked(t, pid, deleting)
+	restoring.release()
+	if err := <-restoring.done; err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	if err := <-deleting; err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if e.active(t, "example_projects", project) || e.active(t, "example_tasks", task) {
+		t.Error("the project or the task restored concurrently is still active")
+	}
+	if d := e.deletionOf(t, "example_tasks", task); d.UUID != deleted.DeletionID {
+		t.Errorf("task deletion_id = %v, want the project's %s", d, deleted.DeletionID)
+	}
+	e.noOrphans(t)
+}
+
+// LockActiveParent holds a parent whose view is a security_barrier too.
+// example_owners is the pii example table, and every soft-deleted table of
+// the real schema is pii (users, devices, staff_members), so the barrier is
+// the production shape of the lock: a barrier view is not flattened the way
+// a plain one is (ADR-0017 §8, ADR-0027 §7).
+func TestLockActiveParentOnABarrierView(t *testing.T) {
+	t.Parallel()
+
+	e := newEnv(t)
+	owner := e.owner(t)
+	deleting := hold(t, e.app, func(ctx context.Context, q db.Querier) error {
+		_, err := e.del.Delete(ctx, q, deleteRequest("example_owners", owner, system))
+		return err
+	})
+	pid, locking := background(t, e.app, func(ctx context.Context, q db.Querier) error {
+		return softdelete.LockActiveParent(ctx, q, "example_owners", owner)
+	})
+	e.waitBlocked(t, pid, locking)
+	deleting.release()
+	if err := <-deleting.done; err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if err := <-locking; !errors.Is(err, softdelete.ErrNotActive) {
+		t.Fatalf("lock after the delete: err = %v, want ErrNotActive", err)
+	}
+
+	// The lock returns for an active barrier parent, so the refusal above
+	// is the deletion and not the view.
+	fresh := e.owner(t)
+	err := e.app.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		return softdelete.LockActiveParent(ctx, q, "example_owners", fresh)
+	})
+	if err != nil {
+		t.Fatalf("lock an active barrier parent: %v", err)
+	}
+}

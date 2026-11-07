@@ -6,8 +6,14 @@
 # same generator (softdeletegen -print-rule), and runs `sqlc vet` on
 # generated queries:
 #   - application queries that name a base table fail no-base-table, and
-#     those that assign deleted_at or deletion_id fail
-#     no-soft-delete-columns: exactly one finding each;
+#     those that can write deleted_at or deletion_id fail
+#     no-soft-delete-columns: exactly one finding each. The forms of
+#     ADR-0027 Karar 1 are here except three the probe cannot carry, since
+#     it accepts no compile error: MERGE and the row-constructor SET are no
+#     proven sqlc path, and a column-less INSERT into a view does not
+#     compile at all (sqlc counts no target column for it, a refusal
+#     stronger than the rule's). Those three are covered by
+#     TestNoSoftDeleteColumnsPatterns alone;
 #   - application queries through active_ views, and on M1 tables, pass;
 #   - the same queries in the maint package pass: the rules are not applied
 #     there.
@@ -85,6 +91,9 @@ UPDATE active_example_tasks SET name = $2, "deletion_id" = $3 WHERE id = $1;
 
 -- name: BadInsertDeletedAt :exec
 INSERT INTO active_example_notes (id, body, deleted_at) VALUES ($1, $2, $3);
+
+-- name: BadSetSplitByAComment :exec
+UPDATE active_example_tasks SET deleted_at /* no way around the rule */ = now() WHERE id = $1;
 EOF
 
 cat > "$dir/app/good.sql" <<'EOF'
@@ -127,7 +136,8 @@ bad.sql: BadUpperCase: no-base-table: probe
 bad.sql: BadUsing: no-base-table: probe
 bad.sql: BadSetDeletedAt: no-soft-delete-columns: probe
 bad.sql: BadSetQuotedDeletionID: no-soft-delete-columns: probe
-bad.sql: BadInsertDeletedAt: no-soft-delete-columns: probe"
+bad.sql: BadInsertDeletedAt: no-soft-delete-columns: probe
+bad.sql: BadSetSplitByAComment: no-soft-delete-columns: probe"
 
 # The output must be exactly the expected findings: no finding on the good
 # or maint queries, no second rule on a bad query, and no compile error (the

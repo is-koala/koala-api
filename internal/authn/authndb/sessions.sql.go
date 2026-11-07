@@ -48,6 +48,7 @@ type CountRecentDeviceSessionsParams struct {
 // since a bound: the device is a known-good source (ADR-0025 §5). Sessions
 // ended for a stolen token or another device, or revoked by the user, do
 // not vouch for it.
+// softdelete:inner-by-design devices: only a session on this very device vouches for it, and a soft-deleted device vouches for nothing
 func (q *Queries) CountRecentDeviceSessions(ctx context.Context, arg CountRecentDeviceSessionsParams) (int64, error) {
 	row := q.db.QueryRow(ctx, countRecentDeviceSessions, arg.UserID, arg.DeviceKey, arg.Since)
 	var count int64
@@ -77,6 +78,9 @@ type GetOpenUserSessionRow struct {
 	Platform   *string
 }
 
+// GetOpenUserSession is the detail of one open session; like the list, it
+// leaves out a session whose device is gone.
+// softdelete:inner-by-design devices: a session whose device is soft-deleted is dead and Session.platform, which comes from the device, is required (AUTH-016)
 func (q *Queries) GetOpenUserSession(ctx context.Context, arg GetOpenUserSessionParams) (GetOpenUserSessionRow, error) {
 	row := q.db.QueryRow(ctx, getOpenUserSession, arg.ID, arg.UserID, arg.Now)
 	var i GetOpenUserSessionRow
@@ -246,6 +250,7 @@ type ListOpenUserSessionsRow struct {
 
 // ListOpenUserSessions lists a user's sessions that are neither revoked
 // nor expired and whose device is active, newest first.
+// softdelete:inner-by-design devices: a session whose device is soft-deleted is dead and Session.platform, which comes from the device, is required (AUTH-016)
 func (q *Queries) ListOpenUserSessions(ctx context.Context, arg ListOpenUserSessionsParams) ([]ListOpenUserSessionsRow, error) {
 	rows, err := q.db.Query(ctx, listOpenUserSessions, arg.UserID, arg.Now)
 	if err != nil {

@@ -1,0 +1,33 @@
+# Example contract of JoinTest's own test: the comments of the example
+# tables of the test databases (dbtest/testdata). example_comments.author_id
+# -> example_owners is the detach edge, so a comment stays when its author
+# is soft-deleted and only its author field goes null. Real operations carry
+# x-resource the same way.
+openapi: 3.1.0
+info:
+  title: softdeletetest join example
+  version: "1"
+paths:
+  /example-comments:
+    get:
+      operationId: listExampleComments
+      x-resource: example_comments
+      responses:
+        "200":
+          description: Comments, each with its author while the author is active.
+  /example-comments/{commentId}:
+    get:
+      operationId: getExampleComment
+      x-resource: example_comments
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: The comment.
+        "404":
+          description: No such comment.

@@ -41,10 +41,12 @@
 package softdelete
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -391,7 +393,12 @@ func (d *Deleter) Restore(ctx context.Context, q db.Querier, r RestoreRequest) (
 			apperr.KindConflict, CodeRestoreExpired)
 	}
 
-	for _, e := range d.cat.Edges() {
+	// The parents are locked in one order for every restore: edges grouped
+	// by parent table, the tables in name order, and the rows of one
+	// statement in primary-key order (checkParents). Two restores that
+	// touch the same parents therefore queue instead of deadlocking
+	// (ADR-0027 §6).
+	for _, e := range lockOrder(d.cat.Edges()) {
 		ids := out.Rows[e.Child]
 		if e.Policy == Detach || len(ids) == 0 {
 			continue
@@ -414,14 +421,36 @@ func (d *Deleter) Restore(ctx context.Context, q db.Querier, r RestoreRequest) (
 	return out, nil
 }
 
+// lockOrder returns the edges Restore walks, in the order their parents are
+// locked: by parent table, then by child and column. Edges() is sorted by
+// child, which would take locks on the parent tables in an order that
+// depends on the children's names; grouping by parent keeps one table's
+// locks together and the tables in one order (ADR-0027 §6).
+func lockOrder(edges []Edge) []Edge {
+	out := slices.Clone(edges)
+	slices.SortFunc(out, func(a, b Edge) int {
+		return cmp.Or(
+			strings.Compare(a.Parent, b.Parent),
+			strings.Compare(a.Child, b.Child),
+			strings.Compare(a.Column, b.Column),
+		)
+	})
+	return out
+}
+
 // checkParents locks the parents of the reopened rows ids on edge e FOR
 // SHARE and fails when one is deleted. The lock takes every parent, with no
 // filter on deleted_at: a filtered lock would skip the parent that a
 // concurrent Delete is about to mark. deleted_at is checked here, after the
 // lock, on the row version the lock returns.
+//
+// ORDER BY p.id makes the lock order inside the statement deterministic:
+// Postgres's LockRows node sits above the sort, so the rows are locked in
+// primary-key order rather than in the order the plan happens to produce
+// them (ADR-0027 §6).
 func (d *Deleter) checkParents(ctx context.Context, q db.Querier, e Edge, ids []uuid.UUID) error {
 	sql := "SELECT p.deleted_at FROM " + ident(e.Child) + " c JOIN " + ident(e.Parent) +
-		" p ON p.id = c." + ident(e.Column) + " WHERE c.id = ANY($1) FOR SHARE OF p"
+		" p ON p.id = c." + ident(e.Column) + " WHERE c.id = ANY($1) ORDER BY p.id FOR SHARE OF p"
 	rows, err := q.Query(ctx, sql, ids)
 	if err != nil {
 		return fmt.Errorf("softdelete: lock parents on %s: %w", e, err)
