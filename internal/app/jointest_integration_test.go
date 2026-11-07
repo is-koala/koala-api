@@ -5,10 +5,8 @@ package app
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"net/netip"
-	"regexp"
 	"testing"
 
 	"github.com/google/uuid"
@@ -23,38 +21,25 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/softdelete/softdeletetest"
 )
 
-// queryName starts one sqlc query.
-var queryName = regexp.MustCompile(`(?m)^-- name: (\w+)`)
-
-// markedParents reads the inner-by-design markers (ADR-0027 §5) of every
-// sqlc query and returns the detach parents they exempt. It is what ties
-// the marker in the SQL to the JoinTest declaration below: the same
-// decision is written in two places, and neither may be removed alone.
-func markedParents(t *testing.T) map[string]bool {
+// markedEdges reads the inner-by-design markers (ADR-0027 §5) of every
+// sqlc query and returns the detach edges they exempt, keyed like the
+// cases below. It is what ties the marker in the SQL to the JoinTest
+// declaration: the same decision is written in two places, and neither may
+// be removed alone. db.SliceQueries is the one slicing, shared with the
+// join lint, so both see the same queries.
+func markedEdges(t *testing.T, cat *softdelete.Catalog) map[string]bool {
 	t.Helper()
-	queries := dbsrc.Queries()
-	files, err := fs.Glob(queries, "*/*.sql")
+	queries, err := dbsrc.AllQueries(dbsrc.Queries())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) == 0 {
-		t.Fatal("no query files under db/queries")
+	if len(queries) == 0 {
+		t.Fatal("no queries under db/queries")
 	}
 	out := map[string]bool{}
-	for _, f := range files {
-		data, err := fs.ReadFile(queries, f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		bounds := queryName.FindAllStringIndex(string(data), -1)
-		for i, b := range bounds {
-			end := len(data)
-			if i+1 < len(bounds) {
-				end = bounds[i+1][0]
-			}
-			for _, parent := range softdelete.MarkedParents(string(data[b[0]:end])) {
-				out[parent] = true
-			}
+	for _, q := range queries {
+		for _, e := range softdelete.MarkedEdges(cat, q.SQL) {
+			out[softdeletetest.EdgeKey(e)] = true
 		}
 	}
 	return out
@@ -220,9 +205,10 @@ func TestJoinTestOnTheContract(t *testing.T) {
 		},
 	}
 
+	cat := dbtest.SoftDeleteCatalog(t)
 	softdeletetest.JoinTest{
 		Spec: spec, Handler: a.router, App: a.db,
-		Catalog: dbtest.SoftDeleteCatalog(t), Cases: cases,
-		Marked: markedParents(t),
+		Catalog: cat, Cases: cases,
+		Marked: markedEdges(t, cat),
 	}.Run(t)
 }

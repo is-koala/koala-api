@@ -113,7 +113,7 @@ func TestJoinPlanReportsProblems(t *testing.T) {
 			Spec:    spec(reader),
 			Catalog: detachCatalog(t),
 			Cases:   map[string]DetachCase{key: {Fixture: noRow, Outcome: Keeps}},
-			Marked:  map[string]bool{"owners": true},
+			Marked:  map[string]bool{"comments.author_id": true},
 		}.plan()
 		if len(problems) != 1 || !strings.Contains(problems[0], "does not stay") {
 			t.Fatalf("problems = %q, want one about the marker contradicting Keeps", problems)
@@ -128,7 +128,7 @@ func TestJoinPlanReportsProblems(t *testing.T) {
 				Fixture: noRow, Outcome: Hides,
 				Reason: "the query destroys the nullable side on purpose and fails closed",
 			}},
-			Marked: map[string]bool{"owners": true},
+			Marked: map[string]bool{"comments.author_id": true},
 		}.plan()
 		if len(problems) > 0 || len(cases) != 1 {
 			t.Fatalf("cases = %v, problems = %q; want the edge and no problem", cases, problems)

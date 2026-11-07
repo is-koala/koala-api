@@ -123,11 +123,14 @@ type JoinTest struct {
 	// Cases declares every detach edge of Catalog, keyed by
 	// "<child>.<column>" as db/softdelete.yaml keys them.
 	Cases map[string]DetachCase
-	// Marked holds the detach parents some sqlc query exempts with the
-	// inner-by-design marker (softdelete.MarkedParents over db.Queries()).
-	// An edge whose parent is in it cannot be declared Keeps: the query
-	// says the child goes. Empty means no query carries a marker, which is
-	// right for a contract served by hand-written queries.
+	// Marked holds the detach edges some sqlc query exempts with the
+	// inner-by-design marker, keyed like Cases
+	// (softdelete.MarkedEdges over db.Queries()). An edge in it cannot be
+	// declared Keeps: its own query says the child goes. It is keyed by
+	// edge, not by parent, because a parent sits on several detach edges
+	// and a marker speaks only for the child its query reads. Empty means
+	// no query carries a marker, which is right for a contract served by
+	// hand-written queries.
 	Marked map[string]bool
 }
 
@@ -214,8 +217,8 @@ func (jt JoinTest) plan() ([]edgeCase, []string) {
 		// inner-by-design marker of the child's query. The two are tied
 		// so that removing one fails (ADR-0027 §2); dropping the marker
 		// alone makes CheckJoins red.
-		case decl.Outcome == Keeps && jt.Marked[e.Parent]:
-			problems = append(problems, fmt.Sprintf("%s: a query exempts %s with the %#q marker, so the child does not stay; declare %s or %s, or drop the marker",
+		case decl.Outcome == Keeps && jt.Marked[key]:
+			problems = append(problems, fmt.Sprintf("%s: this edge's query exempts %s with the %#q marker, so the child does not stay; declare %s or %s, or drop the marker",
 				e, e.Parent, softdelete.Exemption, Hides, Unauthenticated))
 		default:
 			out = append(out, edgeCase{edge: e, decl: decl, ops: ops})
