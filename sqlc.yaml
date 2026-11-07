@@ -234,10 +234,14 @@ rules:
     rule: 'query.sql.matches(r"(?i)\b(?:from|join|update|into|using|truncate)\s+(?:only\s+)?(?:table\s+)?(?:public\.)?(?:devices|staff_members|users)\b")'
 
   # deleted_at and deletion_id are written by softdelete.Delete and Restore
-  # alone. An application query that assigns them (UPDATE … SET, ON CONFLICT
-  # DO UPDATE SET, or an INSERT column list) fails `sqlc vet`. Reading them is
-  # allowed, though through an active view they are always NULL. The rule
-  # line is written by `make generate` (softdeletegen); do not edit it.
+  # alone. An application query that can write them fails `sqlc vet`: an
+  # assignment (UPDATE … SET, ON CONFLICT DO UPDATE SET, a MERGE's UPDATE
+  # SET, the row-constructor form), an INSERT column list that names one,
+  # and an INSERT without a column list, which writes every column of the
+  # relation positionally (ADR-0027 Karar 1). A comment between the parts of
+  # a form does not get around it. Reading them is allowed, though through
+  # an active view they are always NULL. The rule line is written by
+  # `make generate` (softdeletegen); do not edit it.
   - name: no-soft-delete-columns
     message: "deleted_at and deletion_id are written only by softdelete.Delete and softdelete.Restore (ADR-0020)"
-    rule: 'query.sql.matches(r"(?is)\bupdate\b.*\bset\b.*\x22?\b(?:deleted_at|deletion_id)\b\x22?\s*=") || query.sql.matches(r"(?is)\binsert\s+into\s+[^(]*\([^)]*\x22?\b(?:deleted_at|deletion_id)\b\x22?")'
+    rule: 'query.sql.matches(r"(?is)\bupdate\b.*\bset\b.*\x22?\b(?:deleted_at|deletion_id)\b\x22?(?:\s|/\*.*?\*/|--[^\n]*\n)*=") || query.sql.matches(r"(?is)\bupdate\b.*\bset\b.*\([^()]*\x22?\b(?:deleted_at|deletion_id)\b\x22?[^()]*\)(?:\s|/\*.*?\*/|--[^\n]*\n)*=") || query.sql.matches(r"(?is)\binsert\s+into\s+[^(]*\([^)]*\x22?\b(?:deleted_at|deletion_id)\b\x22?") || query.sql.matches(r"(?is)\binsert(?:\s|/\*.*?\*/|--[^\n]*\n)*\([^)]*\x22?\b(?:deleted_at|deletion_id)\b\x22?") || query.sql.matches(r"(?is)\binsert\s+into\s+(?:\x22?[a-z_][a-z0-9_$]*\x22?(?:\s|/\*.*?\*/|--[^\n]*\n)*\.(?:\s|/\*.*?\*/|--[^\n]*\n)*)?\x22?[a-z_][a-z0-9_$]*\x22?(?:\s+as\s+\x22?[a-z_][a-z0-9_$]*\x22?)?\s+(?:values|select|table|with|overriding|default\s+values)\b") || query.sql.matches(r"(?is)\bthen\s+insert\s+(?:values|select|table|with|overriding|default\s+values)\b")'

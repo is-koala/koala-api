@@ -60,6 +60,7 @@ WHERE id = sqlc.arg(id) AND last_seen_at < sqlc.arg(seen_before)::timestamptz;
 -- name: ListOpenUserSessions :many
 -- ListOpenUserSessions lists a user's sessions that are neither revoked
 -- nor expired and whose device is active, newest first.
+-- softdelete:inner-by-design devices: a session whose device is soft-deleted is dead and Session.platform, which comes from the device, is required (AUTH-016)
 SELECT s.id, s.created_at, s.last_seen_at, s.expires_at, d.platform
 FROM user_sessions s
 LEFT JOIN active_devices d ON d.id = s.device_id
@@ -68,6 +69,9 @@ ORDER BY s.created_at DESC, s.id DESC
 LIMIT 100;
 
 -- name: GetOpenUserSession :one
+-- GetOpenUserSession is the detail of one open session; like the list, it
+-- leaves out a session whose device is gone.
+-- softdelete:inner-by-design devices: a session whose device is soft-deleted is dead and Session.platform, which comes from the device, is required (AUTH-016)
 SELECT s.id, s.created_at, s.last_seen_at, s.expires_at, d.platform
 FROM user_sessions s
 LEFT JOIN active_devices d ON d.id = s.device_id
@@ -99,6 +103,7 @@ WHERE expires_at < sqlc.arg(before)::timestamptz OR revoked_at < sqlc.arg(before
 -- since a bound: the device is a known-good source (ADR-0025 §5). Sessions
 -- ended for a stolen token or another device, or revoked by the user, do
 -- not vouch for it.
+-- softdelete:inner-by-design devices: only a session on this very device vouches for it, and a soft-deleted device vouches for nothing
 SELECT count(*)
 FROM user_sessions s
 LEFT JOIN active_devices d ON d.id = s.device_id

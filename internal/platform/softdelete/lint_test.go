@@ -85,6 +85,91 @@ func TestCheckJoins(t *testing.T) {
 	}
 }
 
+// The nullable-side detector of ADR-0027 §5: a LEFT (or FULL) join of a
+// detach edge's parent whose NULL rows a WHERE or HAVING predicate drops
+// behaves like an inner join and is a finding, unless the query carries the
+// inner-by-design marker with the parent's name and a reason.
+func TestCheckJoinsNullableSide(t *testing.T) {
+	t.Parallel()
+
+	const (
+		c      = "active_example_comments"
+		o      = "active_example_owners"
+		reason = "the answer is fail-closed: a comment of a deleted owner must not be read"
+	)
+	// mark is the exemption marker for the detach parent of the edge.
+	const mark = "-- " + softdelete.Exemption + " example_owners: " + reason + "\n"
+	// join reads the child and LEFT-joins its parent.
+	const join = "SELECT c.id, o.name\nFROM " + c + " c\nLEFT JOIN " + o + " o ON o.id = c.author_id\n"
+
+	red := map[string]string{
+		"equality on the parent":   join + "WHERE o.name = $1",
+		"IS NOT NULL":              join + "WHERE o.id IS NOT NULL",
+		"HAVING":                   join + "GROUP BY c.id, o.name\nHAVING o.name = $1",
+		"alias with AS":            "SELECT c.id FROM " + c + " c LEFT JOIN " + o + " AS o ON o.id = c.author_id WHERE o.name = $1",
+		"no alias":                 "SELECT c.id FROM " + c + " c LEFT JOIN " + o + " ON " + o + ".id = c.author_id WHERE " + o + ".name = $1",
+		"full join":                "SELECT c.id FROM " + c + " c FULL JOIN " + o + " o ON o.id = c.author_id WHERE o.name = $1",
+		"marker on another parent": "-- " + softdelete.Exemption + " example_projects: " + reason + "\n" + join + "WHERE o.name = $1",
+		"marker without a parent":  "-- " + softdelete.Exemption + " " + reason + "\n" + join + "WHERE o.name = $1",
+		"marker with a short why":  "-- " + softdelete.Exemption + " example_owners: short\n" + join + "WHERE o.name = $1",
+	}
+	green := map[string]string{
+		"no predicate on the parent": join + "WHERE c.body = $1",
+		"IS NULL":                    join + "WHERE o.id IS NULL",
+		"IS NOT DISTINCT FROM":       join + "WHERE o.name IS NOT DISTINCT FROM $1",
+		"predicate in ON":            "SELECT c.id FROM " + c + " c LEFT JOIN " + o + " o ON o.id = c.author_id AND o.name = $1",
+		"ORDER BY on the parent":     join + "WHERE c.body = $1 ORDER BY o.name",
+		"cascade edge":               "SELECT p.id FROM active_example_projects p LEFT JOIN " + o + " o ON o.id = p.owner_id WHERE o.name = $1",
+		"exempted":                   mark + join + "WHERE o.name = $1",
+		"exempted, view name":        "-- " + softdelete.Exemption + " " + o + ": " + reason + "\n" + join + "WHERE o.name = $1",
+		"exempted, indented marker":  "   " + mark + join + "WHERE o.name = $1",
+	}
+
+	cat := exampleCatalog(t)
+	for name, sql := range red {
+		t.Run("red/"+name, func(t *testing.T) {
+			t.Parallel()
+			got := softdelete.CheckJoins(cat, sql)
+			if len(got) == 0 {
+				t.Fatal("no finding, want at least one")
+			}
+			if !strings.Contains(got[0].String(), softdelete.Exemption) {
+				t.Errorf("finding %s does not name the exemption marker", got[0])
+			}
+		})
+	}
+	for name, sql := range green {
+		t.Run("green/"+name, func(t *testing.T) {
+			t.Parallel()
+			if got := softdelete.CheckJoins(cat, sql); len(got) != 0 {
+				t.Fatalf("findings = %v, want none", got)
+			}
+		})
+	}
+
+	// A marker that suppresses nothing is a finding of its own: a stale
+	// exemption does not stay behind silently.
+	t.Run("red/unused marker", func(t *testing.T) {
+		t.Parallel()
+		got := softdelete.CheckJoins(cat, mark+join+"WHERE c.body = $1")
+		if len(got) != 1 || !strings.Contains(got[0].String(), "exempts nothing") {
+			t.Fatalf("findings = %v, want one about an exemption that suppresses nothing", got)
+		}
+	})
+	// The marker does not excuse an inner join (ADR-0020 Karar 10).
+	t.Run("red/marker does not excuse an inner join", func(t *testing.T) {
+		t.Parallel()
+		sql := mark + "SELECT c.id FROM " + c + " c JOIN " + o + " o ON o.id = c.author_id"
+		got := softdelete.CheckJoins(cat, sql)
+		if len(got) != 2 {
+			t.Fatalf("findings = %v, want the inner join and the unused marker", got)
+		}
+		if e := got[0].Edge; e.Policy != softdelete.Detach || e.Child != "example_comments" {
+			t.Errorf("finding %s is not the inner join on the detach edge", got[0])
+		}
+	})
+}
+
 // The no-base-table pattern is RE2, the regexp syntax of both Go and CEL's
 // matches(), so this test exercises the expression sqlc vet evaluates.
 // scripts/sqlc-vet-probe.sh proves the rule fires inside sqlc itself.
@@ -132,10 +217,34 @@ func TestNoSoftDeleteColumnsPatterns(t *testing.T) {
 		`UPDATE active_example_tasks SET "deletion_id" = $2 WHERE id = $1`:                                    true,
 		"INSERT INTO active_example_notes (id, body, deleted_at) VALUES ($1, $2, $3)":                         true,
 		"INSERT INTO active_example_notes (id) VALUES ($1) ON CONFLICT (id) DO UPDATE SET deletion_id = NULL": true,
-		"SELECT id, deleted_at FROM active_example_notes":                                                     false,
-		"UPDATE active_example_tasks SET name = $2 WHERE id = $1":                                             false,
-		"INSERT INTO active_example_notes (id, body) VALUES ($1, $2)":                                         false,
-		"UPDATE active_example_tasks SET deleted_note = $2 WHERE id = $1":                                     false,
+		// The forms ADR-0027 §1 added.
+		"UPDATE active_example_notes SET (deleted_at, deletion_id) = (now(), $1) WHERE id = $2":                                   true,
+		`UPDATE active_example_notes SET ("deleted_at", "deletion_id") = (now(), $1) WHERE id = $2`:                               true,
+		"UPDATE active_example_notes SET body = $2, (deleted_at, deletion_id) = (now(), $3)":                                      true,
+		"UPDATE active_example_tasks SET deleted_at /* a comment */ = now() WHERE id = $1":                                        true,
+		"UPDATE active_example_tasks SET deleted_at -- a comment\n = now() WHERE id = $1":                                         true,
+		"INSERT INTO active_example_notes VALUES ($1, $2, $3, $4, $5)":                                                            true,
+		"insert into active_example_notes\nvalues ($1, $2, $3, $4, $5)":                                                           true,
+		"INSERT INTO public.active_example_notes VALUES ($1, $2, $3, $4, $5)":                                                     true,
+		`INSERT INTO "active_example_notes" VALUES ($1, $2, $3, $4, $5)`:                                                          true,
+		"INSERT INTO active_example_notes AS n VALUES ($1, $2, $3, $4, $5)":                                                       true,
+		"INSERT INTO active_example_notes SELECT * FROM active_example_notes WHERE id = $1":                                       true,
+		"INSERT INTO active_example_notes DEFAULT VALUES":                                                                         true,
+		"MERGE INTO active_example_notes n USING x ON x.id = n.id\nWHEN NOT MATCHED THEN INSERT (id, deleted_at) VALUES ($1, $2)": true,
+		"MERGE INTO active_example_notes n USING x ON x.id = n.id\nWHEN NOT MATCHED THEN INSERT VALUES ($1, $2, $3, $4, $5)":      true,
+		"MERGE INTO active_example_notes n USING x ON x.id = n.id\nWHEN MATCHED THEN UPDATE SET deleted_at = now()":               true,
+
+		"SELECT id, deleted_at FROM active_example_notes":                 false,
+		"UPDATE active_example_tasks SET name = $2 WHERE id = $1":         false,
+		"INSERT INTO active_example_notes (id, body) VALUES ($1, $2)":     false,
+		"UPDATE active_example_tasks SET deleted_note = $2 WHERE id = $1": false,
+		// A column list keeps every INSERT shape green.
+		"INSERT INTO active_example_notes (id, body)\nSELECT $1, body FROM active_example_notes WHERE id = $2": false,
+		"INSERT INTO public.active_example_notes (id, body) VALUES ($1, $2)":                                   false,
+		"INSERT INTO active_example_notes AS n (id, body) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING":         false,
+		"UPDATE active_example_notes SET (body, created_at) = ($2, $3) WHERE id = $1":                          false,
+		// Reading the columns in a subquery is not a write.
+		"UPDATE active_example_notes SET body = (SELECT body FROM active_example_notes WHERE deleted_at IS NULL) WHERE id = $1": false,
 	}
 	for sql, want := range tests {
 		t.Run(sql, func(t *testing.T) {

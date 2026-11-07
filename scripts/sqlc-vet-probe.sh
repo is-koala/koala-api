@@ -6,8 +6,12 @@
 # same generator (softdeletegen -print-rule), and runs `sqlc vet` on
 # generated queries:
 #   - application queries that name a base table fail no-base-table, and
-#     those that assign deleted_at or deletion_id fail
-#     no-soft-delete-columns: exactly one finding each;
+#     those that can write deleted_at or deletion_id fail
+#     no-soft-delete-columns: exactly one finding each. The forms of
+#     ADR-0027 Karar 1 are here except MERGE and the row-constructor SET,
+#     which the probe cannot carry (it accepts no compile error and neither
+#     is a proven sqlc path); those two are covered by
+#     TestNoSoftDeleteColumnsPatterns alone;
 #   - application queries through active_ views, and on M1 tables, pass;
 #   - the same queries in the maint package pass: the rules are not applied
 #     there.
@@ -85,6 +89,15 @@ UPDATE active_example_tasks SET name = $2, "deletion_id" = $3 WHERE id = $1;
 
 -- name: BadInsertDeletedAt :exec
 INSERT INTO active_example_notes (id, body, deleted_at) VALUES ($1, $2, $3);
+
+-- name: BadInsertWithoutColumns :exec
+INSERT INTO active_example_notes VALUES ($1, $2, $3, $4, $5);
+
+-- name: BadInsertSelectWithoutColumns :exec
+INSERT INTO active_example_notes SELECT * FROM active_example_notes WHERE id = $1;
+
+-- name: BadSetSplitByAComment :exec
+UPDATE active_example_tasks SET deleted_at /* no way around the rule */ = now() WHERE id = $1;
 EOF
 
 cat > "$dir/app/good.sql" <<'EOF'
@@ -127,7 +140,10 @@ bad.sql: BadUpperCase: no-base-table: probe
 bad.sql: BadUsing: no-base-table: probe
 bad.sql: BadSetDeletedAt: no-soft-delete-columns: probe
 bad.sql: BadSetQuotedDeletionID: no-soft-delete-columns: probe
-bad.sql: BadInsertDeletedAt: no-soft-delete-columns: probe"
+bad.sql: BadInsertDeletedAt: no-soft-delete-columns: probe
+bad.sql: BadInsertWithoutColumns: no-soft-delete-columns: probe
+bad.sql: BadInsertSelectWithoutColumns: no-soft-delete-columns: probe
+bad.sql: BadSetSplitByAComment: no-soft-delete-columns: probe"
 
 # The output must be exactly the expected findings: no finding on the good
 # or maint queries, no second rule on a bad query, and no compile error (the

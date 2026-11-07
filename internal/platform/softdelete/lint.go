@@ -2,7 +2,9 @@ package softdelete
 
 import (
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -37,17 +39,45 @@ func NoBaseTableRule(c *Catalog) string {
 }
 
 // NoSoftDeleteColumnsPatterns returns the RE2 patterns that find a query
-// assigning deleted_at or deletion_id: after UPDATE … SET (which also covers
-// ON CONFLICT DO UPDATE SET), or in an INSERT column list. Quoted names are
-// caught too. A comparison like `deletion_id = $1` after SET is also
-// reported; an application query has no reason to filter on the columns,
-// its view already does.
+// which can write deleted_at or deletion_id. Only softdelete.Delete and
+// softdelete.Restore may (ADR-0020 Karar 3, ADR-0027 §1). Quoted names,
+// schema-qualified names and a comment between the parts of a form are
+// caught; a comparison like `deletion_id = $1` after SET is reported too,
+// because an application query has no reason to filter on the columns —
+// its view already does. Reading them is allowed.
+//
+// The forms, one pattern each:
+//
+//  1. UPDATE … SET <column> = … (also ON CONFLICT DO UPDATE SET and the
+//     UPDATE SET of a MERGE);
+//  2. UPDATE … SET (…, <column>, …) = (…), the row-constructor form;
+//  3. INSERT INTO … (…, <column>, …), a column list that names one;
+//  4. INSERT (…, <column>, …), the INSERT of a MERGE, which has no INTO;
+//  5. an INSERT INTO without a column list (… VALUES, … SELECT, … DEFAULT
+//     VALUES, …): it writes every column of the relation positionally, the
+//     two among them, and no pattern can see a name that is not written;
+//  6. the same INSERT without a column list inside a MERGE.
+//
+// Patterns 5 and 6 reject a statement shape rather than a named column:
+// an application query lists the columns it writes.
 func NoSoftDeleteColumnsPatterns() []string {
 	// \x22 is the double quote: a raw CEL string cannot contain one.
 	const column = `\x22?\b(?:deleted_at|deletion_id)\b\x22?`
+	// name is one identifier, quoted or not.
+	const name = `\x22?[a-z_][a-z0-9_$]*\x22?`
+	// gap is whitespace and comments: a form may not be split by one.
+	const gap = `(?:\s|/\*.*?\*/|--[^\n]*\n)*`
+	// headless is an INSERT whose relation is followed by a keyword
+	// instead of a column list.
+	const headless = `\s+(?:values|select|table|with|overriding|default\s+values)\b`
 	return []string{
-		`(?is)\bupdate\b.*\bset\b.*` + column + `\s*=`,
+		`(?is)\bupdate\b.*\bset\b.*` + column + gap + `=`,
+		`(?is)\bupdate\b.*\bset\b.*\([^()]*` + column + `[^()]*\)` + gap + `=`,
 		`(?is)\binsert\s+into\s+[^(]*\([^)]*` + column,
+		`(?is)\binsert` + gap + `\([^)]*` + column,
+		`(?is)\binsert\s+into\s+(?:` + name + gap + `\.` + gap + `)?` + name +
+			`(?:\s+as\s+` + name + `)?` + headless,
+		`(?is)\bthen\s+insert` + headless,
 	}
 }
 
@@ -70,18 +100,47 @@ type JoinFinding struct {
 	// "FROM active_x", "IN (… active_x)", "CTE o", ….
 	Where string
 	Edge  Edge
+	// Hint is the advice of a finding that is not about the join's
+	// position: the nullable-side detector and the exemption marker
+	// (ADR-0027 §5). It is empty for a position finding, which states its
+	// own fix.
+	Hint string
 }
 
 // String describes the finding and its fix.
 func (f JoinFinding) String() string {
+	if f.Hint != "" {
+		return f.Where + ": " + f.Hint
+	}
 	return fmt.Sprintf("%s on detach edge %s: reach the parent only by LEFT JOIN %s%s from the child", f.Where, f.Edge, ViewPrefix, f.Edge.Parent)
 }
+
+// Exemption is the comment that exempts one detach parent from the
+// nullable-side detector of ADR-0027 §5: the query destroys the nullable
+// side on purpose and fails closed.
+//
+//	-- softdelete:inner-by-design <parent table>: <reason>
+//
+// It is a comment line of the query (the leading block, so sqlc carries it
+// into the generated doc comment), it names the parent table or its active
+// view, and it needs a reason of at least ExemptionReasonLen characters. A
+// marker without a reason or a parent, and a marker that suppresses
+// nothing, are findings of their own: there is no silent exemption and no
+// stale one.
+const Exemption = "softdelete:inner-by-design"
+
+// ExemptionReasonLen is the shortest accepted reason, as for
+// x-resource-reason in api/ruleset.yaml.
+const ExemptionReasonLen = 20
 
 var (
 	sqlLineComment  = regexp.MustCompile(`--[^\n]*`)
 	sqlBlockComment = regexp.MustCompile(`(?s)/\*.*?\*/`)
-	sqlString       = regexp.MustCompile(`'(?:[^']|'')*'`)
+	sqlString       = regexp.MustCompile(`(?s)'(?:[^']|'')*'`)
 	sqlToken        = regexp.MustCompile(`"[^"]*"|[a-z_][a-z0-9_$]*|[^\sa-z_]`)
+	plainName       = regexp.MustCompile(`^[a-z_][a-z0-9_$]*$`)
+	exemptionMarker = regexp.MustCompile(`(?m)^[ \t]*--[ \t]*` + regexp.QuoteMeta(Exemption) +
+		`[ \t]*(?:([a-z_][a-z0-9_$]*)[ \t]*:)?[ \t]*(.*)$`)
 )
 
 // frameKind is what a parenthesis opens.
@@ -131,8 +190,12 @@ const semiJoin = "IN/EXISTS (…)"
 // subquery, a CTE used that way, and IN, EXISTS or ANY semi-joins. Quoted
 // names count as plain names.
 //
+// A LEFT join whose nullable side a WHERE (or HAVING) predicate destroys is
+// reported too: written as an outer join, it behaves like an inner one
+// (ADR-0027 §5). A query that means it says so with the Exemption marker.
+//
 // It reads tokens, not a syntax tree; the limits are listed in ADR-0020
-// Karar 10.
+// Karar 10 and ADR-0027 §4.
 func CheckJoins(c *Catalog, sql string) []JoinFinding {
 	tokens := tokenize(sql)
 
@@ -152,14 +215,139 @@ func CheckJoins(c *Catalog, sql string) []JoinFinding {
 		}
 	})
 
-	var out []JoinFinding
+	exempt, out := exemptions(sql)
+	used := map[string]bool{}
 	for _, e := range c.Edges() {
 		if e.Policy != Detach || !read[e.Child] {
 			continue
 		}
 		out = append(out, checkEdge(tokens, e)...)
+		out = append(out, checkNullableSide(tokens, e, exempt, used)...)
+	}
+	for _, parent := range slices.Sorted(maps.Keys(exempt)) {
+		if used[parent] {
+			continue
+		}
+		out = append(out, JoinFinding{
+			Where: Exemption + " " + parent,
+			Hint:  "it exempts nothing in this query; remove it or name the detach parent whose nullable side the query destroys",
+		})
 	}
 	return out
+}
+
+// exemptions reads the Exemption markers of one query and returns the
+// parent tables they exempt, with the findings: a marker that names no
+// parent and one whose reason is too short. Such a marker exempts nothing,
+// so the join it was meant for is reported as well.
+func exemptions(sql string) (map[string]bool, []JoinFinding) {
+	out := map[string]bool{}
+	var problems []JoinFinding
+	for _, m := range exemptionMarker.FindAllStringSubmatch(sql, -1) {
+		parent, reason := m[1], strings.TrimSpace(m[2])
+		if parent == "" {
+			problems = append(problems, JoinFinding{
+				Where: Exemption,
+				Hint:  "name the detach parent table it exempts, then a colon and the reason",
+			})
+			continue
+		}
+		if len([]rune(reason)) < ExemptionReasonLen {
+			problems = append(problems, JoinFinding{
+				Where: Exemption + " " + parent,
+				Hint:  fmt.Sprintf("state why the nullable side may be destroyed, in at least %d characters", ExemptionReasonLen),
+			})
+			continue
+		}
+		out[strings.TrimPrefix(parent, ViewPrefix)] = true
+	}
+	return out, problems
+}
+
+// checkNullableSide reports the LEFT (or FULL) joined reads of e's parent
+// whose nullable side a WHERE or HAVING predicate destroys: the join keeps
+// the children of deleted parents, the predicate then drops them, so the
+// pair behaves like an inner join. A predicate that only tests for NULL (IS
+// NULL, IS NOT DISTINCT FROM) keeps the nullable side and is not a finding.
+// An Exemption marker naming e's parent suppresses the finding and is
+// recorded as used.
+func checkNullableSide(tokens []string, e Edge, exempt map[string]bool, used map[string]bool) []JoinFinding {
+	view := ViewPrefix + e.Parent
+	// The names the parent is referred to by where it is nullable.
+	nullable := map[string]bool{}
+	walk(tokens, func(i int, f *frame, _ []*frame) {
+		if tokens[i] != view || !relationPosition(tokens, i, f) {
+			return
+		}
+		if k := localJoin(tokens, i); k == "left join" || k == "full join" {
+			nullable[aliasAt(tokens, i)] = true
+		}
+	})
+	if len(nullable) == 0 {
+		return nil
+	}
+	var out []JoinFinding
+	done := map[string]bool{}
+	walk(tokens, func(i int, f *frame, _ []*frame) {
+		if f.clause != "where" && f.clause != "having" {
+			return
+		}
+		name := tokens[i]
+		if !nullable[name] || done[name] || i+2 >= len(tokens) || tokens[i+1] != "." || nullSafe(tokens, i+2) {
+			return
+		}
+		done[name] = true
+		if exempt[e.Parent] {
+			used[e.Parent] = true
+			return
+		}
+		out = append(out, JoinFinding{
+			Edge:  e,
+			Where: fmt.Sprintf("LEFT JOIN %s with %s.%s in %s", view, name, tokens[i+2], strings.ToUpper(f.clause)),
+			Hint: "the predicate drops the rows whose parent is NULL, so the outer join behaves like an inner one on detach edge " +
+				e.String() + ": keep NULL and decide in Go, or write `-- " + Exemption + " " + e.Parent + ": <reason>` in the query's comment",
+		})
+	})
+	return out
+}
+
+// nullSafe reports whether the predicate that starts at the column token
+// tokens[i] keeps the NULL rows: IS NULL and IS NOT DISTINCT FROM are the
+// two forms that do not drop the nullable side.
+func nullSafe(tokens []string, i int) bool {
+	switch {
+	case i+2 < len(tokens) && tokens[i+1] == "is" && tokens[i+2] == "null":
+		return true
+	case i+3 < len(tokens) && tokens[i+1] == "is" && tokens[i+2] == "not" && tokens[i+3] == "distinct":
+		return true
+	default:
+		return false
+	}
+}
+
+// aliasAt returns the name the relation at tokens[i] is referred to by: its
+// alias when it has one, its own name otherwise.
+func aliasAt(tokens []string, i int) string {
+	j := i + 1
+	if j < len(tokens) && tokens[j] == "as" {
+		j++
+	}
+	if j < len(tokens) && plainName.MatchString(tokens[j]) && !aliasStop[tokens[j]] {
+		return tokens[j]
+	}
+	return tokens[i]
+}
+
+// aliasStop holds the keywords that may follow a relation without being its
+// alias.
+var aliasStop = map[string]bool{
+	"on": true, "using": true, "where": true, "left": true, "right": true,
+	"full": true, "inner": true, "cross": true, "natural": true, "join": true,
+	"group": true, "having": true, "order": true, "limit": true, "offset": true,
+	"fetch": true, "for": true, "union": true, "except": true, "intersect": true,
+	"returning": true, "window": true, "with": true, "and": true, "or": true,
+	"tablesample": true, "lateral": true, "set": true, "values": true, "select": true,
+	"from": true, "into": true,
 }
 
 // checkEdge finds the unsafe reads of e's parent in one query.
@@ -355,12 +543,12 @@ func cteName(tokens []string, i int) string {
 	return tokens[j]
 }
 
-// tokenize lower-cases the query, drops comments and string literals and
+// tokenize lower-cases the query, blanks comments and string literals and
 // splits it into tokens; a quoted identifier becomes its plain name.
 func tokenize(sql string) []string {
-	text := sqlBlockComment.ReplaceAllString(sql, " ")
-	text = sqlLineComment.ReplaceAllString(text, " ")
-	text = sqlString.ReplaceAllString(text, "''")
+	text := sqlBlockComment.ReplaceAllStringFunc(sql, blank)
+	text = sqlLineComment.ReplaceAllStringFunc(text, blank)
+	text = sqlString.ReplaceAllStringFunc(text, blank)
 	text = strings.ToLower(text)
 	tokens := sqlToken.FindAllString(text, -1)
 	for i, tok := range tokens {
@@ -369,6 +557,18 @@ func tokenize(sql string) []string {
 		}
 	}
 	return tokens
+}
+
+// blank replaces every byte of s but its newlines with a space, so the text
+// keeps its offsets and its line numbering.
+func blank(s string) string {
+	b := []byte(s)
+	for i := range b {
+		if b[i] != '\n' {
+			b[i] = ' '
+		}
+	}
+	return string(b)
 }
 
 // joinKind returns the join type of a JOIN keyword from the tokens before
