@@ -59,8 +59,10 @@ type Entry struct {
 // The body mask is an allow list (ADR-0028): a member's value stays in
 // the trail only when its key is in allowedKeys or matches a class in
 // allowedKeyClasses; everything else is Masked, whatever it holds. Keys
-// compare without case and without "_" and "-", so "targetId", "target_id"
-// and "TARGET-ID" are the one key "targetid".
+// compare without case and without the separators a writer may put
+// between words ("_", "-", " " and "."), so "targetId", "target_id",
+// "TARGET-ID" and "target id" are the one key "targetid"
+// (body.go, normalizeKey).
 //
 // Extending it: a key goes into allowedKeys, as one normalized entry, in
 // the PR that brings the operation whose body carries it, next to the

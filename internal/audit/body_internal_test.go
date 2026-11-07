@@ -55,6 +55,27 @@ func TestOnlyTwoAllowedKeysHoldAPersonalPart(t *testing.T) {
 	}
 }
 
+// TestKeyClassesAreTheShapeOnes binds the list itself. Pruning the
+// meaning-bearing endings is the decision of ADR-0028 Karar 2, and
+// nothing else holds it: an independent verification put "status",
+// "state", "type", "kind", "code", "codes" and "flag" back and every
+// other test in the repository stayed green, because the personal parts
+// added in the same change happen to narrow those classes on the keys
+// the tests use. So the keys a reader of this list would reach for next
+// - "applicationStatus", "vesayetDurumu", "gozaltiKaydiType" - are
+// exactly the ones no test would have caught.
+//
+// The list is not frozen; whoever changes it changes this test too, and
+// the question that belongs in that review is in allowedKeyClasses's
+// comment.
+func TestKeyClassesAreTheShapeOnes(t *testing.T) {
+	t.Parallel()
+	want := []string{"count", "enabled", "id", "ids", "total", "uuid", "version"}
+	if got := allowedKeyClasses(); !slices.Equal(got, want) {
+		t.Fatalf("key classes %v, want %v; a class names the shape of a value, never its meaning (ADR-0028 Karar 2)", got, want)
+	}
+}
+
 // No class ending may hold a personal part itself: a key matching it
 // would then always hold that part too, so the narrowing in allowed()
 // would refuse the whole class and the entry would be dead weight.
