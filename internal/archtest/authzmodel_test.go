@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -17,6 +18,11 @@ import (
 const (
 	relaxedLoader = "loadModel"
 	loaderGate    = "LoadModel"
+	// loaderDir is the only package the rule reads. The name is not
+	// reserved: another package may have a loadModel of its own, which
+	// would be a false red here and, worse, would satisfy the
+	// "is it still declared" check and hide a rename of the authz one.
+	loaderDir = "internal/authz/"
 )
 
 // relaxedLoaderUses lists every mention of loadModel in f outside
@@ -59,7 +65,12 @@ func relaxedLoaderUses(fset *token.FileSet, f *ast.File) (found []string, declar
 func TestRelaxedModelLoaderStaysOutOfProduction(t *testing.T) {
 	t.Parallel()
 	declared := false
-	goFiles(t, func(fset *token.FileSet, _ string, f *ast.File) {
+	seen := 0
+	goFiles(t, func(fset *token.FileSet, path string, f *ast.File) {
+		if !strings.Contains(filepath.ToSlash(path), loaderDir) {
+			return
+		}
+		seen++
 		uses, declares := relaxedLoaderUses(fset, f)
 		declared = declared || declares
 		for _, where := range uses {
@@ -67,8 +78,11 @@ func TestRelaxedModelLoaderStaysOutOfProduction(t *testing.T) {
 				where, relaxedLoader, loaderGate)
 		}
 	})
-	if !declared {
-		t.Errorf("no declaration of %s found; the loader was renamed and this rule now guards nothing", relaxedLoader)
+	switch {
+	case seen == 0:
+		t.Errorf("no non-test file under %s was read; the walk no longer reaches the authz package", loaderDir)
+	case !declared:
+		t.Errorf("no declaration of %s under %s; the loader was renamed and this rule now guards nothing", relaxedLoader, loaderDir)
 	}
 }
 
