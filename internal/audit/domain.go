@@ -56,37 +56,83 @@ type Entry struct {
 	Sensitivity authz.Sensitivity
 }
 
-// piiKeyParts are the parts of a body member's key that make its value
-// personal data or a secret: a key that contains one ("contactEmail",
-// "user_phone", "ibanNumber", "refreshToken") is masked. Keys compare
-// without case and without "_" and "-". Turkish spellings sit next to
-// the English ones: a body written by the panel may use either.
+// The body mask is an allow list (ADR-0028): a member's value stays in
+// the trail only when its key is in allowedKeys or matches a class in
+// allowedKeyClasses; everything else is Masked, whatever it holds. Keys
+// compare without case and without "_" and "-", so "targetId", "target_id"
+// and "TARGET-ID" are the one key "targetid".
+//
+// Extending it: a key goes into allowedKeys, as one normalized entry, in
+// the PR that brings the operation whose body carries it, next to the
+// comment that says which class of value it is. The reviewer's question is
+// "could this ever hold something a person wrote, or something about a
+// person" - if yes, the key stays out and the trail keeps the shape of the
+// body without its value. allowedKeyClasses is not the place for a single
+// key: a class is a generalization and buys every future key that ends in
+// it. Nothing is ever added to make a test pass.
+
+// allowedKeys are the exact keys whose value a detail row keeps in clear.
+// They are reviewed one by one, so a key here is kept even when it reads
+// like a personal one: "mustChangePassword" and "tokenVersion" are a flag
+// and a counter of the staff contract, not a password and not a token.
+// The composed keys that used to slip through the old exception list
+// ("passwordFieldName", "emailHostname", "secretTokenVersion") are not
+// these keys, and nothing else lets them through.
+func allowedKeys() []string {
+	return []string{
+		// What was done and to what kind of thing: enums and stable codes.
+		"action", "actionname", "code", "codes", "decision", "errorcode", "event", "eventname",
+		"kind", "operation", "operationid", "operationname", "outcome", "reasoncode",
+		"sensitivity", "state", "status", "statusname", "type",
+		// Roles, permissions and scopes: names of authorizations, not of people.
+		"permission", "permissionname", "permissions", "role", "rolecode", "rolecodes",
+		"rolename", "rolenames", "roles", "scope", "scopes",
+		// Counters, sizes and paging.
+		"bytes", "count", "cursor", "limit", "offset", "page", "quantity", "sort", "total", "truncated",
+		// Money (ADR-0008): minor units and a currency, never a card.
+		"amount", "currency", "fee", "rate",
+		// Flags of the staff contract and of a command.
+		"active", "approved", "disabled", "dryrun", "enabled", "force",
+		"mustchangepassword", "mutating", "required", "verified",
+		// Version counters.
+		"tokenversion", "version",
+		// Times and durations, set by the database or the service.
+		"createdat", "deletedat", "duration", "expiresat", "lastseenat", "occurredat",
+		"retention", "retentionuntil", "revokedat", "timestamp", "ttl", "updatedat",
+		// Names developers choose, not names of people: schema and routing
+		// objects, and the taxonomies staff maintain.
+		"badgename", "categoryname", "columnname", "constraintname", "fieldname", "indexname",
+		"methodname", "queuename", "routename", "schemaname", "tablename", "tagname",
+		"templatename", "triggername", "typename",
+	}
+}
+
+// allowedKeyClasses are key endings that name a class of value no person
+// is in: an identifier, a counter, a version, an enum or a flag. A key
+// matched by its class is kept only when it holds no part of piiKeyParts,
+// so "nationalId", "emailId", "latitudeType" and "doorCode" are masked
+// although they end in an allowed class.
+func allowedKeyClasses() []string {
+	return []string{
+		"code", "codes", "count", "enabled", "flag", "id", "ids",
+		"kind", "state", "status", "total", "type", "uuid", "version",
+	}
+}
+
+// piiKeyParts are the parts of a key that make its value personal data or
+// a secret ("contactEmail", "user_phone", "ibanNumber", "refreshToken").
+// Under the allow list they no longer decide what is masked - an unlisted
+// key is masked whether it holds a part or not - they narrow
+// allowedKeyClasses, which is the only generalizing rule left. Turkish
+// spellings sit next to the English ones: a body written by the panel may
+// use either.
 func piiKeyParts() []string {
 	return []string{
 		"email", "phone", "mobile", "gsm", "tckn", "nationalid", "identitynumber", "kimlik", "iban", "password", "passwd",
 		"secret", "token", "authorization", "apikey", "otp", "address", "street", "postcode", "zipcode",
 		"latitude", "longitude", "coordinate", "location", "birth", "dogum",
 		"firstname", "lastname", "fullname", "surname", "soyad", "ipaddress", "clientip",
-		"cardnumber", "cardholder", "cardno", "creditcard", "cvv", "cvc",
-	}
-}
-
-// piiKeySuffixes are key endings that mark personal data only at the end
-// ("lat", "lng" would match too much inside a key).
-func piiKeySuffixes() []string { return []string{"lat", "lng", "lon", "name"} }
-
-// piiKeyExceptions end like a personal key but are not personal: names of
-// things, not of people, and two flags of the staff contract that end in
-// a personal part ("mustChangePassword", "tokenVersion"). They are
-// matched as endings too, so "targetRoleName" and "memberTokenVersion"
-// are exempt like the bare keys.
-func piiKeyExceptions() []string {
-	return []string{
-		"rolename", "permissionname", "operationname", "filename", "categoryname", "badgename", "companyname",
-		"tablename", "columnname", "fieldname", "schemaname", "indexname", "constraintname", "triggername",
-		"eventname", "statusname", "actionname", "jobname", "queuename", "routename", "methodname",
-		"typename", "tagname", "templatename", "hostname",
-		"mustchangepassword", "tokenversion",
+		"cardnumber", "cardholder", "cardno", "creditcard", "cvv", "cvc", "doorcode",
 	}
 }
 
