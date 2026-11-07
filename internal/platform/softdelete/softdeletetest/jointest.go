@@ -142,7 +142,8 @@ func (jt JoinTest) Run(t *testing.T) {
 	if len(problems) > 0 {
 		t.FailNow()
 	}
-	for _, c := range cases {
+	for i := range cases {
+		c := cases[i]
 		t.Run(EdgeKey(c.edge), func(t *testing.T) {
 			t.Parallel()
 			jt.runEdge(t, c)

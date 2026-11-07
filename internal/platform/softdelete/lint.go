@@ -271,7 +271,7 @@ func exemptions(sql string) (map[string]bool, []JoinFinding) {
 // NULL, IS NOT DISTINCT FROM) keeps the nullable side and is not a finding.
 // An Exemption marker naming e's parent suppresses the finding and is
 // recorded as used.
-func checkNullableSide(tokens []string, e Edge, exempt map[string]bool, used map[string]bool) []JoinFinding {
+func checkNullableSide(tokens []string, e Edge, exempt, used map[string]bool) []JoinFinding {
 	view := ViewPrefix + e.Parent
 	// The names the parent is referred to by where it is nullable.
 	nullable := map[string]bool{}
@@ -332,22 +332,25 @@ func aliasAt(tokens []string, i int) string {
 	if j < len(tokens) && tokens[j] == "as" {
 		j++
 	}
-	if j < len(tokens) && plainName.MatchString(tokens[j]) && !aliasStop[tokens[j]] {
+	if j < len(tokens) && plainName.MatchString(tokens[j]) && !aliasStop(tokens[j]) {
 		return tokens[j]
 	}
 	return tokens[i]
 }
 
-// aliasStop holds the keywords that may follow a relation without being its
-// alias.
-var aliasStop = map[string]bool{
-	"on": true, "using": true, "where": true, "left": true, "right": true,
-	"full": true, "inner": true, "cross": true, "natural": true, "join": true,
-	"group": true, "having": true, "order": true, "limit": true, "offset": true,
-	"fetch": true, "for": true, "union": true, "except": true, "intersect": true,
-	"returning": true, "window": true, "with": true, "and": true, "or": true,
-	"tablesample": true, "lateral": true, "set": true, "values": true, "select": true,
-	"from": true, "into": true,
+// aliasStop reports the keywords that may follow a relation without being
+// its alias.
+func aliasStop(tok string) bool {
+	switch tok {
+	case "on", "using", "where", "left", "right", "full", "inner", "cross",
+		"natural", "join", "group", "having", "order", "limit", "offset",
+		"fetch", "for", "union", "except", "intersect", "returning", "window",
+		"with", "and", "or", "tablesample", "lateral", "set", "values",
+		"select", "from", "into":
+		return true
+	default:
+		return false
+	}
 }
 
 // checkEdge finds the unsafe reads of e's parent in one query.
