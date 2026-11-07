@@ -70,10 +70,13 @@ var (
 	emailInValue = regexp.MustCompile(`[^\s@"]+@[^\s@"]+\.[^\s@"]+`)
 	phoneValue   = regexp.MustCompile(`^\+?\d{10,15}$`)
 	cardValue    = regexp.MustCompile(`^\d{13,19}$`)
-	// ibanValue is ISO 13616: two letters for the country, two check
-	// digits, then 11 to 30 alphanumerics (26 for TR). An IBAN is neither
-	// a phone nor a card number - it has letters and no Luhn checksum -
-	// so without this it printed in clear under any allowed key.
+	// ibanValue is the shape of ISO 13616: two letters for the country,
+	// two check digits, then 11 to 30 alphanumerics (26 for TR). An IBAN
+	// is neither a phone nor a card number - it has letters and no Luhn
+	// checksum - so without this it printed in clear under any allowed
+	// key. The shape alone is not enough: it also matches a hex
+	// identifier that happens to start with two letters and two digits,
+	// which is 5.5% of the dash-stripped uuids, so iban97 below decides.
 	ibanValue = regexp.MustCompile(`^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$`)
 )
 
@@ -194,12 +197,38 @@ func personalValue(s string) bool {
 	return emailInValue.MatchString(s) || personalNumber(s) || bankAccount(s)
 }
 
-// bankAccount reports whether s is an IBAN. Only spaces are dropped, the
-// separator banks print it with: a dash or a dot would make it a
-// different kind of string (a uuid, a hostname) and those keep their
-// value under an allowed key.
+// bankAccount reports whether s is an IBAN: the shape above and the
+// check digits. Spaces, dashes and dots are dropped first, so the
+// groupings people write it in (TR33 0006 …, TR33-0006-…) are read as the
+// one number they are. Dropping dashes makes a uuid 32 hex characters
+// long, and one in twenty of those starts like an IBAN - which is why
+// the checksum decides and the shape does not: with it, 0.06% of such
+// uuids are mistaken for an account number instead of 5.5%.
 func bankAccount(s string) bool {
-	return ibanValue.MatchString(strings.ToUpper(strings.ReplaceAll(s, " ", "")))
+	c := strings.ToUpper(strings.NewReplacer(" ", "", "-", "", ".", "").Replace(s))
+	return ibanValue.MatchString(c) && iban97(c)
+}
+
+// iban97 is the ISO 7064 MOD 97-10 check of ISO 13616: move the first
+// four characters to the end, read each letter as its position plus ten
+// (A=10 … Z=35), and the number read in base ten must leave 1 when
+// divided by 97. The remainder is carried along digit by digit, so no
+// big integer is needed.
+func iban97(s string) bool {
+	rotated := s[4:] + s[:4]
+	rem := 0
+	for i := range len(rotated) {
+		switch c := rotated[i]; {
+		case c >= '0' && c <= '9':
+			rem = rem*10 + int(c-'0')
+		case c >= 'A' && c <= 'Z':
+			rem = rem*100 + int(c-'A') + 10
+		default:
+			return false
+		}
+		rem %= 97
+	}
+	return rem == 1
 }
 
 // normalizeKey is the form the three key lists are written in: lower

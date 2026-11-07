@@ -286,6 +286,55 @@ func TestMaskBodyMasksPersonalValuesUnderAllowedKeys(t *testing.T) {
 	}
 }
 
+// An IBAN is masked under an allowed key however it is grouped, and the
+// check digits are what decides: the shape alone also fits a hex
+// identifier that starts with two letters and two digits, and once the
+// dashes are dropped a uuid is 32 hex characters. A uuid keeps its value
+// under an allowed key - it is how the trail names what was acted on.
+func TestMaskBodyMasksIBANsButKeepsIdentifiers(t *testing.T) {
+	t.Parallel()
+	body := map[string]any{
+		"spacedId": "TR33 0006 1005 1978 6457 8413 26",
+		"dashedId": "TR33-0006-1005-1978-6457-8413-26",
+		"dottedId": "tr33.0006.1005.1978.6457.8413.26",
+		"plainId":  "TR330006100519786457841326",
+		"gbId":     "GB82 WEST 1234 5698 7654 32",
+		// Not an IBAN: the shape fits, the check digits do not.
+		"almostId": "TR000000000000000000000000",
+		// The identifiers the trail is written with.
+		"targetId":   "9a1c0f10-0003-4c00-8000-000000000001",
+		"deviceUuid": "ab12cdef-0003-4c00-8000-000000000002",
+		"entryCount": 3,
+	}
+	// Every key above ends in a class, so the key layer lets them all
+	// through and only the value layer can mask.
+	got, err := audit.MaskBody(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	for _, k := range []string{"spacedId", "dashedId", "dottedId", "plainId", "gbId"} {
+		if !strings.Contains(s, `"`+k+`":"***"`) {
+			t.Errorf("masked body %s: %s is not masked", s, k)
+		}
+	}
+	for _, kept := range []string{
+		`"almostId":"TR000000000000000000000000"`,
+		`"targetId":"9a1c0f10-0003-4c00-8000-000000000001"`,
+		`"deviceUuid":"ab12cdef-0003-4c00-8000-000000000002"`,
+		`"entryCount":3`,
+	} {
+		if !strings.Contains(s, kept) {
+			t.Errorf("masked body %s lost %s", s, kept)
+		}
+	}
+	for _, leaked := range []string{"6457", "WEST"} {
+		if strings.Contains(s, leaked) {
+			t.Errorf("masked body %s still carries %q", s, leaked)
+		}
+	}
+}
+
 // A card number sent as a JSON number is masked at every card length.
 // Decoding the body into a float64 used to round the long ones - a 17 to
 // 19 digit number came back with its last digits changed, failed Luhn
