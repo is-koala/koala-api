@@ -124,11 +124,24 @@ SQLC_OUT := $(shell awk '/^ *out:/ {print $$2}' sqlc.yaml)
 # Files softdeletegen writes into: migration directives and the
 # no-base-table rule (ADR-0020).
 SOFTDELETE_GENERATED := db/migrations internal/platform/dbtest/testdata/migrations sqlc.yaml
-ALL_GENERATED := $(GENERATED) $(SQLC_OUT) $(SOFTDELETE_GENERATED)
+# Files docs/faz0/tarama/pairs.py writes: the authz conformance matrix and
+# the Faz 0 pair table (ADR-0024, ADR-0028). They are generated like the
+# rest, so a stale matrix is red instead of quietly producing the wrong
+# evidence in the authz-conformance job.
+PAIRS := docs/faz0/tarama/pairs.py
+PAIRS_GENERATED := internal/authz/testdata/matrix.yaml docs/faz0/authz-ciftleri.md
+ALL_GENERATED := $(GENERATED) $(SQLC_OUT) $(SOFTDELETE_GENERATED) $(PAIRS_GENERATED)
+
+# python3 is on the runner image (ubuntu-latest) and on the Mac; it is not
+# pinned, because the script is plain stdlib and writes its output
+# deterministically. -I keeps it from importing anything next to it.
+PYTHON ?= python3
 
 .PHONY: generate
-generate: $(SQLC) ## Regenerate soft-delete SQL blocks, sqlc and oapi-codegen packages; stale outputs are removed first
+generate: $(SQLC) ## Regenerate soft-delete SQL blocks, the authz matrix, sqlc and oapi-codegen packages; stale outputs are removed first
 	$(GO) run ./internal/tools/softdeletegen
+	@command -v $(PYTHON) >/dev/null || { echo "generate: $(PYTHON) is needed for $(PAIRS)" >&2; exit 1; }
+	$(PYTHON) -I $(PAIRS)
 	rm -f $(addsuffix /*.go,$(SQLC_OUT))
 	$(SQLC) generate
 	rm -f $(addsuffix /*.gen.go,$(GENERATED))

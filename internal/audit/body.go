@@ -10,21 +10,31 @@ import (
 	"strings"
 )
 
-// MaskBody is the JSON a detail row stores for body, with its personal
-// data masked at any depth:
-//   - by key: a member whose key contains a personal part (piiKeyParts)
-//     or ends in a personal suffix (piiKeySuffixes) keeps its key and
-//     gets Masked as value, whatever the value is;
-//   - by value: a string that contains an e-mail address, is a phone
-//     number (10 to 15 digits once spaces, dashes, dots and parentheses
-//     are dropped) or is a payment card number (13 to 19 digits that pass
-//     the Luhn checksum) is Masked wherever it appears, whatever its key.
-//     A JSON number is read the same way, digit for digit, so a phone or
-//     a card sent unquoted is masked too.
+// MaskBody is the JSON a detail row stores for body: its shape, and of
+// its values only the ones an operation is allowed to put in the trail
+// (ADR-0028). Two layers, in this order:
 //
-// The two layers are a deny list: free text and a personal value under an
-// unlisted key go through. A move to an allow list (nothing but the keys
-// an operation declares) is phase 2 work.
+//   - by key, an allow list: a scalar stays in clear only when the key
+//     naming it is in allowedKeys or matches a class in
+//     allowedKeyClasses (which is itself narrowed by piiKeyParts).
+//     Everything else becomes Masked, whatever it holds - free text, a
+//     personal field nobody listed, a key invented tomorrow. Objects and
+//     arrays are walked instead of masked, so the body keeps its keys,
+//     its nesting and the length of each array, and every scalar leaf is
+//     judged by the key that names it (an array's elements by the
+//     array's key). A key that is itself personal data, as when a map is
+//     keyed by e-mail address, is masked as a key.
+//   - by value, a last defense on what the allow list let through: a
+//     string that contains an e-mail address, is a phone number (10 to
+//     15 digits once spaces, dashes, dots and parentheses are dropped)
+//     or is a payment card number (13 to 19 digits that pass the Luhn
+//     checksum) becomes Masked under any key. A JSON number is read the
+//     same way, digit for digit, so a phone or a card sent unquoted is
+//     masked too.
+//
+// The first layer is what a deny list could not be: complete. The second
+// catches the case the first cannot see - a personal value put under a
+// listed key, for example a card number in "doorCode" or "orderCode".
 //
 // A result over MaxBodyBytes is replaced by {"truncated": true, "bytes": n}.
 func MaskBody(body any) ([]byte, error) {
@@ -43,7 +53,7 @@ func MaskBody(body any) ([]byte, error) {
 	if err := dec.Decode(&v); err != nil {
 		return nil, fmt.Errorf("audit: decode body: %w", err)
 	}
-	out, err := json.Marshal(mask(v))
+	out, err := json.Marshal(mask("", v))
 	if err != nil {
 		return nil, fmt.Errorf("audit: encode masked body: %w", err)
 	}
@@ -60,6 +70,11 @@ var (
 	emailInValue = regexp.MustCompile(`[^\s@"]+@[^\s@"]+\.[^\s@"]+`)
 	phoneValue   = regexp.MustCompile(`^\+?\d{10,15}$`)
 	cardValue    = regexp.MustCompile(`^\d{13,19}$`)
+	// ibanValue is ISO 13616: two letters for the country, two check
+	// digits, then 11 to 30 alphanumerics (26 for TR). An IBAN is neither
+	// a phone nor a card number - it has letters and no Luhn checksum -
+	// so without this it printed in clear under any allowed key.
+	ibanValue = regexp.MustCompile(`^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$`)
 )
 
 // numberDigits drops the separators people write in phone and card
@@ -109,24 +124,47 @@ func luhn(digits string) bool {
 	return sum%10 == 0
 }
 
-func mask(v any) any {
+// mask walks v, which key names, and returns what the trail may hold:
+// containers walked, scalars kept only under an allowed key and only
+// when they are no personal value themselves.
+func mask(key string, v any) any {
 	switch t := v.(type) {
 	case map[string]any:
+		out := make(map[string]any, len(t))
 		for k, member := range t {
-			if personal(k) {
-				t[k] = Masked
-				continue
-			}
-			t[k] = mask(member)
+			// A masked key collapses with another masked key; the member
+			// values are masked either way, so only the count is lost.
+			out[maskKey(k)] = mask(k, member)
 		}
-		return t
+		return out
 	case []any:
 		for i, member := range t {
-			t[i] = mask(member)
+			t[i] = mask(key, member)
 		}
 		return t
+	default:
+		if !allowed(key) {
+			return Masked
+		}
+		return maskValue(v)
+	}
+}
+
+// maskKey masks a member's key when the key is itself personal data, as
+// in a map keyed by e-mail address.
+func maskKey(key string) string {
+	if personalValue(key) {
+		return Masked
+	}
+	return key
+}
+
+// maskValue is the value layer on a scalar whose key the allow list let
+// through.
+func maskValue(v any) any {
+	switch t := v.(type) {
 	case string:
-		if emailInValue.MatchString(t) || personalNumber(t) {
+		if personalValue(t) {
 			return Masked
 		}
 		return t
@@ -145,20 +183,47 @@ func mask(v any) any {
 			return Masked
 		}
 		return t
-	default:
+	default: // bool, nil
 		return v
 	}
 }
 
-// personal reports whether a member's key makes its value personal data
-// or a secret. The rule and its exceptions are both read as endings, so a
-// composed key is judged like the bare one it ends in: "targetRoleName"
-// is exempt like "roleName", and "mustChangePassword" like itself.
-func personal(key string) bool {
-	k := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
-	if slices.ContainsFunc(piiKeyExceptions(), func(e string) bool { return strings.HasSuffix(k, e) }) {
+// personalValue reports whether the string is an e-mail address, a phone
+// number, a payment card number or a bank account number.
+func personalValue(s string) bool {
+	return emailInValue.MatchString(s) || personalNumber(s) || bankAccount(s)
+}
+
+// bankAccount reports whether s is an IBAN. Only spaces are dropped, the
+// separator banks print it with: a dash or a dot would make it a
+// different kind of string (a uuid, a hostname) and those keep their
+// value under an allowed key.
+func bankAccount(s string) bool {
+	return ibanValue.MatchString(strings.ToUpper(strings.ReplaceAll(s, " ", "")))
+}
+
+// normalizeKey is the form the three key lists are written in: lower
+// case, without the separators a writer may put between words. Space and
+// dot are dropped with "_" and "-", because a body is not only written by
+// our own panel - MaskBody takes any JSON value, including a decoded
+// request map - and "national id" or "user.email" must be read as the one
+// key they name, not slip past the lists as something they are not.
+func normalizeKey(key string) string {
+	return strings.NewReplacer("_", "", "-", "", " ", "", ".", "").Replace(strings.ToLower(key))
+}
+
+// allowed reports whether a member's key lets its value stay in the
+// trail in clear. The decision is total and has one order: an exact
+// allowed key, else an allowed class whose key holds no personal part,
+// else masked. Nothing short-circuits, so no composition of a listed
+// ending can buy an exemption the bare key does not have.
+func allowed(key string) bool {
+	k := normalizeKey(key)
+	if slices.Contains(allowedKeys(), k) {
+		return true
+	}
+	if !slices.ContainsFunc(allowedKeyClasses(), func(c string) bool { return strings.HasSuffix(k, c) }) {
 		return false
 	}
-	return slices.ContainsFunc(piiKeyParts(), func(p string) bool { return strings.Contains(k, p) }) ||
-		slices.ContainsFunc(piiKeySuffixes(), func(p string) bool { return strings.HasSuffix(k, p) })
+	return !slices.ContainsFunc(piiKeyParts(), func(p string) bool { return strings.Contains(k, p) })
 }

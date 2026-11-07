@@ -1,0 +1,129 @@
+# ADR-0028: Model özyineleme kuralları, gövde maskesinde izin listesi ve kapının tamlığı
+
+- Durum: Kabul edildi
+- Tarih: 07.11.2026
+- Karar kaydı: K17 (ADR-0014'ün uygulaması), K14 ve S4 (denetim kaydı), K9 (sözleşme), K7 (üretilen kod)
+- Kaynak: issue #14 "Faz 2 ön koşulları" (Authz maddesi, "Yarım kapanmış korumalar"ın iki maddesi, "Kapının görmediği yerler"in iki maddesi); [ADR-0024](0024-authz-core-evaluator-and-conformance.md) Karar 3 ve §4; [ADR-0026](0026-staff-rbac-audit-trail-and-pii-gate.md) Karar 7 ve açık soru 2; [ADR-0007](0007-error-model.md); [ADR-0004](0004-quality-gate-and-tool-pinning.md); PR #13'ün iki incelemesi ve doğrulaması; OpenFGA v1.22.0 davranışı (uygunluk koşucusunun ölçtüğü)
+- Kod: `internal/authz/model.go`, `internal/authz/doc.go`, `internal/audit/body.go`, `internal/audit/domain.go`, `internal/archtest/errorcode_test.go`, `Makefile`
+- Yerine geçtiği:
+  - **ADR-0024 Karar 3**'teki alt küme tanımını iki kuralla daraltır. "`and` ve `but not` yalnız ilişkinin en üstünde, yalın işlenenlerle" koşulu özyinelemeyi engellemiyordu: yalın bir relation da özyinelemeli olabilir, tek sınır çalışma anındaki `MaxResolutionDepth`'ti (Karar 1).
+  - **ADR-0024 §4**'ün iki fark kaleminin ("`but not`'un çıkarılan tarafında döngü", "25 seviyelik zincir") "Bugünkü modelde ikisi de kararı etkilemez" gerekçesinin yerine geçer: artık modelin bugünkü hâline bakmıyoruz, iki uç duruma ulaşan bir model **yüklenemiyor**. Aynı §'in "Geçiş günü dark mode bu farkları sayaçta gösterir. Hangisinin doğru kaynak olacağına o gün karar verilir" kalemi bu iki fark için gereksizleşir; farklar yalnız koşucunun kendi klasör modelinde ölçülmeye devam eder (Karar 1).
+  - **ADR-0026 Karar 7**'deki gövde maskesi tanımının ("iki katmandır: anahtar adı kişisel bir parça içeriyorsa … İstisnalar da sonek mantığıyla eşleşir") yerine geçer ve **açık soru 2**'yi kapatır (Karar 2).
+  - **ADR-0007 madde 5**'i ("Servisin döndürdüğü her hata kodu `ErrorCode` listesindedir") listelerin tamlığıyla genişletir: liste dışı bırakılmış bir kod sabiti artık kapıda kırmızıdır (Karar 3).
+  - **ADR-0004**'ün `gen-check` kapsamını `docs/faz0/tarama/pairs.py`'nin çıktılarına genişletir; `python3` kapının bir aracı olur (Karar 4).
+
+## Bağlam
+
+Faz 1 bitti (main `55181d3`): platform, kimlik doğrulama, authz çekirdeği, personel RBAC, denetim kaydı ve PII kapısı. Faz 2 kimlik, kullanıcı, şirket, referans ve medyayı getiriyor — yani **ilk gerçek PII alanlarını**, çok daha fazla hata kodunu, izni ve matris satırını.
+
+Issue #14'teki dört madde, Faz 1'in ölçülebilir çıkış kriterlerinin dışında kalmış ama o yükten **önce** kapanması gereken yerlerdir. Dördünün ortak özelliği: bugün bir şey kırmıyorlar, çünkü deponun bugünkü içeriği onlara denk gelmiyor. Faz 2'nin getirdiği içerik denk gelecek.
+
+1. **Authz.** Yerel değerlendirici ile OpenFGA v1.22.0 tam iki uç durumda ayrışıyor (ADR-0024 §4, koşucuyla ölçüldü): `but not`'un çıkarılan tarafındaki döngüde Go **ret** verirken OpenFGA **izin** veriyor, ve 25 seviyeyi geçen zincirde Go `resolution_too_complex` derken OpenFGA çözmeye devam ediyor. `LoadModel` bu iki uç duruma varan bir modeli kabul ediyordu; ayrımı yalnız bugünkü `model.fga`'nın içeriği engelliyordu. OpenFGA'ya geçiş (plan §5.7) böyle bir modelle sessizce karar değiştirir.
+2. **Denetim gövdesi.** Maske bir **red listesiydi**: anahtar parçası + sonek + istisna + değer düzeyinde desen. Red listesi tanımı gereği eksiktir, ve bu ölçüldü: PR #13'ün incelemesinde beş anahtar kaçak çıktı, doğrulamasında JSON sayı dalında 17-19 haneli kart kaçağı bulundu. Üstelik istisna listesi parça listesinden **önce** kısa devre yapıyordu ve sonek mantığıyla eşleştiği için `passwordFieldName`, `emailHostname` ve `secretTokenVersion` muaf oluyordu.
+3. **Hata kodları.** `httpx.PlatformCodes()`, `softdelete.Codes()`, `realtime.Codes()`, `authn.Codes()` ve `staff.Codes()` elle tutuluyor. `TestPlatformCodesAreInTheContract` listedekilerin sözleşmede olduğunu denetliyor; listelerin **tam** olduğunu kimse denetlemiyordu. Listeye konmamış bir kod, hiçbir üretilmiş istemcinin bilmediği bir kod olarak kullanıcıya gider.
+4. **Matris.** `internal/authz/testdata/matrix.yaml` ve `docs/faz0/authz-ciftleri.md`'yi `pairs.py` üretiyor, ama `gen-check` onları görmüyordu. Bayat bir matris, `authz-conformance` job'ının yeşiline bakanlara **yanlış kanıt** üretir: koşu yeşildir, ölçtüğü şey eski kurallardır.
+
+## Karar
+
+### 1. `LoadModel` iki özyineleme kuralını yükleme anında uygular, fail-closed
+
+Modelin ilişki grafiği üzerinde çalışılır: düğümler `<tip>#<relation>`, kenarlar bir çözümün bir sonraki adımda sorabileceği relation'lardır (doğrudan atamanın userset kısıtı `[company#member]`, computed userset, `from` zincirinin her ebeveyn tipi, küme işlemlerinin işlenenleri). Bir relation **özyinelemelidir** eğer kendi kenarlarından kendisine ulaşılıyorsa.
+
+- **Kural 1 — `but not`'un çıkarılan tarafı.** Çıkarılan taraftan ulaşılan hiçbir relation özyinelemeli olamaz, **tipi sınırlı DAG tipi olanlar dışında** (aşağıdaki daraltma). Gerekçe: oradaki bir döngü dışlamayı yanlışlanamaz yapar; yerel karar bilinçli olarak **ret**tir (ADR-0024 §4), OpenFGA **izin** verir.
+- **Kural 2 — özyinelemeli relation'lar.** Özyinelemeli bir relation yalnız **sınırlı DAG tiplerinde** olabilir (`boundedDAGTypes()`, bugün yalnız `staff_role`); döngünün `from` zinciriyle mi, relation'ın kendi userset kısıtıyla mı (`define viewer: [user, doc#viewer]`) kapandığı fark etmez, döngüdeki her relation'ın tipi sınırlı olmalıdır. Gerekçe: sınırsız bir özyinelemeyi yalnız `MaxResolutionDepth` durdurur ve OpenFGA'da o sınır yoktur.
+- İki kural da ret yönünde yanılır: kuşkulu model **yüklenmez**, servis açılmaz. Hata mesajı hangi relation'ın hangi kuralı çiğnediğini ve nedenini yazar.
+
+**Kural 2 özyineleme hakkındadır, `from` hakkında değil.** İlk yazımda yalnız tuple-to-userset dalı denetleniyordu; o hâlde `define viewer: [user, doc#viewer]` biçimindeki özyineleme **sınırsız bir tipte yükleniyordu** — `m.recursive` onu zaten `true` sayıyor ve zinciri yalnız çalışma anındaki derinlik sınırı durduruyordu, yani kuralın var olma nedeni olan ayrışmaya (ADR-0024 §4'ün ikinci satırı) doğrudan açık kalıyordu. İnceleme bunu ölçtü; kural artık `m.recursive(rd) && !bounded[…]` üzerinden, döngüyü kapatan kenarın türünden bağımsız çalışıyor.
+
+**Daraltma (kod ne yapıyor).** İki kural da "özyinelemeli relation'ın tipi sınırlı DAG tipiyse" istisnası taşır — kural 1 de, çıkarılan tarafta bulduğu özyinelemeli relation sınırlı bir tipteyse geçirir. Gerekçe: sınırlı tipin tuple'ları asiklik olduğu için çözüm döngüye giremez, yani iki motorun ayrışabileceği durum oluşmaz. Bunun sonucu şudur: **kural 1, kural 2'nin bugünkü hâliyle tek başına hiçbir modeli reddedemez** (bulduğu özyinelemeli relation ya sınırsız bir tiptedir — kural 2 modeli zaten reddetmiştir — ya da sınırlıdır ve kural 1 geçirir). Kural 1 yine de duruyor: dışlamanın kendi mesajını veriyor, ADR-0024 §4'ün birinci ayrışması onun konusu, ve `boundedDAGTypes()` ileride DAG'lığı garanti edilmeyen bir tip alırsa söyleyecek sözü olan kural odur.
+
+**İstisna bugün yük taşımıyor.** Sınırlı tip istisnasını bugün yalnız bu PR'ın test fikstürleri kullanıyor (`boundedRecursionModel`, ve gevşetilmiş klasör modeli). Gerçek `model.fga`'da `staff_role#assignee` özyinelemelidir ama hiçbir `but not`'un çıkarılan tarafında değildir, yani kural 1'in istisnası üretimde hiçbir satıra denk gelmiyor.
+
+**`staff_role` neden listede.** Rol kapsama grafiği veritabanında DAG olarak zorlanır: `staff_role_includes_no_self_edge` CHECK'i ve `staff_role_includes_acyclic` tetikleyicisi (0040) döngü kuran her yazımı reddeder; derinlik rol sayısıyla sınırlıdır. Yani `assignee from includer` sonlanır ve döngüye giremez — iki motorun ayrışabileceği durum oluşmaz. Listeye yeni bir tip, **ancak aynı güvenceyle** ve onu getiren PR'da girer.
+
+**Koşucunun klasör modeli ret yemiyor.** `folderModel` (`evaluator_test.go`) tam bu iki uç durumdan kurulu, çünkü ölçtüğü şey onlar. Test tarafı modeli `authz.LoadModelAllowingRecursionOn(data, []string{"folder"})` ile yükler; bu fonksiyon `export_test.go`'dadır, yani **yalnız test ikilisinde vardır**. Üretim yolunda (`DefaultModel`, `LoadModel`) gevşetme kapısı yoktur. `TestLoadModelRefusesTheFolderModel` aynı modelin `LoadModel`'den geçmediğini kanıtlar. Gevşetmenin üretim yolundan çağrılamayacağını da bir makine denetler: `TestRelaxedModelLoaderStaysOutOfProduction` modülün test dışı dosyalarında `loadModel`'e yapılan her atfı (çağrı ya da fonksiyon değeri) `LoadModel` dışında reddeder; dedektörün kendi kırmızı/yeşil vakaları var.
+
+**Değerlendirici değişmedi.** `MaxResolutionDepth` ve döngü davranışı aynı kaldı: bunlar artık modelin ulaşamayacağı durumlar için ikinci savunmadır, çünkü tuple verisi (soft-delete, eşzamanlı yazım) değil model şekli kısıtlanıyor.
+
+### 2. Gövde maskesi izin listesine geçti
+
+`MaskBody` artık **izin listesiyle** çalışır: bir skaler değer, onu adlandıran anahtar `allowedKeys()`'te (tam ad) ya da `allowedKeyClasses()`'tan bir sınıf sonekiyle eşleşiyorsa açık kalır; **geri kalan her şey `***` olur**, ne taşıdığına bakılmaz. Karar tek sıralı ve tamdır:
+
+1. **Tam ad** izin listesinde mi → açık. (İncelenmiş, adıyla yazılmış anahtar.)
+2. **Sınıf soneki** eşleşiyor ve anahtar `piiKeyParts()`'tan bir parça **içermiyor** mu → açık.
+3. Yoksa → `***`.
+
+Sonra, açık kalan her skalerde **değer katmanı** son savunma olarak koşmaya devam eder: e-posta içeren, telefon olan, Luhn'dan geçen 13-19 haneli kart olan ya da **IBAN** olan değer (JSON sayısı olarak gelse de, `UseNumber` ile hane hane) maskelenir. IBAN kuralı bu revizyonda eklendi: harf taşıdığı ve Luhn'dan geçmediği için ne telefon ne kart desenine giriyordu, yani izinli bir anahtarın altında açık basılıyordu (`{"accountId":"TR33…"}`). Desen ISO 13616'dır (iki harf ülke, iki kontrol hanesi, 11-30 alfanümerik) ve yalnız boşluk atılarak uygulanır: tire ya da nokta taşıyan bir dize (uuid, hostname) başka türden bir değerdir ve izinli anahtarının altında kalır.
+
+**Anahtar normalizasyonu** `_` ve `-` dışında **boşluk ve noktayı** da atar. `MaskBody` herhangi bir JSON değeri alır — `Detail(… body any …)` imzası çözümlenmiş bir istek map'inin geçmesini engellemiyor — ve bu hâliyle `"national id"` ile `"adres id"` sınıfı tutup parça listesinden kaçıyordu.
+
+**İstisnanın kısa devresi yapısal olarak kapandı.** Eski istisna listesi **sonek** olarak eşleşiyor ve parça listesinden önce dönüyordu; `passwordFieldName`, `emailHostname`, `secretTokenVersion` böyle muaf oluyordu. İzin listesi **tam adla** eşleşir: bir bileşik anahtar, bittiği anahtar değildir. Üstüne, sınıf soneki eşleşmesi `piiKeyParts()` ile daraltılır, yani `nationalId`, `emailId`, `latitudeType`, `secretTokenVersion` sınıfa uysa bile maskelenir. Sıra artık belirsiz değil: izin → daraltma → maske.
+
+**İzin listesinde ne var.** Üç sınıf ve bir istisna:
+- **Enum, kod ve ad (nesnenin adı, kişinin değil):** `action`, `code`, `decision`, `outcome`, `status`, `kind`, `type`, `sensitivity`, rol/izin/kapsam adları (`role`, `roles`, `rolecode`, `rolename`, `permission`, `permissions`, `scope`…), şema ve yönlendirme nesnelerinin adları (`tablename`, `columnname`, `routename`, `queuename`, `triggername`…), personelin kendi kurduğu taksonomiler (`categoryname`, `badgename`, `tagname`).
+- **Sayaç, boyut, sayfalama ve para:** `count`, `total`, `page`, `limit`, `offset`, `cursor`, `bytes`, `quantity`, `amount`, `currency`, `rate`, `fee` (ADR-0008: kuruş ve para birimi, kart değil).
+- **Bayrak, sürüm ve zaman:** `enabled`, `active`, `approved`, `required`, `force`, `dryrun`, `version`, `createdat`, `expiresat`, `duration`, `ttl`, `retention`…
+- **Adıyla iki istisna:** `mustchangepassword` ve `tokenversion`. İkisi kişisel bir parça (`password`, `token`) içeriyor ama biri bayrak, öteki sayaçtır. `TestOnlyTwoAllowedKeysHoldAPersonalPart` listedeki kişisel parça taşıyan anahtarların **tam olarak bu ikisi** olduğunu bağlar: üçüncüsü eklenirse testi değiştirmek gerekir, yani karar görünür olur.
+
+**Sınıf sonekleri yalnız biçim adlandırır: `id`, `ids`, `uuid`, `count`, `total`, `version`, `enabled`.** Anlam taşıyan sonekler (`status`, `state`, `type`, `kind`, `code`, `codes`, `flag`) bilinçli olarak **listede değil**. İlk yazımda vardılar ve bu, izin listesinin kapatmak için var olduğu deliği geri açıyordu: sınıf dalını daraltan tek şey `piiKeyParts()`, yani bir red listesi, ve KVKK **m.6 özel nitelikli** alanlarının doğal adları tam olarak o soneklerle bitiyor — `disabilityStatus`, `bloodType`, `religionType`, `diseaseCode`, `smokerFlag`, `unionMembershipStatus`, `maritalStatus`, `militaryStatus`, `sgkStatus`, `salaryTotal`. İnceleme karar fonksiyonunu replike edip 31 böyle anahtarın **açık kaldığını ölçtü**; korumanın tesadüfi olduğunun kanıtı da aynı anlamların Türkçe yazımlarının (`askerlikDurumu`, `medeniHal`, `kanGrubu`) maskelenmesiydi — yalnızca İngilizce bir sonekle bitmedikleri için.
+
+Red listesinin Faz 2 bir alanı **append-only** ize yazmadan önce bu adların hepsini sayması gerekir; ADR'nin kendi teşhisi ("red listesi tanımı gereği eksiktir") bu dal için de geçerliydi. Bugün o sonekleri gerçekten gereken anahtarlar (`status`, `statusname`, `type`, `kind`, `code`, `codes`, `errorcode`, `reasoncode`, `rolecode`) `allowedKeys()`'te **adıyla** duruyor, yani her biri incelenmiş bir karar.
+
+Sonek budamasıyla birlikte `piiKeyParts()`'a m.6 terimleri ve onları taşıyan kimlik belgeleri iki dilde eklendi (`health/saglik`, `disabilit/engel`, `pregnan/gebe`, `religio/mezhep`, `union/sendika`, `criminal/sabika/sicil`, `gender/cinsiyet`, `orientation`, `biometric/biyometri`, `marital/medenihal`, `military/askerlik`, `blood/kangrubu`, `disease/hastalik`, `medication/ilac`, `allergy/alerji`, `smoker/sigara`, `salary/maas`, `sgk`, `passport/pasaport`, `license/ehliyet`, `taxid`, `adres`), çünkü böyle bir kaydın **kimliği** (`disabilityId`, `healthRecordCount`) yoksa yalnız sınıfıyla geçerdi. İki terim **kasten alınmadı**: parça anahtarın herhangi bir yerinde eşleştiği ve kelime sınırı olmadığı için `din` (`ordering`, `binding`, `holding`, `funding`, `pending` ile eşleşir) ve `inanc` (`financial` ile eşleşir) yanlış pozitif üretiyordu; karşılıkları `religio`/`mezhep`/`sabika` ve sonek budamasıyla kapanıyor.
+
+Bir sınıf soneki tek bir anahtar için **eklenmez**: genellemedir ve o sonekle biten her gelecek anahtarı da satın alır. Tek anahtar `allowedKeys()`'e yazılır. Tersi de yapıldı: tam olarak bir sınıfa eşit olan dört anahtar (`count`, `total`, `version`, `enabled`) `allowedKeys()`'ten çıkarıldı — aynı şeyi söyleyen ikinci bir kuraldılar.
+
+**Kalan bilinçli açıklık:** `id`/`ids`/`uuid` yapısal kaldığı için bir kaydın **opak referansı** açık yazılır (`cvId`, `photoId`, `noteId`). Bunlar verinin kendisi değil, ona işaret eden kimliktir; referans verinin kendisi olduğunda (`nationalId`, `taxId`, `passportId`, `drivingLicenseId`, `sicilId`) `piiKeyParts()` yakalar.
+
+**Denetim kaydı bağlamını ne kadar koruyor.** Maske **biçimi bozmaz**: anahtarlar, iç içelik ve her dizinin uzunluğu kalır; kapsayıcılar her zaman gezilir ve her skaler yaprak onu adlandıran anahtara göre yargılanır (dizi öğeleri dizinin anahtarına göre). Yani `{"address":{"street":"***","city":"***","count":1},"phones":["***","***"]}` okuyan biri, operasyonun hangi alanları gönderdiğini ve kaç telefon geldiğini görür; göremediği şey değerlerdir. Denetim satırının asıl bilgisi (aktör, eylem, izin, basis, hedef, sonuç, request id) ayrıntı satırında değil, zaten maskesiz **entry** satırındadır (ADR-0026 Karar 7); gövde oradaki bilgiyi tamamlar, taşımaz.
+
+Fiyatı açıkça: personelin yazdığı serbest metin (`reason`, `note`, `comment`) ve kişiyi anan adlar (`companyName`, `fileName`, `targetRoleName`) artık maskelenir. Üçünün de gerekçesi aynı: serbest metin KVKK açısından her şeyi içerebilir, şahıs şirketinin adı kişinin adıdır, ve `targetRoleName` tam ad olarak listede değildir. Gerçekten gereken biri çıkarsa **genişletme yolu** şudur:
+
+> Anahtar, onu getiren operasyonun PR'ında, tek normalize edilmiş satır olarak `allowedKeys()`'e yazılır; satırın üstündeki yorum hangi sınıf değer olduğunu söyler. İncelemenin sorusu tek: "bu anahtar bir gün bir kişinin yazdığı ya da bir kişiye dair bir şey tutabilir mi?" Evetse anahtar listeye girmez; kayıt gövdenin biçimini değerleri olmadan tutmaya devam eder. Bir testi yeşile çevirmek için hiçbir şey eklenmez.
+
+Bileşik biçimler de bu yoldan geçer: `targetRoleName` bugün maskelidir çünkü `allowedKeys()`'te `rolename` var, `targetrolename` yok. Bu, mekanizmanın tarifidir, kararın gerekçesi değil — gerçekten gereken bileşik anahtar, onu getiren PR'da tam adıyla listeye girer.
+
+**Anahtarın kendisi de maskelenir.** Bir harita e-posta adresiyle anahtarlanmışsa (`{"ayse@example.com": {...}}`) yalnız değerleri maskelemek adresi basardı; anahtar da değer katmanından geçer. İki maskelenmiş anahtar çakışırsa sayı kaybolur, değerler zaten maskelidir.
+
+### 3. Hata kodu listelerinin tamlığı mimari testte
+
+`internal/archtest/errorcode_test.go`, modülün tamamını AST ile tarar ve iki kuralı zorlar:
+
+- **`TestEveryErrorCodeIsInItsPackageList`:** bir pakette tanımlı her hata kodu sabiti, o paketin `[]apperr.Code` döndüren liste fonksiyonunda (`Codes()`, `PlatformCodes()`) anılmış olmalı. Anılmayan sabit ve liste fonksiyonu olmayan paket kırmızıdır.
+- **`TestCodeListsReachTheContractTest`:** liste tam olsa da onu kimse okumuyorsa işe yaramaz; her liste fonksiyonu `internal/app/api_test.go`'da çağrılmış olmalı, çünkü kodların `api/components/problem.yaml` ile buluştuğu tek yer orasıdır.
+
+**Kod sabiti nasıl tanınıyor.** İki işaretin birleşimi: (a) tipi `apperr.Code` olan sabit, (b) adı `Code…` ile başlayan ve değeri UPPER_SNAKE dize olan sabit. (b) gerekli, çünkü `internal/platform/httpx`'in kodları **tipsiz** dize sabitidir ve `apperr.Code`'a yalnız `PlatformCodes`'un dilim literalinde dönüşür: yalnız tipe bakan bir kural o paketi bütünüyle kaçırırdı. İkisinin birleşimi, başka türden dize sabitlerini (`ActionCreate`, `ownerRoleCode`, `ExtPermission`) dışarıda bırakır. Dedektörün kendi kırmızı/yeşil vakaları (`TestErrorCodeDetector`, `TestUpperSnakeShape`) her biçimi beklenen bulgu **sayısıyla** sınar; tarama 40'tan az sabit ya da 5'ten az liste bulursa bu da kırmızıdır (bugün 49 sabit, 5 liste).
+
+**Satır içi kod da reddedilir.** Sabit bildirimine bakan bir kural, kodu hiç sabit yapmayan yazımı görmez; depoda canlı karşı örnek vardı (`internal/authn/service.go`: `apperr.Code("FIELD_VALUE_INVALID")`, `code = "FIELD_REQUIRED"` ve `apperr.New(apperr.KindInvalid, "REQUEST_INVALID")`). Üçü de bugün sözleşmede olan kodlardı, yani sızıntı yoktu, ama şekil kanıtlanmıştı: Faz 2'de `apperr.New(apperr.Code("STAFF_NEW_THING"), …)` yazan biri kapıyı yeşil bırakarak istemciye bilinmeyen bir kod gönderebilirdi. Dedektör artık dört satır içi biçimi de reddediyor — `apperr.Code("X")`, `apperr.New(kind, "X")`, `apperr.Wrap(…, "X")`, `apperr.FieldError{Code: "X"}` — ve `service.go` `httpx` sabitlerini kullanacak şekilde düzeltildi.
+
+**Dedektörün kapsamı (açıkça).** AST okuması: paket düzeyi sabit bildirimi ve yukarıdaki dört satır içi biçim. Tip denetçisi gerektiren biçimler **görülmez**: var olan bir `apperr.Code` değişkenine atanan literal, ifadeyle kurulan kod (`prefix+"_X"`), fonksiyon içi `const`/`var`, başka pakete takma adla aktarım. Kapsam `CLAUDE.md`'ye de bu hâliyle yazıldı; iddia kodun yapabildiğinden büyük bırakılmadı. `identsIn()` da bilinçli gevşektir: "listede anılmış" ile "listeden dönüyor" aynı şey değil (`_ = CodeFoo` kuralı tatmin ederdi); gevşekliğin başarısızlık biçimi, incelemenin göreceği "tam ama tuhaf yazılmış liste"dir, katılığın başarısızlık biçimi ise listenin sonraki yazım biçiminde kırılan bir kuraldır.
+
+**Tek muafiyet gerekçeli ve denetleniyor:** `internal/platform/apperr` kendi `CodeInternal`'ını listelemez, çünkü onu istemciye yazan paket `httpx`'tir ve `httpx.PlatformCodes()` onu listeler. Muafiyet listesi, muaf paketin gerçekten kod tanımlamaya devam ettiğini denetler: bayat muafiyet kırmızıdır.
+
+### 4. `pairs.py` çıktıları `gen-check`'in içinde
+
+`make generate` artık `python3 -I docs/faz0/tarama/pairs.py`'yi de koşar ve `ALL_GENERATED` `internal/authz/testdata/matrix.yaml` ile `docs/faz0/authz-ciftleri.md`'yi kapsar. Bayat matris `make verify`'ın `gen-check` adımında kırmızıdır.
+
+- `python3` kapının bir aracı olur. `ubuntu-latest` imajında ve Mac'te var, bu yüzden `verify.yml`'ye kurulum adımı eklenmedi; hedef aracı bulamazsa ne gerektiğini söyleyerek düşer. Sürümü sabitlenmedi: betik yalnız stdlib kullanıyor ve çıktısını belirleyici (sözlük sırası değil, kendi tanım sırası) yazıyor — Faz 0'dan beri üç farklı Python sürümünde aynı baytları üretti. Betik `-I` ile koşar, yani yanındaki hiçbir dosyayı import edemez.
+- Betik kendi tutarsızlığını (tanımsız basis, eksik fikstür) `sys.exit(1)` ile bildirir, yani `gen-check` bayatlığı değil, bozulmayı da yakalar.
+- Alternatif — çıktıyı bir Go testinin golden'ı yapmak — reddedildi: üretici Python'dur, Go tarafı onu çağırmak için `os/exec` ister ve kapıda ikinci bir "üret ve karşılaştır" mekanizması doğar. `gen-check` zaten tam bu iş için var.
+
+## Ertelenenler
+
+- Issue #14'ün öteki maddeleri bu ADR'nin kapsamında değil: üretilmiş JOIN testi, join-lint'in yordam/predicate yanlış negatifleri, `no-soft-delete-columns` atlatmaları, `TestRetentionMatchesCatalog`'un ad bağı, kimlik taklidi fensinin ad tabanlı olması, sözleşme lint'i ve belge maddeleri, `PrepareConn` ölçümü, soft-delete eşzamanlılığı.
+- Değer düzeyinde serbest metin analizi (ada, adrese ya da TCKN'ye benzeyen metni izinli bir anahtarın içinde yakalamak) yapılmadı: izin listesi serbest metin anahtarlarını zaten maskeliyor, kalan risk izinli bir anahtarın serbest metin taşımasıdır ve bu incelemenin sorusudur.
+- `MaxResolutionDepth`'in OpenFGA'nınkiyle eşitlenmesi (ya da farkın dark mode sayacında izlenmesi) ADR-0024 §4'te kaldığı gibi geçiş gününün konusu; bu ADR yalnız modelin o farka ulaşmasını engeller.
+
+## Sonuçlar
+
+- `LoadModel` iki kural daha uygular; `model.fga`'nın bugünkü hâli ve 14 tipli uygunluk koşusu değişmeden geçer. Tek özyinelemeli relation `staff_role#assignee`'dir ve `TestModelRecursionIsBounded` bunu bağlar.
+- Maskeleme davranışı **değişti**: eskiden açık kalan anahtarlar (`city`, `note`, `reason`, `companyName`, `fileName`, `targetRoleName`, `memberTokenVersion`) ve anlam taşıyan sonekle biten her anahtar (`…Status`, `…Type`, `…Code`, `…Flag`, `…State`, `…Kind`) artık maskelenir. Depodaki tek gerçek gövde (`staff create`: `{"email", "roles"}`) ve `internal/app/staff_integration_test.go`'nun beklentisi (`body ->> 'email' = '***'`) etkilenmez.
+- Yanlış pozitif olarak değerini kaybeden birkaç masum anahtar var ve bu bilinçlidir: `healthCheckCount` (`health` parçası), bir yazılım lisansının `licenseCode`'u (`license`), `ticaret sicil` numarası (`sicil`). Ölçüm, yapısal sonekleri kullanan anahtarlarda (`financialTotal`, `orderingId`, `bindingId`, `estateCount`, `paidTotal`) yanlış pozitif **olmadığını** gösterdi; `din` ve `inanc` parçalarının dışarıda bırakılma gerekçesi de budur.
+- Kapıya yeni iş girdi: iki mimari test ve `gen-check`'in iki dosyası daha. Yeni bağımlılık yok; yeni araç `python3` (sürümü sabitlenmedi, gerekçesi Karar 4'te).
+- `internal/audit`'ten iki fonksiyon silindi (`piiKeySuffixes`, `piiKeyExceptions`), biri rolünü değiştirdi (`piiKeyParts` artık yalnız sınıf soneklerini daraltır).
+- `internal/authn/service.go`'nun `checkDeviceKey`'i üç satır içi kod yerine `httpx` sabitlerini kullanıyor; `internal/authn` artık `service.go`'sunda da `httpx`'i import ediyor.
+- **İzleyen kalemler (bu ADR kapatmadı):** değer katmanına serbest metne **gömülü** e-posta (`"beni ayse@example.com adresinden ara"`) ve parantezli telefon (`"0 (555) 111 22 33"`) vakalarının testlerini geri koymak — davranış ayakta, ama red listesi testleri silinirken `emailInValue`'nun alt dize olarak çalıştığını ve `()` ayırıcılarının atıldığını koşturan test kalmadı; `.eE+-` reddi yüzünden ondalıklı yazılmış telefonun (`{"total": 12345678901.0}`) maskelenmemesi; sonek eşleşmesinin kelime sınırsız olması (`estate`→`state`, `paid`→`id` biçiminde tesadüfi eşleşmeler; `state` artık sınıf olmadığı için etkisi daraldı); bir pakette **ikinci** bir `*Codes()` fonksiyonunun bağsız kalması (dedektör paket başına bir liste okur).
+- **Açık sorular:**
+  1. İzinli bir anahtarın serbest metin taşıması (örneğin bir `statusName`'in enum yerine cümle tutması) incelemeyle yakalanır; makineyle değil. Faz 8'in not ve bayrak uçları bunu yeniden değerlendirir.
+  2. `companyName` izin listesine alınmadı. Şirket onayı denetimi (Faz 2) adı açık görmek isteyebilir; şahıs şirketinin adı kişinin adı olduğu için karar, uçlar gelince hukuki görüşle birlikte verilecek.
+  3. Kural 2'nin sınırlı DAG listesi tip adına bakar, tuple verisine bakmaz. `staff_role` için güvence veritabanındadır (0040); listeye giren bir tipin güvencesinin **kodda** denetlenmesi (katalogla eşleme gibi) ikinci bir tip gelince değerlendirilecek.

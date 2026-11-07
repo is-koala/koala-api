@@ -245,6 +245,24 @@ func TestLoadModelRejects(t *testing.T) {
 		{"intersection with a baseless operand", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"computedUserset":{"relation":"b"}},"b":{"intersection":{"child":[{"computedUserset":{"relation":"owner"}},{"computedUserset":{"relation":"a"}}]}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 		{"invalid relation name", doc(user, `{"type":"doc","relations":{"a#b":{"this":{}}},"metadata":{"relations":{"a#b":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 		{"tupleset parent lacks relation", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"nope"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
+		// ADR-0028 rule 2: "viewer from parent" comes back to doc#viewer
+		// and doc is no bounded DAG type, so only the depth limit stops
+		// the chain - a limit OpenFGA does not have.
+		{"recursive from on an unbounded type", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"owner":{"this":{}},"viewer":{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"viewer"}}}]}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc"}]},"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{}}}}`)},
+		// ADR-0028 rule 2 on a loop that closes through a userset
+		// restriction instead of a "from" chain: doc#viewer admits
+		// [doc#viewer], so resolving it asks for itself and only the local
+		// depth limit stops the chain - the limit OpenFGA does not have.
+		// No "but not" anywhere, so rule 1 never sees this model.
+		{"recursive userset restriction on an unbounded type", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]}}}}`)},
+		// ADR-0028 rule 1 on its own: doc#viewer is recursive through its
+		// own userset restriction ([doc#viewer]), not through a "from"
+		// chain, so rule 2 does not see it; subtracting it makes the
+		// exclusion unfalsifiable.
+		{"but not over a recursive userset relation", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}},"can_view":{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"viewer"}}}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]},"can_view":{}}}}`)},
+		// Rule 1 reaches further than the direct operand: the subtracted
+		// "blocked" is plain, but it computes the recursive "viewer".
+		{"but not reaching recursion one step away", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}},"blocked":{"computedUserset":{"relation":"viewer"}},"can_view":{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"blocked"}}}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]},"blocked":{},"can_view":{}}}}`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -254,5 +272,62 @@ func TestLoadModelRejects(t *testing.T) {
 				t.Fatalf("LoadModel: %v, want ErrModel", err)
 			}
 		})
+	}
+}
+
+// boundedRecursionModel is the shape of model.fga's staff_role: a
+// recursive "from" chain on a bounded DAG type (boundedDAGTypes), and a
+// "but not" whose subtracted side reaches that recursion. The database
+// keeps the inclusion graph acyclic (0040, staff_role_includes_acyclic),
+// so the resolution terminates and the two engines agree: ADR-0028
+// accepts both.
+const boundedRecursionModel = `{"schema_version":"1.1","type_definitions":[
+  {"type":"staff"},
+  {"type":"staff_role",
+   "relations":{
+     "includer":{"this":{}},
+     "assignee":{"union":{"child":[{"this":{}},{"tupleToUserset":{"tupleset":{"relation":"includer"},"computedUserset":{"relation":"assignee"}}}]}},
+     "blocked":{"this":{}},
+     "can_act":{"difference":{"base":{"computedUserset":{"relation":"blocked"}},"subtract":{"computedUserset":{"relation":"assignee"}}}}},
+   "metadata":{"relations":{
+     "includer":{"directly_related_user_types":[{"type":"staff_role"}]},
+     "assignee":{"directly_related_user_types":[{"type":"staff"}]},
+     "blocked":{"directly_related_user_types":[{"type":"staff"}]},
+     "can_act":{}}}}
+]}`
+
+// TestLoadModelAcceptsBoundedRecursion is the green side of the two
+// recursion rules: the same constructs LoadModel refuses on an unbounded
+// type load on a bounded DAG type.
+func TestLoadModelAcceptsBoundedRecursion(t *testing.T) {
+	t.Parallel()
+	m, err := authz.LoadModel([]byte(boundedRecursionModel))
+	if err != nil {
+		t.Fatalf("LoadModel: %v", err)
+	}
+	if got, want := m.RecursiveRelations(), []string{"staff_role#assignee"}; !slices.Equal(got, want) {
+		t.Fatalf("recursive relations %v, want %v", got, want)
+	}
+	// Rename the type and the same model is outside the subset: the rule
+	// is the bounded list, not the shape.
+	renamed := strings.ReplaceAll(boundedRecursionModel, "staff_role", "team_role")
+	if _, err := authz.LoadModel([]byte(renamed)); !errors.Is(err, authz.ErrModel) {
+		t.Fatalf("LoadModel on an unbounded type: %v, want ErrModel", err)
+	}
+}
+
+// TestModelRecursionIsBounded binds the recursion of the real model:
+// staff_role#assignee is the only relation whose resolution can reach
+// itself, and staff_role is the one bounded DAG type (ADR-0028). A new
+// recursive relation is a reviewed change to this list and to
+// boundedDAGTypes.
+func TestModelRecursionIsBounded(t *testing.T) {
+	t.Parallel()
+	m, err := authz.LoadModel(officialModelJSON(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := m.RecursiveRelations(), []string{"staff_role#assignee"}; !slices.Equal(got, want) {
+		t.Fatalf("recursive relations of model.fga: %v, want %v", got, want)
 	}
 }
