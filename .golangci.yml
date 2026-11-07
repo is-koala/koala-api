@@ -306,11 +306,13 @@ linters:
       # "adres" is the Turkish spelling of address, and the audit mask
       # matches it as data: a body written by the panel may use either
       # spelling, so the key list carries both (ADR-0028). It is not
-      # English prose with a typo.
+      # English prose with a typo. The pattern is anchored on the word:
+      # an unanchored "adres" would also match misspell's message about
+      # "adress", and silence a real typo here for good.
       - path: internal/audit/
         linters:
           - misspell
-        text: adres
+        text: '\badres\b'
 
 formatters:
   enable:
