@@ -119,11 +119,12 @@ func TestCheckJoinsNullableSide(t *testing.T) {
 		"disjunction in parentheses": {join + "WHERE c.body = $1 AND (o.name = $2 OR o.name = $3)", 1},
 		"coalesce":                   {join + "WHERE coalesce(o.name, '') = $1", 1},
 		"function call":              {join + "WHERE upper(o.name) = $1", 1},
-		// The marker counts only in the leading comment block.
-		"marker in the query body":    {"SELECT c.id, o.name\nFROM " + c + " c\nLEFT JOIN " + o + " o ON o.id = c.author_id\n" + mark + "WHERE o.name = $1", 1},
-		"marker after the statement":  {join + "WHERE o.name = $1;\n" + mark, 1},
-		"marker in a quoted string":   {"-- name: X :many\n" + join + "WHERE o.name = $1 AND c.body <> $tag$\n" + mark + "$tag$", 1},
-		"marker above the next query": {join + "WHERE o.name = $1;\n\n" + mark + "-- name: Next :one\nSELECT 1;", 1},
+		// The marker counts only in the leading comment block, and
+		// anywhere else it is a finding of its own, so these carry two.
+		"marker in the query body":    {"SELECT c.id, o.name\nFROM " + c + " c\nLEFT JOIN " + o + " o ON o.id = c.author_id\n" + mark + "WHERE o.name = $1", 2},
+		"marker after the statement":  {join + "WHERE o.name = $1;\n" + mark, 2},
+		"marker in a quoted string":   {"-- name: X :many\n" + join + "WHERE o.name = $1 AND c.body <> $tag$\n" + mark + "$tag$", 2},
+		"marker above the next query": {join + "WHERE o.name = $1;\n\n" + mark + "-- name: Next :one\nSELECT 1;", 2},
 		// A marker that exempts nothing is a finding of its own, so these
 		// carry two.
 		"marker on another parent": {"-- " + softdelete.Exemption + " example_projects: " + reason + "\n" + join + "WHERE o.name = $1", 2},
@@ -189,15 +190,48 @@ func TestCheckJoinsNullableSide(t *testing.T) {
 			t.Errorf("finding %s is not the inner join on the detach edge", got[0])
 		}
 	})
-	// MarkedParents reads the leading block alone; it is what ties the
-	// marker to the JoinTest declaration (ADR-0027 §2).
-	t.Run("marked parents", func(t *testing.T) {
+	// A marker in the wrong place suppresses nothing, so it is reported
+	// wherever it stands — even when the query is otherwise clean. Without
+	// this, a marker written beside the join survives as a dead
+	// declaration once its predicate is softened: nothing would read it
+	// and the tie to the JoinTest case would quietly come undone.
+	t.Run("red/misplaced marker on a clean query", func(t *testing.T) {
 		t.Parallel()
-		if got := softdelete.MarkedParents("-- name: X :many\n" + mark + join); len(got) != 1 || got[0] != "example_owners" {
-			t.Errorf("MarkedParents of a marked query = %v, want [example_owners]", got)
+		for name, sql := range map[string]string{
+			"in the body":          join + mark + "WHERE c.body = $1",
+			"after the statement":  join + "WHERE c.body = $1;\n" + mark,
+			"in a quoted string":   "-- name: X :many\n" + join + "WHERE c.body <> $tag$\n" + mark + "$tag$",
+			"above the next query": join + "WHERE c.body = $1;\n\n" + mark + "-- name: Next :one\nSELECT 1;",
+		} {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				got := softdelete.CheckJoins(cat, sql)
+				if len(got) != 1 || !strings.Contains(got[0].String(), "wrong place") {
+					t.Fatalf("findings = %v, want one about the marker's place", got)
+				}
+			})
 		}
-		if got := softdelete.MarkedParents(join + mark); len(got) != 0 {
-			t.Errorf("MarkedParents of a marker below the SQL = %v, want none", got)
+	})
+	// MarkedEdges is what ties the marker to the JoinTest declaration
+	// (ADR-0027 §2). It is edge-level: the marker speaks only for the
+	// child its query reads.
+	t.Run("marked edges", func(t *testing.T) {
+		t.Parallel()
+		got := softdelete.MarkedEdges(cat, "-- name: X :many\n"+mark+join+"WHERE o.name = $1")
+		if len(got) != 1 || got[0].Child != "example_comments" || got[0].Column != "author_id" {
+			t.Fatalf("edges = %v, want example_comments.author_id alone", got)
+		}
+		// Another child of the same parent is not marked by this query.
+		if got := softdelete.MarkedEdges(cat, "-- name: X :many\n"+mark+"SELECT n.id FROM active_example_notes n"); len(got) != 0 {
+			t.Errorf("edges of a query over another table = %v, want none", got)
+		}
+		// A marker below the SQL grants nothing.
+		if got := softdelete.MarkedEdges(cat, join+mark+"WHERE o.name = $1"); len(got) != 0 {
+			t.Errorf("edges of a misplaced marker = %v, want none", got)
+		}
+		// No marker, no edge, however the query is written.
+		if got := softdelete.MarkedEdges(cat, join+"WHERE o.name = $1"); len(got) != 0 {
+			t.Errorf("edges without a marker = %v, want none", got)
 		}
 	})
 }

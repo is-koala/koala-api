@@ -205,23 +205,8 @@ const semiJoin = "IN/EXISTS (…)"
 func CheckJoins(c *Catalog, sql string) []JoinFinding {
 	tokens := tokenize(sql)
 
-	// The child of an edge counts when the query produces its rows: it is
-	// read (after FROM, JOIN or a comma in a FROM list) on a side that is not
-	// nullable, outside scalar and semi-join subqueries. A child that is only
-	// written (INSERT INTO, UPDATE), only LEFT-joined to its parent (a
-	// parent-centric query) or only counted in a subquery is not dropped by
-	// a join.
-	read := map[string]bool{}
-	walk(tokens, func(i int, f *frame, stack []*frame) {
-		if !relationPosition(tokens, i, f) {
-			return
-		}
-		if where, safe := position(tokens, i, stack); !safe && !strings.HasPrefix(where, semiJoin) {
-			read[strings.TrimPrefix(tokens[i], ViewPrefix)] = true
-		}
-	})
-
-	exempt, out := exemptions(leadingComments(sql))
+	read := readChildren(tokens)
+	exempt, out := exemptions(sql)
 	used := map[string]bool{}
 	for _, e := range c.Edges() {
 		if e.Policy != Detach || !read[e.Child] {
@@ -243,11 +228,10 @@ func CheckJoins(c *Catalog, sql string) []JoinFinding {
 }
 
 // leadingComments returns the comment block a query opens with: its lines
-// before the first SQL token. The Exemption marker is read from there
-// alone (ADR-0027 §5), so it belongs to the query the reader sees, it ends
-// up in the generated doc comment, and a marker in the query body, inside
-// a dollar-quoted string or above the next query's `-- name:` line exempts
-// nothing.
+// before the first SQL token, as a prefix of sql. Only a marker in there
+// grants an exemption (ADR-0027 §5), so it belongs to the query the reader
+// sees and ends up in the generated doc comment; a marker anywhere else is
+// reported instead.
 func leadingComments(sql string) string {
 	lines := strings.Split(sql, "\n")
 	for i, line := range lines {
@@ -259,41 +243,99 @@ func leadingComments(sql string) string {
 	return sql
 }
 
-// MarkedParents returns the detach parent tables one query exempts with
-// the Exemption marker in its leading comment block, sorted. A marker that
-// names no parent or carries no reason exempts nothing and is left out;
-// CheckJoins reports it.
-func MarkedParents(sql string) []string {
-	exempt, _ := exemptions(leadingComments(sql))
-	return slices.Sorted(maps.Keys(exempt))
+// readChildren returns the tables a query produces rows of. A table counts
+// when it is read (after FROM, JOIN or a comma in a FROM list) on a side
+// that is not nullable, outside scalar and semi-join subqueries. A table
+// that is only written (INSERT INTO, UPDATE), only LEFT-joined to its
+// parent (a parent-centric query) or only counted in a subquery is not
+// dropped by a join.
+func readChildren(tokens []string) map[string]bool {
+	read := map[string]bool{}
+	walk(tokens, func(i int, f *frame, stack []*frame) {
+		if !relationPosition(tokens, i, f) {
+			return
+		}
+		if where, safe := position(tokens, i, stack); !safe && !strings.HasPrefix(where, semiJoin) {
+			read[strings.TrimPrefix(tokens[i], ViewPrefix)] = true
+		}
+	})
+	return read
 }
 
-// exemptions reads the Exemption markers of one query and returns the
-// parent tables they exempt, with the findings: a marker that names no
-// parent and one whose reason is too short. Such a marker exempts nothing,
-// so the join it was meant for is reported as well.
+// MarkedEdges returns the detach edges of c whose nullable-side finding
+// the query's Exemption marker actually suppresses: the query reads the
+// edge's child, LEFT-joins its parent and destroys the nullable side, and
+// the marker in its leading comment block names that parent.
+//
+// It is edge-level on purpose. A marker names a parent, but a parent sits
+// on several detach edges, and only the edges this query reads are the
+// ones the marker speaks for: a query over one child says nothing about
+// another child of the same parent (ADR-0027 §2).
+func MarkedEdges(c *Catalog, sql string) []Edge {
+	tokens := tokenize(sql)
+	exempt, _ := exemptions(sql)
+	if len(exempt) == 0 {
+		return nil
+	}
+	read := readChildren(tokens)
+	var out []Edge
+	for _, e := range c.Edges() {
+		if e.Policy != Detach || !read[e.Child] || !exempt[e.Parent] {
+			continue
+		}
+		used := map[string]bool{}
+		checkNullableSide(tokens, e, exempt, used)
+		if used[e.Parent] {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// exemptions reads the Exemption markers of one query. It grants an
+// exemption only for a marker in the leading comment block, and it reports
+// every marker that grants nothing: one that names no parent, one whose
+// reason is too short, and one written anywhere else in the query — in the
+// body, after the statement, inside a dollar-quoted string or above the
+// next query's `-- name:` line. Such a marker is a dead declaration: it
+// suppresses nothing today and says the opposite of what the query does
+// once its predicate changes, so it is a finding of its own (ADR-0027 §5).
 func exemptions(sql string) (map[string]bool, []JoinFinding) {
+	leading := len(leadingComments(sql))
 	out := map[string]bool{}
 	var problems []JoinFinding
-	for _, m := range exemptionMarker.FindAllStringSubmatch(sql, -1) {
-		parent, reason := m[1], strings.TrimSpace(m[2])
-		if parent == "" {
+	for _, m := range exemptionMarker.FindAllStringSubmatchIndex(sql, -1) {
+		parent, reason := group(sql, m, 1), strings.TrimSpace(group(sql, m, 2))
+		switch {
+		case parent == "":
 			problems = append(problems, JoinFinding{
 				Where: Exemption,
 				Hint:  "name the detach parent table it exempts, then a colon and the reason",
 			})
-			continue
-		}
-		if len([]rune(reason)) < ExemptionReasonLen {
+		case len([]rune(reason)) < ExemptionReasonLen:
 			problems = append(problems, JoinFinding{
 				Where: Exemption + " " + parent,
 				Hint:  fmt.Sprintf("state why the nullable side may be destroyed, in at least %d characters", ExemptionReasonLen),
 			})
-			continue
+		case m[1] > leading:
+			problems = append(problems, JoinFinding{
+				Where: Exemption + " " + parent,
+				Hint: "it is in the wrong place, so it exempts nothing: the marker counts only in the query's leading comment block, " +
+					"above the first SQL line, where sqlc carries it into the generated doc comment",
+			})
+		default:
+			out[strings.TrimPrefix(parent, ViewPrefix)] = true
 		}
-		out[strings.TrimPrefix(parent, ViewPrefix)] = true
 	}
 	return out, problems
+}
+
+// group returns submatch n of m in sql, "" when it did not participate.
+func group(sql string, m []int, n int) string {
+	if 2*n+1 >= len(m) || m[2*n] < 0 {
+		return ""
+	}
+	return sql[m[2*n]:m[2*n+1]]
 }
 
 // checkNullableSide reports the LEFT (or FULL) joined reads of e's parent
