@@ -74,7 +74,7 @@ var (
 	// digits, then 11 to 30 alphanumerics (26 for TR). An IBAN is neither
 	// a phone nor a card number - it has letters and no Luhn checksum -
 	// so without this it printed in clear under any allowed key.
-	ibanValue = regexp.MustCompile(`^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$`)
+	ibanValue = regexp.MustCompile(`^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$`)
 )
 
 // numberDigits drops the separators people write in phone and card
