@@ -218,51 +218,62 @@ func TestLoadModelRejects(t *testing.T) {
 	tests := []struct {
 		name  string
 		model string
+		// msg, when set, must appear in the error: it says which rule
+		// refused the model, not only that one did.
+		msg string
 	}{
-		{"not json", `{`},
-		{"unknown field", `{"schema_version":"1.1","type_definitions":[],"extra":1}`},
-		{"schema 1.2", `{"schema_version":"1.2","type_definitions":[` + user + `]}`},
-		{"condition", `{"schema_version":"1.1","type_definitions":[` + user + `],"conditions":{"c":{}}}`},
-		{"duplicate type", doc(user, user)},
-		{"module", doc(user, `{"type":"doc","metadata":{"module":"m"}}`)},
-		{"direct without restriction", doc(user, `{"type":"doc","relations":{"owner":{"this":{}}}}`)},
-		{"restriction without direct", doc(user, `{"type":"doc","relations":{"owner":{"computedUserset":{"relation":"owner"}}},`+direct+`}`)},
-		{"undefined type", doc(`{"type":"doc","relations":{"owner":{"this":{}}},` + direct + `}`)},
-		{"undefined computed relation", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"v":{"computedUserset":{"relation":"nope"}}},`+direct+`}`)},
-		{"empty userset", doc(user, `{"type":"doc","relations":{"owner":{}}}`)},
-		{"two rewrites", doc(user, `{"type":"doc","relations":{"owner":{"this":{},"computedUserset":{"relation":"owner"}}},`+direct+`}`)},
-		{"conditioned restriction", doc(user, `{"type":"doc","relations":{"owner":{"this":{}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user","condition":"c"}]}}}}`)},
-		{"nested but not", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"owner"}}}}]}}},`+direct+`}`)},
-		{"set operation under and", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"intersection":{"child":[{"computedUserset":{"relation":"owner"}},{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"computedUserset":{"relation":"owner"}}]}}]}}},`+direct+`}`)},
-		{"tupleset with wildcard", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"parent"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc","wildcard":{}}]}}}}`)},
-		{"reserved relation self", doc(user, `{"type":"doc","relations":{"self":{"this":{}}},"metadata":{"relations":{"self":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
-		{"reserved relation this", doc(user, `{"type":"doc","relations":{"this":{"this":{}}},"metadata":{"relations":{"this":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
-		{"invalid type name", doc(user, `{"type":"do c"}`)},
-		{"reserved type self", doc(user, `{"type":"self"}`)},
-		{"reserved type this", doc(user, `{"type":"this"}`)},
-		{"computed cycle without a base", doc(user, `{"type":"doc","relations":{"a":{"computedUserset":{"relation":"b"}},"b":{"computedUserset":{"relation":"a"}}}}`)},
-		{"recursion without a base", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"v"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc"}]}}}}`)},
-		{"intersection with a baseless operand", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"computedUserset":{"relation":"b"}},"b":{"intersection":{"child":[{"computedUserset":{"relation":"owner"}},{"computedUserset":{"relation":"a"}}]}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
-		{"invalid relation name", doc(user, `{"type":"doc","relations":{"a#b":{"this":{}}},"metadata":{"relations":{"a#b":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
-		{"tupleset parent lacks relation", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"nope"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
+		{name: "not json", model: `{`},
+		{name: "unknown field", model: `{"schema_version":"1.1","type_definitions":[],"extra":1}`},
+		{name: "schema 1.2", model: `{"schema_version":"1.2","type_definitions":[` + user + `]}`},
+		{name: "condition", model: `{"schema_version":"1.1","type_definitions":[` + user + `],"conditions":{"c":{}}}`},
+		{name: "duplicate type", model: doc(user, user)},
+		{name: "module", model: doc(user, `{"type":"doc","metadata":{"module":"m"}}`)},
+		{name: "direct without restriction", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}}}}`)},
+		{name: "restriction without direct", model: doc(user, `{"type":"doc","relations":{"owner":{"computedUserset":{"relation":"owner"}}},`+direct+`}`)},
+		{name: "undefined type", model: doc(`{"type":"doc","relations":{"owner":{"this":{}}},` + direct + `}`)},
+		{name: "undefined computed relation", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"v":{"computedUserset":{"relation":"nope"}}},`+direct+`}`)},
+		{name: "empty userset", model: doc(user, `{"type":"doc","relations":{"owner":{}}}`)},
+		{name: "two rewrites", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{},"computedUserset":{"relation":"owner"}}},`+direct+`}`)},
+		{name: "conditioned restriction", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user","condition":"c"}]}}}}`)},
+		{name: "nested but not", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"owner"}}}}]}}},`+direct+`}`)},
+		{name: "set operation under and", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"intersection":{"child":[{"computedUserset":{"relation":"owner"}},{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"computedUserset":{"relation":"owner"}}]}}]}}},`+direct+`}`)},
+		{name: "tupleset with wildcard", model: doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"parent"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc","wildcard":{}}]}}}}`)},
+		{name: "reserved relation self", model: doc(user, `{"type":"doc","relations":{"self":{"this":{}}},"metadata":{"relations":{"self":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
+		{name: "reserved relation this", model: doc(user, `{"type":"doc","relations":{"this":{"this":{}}},"metadata":{"relations":{"this":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
+		{name: "invalid type name", model: doc(user, `{"type":"do c"}`)},
+		{name: "reserved type self", model: doc(user, `{"type":"self"}`)},
+		{name: "reserved type this", model: doc(user, `{"type":"this"}`)},
+		{name: "computed cycle without a base", model: doc(user, `{"type":"doc","relations":{"a":{"computedUserset":{"relation":"b"}},"b":{"computedUserset":{"relation":"a"}}}}`)},
+		{name: "recursion without a base", model: doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"v"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc"}]}}}}`)},
+		{name: "intersection with a baseless operand", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"a":{"computedUserset":{"relation":"b"}},"b":{"intersection":{"child":[{"computedUserset":{"relation":"owner"}},{"computedUserset":{"relation":"a"}}]}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
+		{name: "invalid relation name", model: doc(user, `{"type":"doc","relations":{"a#b":{"this":{}}},"metadata":{"relations":{"a#b":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
+		{name: "tupleset parent lacks relation", model: doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"v":{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"nope"}}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"user"}]}}}}`)},
 		// ADR-0028 rule 2: "viewer from parent" comes back to doc#viewer
 		// and doc is no bounded DAG type, so only the depth limit stops
 		// the chain - a limit OpenFGA does not have.
-		{"recursive from on an unbounded type", doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"owner":{"this":{}},"viewer":{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"viewer"}}}]}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc"}]},"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{}}}}`)},
+		{msg: "is recursive through", name: "recursive from on an unbounded type", model: doc(user, `{"type":"doc","relations":{"parent":{"this":{}},"owner":{"this":{}},"viewer":{"union":{"child":[{"computedUserset":{"relation":"owner"}},{"tupleToUserset":{"tupleset":{"relation":"parent"},"computedUserset":{"relation":"viewer"}}}]}}},"metadata":{"relations":{"parent":{"directly_related_user_types":[{"type":"doc"}]},"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{}}}}`)},
 		// ADR-0028 rule 2 on a loop that closes through a userset
 		// restriction instead of a "from" chain: doc#viewer admits
 		// [doc#viewer], so resolving it asks for itself and only the local
 		// depth limit stops the chain - the limit OpenFGA does not have.
 		// No "but not" anywhere, so rule 1 never sees this model.
-		{"recursive userset restriction on an unbounded type", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]}}}}`)},
-		// ADR-0028 rule 1 on its own: doc#viewer is recursive through its
-		// own userset restriction ([doc#viewer]), not through a "from"
-		// chain, so rule 2 does not see it; subtracting it makes the
-		// exclusion unfalsifiable.
-		{"but not over a recursive userset relation", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}},"can_view":{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"viewer"}}}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]},"can_view":{}}}}`)},
+		{msg: "is recursive through", name: "recursive userset restriction on an unbounded type", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]}}}}`)},
+		// ADR-0028 rule 1: subtracting a recursive relation makes the
+		// exclusion unfalsifiable. Both engines are asked the same
+		// question and answer differently (ADR-0024 §4), so the model is
+		// refused.
+		//
+		// Rule 2 refuses this model too - doc#viewer is recursive on an
+		// unbounded type - and which rule speaks depends on the order
+		// Relations() returns: can_view sorts before viewer, so the
+		// exclusion is checked first. That is why msg is asserted: it is
+		// the only thing holding validateExclusion's own behaviour, and
+		// renaming the relation would otherwise move the test silently to
+		// rule 2.
+		{msg: "the subtracted side", name: "but not over a recursive userset relation", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}},"can_view":{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"viewer"}}}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]},"can_view":{}}}}`)},
 		// Rule 1 reaches further than the direct operand: the subtracted
 		// "blocked" is plain, but it computes the recursive "viewer".
-		{"but not reaching recursion one step away", doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}},"blocked":{"computedUserset":{"relation":"viewer"}},"can_view":{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"blocked"}}}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]},"blocked":{},"can_view":{}}}}`)},
+		{msg: "the subtracted side", name: "but not reaching recursion one step away", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}},"blocked":{"computedUserset":{"relation":"viewer"}},"can_view":{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"blocked"}}}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]},"blocked":{},"can_view":{}}}}`)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -270,6 +281,9 @@ func TestLoadModelRejects(t *testing.T) {
 			_, err := authz.LoadModel([]byte(tt.model))
 			if !errors.Is(err, authz.ErrModel) {
 				t.Fatalf("LoadModel: %v, want ErrModel", err)
+			}
+			if tt.msg != "" && !strings.Contains(err.Error(), tt.msg) {
+				t.Fatalf("LoadModel: %v, want the error to say %q", err, tt.msg)
 			}
 		})
 	}
