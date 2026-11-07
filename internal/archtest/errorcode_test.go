@@ -68,7 +68,9 @@ func isUpperSnake(s string) bool {
 			}
 			continue
 		}
-		if !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') {
+		isUpper := c >= 'A' && c <= 'Z'
+		isDigit := c >= '0' && c <= '9'
+		if !isUpper && !isDigit {
 			return false
 		}
 	}
@@ -129,7 +131,8 @@ func codeConstants(fset *token.FileSet, f *ast.File) []codeConst {
 				if err != nil {
 					continue
 				}
-				if !typed && !(strings.HasPrefix(id.Name, "Code") && isUpperSnake(value)) {
+				named := strings.HasPrefix(id.Name, "Code") && isUpperSnake(value)
+				if !typed && !named {
 					continue
 				}
 				out = append(out, codeConst{name: id.Name, pos: fset.Position(id.Pos()).String()})
