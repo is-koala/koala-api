@@ -69,6 +69,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - Temel tablolara yalnız `koala_maint` rolü erişir: geri alma, temizlik, anonimleştirme. M1 tabloları (defter, kanıt) silinmez ve güncellenmez; katalogda `retention` taşıyan M1 tablosunun süresi dolan satırını yalnız `koala_maint` siler (tetikleyici, ADR-0026) **[test]**.
 - İlişki tablolarına (rol ataması ve sonrakiler) yazan sorgu yalnız `store.go`'dadır ve aynı fonksiyonda `authz.RelationChange` kaydeder **[test: TestRelationWritesEmitChanges]**. İlişki tabloları yetki için yalnız `internal/authz`'tan okunur **[lint: depguard authzdb]**.
 - PII alanı yanıta yalnız `*pii.Grant` alan projeksiyon fonksiyonunda `pii.Reveal` ile çıkar **[test: TestRevealOnlyInProjections]**.
+- Denetim kaydının gövdesi izin listesiyle maskelenir (ADR-0028): `internal/audit`'in `allowedKeys()`/`allowedKeyClasses()`'ında olmayan her anahtarın değeri `***` olur, gövdenin biçimi (anahtarlar, iç içelik, dizi uzunluğu) kalır. Yeni anahtar, onu getiren PR'da sınıfı ve gerekçesiyle `allowedKeys()`'e yazılır **[test]**.
 
 ## API (ADR-0005, ADR-0006, ADR-0019, `docs/api-style-guide.md`)
 
@@ -77,7 +78,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - `internal/apiv1/*.gen.go` üretilir ve commit edilir; elle düzenlenmez **[make verify: gen-check]**. `internal/codegentest` üreticinin 3.1 davranışını sabitler. Alan `http.go`'su üretilmiş `StrictServerInterface`'in kendi metotlarını uygular.
 - İstek biçimi spec'ten `httpx.ValidateRequests` ile doğrulanır; handler'da biçim kontrolü tekrar yazılmaz. Handler yalnız doğrulanmış değeri alır **[test]**. Authn doğrulamadan önce gelir.
 - `make generate` yerelde serbesttir; derleme gerektirdiği için önce yüke bakılır ve `nice -n 15` ile koşulur.
-- Servisin döndürdüğü her hata kodu `api/components/problem.yaml`'daki `ErrorCode` listesindedir (platform ve realtime kodları için **[test]**).
+- Servisin döndürdüğü her hata kodu `api/components/problem.yaml`'daki `ErrorCode` listesindedir **[test]**. Bir pakette tanımlı her `apperr.Code` sabiti o paketin `Codes()` listesinde olur, her `Codes()` de sözleşme testinde okunur **[test: internal/archtest]**.
 - İstemci başlıkları (`X-Client-Platform`, `X-Device-Id`, `X-App-Version`), yol normalizasyonu ve adres başına oran sınırı router'ın kök zincirindedir; WebSocket dahil her istek onlardan geçer. Yeni kapı kök zincire konur, route grubuna değil (ADR-0018 §8, ADR-0021) **[test]**.
 - Her route bir oran sınırı grubundadır: operasyonun `x-rate-limit`'i ya da metodun varsayılanı. Grup tablosu `internal/app/edge.go`'dadır (ADR-0021) **[test]**.
 
