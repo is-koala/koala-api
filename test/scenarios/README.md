@@ -16,6 +16,10 @@ Her alan için bir dosya: `test/scenarios/<alan>.yaml`.
 |---|---|---|
 | [`payment.yaml`](payment.yaml) | Ödeme, emanet, payout, iade, iptal cezası, uyuşmazlık çözümü | 23 |
 | [`auth.yaml`](auth.yaml) | Kimlik doğrulama, oturum, parola, personel girişi | 18 |
+| [`user.yaml`](user.yaml) | Kayıt, OTP, parola sıfırlama, profil, profil senkronu | 27 |
+| [`identity.yaml`](identity.yaml) | Kimlik belgesi yükleme, personel incelemesi, kimlik verisinin görünürlüğü | 20 |
+| [`company.yaml`](company.yaml) | Şirket, üyelik, davet, takip | 22 |
+| [`media.yaml`](media.yaml) | Yükleme, depolama anahtarı, üstveri, adres, referans verisi | 12 |
 
 Diğer alanlar (atama, ilan, mesajlaşma, KVKK, ulaşım…) ilgili fazda eklenir.
 
@@ -88,6 +92,8 @@ Dosya içinde P0'lar önce gelir.
 1. `id`'ler tekil ve `<id_prefix>-<nnn>` biçiminde; `id_prefix` dosya başında var (`TestCatalogsAreWellFormed`).
 2. `priority` ∈ {P0, P1, P2}; `source` boş değil.
 3. Fazı başlamış alanda (`activeDomains`; Faz 1'den beri `auth`) her P0'ın ya `go_test`'i ya `deferred`'ı var, ikisi birden değil; hiçbir `deferred` ya da `partial` geçmiş bir fazı beklemiyor. Bağlı her test, hangi öncelikte olursa olsun, paketinin test dosyalarında var ve senaryo kimliğini gövdesindeki bir dizgede taşıyor; adlandırılan alt test var (`TestScenariosAreBoundToTests`). Testin geçtiğini kapı kanıtlar: birim testleri `make verify`, DB'li olanları `make test-integration` koşar.
+
+4. Sözleşmesi dondurulmuş bir alanda (`frozenDomains`) sözleşme ile katalog birlikte tutar: bir alanın etiketlerinde `x-not-implemented` taşıyan operasyon kaldığı sürece o alanın her P0'ı `deferred`'dır, işaretli operasyon kalmayınca hiçbir P0'ı `deferred` olamaz (`TestFrozenDomainsDeferTheirScenarios`, ADR-0029 §1). Granülerlik alan düzeyidir: senaryo API'den bağımsız yazılır ve operasyon adlandırmaz. Daha sonraki bir fazı bekleyen `deferred` bu kuralın dışındadır.
 
 Kapsama oranı (P0/P1 için `go_test` dolu ve yeşil olanlar / toplam) faz çıkışında ölçülür.
 

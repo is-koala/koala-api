@@ -1,0 +1,498 @@
+# Kimlik belgesi yükleme, personel incelemesi ve kimlik verisinin görünürlüğü senaryoları.
+# Biçim: test/scenarios/README.md. Kaynak: Java origin/main (0cbbce69, okundu, koşturulmadı).
+# NFC çip yolu (K15) Faz 2b'dedir ve bu dosyada yoktur (ADR-0029 Karar 5).
+
+domain: identity
+id_prefix: IDN
+version: 0
+scenarios:
+
+  - id: IDN-001
+    priority: P0
+    title: Kimlik incelemesi dört sabit fotoğraf yuvasıyla açılır ve kullanıcıyı damgalamaz
+    rule: >
+      Kimlik belgesi gönderimi dört fotoğraf ister: yüz, belgenin ön yüzü, belgenin arka yüzü ve
+      belgeyi yüzün yanında tutan kare. Dördü de zorunludur. Gönderim yalnız bekleyen bir inceleme
+      açar; kullanıcının kimlik doğrulanmışlığına, rozetlerine ve profiline dokunmaz.
+    given:
+      - "Kullanıcı U'nun kimliği doğrulanmamış ve açık incelemesi yok"
+    when:
+      - "U dört fotoğrafı ve beyan ettiği kimlik bilgilerini gönderir"
+    then:
+      - "Durumu bekleyen olan bir inceleme açılır"
+      - "Dört fotoğraf incelemeye bağlanır"
+      - "U'nun kimlik doğrulanmışlığı değişmez; profili ve rozetleri güncellenmez"
+      - "Yuvalardan biri eksikse gönderim reddedilir"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#submittingFourPhotosCreatesAPendingReviewWithoutStampingIdentity"
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityVerificationManager.java#submit"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kimlik handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-002
+    priority: P0
+    title: Açık inceleme ikinci gönderimi engeller; reddedilmiş inceleme engellemez
+    rule: >
+      Kullanıcının bekleyen bir incelemesi varken ikinci gönderim reddedilir ve önceki fotoğraflar
+      yerinde kalır. İnceleme reddedildikten sonra kullanıcı yeni bir inceleme açabilir. Kimliği
+      zaten doğrulanmış kullanıcı hiç gönderemez.
+    given:
+      - "Kullanıcı U'nun bekleyen bir incelemesi var"
+    when:
+      - "U ikinci kez dört fotoğraf gönderir"
+      - "İnceleme reddedilir ve U yeniden gönderir"
+    then:
+      - "İkinci gönderim reddedilir; açık incelemenin fotoğrafları değişmez"
+      - "Ret sonrası gönderim yeni bir inceleme açar; eski inceleme ve fotoğrafları yerinde kalır"
+      - "Kimliği doğrulanmış kullanıcının gönderimi reddedilir"
+    error: IDENTITY_REVIEW_PENDING
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityVerificationManager.java#submit"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#theCurrentUserCanReadTheirLatestReviewIncludingARejection"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kimlik handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-003
+    priority: P0
+    title: Kabul edilen fotoğraf tipi içerikten belirlenir, dosya adından ya da istemcinin beyanından değil
+    rule: >
+      Yalnız JPEG ve PNG kabul edilir. Tip dosyanın içeriğinden saptanır; dosya adının uzantısı ve
+      istemcinin bildirdiği içerik tipi karara girmez. Saklanan nesnenin içerik tipi sunucunun
+      saptadığı tiptir. Görüntü olarak çözülemeyen dosya hiç saklanmaz.
+    given:
+      - "Kullanıcı U kimlik gönderimi yapıyor"
+    when:
+      - "Gerçekte metin olan bir dosya görüntü adıyla ve görüntü beyanıyla gönderilir"
+      - "Gerçekte JPEG olan bir dosya PNG beyanıyla gönderilir"
+    then:
+      - "Metin dosyası reddedilir ve nesne deposuna hiçbir şey yazılmaz"
+      - "Beyanı yanlış olan JPEG, saptanan tipiyle saklanır; istemcinin beyanı kaydedilmez"
+    error: MEDIA_TYPE_UNSUPPORTED
+    decision: "Java hatası (izin listesi uzantıdan; depoya istemcinin ham beyanı yazılıyor)"
+    target: >
+      Tip sihirli baytlardan saptanır (ADR-0029 Karar 5). Java izin listesini dosya adının
+      uzantısından çıkarıyor ve nesnenin içerik tipine istemcinin ham başlığını yazıyor; sahte dosya
+      yalnız çözümleme hatasıyla, dolaylı olarak düşüyor.
+    source:
+      - "src/main/java/com/exskylab/koala/core/helpers/UploadValidator.java#validate"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aPhotoThatCannotBeDecodedIsRefusedInsteadOfBeingStoredRaw"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; medya doğrulaması Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-004
+    priority: P0
+    title: Fotoğraf boyutu ve tuval büyüklüğü sınırlıdır
+    rule: >
+      Her fotoğraf en çok on mebibayttır ve tuvali en çok elli megapikseldir. Sınırı aşan dosya
+      reddedilir; tuval kontrolü pikselleri çözmeden başlık bilgisinden yapılır.
+    given:
+      - "Kullanıcı U kimlik gönderimi yapıyor"
+    when:
+      - "On mebibayttan büyük bir fotoğraf gönderilir"
+      - "Elli megapikselden büyük tuvalli bir fotoğraf gönderilir"
+    then:
+      - "İki gönderim de reddedilir"
+      - "Nesne deposuna hiçbir şey yazılmaz"
+    error: MEDIA_TOO_LARGE
+    source:
+      - "src/main/java/com/exskylab/koala/core/helpers/UploadValidator.java#rejectOversizedCanvas"
+      - "src/main/java/com/exskylab/koala/core/properties/UploadProperties.java:1-40"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; medya doğrulaması Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-005
+    priority: P0
+    title: Kimlik fotoğrafının konum verisi dahil bütün üstverisi silinir
+    rule: >
+      Saklanan fotoğraf yalnız piksel içeriğini taşır. Bütün üstveri bölütleri düşer: konum (GPS)
+      koordinatları, kamera markası ve modeli, seri numaraları, benzersiz görüntü kimliği ve PNG
+      metin parçaları. Konum verisi hiçbir yerde kaydedilmez ve loglanmaz.
+    given:
+      - "Konum, kamera ve seri numarası üstverisi taşıyan dört fotoğraf"
+    when:
+      - "Fotoğraflar kimlik gönderimiyle saklanır"
+    then:
+      - "Saklanan baytlarda konum koordinatı bulunmaz"
+      - "Saklanan baytlarda üstveri bölütü imzası bulunmaz"
+      - "Saklanan baytlarda kamera markası ve seri numarası bulunmaz"
+      - "Fotoğraf hâlâ geçerli bir görüntüdür"
+      - "Konum verisi loga yazılmaz"
+    decision: "[[job-location-rule]]"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#identityPhotosAreStoredUnderThePrivatePrefixWithoutTheirExifSegment"
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityVerificationManager.java#withoutMetadata"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; üstveri striplemesi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-006
+    priority: P0
+    title: Yan yatmış fotoğraf dik saklanır ve yön etiketi de silinir
+    rule: >
+      Fotoğrafın yön bilgisi saklamadan önce okunur ve piksellere uygulanır; etiketin kendisi sonra
+      silinir. Dik olmayan bir fotoğrafın genişliği ve yüksekliği yer değiştirir. Zaten dik olan
+      fotoğrafın boyutları değişmez.
+    given:
+      - "Yön etiketi çeyrek dönüş bildiren, genişliği yüksekliğinden büyük bir fotoğraf"
+    when:
+      - "Fotoğraf kimlik gönderimiyle saklanır"
+    then:
+      - "Saklanan fotoğrafın genişliği ve yüksekliği yer değiştirir"
+      - "Saklanan baytlarda yön etiketi bulunmaz"
+      - "Zaten dik olan fotoğrafın boyutları değişmez"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aSidewaysIdentityPhotoIsStoredUprightSoItsWidthAndHeightSwap"
+      - "src/main/java/com/exskylab/koala/core/utilities/image/ExifOrientation.java#applyToPixels"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; üstveri striplemesi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-007
+    priority: P0
+    title: Kimlik fotoğrafları hiçbir genel yoldan okunamaz
+    rule: >
+      Kimlik fotoğraflarının saklandığı alan hiçbir genel okuma yoluna bağlı değildir ve hiçbir
+      genel adrese çözülmez. Eski bir kimlik fotoğrafı yanlışlıkla genel alanda kalmışsa da genel
+      okuma yolundan verilmez; silinmiş olanı da verilmez. Sondaki eğik çizgi gibi küçük
+      değişiklikler kontrolü atlatmaz.
+    given:
+      - "Bir kimlik fotoğrafı özel alanda; bir eskisi yanlışlıkla genel alanda"
+    when:
+      - "İki fotoğraf genel okuma yolundan istenir"
+      - "Eski fotoğrafın adresi sondaki eğik çizgiyle istenir"
+      - "Eski fotoğrafın kaydı silinip yeniden istenir"
+    then:
+      - "Dört istek de var olmayan dosyanın yanıtını alır"
+      - "Profil fotoğrafları genel okuma yolundan verilmeye devam eder"
+      - "Kimlik fotoğrafının adresi hiçbir yanıtta üretilmez"
+    source:
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityPhotoPrivacyIT.java#aLegacyIdentityPhotoLeftUnderImagesIsNoLongerPublicWhileProfileImagesStillAre"
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityPhotoPrivacyIT.java#aTrailingSlashDoesNotSlipALegacyIdentityPhotoPastTheCheck"
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityPhotoPrivacyIT.java#aSoftDeletedLegacyIdentityPhotoStaysHiddenFromThePublicImageRoute"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; depolama okuma yolu Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-008
+    priority: P0
+    title: Onay dört yuvanın hepsinin gerçek kanıt olmasını ister
+    rule: >
+      Bir inceleme ancak dört fotoğraf yuvasının hepsi gerçek bir kanıt taşıyorsa onaylanabilir.
+      Yuvası boş olan ya da depolama anahtarı boşaltılmış olan inceleme onaylanamaz ve hiçbir kayıt
+      güncellenmez; inceleme bekleyen kalır.
+    given:
+      - "Dört yuvadan biri eksik ya da anahtarı boşaltılmış bir bekleyen inceleme"
+    when:
+      - "Personel incelemeyi onaylamaya çalışır"
+    then:
+      - "Onay reddedilir"
+      - "İnceleme bekleyen kalır; hiçbir kayıt güncellenmez"
+      - "Kullanıcının kimlik doğrulanmışlığı değişmez"
+    error: IDENTITY_REVIEW_DOCUMENTS_MISSING
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#approvalRefusesAPendingReviewMissingAnyOfTheFourDocuments"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aDocumentWhoseStorageKeyWasClearedDoesNotCountAsEvidence"
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aPendingReviewMissingOnlyTheTogetherPhotoIsRefused"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-009
+    priority: P0
+    title: Ret dört yuvayı istemez
+    rule: >
+      Reddetme dört fotoğrafın varlığını istemez: eksik ya da eski bir inceleme de her zaman
+      reddedilebilir. Böylece kapatılamayan inceleme kalmaz.
+    given:
+      - "Yalnız iki fotoğrafı olan eski bir bekleyen inceleme"
+    when:
+      - "Personel incelemeyi gerekçesiyle reddeder"
+    then:
+      - "İnceleme reddedilir"
+      - "Aynı inceleme onaylanmaya çalışılsa reddedilirdi"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aLegacyTwoPhotoReviewCanStillBeRejected"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aLegacyTwoPhotoReviewCannotBeApproved"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-010
+    priority: P0
+    title: Karar verilmiş inceleme yeniden karara açılmaz ve yarışan iki karar fail-closed düşer
+    rule: >
+      Onaylanmış ya da reddedilmiş bir inceleme terminaldir: ikinci karar çakışma hatası alır ve
+      hiçbir kayıt güncellenmez. Karar satır kilidi altında verilir, bu yüzden aynı anda gelen bir
+      onay ile bir ret arasında ikincisi her zaman düşer.
+    given:
+      - "Bekleyen bir inceleme ve aynı anda karar vermeye çalışan iki personel"
+    when:
+      - "Biri reddeder, sonra diğerinin onayı kilidin arkasından geçer"
+      - "Biri onaylar, sonra diğerinin reddi kilidin arkasından geçer"
+    then:
+      - "İki durumda da ikinci karar çakışma hatası alır"
+      - "İkinci kararda hiçbir kayıt yazılmaz"
+      - "Karar kilitli satır üzerinde verilir, kilitsiz okuma üzerinde değil"
+    error: IDENTITY_REVIEW_ALREADY_DECIDED
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#anApprovalThatLandsAfterARejectionFailsClosed"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aRejectionThatLandsAfterAnApprovalFailsClosed"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#approvalDecidesOnTheRowLockedForUpdateNotOnAnUnlockedRead"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-011
+    priority: P0
+    title: Onay kullanıcıyı damgalar ve kimlik alanlarını dondurur
+    rule: >
+      Onay kullanıcının kimliğini doğrulanmış işaretler, doğrulama anını ve yöntemini yazar ve
+      beyandaki ad, soyad, doğum tarihi ile kimlik numarasını kullanıcıya kopyalar. Ad ve soyad
+      Türkçe yerelle baş harfi büyük kalanı küçük olacak biçimde yazılır. Bu alanlar artık profilden
+      değiştirilemez.
+    given:
+      - "Dört fotoğrafı tam, bekleyen bir inceleme; beyandaki ad küçük harflerle yazılmış"
+    when:
+      - "Personel incelemeyi onaylar"
+    then:
+      - "Kullanıcının kimliği doğrulanmış olur; doğrulama anı ve yöntemi yazılır"
+      - "Ad ve soyad Türkçe yerelle büyük harfe çevrilir"
+      - "Kullanıcı artık adını, soyadını ve doğum tarihini değiştiremez"
+      - "İncelemenin kararını veren personelin kimliği kaydedilir"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityVerificationManager.java#approve"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityVerificationRulesTest.java#theNameIsStillCapitalisedWithTheTurkishLocale"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-012
+    priority: P0
+    title: Aynı kimlik numarası ikinci bir kullanıcıya onaylanamaz
+    rule: >
+      Onay anında kimlik numarasının başka bir kullanıcıya ait olup olmadığı denetlenir; aitse onay
+      çakışma hatasıyla düşer ve inceleme bekleyen kalır. Kimlik numarasında sağlama doğrulaması
+      yapılmaz, yalnız biçim denetlenir.
+    given:
+      - "Kullanıcı U1'in onaylı kimlik numarası K"
+      - "Kullanıcı U2 aynı K'yı beyan eden bekleyen bir inceleme açmış"
+    when:
+      - "Personel U2'nin incelemesini onaylar"
+    then:
+      - "Onay reddedilir; inceleme bekleyen kalır"
+      - "U2'nin kimliği doğrulanmış olmaz"
+    error: TC_IDENTITY_NUMBER_ALREADY_IN_USE
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityVerificationManager.java#approve"
+      - "src/main/java/com/exskylab/koala/core/dtos/user/request/VerifyIdentityDto.java:1-40"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-013
+    priority: P0
+    title: Ret gerekçesi zorunludur ve uzunluğu sınırlıdır
+    rule: >
+      Reddetme gerekçesi zorunludur, serbest metindir ve en çok bin karakterdir; boş ya da yalnız
+      boşluktan oluşan gerekçe reddedilir. Gerekçe biçimi istek sınırında doğrulanır, iş katmanında
+      yeniden denetlenmez.
+    given:
+      - "Bekleyen bir inceleme"
+    when:
+      - "Gerekçe verilmeden ret denenir"
+      - "Yalnız boşluktan oluşan gerekçeyle ret denenir"
+      - "Bin karakterden uzun gerekçeyle ret denenir"
+    then:
+      - "Üç istek de reddedilir"
+      - "İnceleme bekleyen kalır"
+    source:
+      - "src/main/java/com/exskylab/koala/core/dtos/identity/request/RejectIdentityReviewDto.java:1-20"
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aBlankRejectionReasonIsRefusedByTheRequestContract"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-014
+    priority: P0
+    title: İnceleme yanıtı hiçbir depolama adresi taşımaz
+    rule: >
+      İnceleme kaydının yanıtı hiçbir depolama anahtarı, kova adı, uç nokta ya da bağlantı taşımaz.
+      Fotoğrafa erişim yalnız ayrı bir indirme adımıyla olur. İstemcinin gönderdiği gövde incelemenin
+      sunucudaki kaydını değiştiremez.
+    given:
+      - "Dört fotoğrafı olan bir inceleme"
+    when:
+      - "Personel incelemeyi okur"
+      - "Personel onay isteğine dört fotoğrafın var olduğunu iddia eden bir gövde ekler"
+    then:
+      - "Yanıtta adres, anahtar, kova ya da bağlantı adı taşıyan alan bulunmaz"
+      - "İstemcinin gövdesi yok sayılır; sunucunun kaydı geçerlidir"
+    source:
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityDocumentDownloadContractTest.java#theReviewDtoNamesNoStorageAddress"
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityDocumentDownloadContractTest.java#approvalCarriesNoClientSuppliedEvidence"
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityReviewApprovalIT.java#aForgedApprovalBodyClaimingFourPhotosIsIgnoredAndTheServerRecordWins"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-015
+    priority: P0
+    title: Personel indirmesi kısa ömürlü imzalı bir adrestir
+    rule: >
+      Personel bir kimlik fotoğrafını indirdiğinde yanıt, kısa ömürlü imzalı bir adrese yönlendirir.
+      Adresin ömrü yapılandırılmış pencereyi aşmaz ve on beş dakikadan uzun olamaz; adres genel
+      dağıtım alan adını kullanmaz. Yanıt önbelleğe alınmaz ve içerik tipi tahmini kapatılır.
+    given:
+      - "İncelemeye bağlı bir kimlik fotoğrafı"
+    when:
+      - "Yetkili personel fotoğrafı indirir"
+    then:
+      - "Yanıt kısa ömürlü imzalı bir adrese yönlendirir"
+      - "Adresin ömrü yapılandırılmış pencereye eşittir ve on beş dakikayı aşmaz"
+      - "Adres genel dağıtım alan adıyla başlamaz"
+      - "Yanıt önbelleğe alınmaz ve içerik tipi tahmini kapalıdır"
+    source:
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityDocumentDownloadContractTest.java#aSignedDownloadAddressExpiresWithinTheConfiguredWindow"
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityDocumentDownloadContractTest.java#theDownloadRouteHandsOutTheShortLivedAddressAndNothingElse"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-016
+    priority: P0
+    title: Başka bir incelemenin fotoğrafı var olmayandan ayırt edilemez
+    rule: >
+      Bir incelemeye ait olmayan fotoğraf kimliğiyle indirme istenirse yanıt, hiç var olmamış bir
+      fotoğrafın yanıtıyla aynıdır. Depolama anahtarı boşaltılmış bir fotoğraf da aynı yanıtı alır.
+    given:
+      - "İnceleme R1'in bir fotoğrafı ve inceleme R2"
+    when:
+      - "R2 üzerinden R1'in fotoğrafı indirilmek istenir"
+      - "R2 üzerinden hiç var olmamış bir fotoğraf kimliği istenir"
+      - "Anahtarı boşaltılmış bir fotoğraf istenir"
+    then:
+      - "Üç yanıt da aynı; gövdeleri bayt bayt aynı"
+    error: IDENTITY_DOCUMENT_NOT_FOUND
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aDocumentThatDoesNotBelongToTheReviewIsConcealed"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aPhotoWhoseStorageKeyWasClearedCannotBeDownloaded"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; inceleme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-017
+    priority: P0
+    title: Kimlik incelemesi izni olmayan personel reddedilir ve ret de denetime yazılır
+    rule: >
+      Kimlik inceleme kuyruğunu, bir incelemeyi ya da bir fotoğrafı okumak kimlik inceleme iznini
+      ister. İzin kişisel veri sınıfında olduğu için okumaların kendisi de denetim kaydına yazılır;
+      reddedilen deneme de yazılır.
+    given:
+      - "Kimlik inceleme izni olan personel P1; izni olmayan personel P2"
+    when:
+      - "P1 bir kimlik fotoğrafını indirir"
+      - "P2 aynı fotoğrafı indirmeye çalışır"
+    then:
+      - "P1'in okuması başarılı olur ve denetim kaydına yazılır"
+      - "P2 izin hatası alır"
+      - "P2'nin reddedilen denemesi de denetim kaydına izin verilmemiş olarak yazılır"
+    error: STAFF_PERMISSION_DENIED
+    source:
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityPhotoPrivacyIT.java#aStaffMemberHoldingIdentityReviewDownloadsThePhotoAndTheReadIsAudited"
+      - "src/test/java/com/exskylab/koala/webAPI/IdentityPhotoPrivacyIT.java#aStaffMemberWithoutIdentityReviewIsRefusedAndTheAttemptIsAudited"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; admin kimlik uçları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-018
+    priority: P0
+    title: Kimlik numarası admin yanıtlarında açık görünmez
+    rule: >
+      Personelin gördüğü kullanıcı detayında kimlik numarası hiç bulunmaz. Kimlik açılma izlerinin
+      listesinde de kimlik numarası bulunmaz ve kayıttaki adres bilgisi yazım anında maskelenmiştir.
+      Kimlik numarası yalnız inceleme kaydında, karşılaştırmayı yapan incelemeciye görünür.
+    given:
+      - "Kimliği doğrulanmış kullanıcı U ve U'ya ait bir kimlik açılma kaydı"
+    when:
+      - "Personel U'nun detayını okur"
+      - "Personel U'nun kimlik açılma izlerini okur"
+    then:
+      - "İki yanıtta da kimlik numarası bulunmaz"
+      - "Açılma kaydındaki adres bilgisi maskelidir; tam adres görünmez"
+      - "İnceleme kaydında beyan edilen kimlik numarası incelemeciye görünür"
+    source:
+      - "src/main/java/com/exskylab/koala/core/dtos/user/response/AdminUserDetailDto.java:1-40"
+      - "src/main/java/com/exskylab/koala/core/dtos/identity/response/AdminIdentityRevealDto.java:1-20"
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityRevealManager.java#listForStaff"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; admin kimlik uçları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: IDN-019
+    priority: P1
+    title: Kullanıcı hem onaydan hem retten haberdar edilir
+    rule: >
+      İnceleme onaylandığında kullanıcı bilgilendirilir ve rozetleri yeniden değerlendirilir.
+      Reddedildiğinde de kullanıcı bilgilendirilir; ret gerekçesi kullanıcının kendi inceleme
+      kaydından okunabilir.
+    given:
+      - "Bekleyen bir inceleme"
+    when:
+      - "İnceleme onaylanır"
+      - "Başka bir inceleme reddedilir"
+    then:
+      - "Onayda kullanıcı bilgilendirilir ve rozetleri değerlendirilir"
+      - "Rette de kullanıcı bilgilendirilir"
+      - "Kullanıcı kendi incelemesini okuduğunda ret gerekçesini görür"
+    decision: "Java hatası (ret hiçbir bildirim göndermiyor)"
+    target: >
+      Ret de bildirim gönderir (ADR-0029 Karar 5). Java yalnız onayda bildiriyor; reddi kullanıcı
+      ancak kendi kaydını yoklayarak öğreniyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityVerificationManager.java#approve"
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityVerificationManager.java#reject"
+      - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#theCurrentUserCanReadTheirLatestReviewIncludingARejection"
+    go_test: null
+
+  - id: IDN-020
+    priority: P1
+    title: Kimlik inceleme kuyruğu bekleyenle başlar ve yalnız izinli alanlarla sıralanır
+    rule: >
+      Kuyruk süzgeci verilmezse bekleyen incelemeleri gösterir. Serbest metin aramada büyük-küçük
+      harf ve aksan duyarsız eşleşme yapılır; kullanıcının adresi, kullanıcının adı ve beyan edilen
+      ad aranır. İzin listesinde olmayan sıralama alanı reddedilir.
+    given:
+      - "Bekleyen, onaylanmış ve reddedilmiş incelemeler var"
+    when:
+      - "Kuyruk süzgeçsiz okunur"
+      - "İzin listesinde olmayan bir alanla sıralanmak istenir"
+    then:
+      - "Süzgeçsiz okuma bekleyen incelemeleri döndürür"
+      - "İzinsiz sıralama alanı reddedilir"
+      - "Kullanıcı kaydı artık olmayan bir inceleme de listede kalır"
+    error: SORT_FIELD_NOT_ALLOWED
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/IdentityVerificationManager.java#search"
+    go_test: null
