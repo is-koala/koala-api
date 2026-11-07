@@ -20,6 +20,14 @@ type Date = openapi_types.Date
 // Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
 type ID = openapi_types.UUID
 
+// NullableTimestamp Henüz olmamış olabilen bir an: Timestamp'ın null kabul eden biçimi (bir kararın
+// anı, bir onayın anı). Zorunlu ve nullable olduğu için Go'da pointer olur, böylece
+// "atanmadı" sessizce sıfır değer olarak yazılmaz (stil rehberi §9, ADR-0019).
+// Değeri varken Timestamp'ın bütün kuralları geçerlidir: UTC ve `Z`.
+//
+// Examples: 2026-08-27T06:30:00Z
+type NullableTimestamp = jsontime.UTC
+
 // OffsetDateTime Yerel anlamı olan zaman (ilan başlangıcı gibi), RFC 3339, kaynağın saat
 // diliminin ofsetiyle (`2026-08-27T09:30:00+03:00`). Saat dilimi aynı nesnede
 // `timeZone` alanında taşınır. Alan adı `At` ile biter (`startsAt`).

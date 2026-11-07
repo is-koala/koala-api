@@ -37,6 +37,11 @@ const (
 	// KindUnsupportedMediaType: the request body's Content-Type is not one
 	// the operation accepts (ADR-0019).
 	KindUnsupportedMediaType
+	// KindNotImplemented: the operation's contract is frozen but its
+	// handler has not landed (ADR-0029 §1). The route exists and its
+	// contract binds; only the implementation is missing, which is why
+	// this is not KindNotFound.
+	KindNotImplemented
 )
 
 // String returns a stable, lowercase name for logs.
@@ -64,6 +69,8 @@ func (k Kind) String() string {
 		return "unavailable"
 	case KindUnsupportedMediaType:
 		return "unsupported_media_type"
+	case KindNotImplemented:
+		return "not_implemented"
 	default:
 		return fmt.Sprintf("kind(%d)", uint8(k))
 	}

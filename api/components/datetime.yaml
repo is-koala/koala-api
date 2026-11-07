@@ -19,6 +19,20 @@ components:
       x-go-type-import:
         path: github.com/is-koala/koala-api/internal/platform/jsontime
 
+    NullableTimestamp:
+      type: [string, "null"]
+      format: date-time
+      pattern: "Z$"
+      description: |
+        Henüz olmamış olabilen bir an: Timestamp'ın null kabul eden biçimi (bir kararın
+        anı, bir onayın anı). Zorunlu ve nullable olduğu için Go'da pointer olur, böylece
+        "atanmadı" sessizce sıfır değer olarak yazılmaz (stil rehberi §9, ADR-0019).
+        Değeri varken Timestamp'ın bütün kuralları geçerlidir: UTC ve `Z`.
+      examples: ["2026-08-27T06:30:00Z"]
+      x-go-type: jsontime.UTC
+      x-go-type-import:
+        path: github.com/is-koala/koala-api/internal/platform/jsontime
+
     OffsetDateTime:
       type: string
       format: date-time

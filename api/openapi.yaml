@@ -49,6 +49,46 @@ tags:
     description: |
       Personel girişi ve personel token sınıfı (ADR-0015 §5, ADR-0025): kilit,
       `must_change_password`, `token_version`. TOTP Faz 8'de gelir (K13).
+  - name: users
+    description: |
+      Üç adımlı kayıt, parola sıfırlama, profil ve doğrulama kodları (ADR-0029
+      Karar 2-4). Kayıt adımlarının ikisi kimliksizdir; profil uçları çağıranın
+      kendi kaydına dokunur.
+  - name: identity
+    description: |
+      Kimlik belgesi incelemesi: dört fotoğraflık gönderim ve çağıranın kendi
+      incelemesi (ADR-0029 Karar 5). NFC çip yolu Faz 2b'dedir ve bu sözleşmede
+      yoktur (K15).
+  - name: company
+    description: |
+      Şirket, üyelik, davet ve takip (K17, ADR-0029 Karar 7). Şirket onay bekler
+      durumda açılır; onay personel tarafındadır (`admin-company`).
+  - name: media
+    description: |
+      Yükleme. Dosya API'den geçmez: istemci presigned URL ile karantina alanına
+      yazar, tamamlama adımı doğrular, üstveriyi stripler ve son yerine taşır
+      (ADR-0019 §4, ADR-0029 Karar 6).
+  - name: address
+    description: |
+      Adres kaydı ve sağlayıcıdan (Google) adres arama. Sağlayıcının
+      biçimlendirdiği metin ve ham yanıtı saklanmaz; yalnız yer kimliği ve kendi
+      bileşenlerimiz kalır (ADR-0029 Karar 8).
+  - name: reference
+    description: |
+      Salt okunur referans verisi: şehir, ilçe, üniversite, fakülte, bölüm. Yazma
+      işlemi yoktur ve okumak kimlik istemez.
+  - name: admin-users
+    description: |
+      Personelin kullanıcı yüzeyi. Kullanıcı detayı tek operasyondur, iki
+      projeksiyonu vardır: PII alanları yalnız `user.read_pii` ile dolar, izni
+      olmayan personel onları `null` görür (ADR-0026, ADR-0029 Karar 9).
+  - name: admin-identity
+    description: |
+      Personelin kimlik inceleme yüzeyi (`identity.review`). İzin kişisel veri
+      sınıfında olduğu için okumalar da denetim kaydına yazılır (ADR-0026).
+  - name: admin-company
+    description: |
+      Personelin şirket onay yüzeyi (`company.approve`).
   - name: realtime
     description: |
       WebSocket kanalı (ADR-0011, ADR-0018). Bu uçlar üretilen strict sunucunun
@@ -606,6 +646,2805 @@ paths:
         default:
           $ref: "#/components/responses/InternalError"
 
+  /v1/auth/registrations:
+    post:
+      operationId: startRegistration
+      tags: [users]
+      summary: Kaydı başlatır ve adrese doğrulama bağlantısı gönderir.
+      description: |
+        Üç adımlı kaydın birinci adımı (ADR-0029 Karar 2). Adres kayıtlı olsun olmasın
+        aynı gövde döner ve aynı maliyet ödenir; kayıtlı adrese posta gitmez ve bekleyen
+        kayıt yazılmaz (USR-001). Aynı adres için ikinci istek öncekini iptal eder ve
+        yeniden gönderme olur; adres başına tek açık bekleyen kayıt vardır (USR-002).
+        Bağlantının token'ı opaktır, özetlenerek saklanır ve bir saat yaşar (USR-003).
+        Oran sınırı `auth` grubu, adres ve hedefin özeti başına.
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Tekrar eden istek yalnız bekleyen kaydı yeniler ve yeni bir posta gönderir; kullanıcı oluşmaz.
+      requestBody:
+        description: Kaydı başlatan bilgiler.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartRegistrationRequest"
+      responses:
+        "202":
+          description: |
+            Adres kayıtlı değilse doğrulama postası kuyruğa girdi. Yanıt adresin kayıtlı
+            olup olmadığını söylemez ve önbelleğe alınmaz.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/registrations/verify:
+    post:
+      operationId: verifyRegistration
+      tags: [users]
+      summary: Bağlantının token'ını kısa ömürlü bir kayıt token'ına çevirir.
+      description: |
+        İkinci adım. Bağlantı token'ı tüketilmez (kullanıcı bağlantıya iki kez basabilir);
+        verilen kayıt token'ı tek kullanımlıktır, bekleyen kayda bağlıdır ve on beş dakika
+        yaşar (USR-004). Parola yalnız kayıt token'ıyla gönderilir, bir saat yaşayan
+        bağlantı token'ıyla değil. Bilinmeyen, iptal edilmiş ve süresi dolmuş token aynı
+        gövdeyi alır; süresi dolmuş token'ın bekleyen kaydı o anda iptal edilir (USR-003).
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Bağlantı token'ı tüketilmez; tekrar eden istek yalnız yeni bir kayıt token'ı verir.
+      requestBody:
+        description: Bağlantının token'ı.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyRegistrationRequest"
+      responses:
+        "200":
+          description: Kayıt token'ı. Yanıt önbelleğe alınmaz.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegistrationToken"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/registrations/complete:
+    post:
+      operationId: completeRegistration
+      tags: [users]
+      summary: Parolayı belirler, kullanıcıyı oluşturur ve oturum açar.
+      description: |
+        Üçüncü adım. Zorunlu rızalar kayıt token'ı hiç okunmadan denetlenir; rıza eksikse
+        token tüketilmez (USR-005). Kullanıcı bekleyen kayıttan oluşur, e-postası
+        doğrulanmış sayılır, telefonu ve kimliği doğrulanmamış olur; bekleyen kayıt
+        tüketilir ve cihaza bağlı bir oturum açılır (USR-006). Parola en az 15, en çok 128
+        karakterdir (USR-021).
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 8192
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Rızalar, kayıt token'ı ve parola.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteRegistrationRequest"
+      responses:
+        "201":
+          description: Kullanıcı oluştu; yeni oturumun token çifti. Yanıt önbelleğe alınmaz.
+          headers:
+            Location:
+              description: Oluşan kullanıcının kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/me"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/password-reset:
+    post:
+      operationId: requestPasswordReset
+      tags: [users]
+      summary: Parola sıfırlama bağlantısı ister.
+      description: |
+        Adres kayıtlı olsun olmasın aynı gövde döner; kayıtsız dalda da token üretme ve
+        posta hazırlama maliyeti ödenir, üretilen token atılır (USR-018). Kullanıcı başına
+        tek açık token vardır: yeni istek öncekini iptal eder (USR-017). Token 32 baytlık
+        opak bir değerdir, özeti saklanır ve on beş dakika yaşar.
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Tekrar eden istek yalnız yeni bir token üretir ve öncekini iptal eder; yan etkisi birikmez.
+      requestBody:
+        description: Sıfırlama istenen adres.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+      responses:
+        "202":
+          description: Adres kayıtlıysa sıfırlama postası kuyruğa girdi. Yanıt adresin kayıtlı olup olmadığını söylemez.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/auth/password-reset/complete:
+    post:
+      operationId: completePasswordReset
+      tags: [users]
+      summary: Sıfırlama token'ıyla yeni parolayı yazar ve bütün oturumları kapatır.
+      description: |
+        Token tüketilmemiş, iptal edilmemiş ve süresi dolmamışken parola yazımıyla aynı
+        transaction'da tek bir koşullu güncellemeyle tüketilir (USR-015). Bilinmeyen,
+        süresi dolmuş, iptal edilmiş ve zaten kullanılmış token'ın dördü de aynı
+        `PASSWORD_RESET_TOKEN_INVALID` gövdesini alır (USR-016). Başarıdan sonra çağıran
+        dahil bütün oturumlar kapanır ve yanıt token çifti taşımaz; kullanıcı yeniden
+        giriş yapar (USR-019).
+      security: []
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Token tek kullanımlıktır; aynı gövdenin tekrarı geçersiz token yanıtı alır.
+      requestBody:
+        description: Sıfırlama token'ı ve yeni parola.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompletePasswordResetRequest"
+      responses:
+        "204":
+          description: Parola değişti ve bütün oturumlar kapandı; yeniden giriş gerekir.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/profile:
+    get:
+      operationId: getMyProfile
+      tags: [users]
+      summary: Çağıranın profilini döndürür.
+      description: |
+        Kimlik çekirdeği `GET /v1/me`'de kalır; profil alanları burada döner. Kimlik
+        numarası tümden maskelenir, IBAN ve telefon kısmen maskelenir; parola özeti ve
+        kimlik belgesi numarası hiç dönmez (USR-027).
+      x-authz-exempt: |
+        Çağıran yalnız kendi profilini okur; kimlik oturumdan gelir, seçilecek nesne yoktur.
+      x-resource: users
+      x-resource-self: true
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Çağıranın profili.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    patch:
+      operationId: updateMyProfile
+      tags: [users]
+      summary: Çağıranın profilini kısmen günceller.
+      description: |
+        JSON Merge Patch (RFC 7396): gönderilmeyen alan değişmez, `null` temizlenebilir
+        alanı temizler. Kimlik doğrulanmışsa ad, soyad ve doğum tarihi değişmez (USR-024).
+        E-posta ya da telefon göndermek değeri yazmaz, bir doğrulama başlatır; eski değer
+        ve doğrulanmışlık bayrağı onay gelene kadar yerinde kalır (USR-014).
+      x-authz-exempt: |
+        Çağıran yalnız kendi profilini günceller; kimlik oturumdan gelir, seçilecek nesne yoktur.
+      x-body-limit: 16384
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      requestBody:
+        description: Değişecek alanlar.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/UserProfilePatch"
+      responses:
+        "200":
+          description: Güncel profil ve yama sırasında başlatılan doğrulamalar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfileUpdate"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/password:
+    put:
+      operationId: changeMyPassword
+      tags: [users]
+      summary: Çağıranın parolasını değiştirir.
+      description: |
+        Mevcut parolayı ister. Yeni parola mevcut parolayla aynı olamaz ve onayıyla
+        eşleşmek zorundadır; en az 15, en çok 128 karakterdir (USR-021). Değişimden sonra
+        çağıranın oturumu açık kalır, diğer bütün oturumları kapanır (USR-020). Kullanıcının
+        açık parola sıfırlama token'ları iptal edilir.
+      x-authz-exempt: |
+        Çağıran yalnız kendi parolasını değiştirir; kimlik oturumdan gelir, seçilecek nesne yoktur.
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      requestBody:
+        description: Mevcut parola, yeni parola ve onayı.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChange"
+      responses:
+        "204":
+          description: Parola değişti; çağıranın oturumu açık, diğerleri kapandı.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/verifications:
+    get:
+      operationId: listMyVerifications
+      tags: [users]
+      summary: Çağıranın açık doğrulamalarını listeler.
+      description: |
+        Onaylanmamış, süresi dolmamış ve yakılmamış doğrulamalar, yeniden eskiye. Kod
+        hiçbir yanıtta dönmez; yalnız kanal, hedefin maskeli hâli, kalan deneme ve bitiş
+        anı döner.
+      x-authz-exempt: |
+        Liste çağıranın kendi doğrulamalarıyla sınırlıdır; seçilecek başka bir nesne yoktur.
+      x-resource: user_verifications
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Açık doğrulamalar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: startMyVerification
+      tags: [users]
+      summary: Yeni bir e-posta ya da telefon için doğrulama başlatır.
+      description: |
+        Kod altı ondalık basamaktır, bütün aralığı kullanır, özetlenerek saklanır ve on
+        dakika yaşar (USR-008). En çok beş yanlış deneme kabul edilir; dolunca doğrulama
+        yakılır (USR-009). Kanal ve hedef başına tek açık doğrulama vardır: yeni istek
+        öncekini iptal eder, yeniden göndermenin bekleme süresi ve hedef başına saatlik
+        bütçesi vardır (USR-010).
+      x-authz-exempt: |
+        Doğrulama çağıranın kendi adresi ya da numarası için başlatılır; seçilecek başka bir nesne yoktur.
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Kanal ve hedef başına tek açık doğrulama vardır; tekrar eden istek yalnız öncekini iptal edip yenisini açar.
+      requestBody:
+        description: Doğrulanacak kanal ve hedef.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartVerificationRequest"
+      responses:
+        "201":
+          description: Doğrulama açıldı ve kod gönderildi.
+          headers:
+            Location:
+              description: Oluşan doğrulamanın kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/me/verifications/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Verification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/verifications/{verificationId}:
+    parameters:
+      - name: verificationId
+        in: path
+        required: true
+        description: Doğrulamanın kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getMyVerification
+      tags: [users]
+      summary: Çağıranın doğrulamalarından birini döndürür.
+      description: |
+        Başkasına ait, yakılmış ve hiç olmamış doğrulama aynı `VERIFICATION_NOT_FOUND`
+        gövdesini alır (USR-011). Kod dönmez.
+      x-authz-exempt: |
+        Arama çağıranın kendi doğrulamalarıyla sınırlıdır; başkasınınki yok sayılır.
+      x-resource: user_verifications
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Doğrulama.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Verification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: cancelMyVerification
+      tags: [users]
+      summary: Çağıranın açık doğrulamasını iptal eder.
+      description: |
+        Doğrulama iptal edilir ve kodu geçersizleşir. Başkasına ait ve hiç olmamış
+        doğrulama aynı 404'ü alır ve hiçbir şey değişmez (USR-011).
+      x-authz-exempt: |
+        İptal çağıranın kendi doğrulamalarıyla sınırlıdır; başkasınınki yok sayılır.
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Doğrulama iptal edildi.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/verifications/{verificationId}/confirm:
+    parameters:
+      - name: verificationId
+        in: path
+        required: true
+        description: Doğrulamanın kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: confirmMyVerification
+      tags: [users]
+      summary: Doğrulama kodunu onaylar ve yeni değeri yazar.
+      description: |
+        Denetim sırası kayıt, sahiplik, süre, deneme, koddur. Başkasına ait doğrulama
+        gizlenmiş 404 alır (USR-011); süresi dolmuş doğrulamada doğru ve yanlış kod aynı
+        gövdeyi alır, böylece kod doğruluğu sızmaz (USR-012). Başarı doğrulamayı tüketir:
+        özet silinir ve ikinci onay `VERIFICATION_ALREADY_CONFIRMED` alır (USR-013).
+        Onaydan sonra yeni e-posta ya da telefon profile yazılır ve doğrulanmış işaretlenir.
+      x-authz-exempt: |
+        Onay çağıranın kendi doğrulamalarıyla sınırlıdır; başkasınınki yok sayılır.
+      x-rate-limit: auth
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Onay doğrulamayı tüketir; aynı gövdenin tekrarı çakışma yanıtı alır.
+      requestBody:
+        description: Doğrulama kodu.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmVerificationRequest"
+      responses:
+        "200":
+          description: Doğrulama onaylandı ve yeni değer yazıldı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Verification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: Kullanıcının kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getPublicProfile
+      tags: [users]
+      summary: Bir kullanıcının herkese açık profilini döndürür.
+      description: |
+        Kimlikli her kullanıcıya açıktır, kimliksize değil. E-posta, telefon, doğum tarihi,
+        cinsiyet, kimlik numarası, IBAN ve doğrulanmışlık bayrakları dönmez; adres şehir ve
+        ilçe adına iner (USR-025). Özgeçmiş bağlantısı yalnız kullanıcının kendisine ve
+        ondan başvuru almış bir işverene görünür (USR-026). Silinmiş kullanıcı var
+        olmayandan ayırt edilemez.
+      x-authz:
+        action: can_read_profile
+        object: user
+      x-resource: users
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Kullanıcının herkese açık profili.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/identity-documents:
+    get:
+      operationId: getMyIdentityReview
+      tags: [identity]
+      summary: Çağıranın en son kimlik incelemesini döndürür.
+      description: |
+        Kullanıcı ret gerekçesini buradan okur (IDN-019). Hiç gönderim yapmamış kullanıcı
+        `IDENTITY_DOCUMENTS_NOT_FOUND` alır. Yanıt hiçbir depolama anahtarı ya da adres
+        taşımaz (IDN-014).
+      x-authz-exempt: |
+        Çağıran yalnız kendi incelemesini okur; kimlik oturumdan gelir, seçilecek nesne yoktur.
+      x-resource: identity_verifications
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Çağıranın en son incelemesi.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: submitMyIdentityDocuments
+      tags: [identity]
+      summary: Dört fotoğrafla kimlik incelemesi açar.
+      description: |
+        Dört yuva zorunludur: yüz, belgenin ön yüzü, belgenin arka yüzü ve belgeyi yüzün
+        yanında tutan kare (IDN-001). Fotoğraflar önce `POST /v1/me/media` ile yüklenir ve
+        burada kimlikleriyle verilir. Gönderim yalnız bekleyen bir inceleme açar;
+        kullanıcının kimlik doğrulanmışlığına dokunmaz. Açık inceleme varken ikinci gönderim
+        `IDENTITY_REVIEW_PENDING` alır; reddedilmiş incelemeden sonra yeni satır açılır
+        (IDN-002). Kimliği zaten doğrulanmış kullanıcı gönderemez.
+      x-authz-exempt: |
+        Gönderim çağıranın kendi kimliği içindir; kimlik oturumdan gelir, seçilecek nesne yoktur.
+      x-body-limit: 8192
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Beyan edilen kimlik bilgileri ve dört fotoğrafın medya kimlikleri.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitIdentityDocumentsRequest"
+      responses:
+        "201":
+          description: Bekleyen inceleme açıldı.
+          headers:
+            Location:
+              description: Çağıranın incelemesinin kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/me/identity-documents"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies:
+    post:
+      operationId: createCompany
+      tags: [company]
+      summary: Şirket kurar; kurucu şirketin yöneticisi olur.
+      description: |
+        Kimliği doğrulanmış kullanıcıya açıktır (CMP-001). Şirket onay bekler durumda
+        açılır ve onaylanana kadar ilan yayınlayamaz (CMP-005, ADR-0029 Karar 7). Vergi
+        numarası ve tür kurulduktan sonra değişmez; ad, vergi numarası ve adreste tekillik
+        aranmaz (CMP-021). Logo varsa önce `POST /v1/me/media` ile yüklenir ve kimliğiyle
+        verilir.
+      x-authz-exempt: |
+        Kuruluş çağıranın kendi kimliğine dayanır; henüz var olmayan şirket yetkilendirilemez.
+      x-body-limit: 16384
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Şirketin kuruluş bilgileri.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCompanyRequest"
+      responses:
+        "201":
+          description: Şirket onay bekler durumda açıldı.
+          headers:
+            Location:
+              description: Oluşan şirketin kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/companies/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies/{companyId}:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getCompany
+      tags: [company]
+      summary: Bir şirketi döndürür.
+      description: |
+        Kimlikli her kullanıcıya açıktır. Onay durumu herkese görünür, kararın notu yalnız
+        şirketin üyelerine görünür; üye olmayan için not alanı `null`'dır (CMP-004).
+        Takipçi sayısı ve çağıranın takip edip etmediği de döner.
+      x-authz:
+        action: can_view
+        object: company
+      x-resource: companies
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Şirket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    patch:
+      operationId: updateCompany
+      tags: [company]
+      summary: Şirketi kısmen günceller.
+      description: |
+        JSON Merge Patch (RFC 7396). Yalnız şirketin yöneticisine açıktır; yönetici
+        olmayan çağıran var olmayan şirketin 404'ünü alır (CMP-006). Vergi numarası ve tür
+        değiştirilemez (CMP-021). Adres verilirse eski adres yenisiyle değiştirilir ve
+        geride bırakılmaz (CMP-022).
+      x-authz:
+        action: can_manage
+        object: company
+      x-body-limit: 16384
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      requestBody:
+        description: Değişecek alanlar.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CompanyPatch"
+      responses:
+        "200":
+          description: Güncel şirket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies/{companyId}/contacts:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listCompanyContacts
+      tags: [company]
+      summary: Şirketin üyelerini listeler.
+      description: |
+        Şirketin her üyesine (yönetici ya da sıradan üye) açıktır; üye olmayan çağıran var
+        olmayan şirketin 404'ünü alır (CMP-006). Üyeler yalnız kimlik, ad ve rol taşır;
+        e-posta, telefon ve kimlik numarası dönmez. Soft-silinmiş üyelik listede yoktur.
+      x-authz:
+        action: can_read_internal
+        object: company
+      x-resource: company_contacts
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Şirketin üyeleri.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyContactPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies/{companyId}/contacts/{userId}:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+      - name: userId
+        in: path
+        required: true
+        description: Üyenin kullanıcı kimliği.
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: removeCompanyContact
+      tags: [company]
+      summary: Şirketin bir üyesini çıkarır.
+      description: |
+        Yalnız şirketin yöneticisine açıktır. Tek yönetici çıkarılamaz
+        (`COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED`); başka yönetici varsa yönetici kendini de
+        çıkarabilir (CMP-007). Üyelik kaydı silinmez, soft-silinir; aynı kişi sonra yeniden
+        davet edilebilir (CMP-008).
+      x-authz:
+        action: can_manage
+        object: company
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Üyelik çıkarıldı.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies/{companyId}/contact-invitations:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listCompanyInvitations
+      tags: [company]
+      summary: Şirketin davetlerini listeler.
+      description: |
+        Yalnız şirketin yöneticisine açıktır; başkası var olmayan şirketin 404'ünü alır.
+        Her durumdaki davet listelenir.
+      x-authz:
+        action: can_manage
+        object: company
+      x-resource: company_contact_invitations
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+        - name: status
+          in: query
+          required: false
+          description: Yalnız bu durumdaki davetler; verilmezse hepsi.
+          schema:
+            $ref: "#/components/schemas/CompanyInvitationStatus"
+      responses:
+        "200":
+          description: Şirketin davetleri.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyInvitationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: inviteCompanyContact
+      tags: [company]
+      summary: Kayıtlı bir kullanıcıyı şirkete davet eder.
+      description: |
+        Yalnız şirketin yöneticisine açıktır. Davet edilen kayıtlı ve kimliği doğrulanmış
+        bir kullanıcı olmak zorundadır; kayıtsız adrese davet gönderilemez (CMP-009). Rol
+        davet anında belirlenir ve üyeliğin ömrü boyunca sabittir. Zaten üye olan kişi ve
+        açık daveti olan kişi çakışma hatası alır (CMP-010, CMP-011). Davet taşıyıcı bir
+        kimlik bilgisi değildir: postada bağlantı ya da token yoktur, yetki kimlikten gelir
+        (ADR-0029 Karar 7). Davet on dört gün yaşar (CMP-015).
+      x-authz:
+        action: can_manage
+        object: company
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Davet edilecek adres ve rol.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteCompanyContactRequest"
+      responses:
+        "201":
+          description: Davet oluştu ve davet edilene bildirildi.
+          headers:
+            Location:
+              description: Oluşan davetin kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/contact-invitations/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/contact-invitations/{invitationId}:
+    parameters:
+      - name: invitationId
+        in: path
+        required: true
+        description: Davetin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getCompanyInvitation
+      tags: [company]
+      summary: Bir daveti döndürür.
+      description: |
+        Daveti üç taraf okur: davet edilen, daveti gönderen ve şirketin bugünkü yöneticisi.
+        Başkası var olmayan davetin 404'ünü alır ve davetin durumu hiç sorulmaz (CMP-011,
+        CMP-012).
+      x-authz:
+        action: can_read
+        object: company_invitation
+      x-resource: company_contact_invitations
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Davet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/contact-invitations/{invitationId}/accept:
+    parameters:
+      - name: invitationId
+        in: path
+        required: true
+        description: Davetin kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: acceptCompanyInvitation
+      tags: [company]
+      summary: Daveti kabul eder ve üyeliği oluşturur.
+      description: |
+        Yalnız davet edilene açıktır; şirketin yöneticisi daveti okuyabilir ama cevaplayamaz
+        (CMP-011). Davetin durumu ile üyelik kaydı aynı transaction'da yazılır: ya ikisi
+        birlikte kalıcı olur ya da hiçbiri (CMP-013). Cevaplanmış, geri alınmış ve süresi
+        geçmiş davet çakışma hatası alır (CMP-014, CMP-015, CMP-016). Rol davet anında
+        donmuştur.
+      x-authz:
+        action: can_answer
+        object: company_invitation
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Kabul davetin durumunu terminale taşır; tekrar eden istek çakışma yanıtı alır.
+      responses:
+        "200":
+          description: Davet kabul edildi ve üyelik oluştu.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/contact-invitations/{invitationId}/decline:
+    parameters:
+      - name: invitationId
+        in: path
+        required: true
+        description: Davetin kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: declineCompanyInvitation
+      tags: [company]
+      summary: Daveti reddeder.
+      description: |
+        Yalnız davet edilene açıktır. Ret üyelik oluşturmaz ama aynı kişiye sonradan yeni
+        bir davet gönderilmesini de engellemez (CMP-010, CMP-014).
+      x-authz:
+        action: can_answer
+        object: company_invitation
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Ret davetin durumunu terminale taşır; tekrar eden istek çakışma yanıtı alır.
+      responses:
+        "200":
+          description: Davet reddedildi.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/contact-invitations/{invitationId}/revoke:
+    parameters:
+      - name: invitationId
+        in: path
+        required: true
+        description: Davetin kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: revokeCompanyInvitation
+      tags: [company]
+      summary: Açık bir daveti geri alır.
+      description: |
+        Yalnız şirketin yöneticisine açıktır (CMP-016). Geri alınmış davet cevaplanamaz ve
+        üyelik oluşturmaz; cevaplanmış davet geri alınamaz. Java'da bu operasyon yoktur:
+        gönderilen davet geri alınamıyor (ADR-0029 Karar 7).
+      x-authz:
+        action: can_revoke
+        object: company_invitation
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Geri alma davetin durumunu terminale taşır; tekrar eden istek çakışma yanıtı alır.
+      responses:
+        "200":
+          description: Davet geri alındı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies/{companyId}/follow:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: followCompany
+      tags: [company]
+      summary: Şirketi takip eder.
+      description: |
+        Kimlikli her kullanıcıya açıktır: onaylanmamış şirket ve çağıranın kendi şirketi de
+        takip edilebilir. Zaten takip edilen şirketi yeniden takip etmek yeni kayıt açmaz ve
+        hata vermez (CMP-019). Takip bir aboneliktir; kaydı soft-silinmez, bırakmak kalıcı
+        olarak siler (CMP-017).
+      x-authz:
+        action: can_follow
+        object: company
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Şirket takip ediliyor.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: unfollowCompany
+      tags: [company]
+      summary: Şirketin takibini bırakır.
+      description: |
+        Takip kaydı kalıcı olarak silinir; mezar taşı bırakmaz ve yeniden takip yeni bir
+        kayıt açar (CMP-017). Takip edilmeyen bir şirketi bırakmak sessizce geçer (CMP-019).
+      x-authz:
+        action: can_follow
+        object: company
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Şirket artık takip edilmiyor.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/followed-companies:
+    get:
+      operationId: listMyFollowedCompanies
+      tags: [company]
+      summary: Çağıranın takip ettiği şirketleri listeler.
+      description: |
+        Takip tarihi güncel aboneliğin başlangıcıdır: bırakıp yeniden takip etmek tarihi
+        yeniler (CMP-017). Sıralama yalnız takip tarihine göredir.
+      x-authz-exempt: |
+        Liste çağıranın kendi takipleriyle sınırlıdır; seçilecek başka bir nesne yoktur.
+      x-resource: company_follows
+      x-sort-fields: [followedAt]
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+        - $ref: "./components/pagination.yaml#/components/parameters/Sort"
+      responses:
+        "200":
+          description: Takip edilen şirketler.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FollowedCompanyPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies/{companyId}/images:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listCompanyImages
+      tags: [company]
+      summary: Şirketin galerisini döndürür.
+      description: Kimliksiz okunabilir; galeri herkese açıktır.
+      security: []
+      x-resource: media
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Şirketin galerisi, en çok on görüntü.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyGallery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: addCompanyImage
+      tags: [company]
+      summary: Şirketin galerisine görüntü ekler.
+      description: |
+        Yalnız şirketin yöneticisine açıktır. Galeri en çok on görüntü taşır; sınır
+        dolduğunda çakışma hatası döner (MED-011). Görüntü önce `POST /v1/me/media` ile
+        yüklenir ve kimliğiyle verilir.
+      x-authz:
+        action: can_manage
+        object: company
+      x-rate-limit: upload
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Eklenecek görüntünün medya kimliği.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddCompanyImageRequest"
+      responses:
+        "201":
+          description: Görüntü galeriye eklendi.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyGallery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies/{companyId}/images/{imageId}:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+      - name: imageId
+        in: path
+        required: true
+        description: Galerideki görüntünün medya kimliği.
+        schema:
+          type: string
+          format: uuid
+    delete:
+      operationId: removeCompanyImage
+      tags: [company]
+      summary: Şirketin galerisinden bir görüntüyü çıkarır.
+      description: |
+        Yalnız şirketin yöneticisine açıktır. Başka bir şirkete ait ve hiç olmamış görüntü
+        aynı 404'ü alır.
+      x-authz:
+        action: can_manage
+        object: company
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Görüntü galeriden çıkarıldı.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/companies/{companyId}/logo:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: setCompanyLogo
+      tags: [company]
+      summary: Şirketin logosunu belirler.
+      description: |
+        Yalnız şirketin yöneticisine açıktır. Logo önce `POST /v1/me/media` ile yüklenir ve
+        kimliğiyle verilir; önceki logo yerini yenisine bırakır.
+      x-authz:
+        action: can_manage
+        object: company
+      x-rate-limit: upload
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      requestBody:
+        description: Logonun medya kimliği.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetCompanyLogoRequest"
+      responses:
+        "200":
+          description: Güncel şirket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: removeCompanyLogo
+      tags: [company]
+      summary: Şirketin logosunu kaldırır.
+      description: Yalnız şirketin yöneticisine açıktır. Logosu olmayan şirkette sessizce geçer.
+      x-authz:
+        action: can_manage
+        object: company
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Logo kaldırıldı.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/media:
+    post:
+      operationId: startMediaUpload
+      tags: [media]
+      summary: Yüklemeyi başlatır ve karantina için yazma adresi verir.
+      description: |
+        Dosya API'den geçmez (ADR-0019 §4): istemci verilen kısa ömürlü adrese doğrudan
+        yazar. Yanıt beklemede bir medya kaydı ve karantina anahtarının yazma adresini
+        taşır (MED-001). Kabul edilen tipler yalnız JPEG, PNG ve PDF'tir ve tip tamamlama
+        adımında **içerikten** saptanır; istemcinin beyanı ve dosya adının uzantısı karara
+        girmez (IDN-003). Tamamlanmayan yükleme yirmi dört saat sonra silinir.
+      x-authz-exempt: |
+        Yükleme çağıranın kendi medyasıdır; henüz var olmayan nesne yetkilendirilemez.
+      x-rate-limit: upload
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Yüklemenin türü ve bildirilen boyutu.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartMediaUploadRequest"
+      responses:
+        "201":
+          description: Beklemede medya kaydı ve karantina yazma adresi. Yanıt önbelleğe alınmaz.
+          headers:
+            Location:
+              description: Oluşan medyanın kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/me/media/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaUpload"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/media/{mediaId}:
+    parameters:
+      - name: mediaId
+        in: path
+        required: true
+        description: Medyanın kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getMedia
+      tags: [media]
+      summary: Çağıranın medyasından birini döndürür.
+      description: |
+        Durum beklemedeyken yükleme tamamlanmamıştır, hazır olduğunda nesne doğrulanmış,
+        üstverisi striplenmiş ve son yerine taşınmıştır (MED-001). Başkasına ait ve hiç
+        olmamış medya aynı 404'ü alır. Kimlik belgesi fotoğrafının adresi hiçbir yanıtta
+        üretilmez (IDN-007).
+      x-authz-exempt: |
+        Arama çağıranın kendi medyasıyla sınırlıdır; başkasınınki yok sayılır.
+      x-resource: media
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Medya.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteMedia
+      tags: [media]
+      summary: Çağıranın medyasından birini siler.
+      description: |
+        Yalnız yükleyene açıktır; başkasınınki var olmayandan ayırt edilemez. Bir şirkete
+        ya da incelemeye bağlanmış medya silinemez (`SOFT_DELETE_RESTRICTED`).
+      x-authz-exempt: |
+        Silme çağıranın kendi medyasıyla sınırlıdır; başkasınınki yok sayılır.
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Medya silindi.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/media/{mediaId}/complete:
+    parameters:
+      - name: mediaId
+        in: path
+        required: true
+        description: Medyanın kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: completeMediaUpload
+      tags: [media]
+      summary: "Yüklemeyi tamamlar: doğrular, üstveriyi stripler ve son yerine taşır."
+      description: |
+        Nesnenin boyutu, saptanan tipi ve tuvali doğrulanır (IDN-003, IDN-004); sonra
+        üstverisi tümden striplenir — konum (GPS), kamera ve seri numaraları dahil — ve
+        nesne karantinadan son anahtarına taşınır (MED-005). Yön etiketi önce piksellere
+        pişirilir, sonra o da silinir (IDN-006). İş arka planda koşar: yanıt `202`'dir ve
+        sonuç medya kaynağından okunur. Nesne depoya yazıldıktan sonra kayıt düşerse nesne
+        silinir; sonuç belirsizse nesne korunur (MED-006).
+      x-authz-exempt: |
+        Tamamlama çağıranın kendi medyasıyla sınırlıdır; başkasınınki yok sayılır.
+      x-rate-limit: upload
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Tamamlama idempotenttir; hazır bir medyayı yeniden tamamlamak durumu değiştirmez.
+      responses:
+        "202":
+          description: Doğrulama ve stripleme kuyruğa girdi; sonuç medya kaynağından okunur.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Media"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/addresses:
+    get:
+      operationId: listMyAddresses
+      tags: [address]
+      summary: Çağıranın adreslerini listeler.
+      description: Adresin sahibi çağırandır; başkasının adresi hiçbir biçimde görünmez.
+      x-authz-exempt: |
+        Liste çağıranın kendi adresleriyle sınırlıdır; seçilecek başka bir nesne yoktur.
+      x-resource: addresses
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Çağıranın adresleri.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: createMyAddress
+      tags: [address]
+      summary: Çağırana yeni bir adres ekler.
+      description: |
+        Adres kaydı yalnız kendi normalleştirdiğimiz bileşenleri, posta kodunu,
+        koordinatları ve sağlayıcının yer kimliğini saklar; sağlayıcının biçimlendirdiği
+        metin ve ham yanıtı saklanmaz (MED-008). Koordinat tam hassasiyetle saklanır,
+        yuvarlama yanıtı üreten projeksiyonda yapılır (MED-009).
+      x-authz-exempt: |
+        Adres çağıranın kendi kaydıdır; henüz var olmayan nesne yetkilendirilemez.
+      x-body-limit: 8192
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Adresin bileşenleri.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "201":
+          description: Adres eklendi.
+          headers:
+            Location:
+              description: Oluşan adresin kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/me/addresses/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Address"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/addresses/{addressId}:
+    parameters:
+      - name: addressId
+        in: path
+        required: true
+        description: Adresin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getMyAddress
+      tags: [address]
+      summary: Çağıranın adreslerinden birini döndürür.
+      description: Başkasına ait ve hiç olmamış adres aynı 404'ü alır.
+      x-authz-exempt: |
+        Arama çağıranın kendi adresleriyle sınırlıdır; başkasınınki yok sayılır.
+      x-resource: addresses
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Adres.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Address"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    put:
+      operationId: replaceMyAddress
+      tags: [address]
+      summary: Çağıranın bir adresini tümden değiştirir.
+      description: |
+        Adres bileşenleri birbirine bağlı olduğu için kısmi güncelleme yoktur: istemci
+        adresin tamamını gönderir (stil rehberi §3). Başkasına ait adres var olmayandan
+        ayırt edilemez.
+      x-authz-exempt: |
+        Değiştirme çağıranın kendi adresleriyle sınırlıdır; başkasınınki yok sayılır.
+      x-body-limit: 8192
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      requestBody:
+        description: Adresin tamamı.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "200":
+          description: Güncel adres.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Address"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteMyAddress
+      tags: [address]
+      summary: Çağıranın bir adresini siler.
+      description: |
+        Bir şirkete ya da ilana bağlı adres silinemez (`SOFT_DELETE_RESTRICTED`).
+        Başkasına ait adres var olmayandan ayırt edilemez.
+      x-authz-exempt: |
+        Silme çağıranın kendi adresleriyle sınırlıdır; başkasınınki yok sayılır.
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Adres silindi.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/address-search-sessions:
+    post:
+      operationId: startAddressSearchSession
+      tags: [address]
+      summary: Sağlayıcıya karşı bir adres arama oturumu açar.
+      description: |
+        Oturum çağırana bağlıdır ve on beş dakika yaşar; oturum kimliğini ele geçiren başka
+        bir kullanıcı onu kullanamaz (MED-010). Oturum, sağlayıcıya yapılan çağrıların
+        oturum belirtecini (session token) taşır ve sorgu başına ücretlendirmeyi tek bir
+        aramada toplar.
+      x-authz-exempt: |
+        Oturum çağıranın kendisine açılır; henüz var olmayan nesne yetkilendirilemez.
+      x-body-limit: 2048
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Oturum kısa ömürlüdür ve yan etkisi yoktur; tekrar eden istek yalnız yeni bir oturum açar.
+      responses:
+        "201":
+          description: Arama oturumu.
+          headers:
+            Location:
+              description: Oluşan oturumun kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/me/address-search-sessions/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10/suggestions"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressSearchSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/address-search-sessions/{sessionId}/suggestions:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        description: Arama oturumunun kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listAddressSuggestions
+      tags: [address]
+      summary: Arama oturumunda adres önerilerini döndürür.
+      description: |
+        Öneriler sağlayıcıdan gelir. Saklanan tek şey yer kimliğidir; sağlayıcının
+        biçimlendirdiği metin önbelleğe alınmaz ve kalıcılaşmaz (MED-008). Başkasına ait ve
+        süresi dolmuş oturum var olmayanla aynı yanıtı alır (MED-010). Sağlayıcı
+        erişilemezse `502` döner.
+      x-authz-exempt: |
+        Arama çağıranın kendi oturumuyla sınırlıdır; başkasınınki yok sayılır.
+      x-resource: address_search_sessions
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - name: query
+          in: query
+          required: true
+          description: Aranan metin; en az 3, en çok 200 karakter.
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 200
+            examples: [Moda Caddesi]
+      responses:
+        "200":
+          description: Adres önerileri.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AddressSuggestionList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/address-search-sessions/{sessionId}/candidates/{candidateId}/resolve:
+    parameters:
+      - name: sessionId
+        in: path
+        required: true
+        description: Arama oturumunun kimliği.
+        schema:
+          type: string
+          format: uuid
+      - name: candidateId
+        in: path
+        required: true
+        description: Önerinin oturum içindeki kimliği.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+    post:
+      operationId: resolveAddressCandidate
+      tags: [address]
+      summary: Bir öneriyi adres bileşenlerine çözer.
+      description: |
+        Öneri bizim bileşenlerimize çözülür: ülke, şehir, ilçe referansları, serbest
+        satırlar, posta kodu, koordinat ve yer kimliği. Sağlayıcının biçimlendirdiği metin
+        ve ham yanıtı döndürülmez ve saklanmaz (MED-008). Çözülen değer bir adres kaydı
+        oluşturmaz; istemci onu `POST /v1/me/addresses`'e verir.
+      x-authz-exempt: |
+        Çözme çağıranın kendi oturumuyla sınırlıdır; başkasınınki yok sayılır.
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Çözme salt okunurdur ve hiçbir kayıt yazmaz; tekrar güvenlidir.
+      responses:
+        "200":
+          description: Çözülen adres bileşenleri.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvedAddress"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reference/cities:
+    get:
+      operationId: listCities
+      tags: [reference]
+      summary: Şehirleri döndürür.
+      description: Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+      security: []
+      x-resource: cities
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Şehirler, ada göre sıralı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItemList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reference/cities/{cityId}/districts:
+    parameters:
+      - name: cityId
+        in: path
+        required: true
+        description: Şehrin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listDistricts
+      tags: [reference]
+      summary: Bir şehrin ilçelerini döndürür.
+      description: Salt okunur referans verisi; kimlik istemez (MED-012).
+      security: []
+      x-resource: districts
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: İlçeler, ada göre sıralı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItemList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reference/universities:
+    get:
+      operationId: listUniversities
+      tags: [reference]
+      summary: Üniversiteleri döndürür.
+      description: Salt okunur referans verisi; kimlik istemez (MED-012).
+      security: []
+      x-resource: universities
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Üniversiteler, ada göre sıralı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItemList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reference/universities/{universityId}/faculties:
+    parameters:
+      - name: universityId
+        in: path
+        required: true
+        description: Üniversitenin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listFaculties
+      tags: [reference]
+      summary: Bir üniversitenin fakültelerini döndürür.
+      description: Salt okunur referans verisi; kimlik istemez (MED-012).
+      security: []
+      x-resource: faculties
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Fakülteler, ada göre sıralı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItemList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reference/faculties/{facultyId}/departments:
+    parameters:
+      - name: facultyId
+        in: path
+        required: true
+        description: Fakültenin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listDepartments
+      tags: [reference]
+      summary: Bir fakültenin bölümlerini döndürür.
+      description: Salt okunur referans verisi; kimlik istemez (MED-012).
+      security: []
+      x-resource: departments
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Bölümler, ada göre sıralı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItemList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/users:
+    get:
+      operationId: listUsersForStaff
+      tags: [admin-users]
+      summary: Kullanıcıları personel için listeler.
+      description: |
+        Liste kişisel veri taşımaz: yalnız kimlik, ad, doğrulanmışlık bayrakları ve kayıt
+        anı döner. Serbest metin arama büyük-küçük harf ve aksan duyarsızdır. İzin listesi
+        dışındaki sıralama alanı `SORT_FIELD_NOT_ALLOWED` döner.
+      security:
+        - adminBearer: []
+      x-authz-permission: user.read
+      x-resource: users
+      x-sort-fields: [createdAt, firstName, lastName]
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+        - $ref: "./components/pagination.yaml#/components/parameters/Sort"
+        - $ref: "./components/pagination.yaml#/components/parameters/IncludeTotal"
+        - name: query
+          in: query
+          required: false
+          description: Serbest metin arama; en az 2, en çok 100 karakter.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+            examples: [ayşe]
+      responses:
+        "200":
+          description: Kullanıcılar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffUserPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/users/{userId}:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: Kullanıcının kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getUserForStaff
+      tags: [admin-users]
+      summary: Bir kullanıcının detayını personel için döndürür.
+      description: |
+        Tek operasyon, iki projeksiyon (ADR-0029 Karar 9): `user.read` kaydı açar, kişisel
+        veri alanları (e-posta, telefon, doğum tarihi, adres) yalnız `user.read_pii` tutan
+        personel için dolar; tutmayan personel onları `null` görür. Kimlik numarası
+        **hiçbir** projeksiyonda dönmez (IDN-018). Okuma denetim kaydına yazılır.
+      security:
+        - adminBearer: []
+      x-authz-permission: user.read
+      x-resource: users
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Kullanıcının detayı; PII alanları izne göre dolar ya da `null` kalır.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffUserDetail"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/users/{userId}/identity-reveals:
+    parameters:
+      - name: userId
+        in: path
+        required: true
+        description: Kimliği açılan işçinin kullanıcı kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listIdentityRevealsForStaff
+      tags: [admin-users]
+      summary: Bir işçinin kimliğini kimlerin açtığını listeler.
+      description: |
+        İzin kaydının kendisi kişisel veridir, bu yüzden `user.read_pii` ister (ADR-0029
+        Karar 9). Satırlar ekle-sil-yapılamaz; adres bilgisi yazım anında maskelenmiştir ve
+        personel tam adresi görmez. Kimlik numarası dönmez (IDN-018). Hesabını silmiş bir
+        görüntüleyenin kimliği kalır, adı `null` olur.
+      security:
+        - adminBearer: []
+      x-authz-permission: user.read_pii
+      x-resource: identity_reveals
+      x-sort-fields: [revealedAt]
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+        - $ref: "./components/pagination.yaml#/components/parameters/Sort"
+        - $ref: "./components/pagination.yaml#/components/parameters/IncludeTotal"
+      responses:
+        "200":
+          description: Kimlik açılma izleri, yeniden eskiye.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityRevealPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/identity-verifications:
+    get:
+      operationId: listIdentityReviews
+      tags: [admin-identity]
+      summary: Kimlik inceleme kuyruğunu döndürür.
+      description: |
+        Süzgeç verilmezse bekleyen incelemeler döner (IDN-020). Serbest metin arama
+        kullanıcının adresinde, adında ve beyan edilen adda büyük-küçük harf ve aksan
+        duyarsız eşleşir; kullanıcı kaydı artık olmayan bir inceleme de listede kalır.
+        `identity.review` kişisel veri sınıfında olduğu için bu okuma da denetim kaydına
+        yazılır (IDN-017).
+      security:
+        - adminBearer: []
+      x-authz-permission: identity.review
+      x-resource: identity_verifications
+      x-sort-fields: [createdAt]
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+        - $ref: "./components/pagination.yaml#/components/parameters/Sort"
+        - $ref: "./components/pagination.yaml#/components/parameters/IncludeTotal"
+        - name: status
+          in: query
+          required: false
+          description: Yalnız bu durumdaki incelemeler; verilmezse bekleyenler.
+          schema:
+            $ref: "#/components/schemas/IdentityReviewStatus"
+        - name: query
+          in: query
+          required: false
+          description: Serbest metin arama; en az 2, en çok 100 karakter.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+            examples: [ayşe]
+      responses:
+        "200":
+          description: İncelemeler.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityReviewPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/identity-verifications/{reviewId}:
+    parameters:
+      - name: reviewId
+        in: path
+        required: true
+        description: İncelemenin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getIdentityReview
+      tags: [admin-identity]
+      summary: Bir kimlik incelemesini döndürür.
+      description: |
+        Beyan edilen kimlik numarası incelemeciye açık görünür, çünkü inceleme tam olarak
+        beyanın fotoğraflarla karşılaştırılmasıdır (ADR-0029 Karar 9). Yanıt hiçbir
+        depolama anahtarı, kova adı, uç nokta ya da bağlantı taşımaz (IDN-014). Okuma
+        denetim kaydına yazılır.
+      security:
+        - adminBearer: []
+      x-authz-permission: identity.review
+      x-resource: identity_verifications
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: İnceleme.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffIdentityReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/identity-verifications/{reviewId}/documents/{documentId}:
+    parameters:
+      - name: reviewId
+        in: path
+        required: true
+        description: İncelemenin kimliği.
+        schema:
+          type: string
+          format: uuid
+      - name: documentId
+        in: path
+        required: true
+        description: İncelemeye bağlı fotoğrafın kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getIdentityReviewDocument
+      tags: [admin-identity]
+      summary: İncelemenin bir fotoğrafı için kısa ömürlü indirme adresi verir.
+      description: |
+        Yanıt kısa ömürlü imzalı bir adrese yönlendirir: ömrü üç dakikadır, on beş dakikayı
+        hiç aşmaz ve genel dağıtım alan adını kullanmaz (IDN-015). Yanıt önbelleğe alınmaz
+        ve içerik tipi tahmini kapatılır. Başka bir incelemeye ait, anahtarı boşaltılmış ve
+        hiç olmamış fotoğraf aynı 404'ü alır (IDN-016). İndirme denetim kaydına yazılır.
+      security:
+        - adminBearer: []
+      x-authz-permission: identity.review
+      x-resource: verification_documents
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "302":
+          description: |
+            Kısa ömürlü imzalı adrese yönlendirme. `Cache-Control: no-store` ve
+            `X-Content-Type-Options: nosniff` döner; gövde yoktur.
+          headers:
+            Location:
+              description: Üç dakika geçerli imzalı indirme adresi.
+              schema:
+                type: string
+                examples: ["https://objects.example.com/identity-documents/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10.jpg?X-Amz-Expires=180"]
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/identity-verifications/{reviewId}/approve:
+    parameters:
+      - name: reviewId
+        in: path
+        required: true
+        description: İncelemenin kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: approveIdentityReview
+      tags: [admin-identity]
+      summary: Kimlik incelemesini onaylar ve kullanıcıyı damgalar.
+      description: |
+        Gövdesi yoktur: kanıt sunucunun kaydıdır, istemcinin gönderdiği değil (IDN-014).
+        Dört fotoğraf yuvasının hepsi gerçek kanıt olmak zorundadır; anahtarı boşaltılmış
+        yuva kanıt sayılmaz (IDN-008). Karar satır kilidi altında verilir; karar verilmiş
+        inceleme çakışma hatası alır ve yarışan iki karardan ikincisi fail-closed düşer
+        (IDN-010). Onay kullanıcıyı damgalar, kimlik alanlarını yazar ve dondurur; ad ve
+        soyad Türkçe yerelle büyük harfe çevrilir (IDN-011). Kimlik numarası başka bir
+        kullanıcıya aitse onay düşer (IDN-012). Kullanıcı bilgilendirilir ve rozetleri
+        yeniden değerlendirilir (IDN-019).
+      security:
+        - adminBearer: []
+      x-authz-permission: identity.review
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: İnceleme onaylandı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffIdentityReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/identity-verifications/{reviewId}/reject:
+    parameters:
+      - name: reviewId
+        in: path
+        required: true
+        description: İncelemenin kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: rejectIdentityReview
+      tags: [admin-identity]
+      summary: Kimlik incelemesini gerekçesiyle reddeder.
+      description: |
+        Gerekçe zorunludur, serbest metindir ve en çok bin karakterdir; boş gerekçe istek
+        sınırında reddedilir (IDN-013). Ret dört fotoğrafın varlığını istemez, böylece
+        eksik ya da eski bir inceleme de kapatılabilir (IDN-009). Karar verilmiş inceleme
+        çakışma hatası alır (IDN-010). Kullanıcı bilgilendirilir ve gerekçeyi kendi
+        inceleme kaydından okur (IDN-019).
+      security:
+        - adminBearer: []
+      x-authz-permission: identity.review
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Ret gerekçesi.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectionRequest"
+      responses:
+        "200":
+          description: İnceleme reddedildi.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffIdentityReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/companies:
+    get:
+      operationId: listCompaniesForStaff
+      tags: [admin-company]
+      summary: Şirket onay kuyruğunu döndürür.
+      description: |
+        Süzgeç verilmezse onay bekleyen şirketler döner. Serbest metin arama şirketin
+        adında ve vergi numarasında eşleşir (CMP-018).
+      security:
+        - adminBearer: []
+      x-authz-permission: company.approve
+      x-resource: companies
+      x-sort-fields: [createdAt, name]
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+        - $ref: "./components/pagination.yaml#/components/parameters/Sort"
+        - $ref: "./components/pagination.yaml#/components/parameters/IncludeTotal"
+        - name: approvalStatus
+          in: query
+          required: false
+          description: Yalnız bu onay durumundaki şirketler; verilmezse onay bekleyenler.
+          schema:
+            $ref: "#/components/schemas/CompanyApprovalStatus"
+        - name: query
+          in: query
+          required: false
+          description: Serbest metin arama; en az 2, en çok 100 karakter.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+            examples: [koala]
+      responses:
+        "200":
+          description: Şirketler.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffCompanyPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/companies/{companyId}:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getCompanyForStaff
+      tags: [admin-company]
+      summary: Bir şirketi inceleme için döndürür.
+      description: |
+        Vergi numarası, kararın notu, kararı veren personelin kimliği, üye listesi ve
+        galeri döner. Üyeler yalnız kimlik ve adla görünür; e-posta, telefon ve kimlik
+        numarası dönmez.
+      security:
+        - adminBearer: []
+      x-authz-permission: company.approve
+      x-resource: companies
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Şirketin inceleme görünümü.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffCompanyReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/companies/{companyId}/approve:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: approveCompany
+      tags: [admin-company]
+      summary: Şirketi onaylar.
+      description: |
+        Not isteğe bağlıdır ve en çok bin karakterdir; verilmezse kararın notu `null`
+        olur, verilirse kırpılır (CMP-003). Reddedilmiş şirket onaylanabilir ve notu
+        değişir; onaylanmış şirket yeniden onaylanamaz (CMP-002). Karar, durumu, notu,
+        karar anını ve kararı veren personelin kimliğini yazar. Şirketin yöneticileri
+        bilgilendirilir; reddedilen kararda kimse bilgilendirilmez.
+      security:
+        - adminBearer: []
+      x-authz-permission: company.approve
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Kararın notu.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalRequest"
+      responses:
+        "200":
+          description: Şirket onaylandı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffCompanyReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/admin/companies/{companyId}/reject:
+    parameters:
+      - name: companyId
+        in: path
+        required: true
+        description: Şirketin kimliği.
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: rejectCompany
+      tags: [admin-company]
+      summary: Şirketi gerekçesiyle reddeder.
+      description: |
+        Gerekçe zorunludur, serbest metindir ve en çok bin karakterdir; boş gerekçe ve
+        gövdesiz istek reddedilir ve şirketin durumu değişmez (CMP-003). Onaylanmış şirket
+        reddedilemez, reddedilmiş şirket ikinci kez reddedilemez (CMP-002). Gerekçeyi
+        yalnız şirketin üyeleri okur (CMP-004).
+      security:
+        - adminBearer: []
+      x-authz-permission: company.approve
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Ret gerekçesi.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectionRequest"
+      responses:
+        "200":
+          description: Şirket reddedildi.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffCompanyReview"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     marketplaceBearer:
@@ -731,7 +3570,9 @@ components:
       description: |
         Personel oturumunun token çifti. `mustChangePassword` doğruysa parola
         değiştirilene kadar yalnız parola değişimi ve çıkış açıktır (AUTH-014).
-      required: [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, sessionId, mustChangePassword]
+      required:
+        [accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, sessionId,
+        mustChangePassword]
       properties:
         accessToken:
           type: string
@@ -978,6 +3819,1961 @@ components:
           items:
             $ref: "#/components/schemas/StaffPermission"
 
+    # --- Faz 2: kayıt, parola, doğrulama (ADR-0029 Karar 2-4)
+
+    StartRegistrationRequest:
+      type: object
+      description: |
+        Kaydın birinci adımı. Adres büyük-küçük harfe ve baştaki/sondaki boşluğa
+        duyarsızdır. Parola bu adımda gönderilmez.
+      additionalProperties: false
+      required: [firstName, lastName, email, employer]
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Ad.
+          examples: [Ayşe]
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Soyad.
+          examples: [Yılmaz]
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Kayıt ve giriş adresi.
+          examples: [ayse@example.com]
+        employer:
+          type: boolean
+          description: Hesap işveren hesabı mı; kayıttan sonra değişmez.
+      examples:
+        - firstName: Ayşe
+          lastName: Yılmaz
+          email: ayse@example.com
+          employer: false
+
+    VerifyRegistrationRequest:
+      type: object
+      description: E-postadaki bağlantının token'ı; tüketilmez.
+      additionalProperties: false
+      required: [verificationToken]
+      properties:
+        verificationToken:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: "^[A-Za-z0-9_-]{43}$"
+          description: 32 rastgele baytın base64url kodlaması.
+          examples: [q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk]
+      examples:
+        - verificationToken: q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk
+
+    RegistrationToken:
+      type: object
+      description: |
+        Parolanın gönderileceği adım için kısa ömürlü, opak ve tek kullanımlık token
+        (ADR-0029 Karar 2). Bekleyen kayda bağlıdır.
+      required: [registrationToken, expiresAt, employer]
+      properties:
+        registrationToken:
+          type: string
+          description: Opak kayıt token'ı.
+          examples: [bG9uZ29wYXF1ZXJlZ2lzdHJhdGlvbnRva2VudmFsdWUx]
+        expiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Token'ın son geçerli anı (verilişten 15 dakika sonra).
+        employer:
+          type: boolean
+          description: Bekleyen kaydın işveren bayrağı; istemci son adımın formunu buna göre kurar.
+      examples:
+        - registrationToken: bG9uZ29wYXF1ZXJlZ2lzdHJhdGlvbnRva2VudmFsdWUx
+          expiresAt: "2026-11-08T09:15:00Z"
+          employer: false
+
+    ConsentDecision:
+      type: object
+      description: Bir sözleşme sürümü için verilen rıza kararı.
+      additionalProperties: false
+      required: [documentCode, version, granted]
+      properties:
+        documentCode:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Sözleşme belgesinin kodu.
+          examples: [TERMS_OF_SERVICE]
+        version:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: Belgenin sürümü.
+          examples: ["2026-08-01"]
+        granted:
+          type: boolean
+          description: Rıza verildi mi; zorunlu bir belge için `false` kaydı tamamlamaz.
+
+    CompleteRegistrationRequest:
+      type: object
+      description: |
+        Kaydın üçüncü adımı. Zorunlu rızalar token okunmadan önce denetlenir (USR-005).
+        Parola en az 15, en çok 128 karakterdir; üst sınır yalnız gövdeyi korur.
+      additionalProperties: false
+      required: [registrationToken, password, consents]
+      properties:
+        registrationToken:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: İkinci adımda verilen kayıt token'ı.
+          examples: [bG9uZ29wYXF1ZXJlZ2lzdHJhdGlvbnRva2VudmFsdWUx]
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Belirlenen parola.
+          examples: [uzun ve guclu bir parola]
+        consents:
+          type: array
+          minItems: 1
+          maxItems: 20
+          description: Rıza kararları; zorunlu belgelerin hepsi bulunmak zorundadır.
+          items:
+            $ref: "#/components/schemas/ConsentDecision"
+
+    PasswordResetRequest:
+      type: object
+      description: Parola sıfırlama istenen adres. Adresin kayıtlı olup olmadığı yanıttan anlaşılmaz.
+      additionalProperties: false
+      required: [email]
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Hesabın adresi.
+          examples: [ayse@example.com]
+      examples:
+        - email: ayse@example.com
+
+    CompletePasswordResetRequest:
+      type: object
+      description: |
+        Sıfırlama token'ı ve yeni parola. Token tek kullanımlıktır ve parola yazımıyla aynı
+        transaction'da tüketilir (USR-015).
+      additionalProperties: false
+      required: [resetToken, newPassword]
+      properties:
+        resetToken:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: E-postadaki sıfırlama token'ı (opak, 43 karakter).
+          examples: [q1u4gD2w9mKcY3x0Vv7nB5tL8pR6sE1aZ4hJ2fQ9wXk]
+        newPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Yeni parola; en az 15, en çok 128 karakter.
+          examples: [yeni ve uzun bir parola]
+
+    PasswordChange:
+      type: object
+      description: |
+        Uygulama içi parola değişimi. Yeni parola mevcut parolayla aynı olamaz ve onayıyla
+        eşleşmek zorundadır (USR-020).
+      additionalProperties: false
+      required: [currentPassword, newPassword, newPasswordConfirmation]
+      properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Mevcut parola.
+          examples: [eski parola cümlesi]
+        newPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Yeni parola; en az 15, en çok 128 karakter.
+          examples: [yeni ve uzun bir parola]
+        newPasswordConfirmation:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Yeni parolanın onayı; `newPassword` ile aynı olmak zorundadır.
+          examples: [yeni ve uzun bir parola]
+
+    VerificationChannel:
+      type: string
+      description: Doğrulamanın kanalı.
+      enum: [EMAIL, PHONE]
+
+    VerificationStatus:
+      type: string
+      description: |
+        Doğrulamanın durumu. `BURNED` deneme sınırı dolduğu için yakılmış doğrulamadır:
+        doğru kodla bile onaylanamaz (USR-009).
+      enum: [PENDING, CONFIRMED, EXPIRED, BURNED, CANCELLED]
+
+    StartVerificationRequest:
+      type: object
+      description: |
+        Doğrulanacak kanal ve hedef. Kanal ve hedef başına tek açık doğrulama vardır: yeni
+        istek öncekini iptal eder (USR-010).
+      additionalProperties: false
+      required: [channel, target]
+      properties:
+        channel:
+          $ref: "#/components/schemas/VerificationChannel"
+        target:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Doğrulanacak yeni e-posta adresi ya da telefon numarası.
+          examples: [ayse.yeni@example.com]
+
+    ConfirmVerificationRequest:
+      type: object
+      description: Doğrulama kodu; altı ondalık basamak.
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+          pattern: "^[0-9]{6}$"
+          description: E-posta ya da SMS ile gelen kod.
+          examples: ["042913"]
+      examples:
+        - code: "042913"
+
+    Verification:
+      type: object
+      description: |
+        Bir e-posta ya da telefon doğrulaması. Kod hiçbir yanıtta dönmez; hedef maskeli
+        görünür (USR-008).
+      required:
+        [id, channel, status, maskedTarget, remainingAttempts, createdAt, expiresAt, confirmedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Doğrulamanın kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        channel:
+          $ref: "#/components/schemas/VerificationChannel"
+          description: Kanal.
+        status:
+          $ref: "#/components/schemas/VerificationStatus"
+          description: Durum.
+        maskedTarget:
+          type: string
+          description: Doğrulanan hedefin maskeli hâli; tam değer dönmez.
+          examples: ["a***@example.com"]
+        remainingAttempts:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 5
+          description: Kalan yanlış deneme hakkı; sıfırlanınca doğrulama yakılır.
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Doğrulamanın başlatıldığı an.
+        expiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Kodun son geçerli anı (başlangıçtan 10 dakika sonra).
+        confirmedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/NullableTimestamp"
+          description: Onaylandığı an; onaylanmadıysa `null`.
+      examples:
+        - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
+          channel: EMAIL
+          status: PENDING
+          maskedTarget: "a***@example.com"
+          remainingAttempts: 5
+          createdAt: "2026-11-08T09:00:00Z"
+          expiresAt: "2026-11-08T09:10:00Z"
+          confirmedAt: null
+
+    VerificationPage:
+      description: Çağıranın açık doğrulamaları.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Doğrulamalar, yeniden eskiye.
+              items:
+                $ref: "#/components/schemas/Verification"
+
+    # --- Faz 2: profil (ADR-0029 Karar 2, Karar 5)
+
+    Gender:
+      type: string
+      description: Cinsiyet.
+      enum: [MALE, FEMALE, NOT_SPECIFIED]
+
+    CompanyMembership:
+      type: object
+      description: Çağıranın bir şirketteki üyeliği.
+      required: [companyId, companyName, role, approved]
+      properties:
+        companyId:
+          type: string
+          format: uuid
+          description: Şirketin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a20]
+        companyName:
+          type: string
+          description: Şirketin adı.
+          examples: [Koala Lojistik]
+        role:
+          $ref: "#/components/schemas/CompanyContactRole"
+          description: Üyeliğin rolü.
+        approved:
+          type: boolean
+          description: Şirket onaylanmış mı.
+
+    UserProfile:
+      type: object
+      description: |
+        Çağıranın profili. Kimlik numarası tümden maskelenir; IBAN ve telefon kısmen
+        maskelenir. Parola özeti ve kimlik belgesi numarası hiç dönmez (USR-027).
+      required:
+        [id, firstName, lastName, email, phoneNumber, birthDate, gender, jobTitle, about,
+        qualifications, interests, employer, emailVerified, phoneVerified, identityVerified,
+        maskedIdentityNumber, maskedIban, profilePictureId, addressId, companies, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kullanıcı kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        firstName:
+          type: string
+          description: Ad; kimlik doğrulanmışsa değişmez.
+          examples: [Ayşe]
+        lastName:
+          type: string
+          description: Soyad; kimlik doğrulanmışsa değişmez.
+          examples: [Yılmaz]
+        email:
+          type: string
+          description: Giriş adresi.
+          examples: [ayse@example.com]
+        phoneNumber:
+          type: [string, "null"]
+          description: Telefon numarası; doğrulanmadıysa `null`.
+          examples: ["+905551112233"]
+        birthDate:
+          type: [string, "null"]
+          format: date
+          description: Doğum tarihi; kimlik doğrulanmışsa değişmez.
+          examples: ["1996-04-17"]
+        gender:
+          oneOf:
+            - $ref: "#/components/schemas/Gender"
+            - type: "null"
+          description: Cinsiyet; belirtilmediyse `null`.
+        jobTitle:
+          type: [string, "null"]
+          description: Görünen unvan.
+          examples: [Depo görevlisi]
+        about:
+          type: [string, "null"]
+          description: Tanıtım metni.
+          examples: [Beş yıllık depo deneyimi.]
+        qualifications:
+          type: [string, "null"]
+          description: Nitelikler.
+          examples: [Forklift ehliyeti]
+        interests:
+          type: [string, "null"]
+          description: İlgi alanları.
+          examples: [Lojistik, depo yönetimi]
+        employer:
+          type: boolean
+          description: Hesap işveren hesabı mı; kayıttan sonra değişmez.
+        emailVerified:
+          type: boolean
+          description: Adres doğrulanmış mı.
+        phoneVerified:
+          type: boolean
+          description: Telefon doğrulanmış mı.
+        identityVerified:
+          type: boolean
+          description: Kimlik doğrulanmış mı; doğrulandıysa ad, soyad ve doğum tarihi donar.
+        maskedIdentityNumber:
+          type: [string, "null"]
+          description: |
+            Kimlik numarasının maskesi; hiçbir hanesi görünmez. Kimlik doğrulanmadıysa `null`.
+          examples: ["***********"]
+        maskedIban:
+          type: [string, "null"]
+          description: Birincil IBAN'ın maskesi; ilk ve son dört hane görünür.
+          examples: ["TR12***8899"]
+        profilePictureId:
+          type: [string, "null"]
+          format: uuid
+          description: Profil fotoğrafının medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+        addressId:
+          type: [string, "null"]
+          format: uuid
+          description: Birincil adresin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a40]
+        companies:
+          type: array
+          description: Çağıranın şirket üyelikleri, şirket adına göre sıralı.
+          items:
+            $ref: "#/components/schemas/CompanyMembership"
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Hesabın açıldığı an.
+
+    UserProfilePatch:
+      type: object
+      description: |
+        JSON Merge Patch gövdesi (RFC 7396): gönderilmeyen alan değişmez, `null`
+        temizlenebilir alanı temizler. Ad ve soyad temizlenemez; kimlik doğrulanmışsa ad,
+        soyad ve doğum tarihi hiç değiştirilemez (USR-024). `email` ve `phoneNumber`
+        değeri yazmaz, bir doğrulama başlatır (USR-014).
+      additionalProperties: false
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Ad; temizlenemez.
+          examples: [Ayşe]
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Soyad; temizlenemez.
+          examples: [Yılmaz]
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Yeni giriş adresi; yazılmaz, doğrulama başlatır. Temizlenemez.
+          examples: [ayse.yeni@example.com]
+        phoneNumber:
+          type: string
+          minLength: 7
+          maxLength: 20
+          description: Yeni telefon numarası; yazılmaz, doğrulama başlatır. Temizlenemez.
+          examples: ["+905551112233"]
+        birthDate:
+          type: [string, "null"]
+          format: date
+          description: Doğum tarihi; kimlik doğrulanmadıysa temizlenebilir.
+          x-go-type: nullable.Nullable[openapi_types.Date]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        gender:
+          type: [string, "null"]
+          enum: [MALE, FEMALE, NOT_SPECIFIED, null]
+          description: Cinsiyet; temizlenebilir.
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        jobTitle:
+          type: [string, "null"]
+          maxLength: 120
+          description: Görünen unvan; temizlenebilir.
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        about:
+          type: [string, "null"]
+          maxLength: 4000
+          description: Tanıtım metni; temizlenebilir.
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        qualifications:
+          type: [string, "null"]
+          maxLength: 4000
+          description: Nitelikler; temizlenebilir.
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        interests:
+          type: [string, "null"]
+          maxLength: 4000
+          description: İlgi alanları; temizlenebilir.
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        profilePictureId:
+          type: [string, "null"]
+          format: uuid
+          description: Profil fotoğrafının medya kimliği; temizlenebilir.
+          x-go-type: nullable.Nullable[openapi_types.UUID]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        addressId:
+          type: [string, "null"]
+          format: uuid
+          description: Birincil adresin kimliği; temizlenebilir.
+          x-go-type: nullable.Nullable[openapi_types.UUID]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+
+    UserProfileUpdate:
+      type: object
+      description: |
+        Yamadan sonraki profil ve yama sırasında başlatılan doğrulamalar. Yeni e-posta ya
+        da telefon onaylanana kadar profile yazılmaz (USR-014).
+      required: [profile, pendingVerifications]
+      properties:
+        profile:
+          $ref: "#/components/schemas/UserProfile"
+          description: Güncel profil.
+        pendingVerifications:
+          type: array
+          description: Bu yamanın başlattığı doğrulamalar; boş olabilir.
+          items:
+            $ref: "#/components/schemas/Verification"
+
+    PublicProfile:
+      type: object
+      description: |
+        Bir kullanıcının herkese açık profili. Kişisel veri dönmez; adres şehir ve ilçe
+        adına iner (USR-025). Özgeçmiş bağlantısı yalnız sahibine ve ondan başvuru almış
+        işverene görünür (USR-026).
+      required:
+        [id, firstName, lastName, jobTitle, about, cityName, districtName, profilePictureUrl, cvUrl,
+        completedJobCount]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kullanıcı kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        firstName:
+          type: string
+          description: Ad.
+          examples: [Ayşe]
+        lastName:
+          type: string
+          description: Soyad.
+          examples: [Yılmaz]
+        jobTitle:
+          type: [string, "null"]
+          description: Görünen unvan.
+          examples: [Depo görevlisi]
+        about:
+          type: [string, "null"]
+          description: Tanıtım metni.
+          examples: [Beş yıllık depo deneyimi.]
+        cityName:
+          type: [string, "null"]
+          description: Adresin şehri; sokak düzeyi adres hiç üretilmez.
+          examples: [İstanbul]
+        districtName:
+          type: [string, "null"]
+          description: Adresin ilçesi.
+          examples: [Kadıköy]
+        profilePictureUrl:
+          type: [string, "null"]
+          description: Profil fotoğrafının genel adresi.
+          examples: ["https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg"]
+        cvUrl:
+          type: [string, "null"]
+          description: |
+            Özgeçmişin adresi; yalnız kullanıcının kendisine ve ondan başvuru almış bir
+            işverene dolar, diğer herkes için `null`'dır.
+          examples: ["https://api.iskoala.com/uploads/files/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a50.pdf"]
+        completedJobCount:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Tamamlanan iş sayısı.
+      examples:
+        - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10
+          firstName: Ayşe
+          lastName: Yılmaz
+          jobTitle: Depo görevlisi
+          about: Beş yıllık depo deneyimi.
+          cityName: İstanbul
+          districtName: Kadıköy
+          profilePictureUrl: null
+          cvUrl: null
+          completedJobCount: 12
+
+    # --- Faz 2: kimlik incelemesi (ADR-0029 Karar 5)
+
+    IdentityReviewStatus:
+      type: string
+      description: |
+        İncelemenin durumu. `APPROVED` ve `REJECTED` terminaldir; karar verilmiş incelemeye
+        ikinci karar çakışmadır (IDN-010).
+      enum: [PENDING, APPROVED, REJECTED]
+
+    SubmitIdentityDocumentsRequest:
+      type: object
+      description: |
+        Beyan edilen kimlik bilgileri ve dört fotoğrafın medya kimlikleri. Fotoğraflar önce
+        `POST /v1/me/media` ile yüklenir ve hazır durumda olmak zorundadır. Kimlik
+        numarasında sağlama doğrulaması yapılmaz, yalnız biçim denetlenir (IDN-012).
+      additionalProperties: false
+      required:
+        [firstName, lastName, birthDate, identityNumber, documentNumber, selfieMediaId,
+        frontMediaId, backMediaId, togetherMediaId]
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Belgedeki ad.
+          examples: [Ayşe]
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Belgedeki soyad.
+          examples: [Yılmaz]
+        birthDate:
+          type: string
+          format: date
+          description: Belgedeki doğum tarihi.
+          examples: ["1996-04-17"]
+        identityNumber:
+          type: string
+          pattern: "^[1-9][0-9]{9}[02468]$"
+          description: TC kimlik numarası; on bir hane, son hane çift.
+          examples: ["10000000146"]
+        documentNumber:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: Belgenin seri numarası.
+          examples: [A01B23456]
+        selfieMediaId:
+          type: string
+          format: uuid
+          description: Yüz fotoğrafının medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b01]
+        frontMediaId:
+          type: string
+          format: uuid
+          description: Belgenin ön yüzünün medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b02]
+        backMediaId:
+          type: string
+          format: uuid
+          description: Belgenin arka yüzünün medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b03]
+        togetherMediaId:
+          type: string
+          format: uuid
+          description: Belgeyi yüzün yanında tutan karenin medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b04]
+
+    IdentityReview:
+      type: object
+      description: |
+        Çağıranın kendi kimlik incelemesi. Yanıt hiçbir depolama anahtarı ya da adres
+        taşımaz (IDN-014). Ret gerekçesi burada okunur (IDN-019).
+      required: [id, status, submittedAt, decidedAt, rejectionReason]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: İncelemenin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b00]
+        status:
+          $ref: "#/components/schemas/IdentityReviewStatus"
+          description: İncelemenin durumu.
+        submittedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Gönderimin anı.
+        decidedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/NullableTimestamp"
+          description: Kararın anı; karar verilmediyse `null`.
+        rejectionReason:
+          type: [string, "null"]
+          description: Ret gerekçesi; reddedilmediyse `null`.
+          examples: [Belgenin arka yüzü okunamıyor.]
+      examples:
+        - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b00
+          status: PENDING
+          submittedAt: "2026-11-08T09:00:00Z"
+          decidedAt: null
+          rejectionReason: null
+
+    StaffIdentityReview:
+      type: object
+      description: |
+        Personelin gördüğü inceleme. Beyan edilen kimlik numarası incelemeciye açık
+        görünür, çünkü inceleme beyanın fotoğraflarla karşılaştırılmasıdır. Yanıt hiçbir
+        depolama anahtarı, kova adı, uç nokta ya da bağlantı taşımaz (IDN-014).
+      required:
+        [id, status, submittedAt, decidedAt, decidedByStaffId, rejectionReason, user,
+        declaredFirstName, declaredLastName, declaredBirthDate, declaredIdentityNumber,
+        declaredDocumentNumber, documents]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: İncelemenin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b00]
+        status:
+          $ref: "#/components/schemas/IdentityReviewStatus"
+          description: İncelemenin durumu.
+        submittedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Gönderimin anı.
+        decidedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/NullableTimestamp"
+          description: Kararın anı; karar verilmediyse `null`.
+        decidedByStaffId:
+          type: [string, "null"]
+          format: uuid
+          description: Kararı veren personelin kimliği; karar verilmediyse `null`.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6c00]
+        rejectionReason:
+          type: [string, "null"]
+          description: Ret gerekçesi; reddedilmediyse `null`.
+          examples: [Belgenin arka yüzü okunamıyor.]
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/UserSummary"
+            - type: "null"
+          description: İncelemenin kullanıcısı; kaydı artık yoksa `null`.
+        declaredFirstName:
+          type: string
+          description: Beyan edilen ad.
+          examples: [Ayşe]
+        declaredLastName:
+          type: string
+          description: Beyan edilen soyad.
+          examples: [Yılmaz]
+        declaredBirthDate:
+          type: string
+          format: date
+          description: Beyan edilen doğum tarihi.
+          examples: ["1996-04-17"]
+        declaredIdentityNumber:
+          type: string
+          description: Beyan edilen kimlik numarası; incelemecinin karşılaştırma için gördüğü değer.
+          examples: ["10000000146"]
+        declaredDocumentNumber:
+          type: string
+          description: Beyan edilen belge numarası.
+          examples: [A01B23456]
+        documents:
+          type: array
+          description: İncelemeye bağlı fotoğraflar, yuva sırasına göre.
+          items:
+            $ref: "#/components/schemas/IdentityReviewDocument"
+
+    IdentityReviewDocument:
+      type: object
+      description: |
+        İncelemeye bağlı bir fotoğrafın üstverisi. Depolama anahtarı ve adres taşımaz;
+        indirme ayrı bir operasyondur (IDN-014, IDN-015).
+      required: [id, slot, contentType, sizeBytes]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Fotoğrafın kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b01]
+        slot:
+          type: string
+          description: Fotoğrafın yuvası.
+          enum: [SELFIE, FRONT, BACK, TOGETHER]
+        contentType:
+          type: string
+          description: Sunucunun içerikten saptadığı tip; istemcinin beyanı değil.
+          enum: [IMAGE_JPEG, IMAGE_PNG]
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Üstverisi striplendikten sonraki boyut.
+
+    IdentityReviewPage:
+      description: Kimlik inceleme kuyruğu.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CountedCursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: İncelemeler.
+              items:
+                $ref: "#/components/schemas/StaffIdentityReview"
+
+    # --- Faz 2: şirket, üyelik, davet, takip (ADR-0029 Karar 7)
+
+    CompanyType:
+      type: string
+      description: Şirketin hukuki türü; kuruluştan sonra değişmez.
+      enum:
+        [SOLE_PROPRIETORSHIP, LIMITED, CORPORATION, NON_PROFIT, GOVERNMENT,
+         STARTUP, AGENCY, OTHER]
+
+    CompanyApprovalStatus:
+      type: string
+      description: |
+        Şirketin onay durumu. `APPROVED` terminaldir; reddedilmiş şirket sonradan
+        onaylanabilir (CMP-002). Onaylanmamış şirket ilan yayınlayamaz (CMP-005).
+      enum: [PENDING, APPROVED, REJECTED]
+
+    CompanyContactRole:
+      type: string
+      description: Şirket üyeliğinin rolü (K17). Rol davet anında belirlenir ve değişmez.
+      enum: [ADMIN, STAFF]
+
+    CompanyInvitationStatus:
+      type: string
+      description: |
+        Davetin durumu. `PENDING` dışındaki her durum terminaldir; davet on dört gün sonra
+        `EXPIRED` okunur (CMP-015) ve şirket yöneticisi açık daveti `REVOKED` yapabilir
+        (CMP-016).
+      enum: [PENDING, ACCEPTED, REJECTED, REVOKED, EXPIRED]
+
+    UserSummary:
+      type: object
+      description: Bir kullanıcının kişisel veri taşımayan özeti.
+      required: [id, firstName, lastName, profilePictureUrl]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kullanıcı kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        firstName:
+          type: string
+          description: Ad.
+          examples: [Ayşe]
+        lastName:
+          type: string
+          description: Soyad.
+          examples: [Yılmaz]
+        profilePictureUrl:
+          type: [string, "null"]
+          description: Profil fotoğrafının genel adresi.
+          examples: ["https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg"]
+
+    CreateCompanyRequest:
+      type: object
+      description: |
+        Şirketin kuruluş bilgileri. Vergi numarası ve tür kuruluştan sonra değişmez; ad,
+        vergi numarası ve adreste tekillik aranmaz ve vergi numarasında sağlama
+        doğrulaması yapılmaz (CMP-021).
+      additionalProperties: false
+      required: [name, email, phoneNumber, taxNumber, type, address]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Şirketin adı.
+          examples: [Koala Lojistik A.Ş.]
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Şirketin adresi; bir Koala kullanıcısı olmak zorunda değildir.
+          examples: [info@koalalojistik.example.com]
+        phoneNumber:
+          type: string
+          minLength: 7
+          maxLength: 32
+          description: Şirketin telefonu.
+          examples: ["+902121112233"]
+        taxNumber:
+          type: string
+          minLength: 1
+          maxLength: 32
+          description: Vergi numarası; tekil değildir ve sağlaması doğrulanmaz.
+          examples: ["1234567890"]
+        type:
+          $ref: "#/components/schemas/CompanyType"
+        website:
+          type: string
+          maxLength: 512
+          description: Web sitesi.
+          examples: ["https://koalalojistik.example.com"]
+        description:
+          type: string
+          maxLength: 4000
+          description: Tanıtım metni.
+          examples: [İstanbul'da depo ve dağıtım hizmetleri.]
+        logoMediaId:
+          type: string
+          format: uuid
+          description: Logonun medya kimliği; `POST /v1/me/media` ile yüklenir.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+        address:
+          $ref: "#/components/schemas/AddressInput"
+
+    CompanyPatch:
+      type: object
+      description: |
+        JSON Merge Patch gövdesi (RFC 7396). Vergi numarası ve tür burada yoktur: ikisi
+        kuruluştan sonra değişmez (CMP-021). Adres verilirse eski adres yenisiyle
+        değiştirilir (CMP-022).
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Şirketin adı; temizlenemez.
+          examples: [Koala Lojistik A.Ş.]
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Şirketin adresi; temizlenemez.
+          examples: [info@koalalojistik.example.com]
+        phoneNumber:
+          type: string
+          minLength: 7
+          maxLength: 32
+          description: Şirketin telefonu; temizlenemez.
+          examples: ["+902121112233"]
+        website:
+          type: [string, "null"]
+          maxLength: 512
+          description: Web sitesi; temizlenebilir.
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        description:
+          type: [string, "null"]
+          maxLength: 4000
+          description: Tanıtım metni; temizlenebilir.
+          x-go-type: nullable.Nullable[string]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        address:
+          $ref: "#/components/schemas/AddressInput"
+          description: Adresin tamamı; iç içe değer nesnesi olarak atomiktir ve temizlenemez.
+
+    Company:
+      type: object
+      description: |
+        Bir şirket. Kararın notu yalnız şirketin üyelerine dolar; üye olmayan için `null`
+        kalır (CMP-004).
+      required:
+        [id, name, email, phoneNumber, taxNumber, type, approvalStatus, approvalNote, website,
+        description, logoUrl, address, followerCount, following, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Şirketin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a20]
+        name:
+          type: string
+          description: Şirketin adı.
+          examples: [Koala Lojistik A.Ş.]
+        email:
+          type: string
+          description: Şirketin adresi.
+          examples: [info@koalalojistik.example.com]
+        phoneNumber:
+          type: string
+          description: Şirketin telefonu.
+          examples: ["+902121112233"]
+        taxNumber:
+          type: string
+          description: Vergi numarası.
+          examples: ["1234567890"]
+        type:
+          $ref: "#/components/schemas/CompanyType"
+          description: Hukuki tür.
+        approvalStatus:
+          $ref: "#/components/schemas/CompanyApprovalStatus"
+          description: Onay durumu.
+        approvalNote:
+          type: [string, "null"]
+          description: Kararın notu; yalnız şirketin üyelerine dolar.
+          examples: [Vergi levhası okunamıyor.]
+        website:
+          type: [string, "null"]
+          description: Web sitesi.
+          examples: ["https://koalalojistik.example.com"]
+        description:
+          type: [string, "null"]
+          description: Tanıtım metni.
+          examples: [İstanbul'da depo ve dağıtım hizmetleri.]
+        logoUrl:
+          type: [string, "null"]
+          description: Logonun genel adresi.
+          examples: ["https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg"]
+        address:
+          oneOf:
+            - $ref: "#/components/schemas/Address"
+            - type: "null"
+          description: Şirketin adresi.
+        followerCount:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Takipçi sayısı.
+        following:
+          type: boolean
+          description: Çağıran şirketi takip ediyor mu.
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Şirketin kurulduğu an.
+
+    CompanyContact:
+      type: object
+      description: "Şirketin bir üyesi. Kişisel veri taşımaz: e-posta, telefon ve kimlik numarası dönmez."
+      required: [user, role, joinedAt]
+      properties:
+        user:
+          $ref: "#/components/schemas/UserSummary"
+          description: Üyenin kullanıcı özeti.
+        role:
+          $ref: "#/components/schemas/CompanyContactRole"
+          description: Üyeliğin rolü.
+        joinedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Üyeliğin başladığı an.
+
+    CompanyContactPage:
+      description: Şirketin üyeleri.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Üyeler, üyeliğin başlangıcına göre eskiden yeniye.
+              items:
+                $ref: "#/components/schemas/CompanyContact"
+
+    InviteCompanyContactRequest:
+      type: object
+      description: |
+        Davet edilecek adres ve rol. Adres kayıtlı ve kimliği doğrulanmış bir kullanıcıya
+        çözülmek zorundadır (CMP-009). Rol üyeliğin ömrü boyunca sabittir.
+      additionalProperties: false
+      required: [email, role]
+      properties:
+        email:
+          type: string
+          minLength: 3
+          maxLength: 254
+          description: Davet edilen kullanıcının adresi.
+          examples: [mehmet@example.com]
+        role:
+          $ref: "#/components/schemas/CompanyContactRole"
+      examples:
+        - email: mehmet@example.com
+          role: STAFF
+
+    CompanyInvitation:
+      type: object
+      description: |
+        Bir şirket daveti. Taşıyıcı bir kimlik bilgisi değildir: yetki kimlikten gelir,
+        davet kimliğini bilmek yetki vermez (CMP-012, ADR-0029 Karar 7).
+      required:
+        [id, companyId, companyName, role, status, invitedBy, invitedUser, invitedAt, expiresAt,
+        answeredAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Davetin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a60]
+        companyId:
+          type: string
+          format: uuid
+          description: Davet eden şirketin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a20]
+        companyName:
+          type: string
+          description: Davet eden şirketin adı.
+          examples: [Koala Lojistik A.Ş.]
+        role:
+          $ref: "#/components/schemas/CompanyContactRole"
+          description: Davet edilen rol; davet anında donmuştur.
+        status:
+          $ref: "#/components/schemas/CompanyInvitationStatus"
+          description: Davetin durumu.
+        invitedBy:
+          oneOf:
+            - $ref: "#/components/schemas/UserSummary"
+            - type: "null"
+          description: Daveti gönderen; kaydı artık yoksa `null`.
+        invitedUser:
+          oneOf:
+            - $ref: "#/components/schemas/UserSummary"
+            - type: "null"
+          description: Davet edilen; kaydı artık yoksa `null`.
+        invitedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Davetin gönderildiği an.
+        expiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Davetin sona ereceği an (gönderimden 14 gün sonra).
+        answeredAt:
+          $ref: "./components/datetime.yaml#/components/schemas/NullableTimestamp"
+          description: Cevaplandığı ya da geri alındığı an; açık davette `null`.
+
+    CompanyInvitationPage:
+      description: Şirketin davetleri.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Davetler, yeniden eskiye.
+              items:
+                $ref: "#/components/schemas/CompanyInvitation"
+
+    FollowedCompany:
+      type: object
+      description: |
+        Çağıranın takip ettiği bir şirket. `followedAt` güncel aboneliğin başlangıcıdır:
+        bırakıp yeniden takip etmek tarihi yeniler (CMP-017).
+      required: [companyId, name, logoUrl, description, followerCount, followedAt]
+      properties:
+        companyId:
+          type: string
+          format: uuid
+          description: Şirketin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a20]
+        name:
+          type: string
+          description: Şirketin adı.
+          examples: [Koala Lojistik A.Ş.]
+        logoUrl:
+          type: [string, "null"]
+          description: Logonun genel adresi.
+          examples: ["https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg"]
+        description:
+          type: [string, "null"]
+          description: Tanıtım metni.
+          examples: [İstanbul'da depo ve dağıtım hizmetleri.]
+        followerCount:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Şirketin takipçi sayısı.
+        followedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Güncel aboneliğin başladığı an.
+
+    FollowedCompanyPage:
+      description: Takip edilen şirketler.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Takip edilen şirketler.
+              items:
+                $ref: "#/components/schemas/FollowedCompany"
+
+    AddCompanyImageRequest:
+      type: object
+      description: Galeriye eklenecek görüntünün medya kimliği; medya hazır durumda olmak zorundadır.
+      additionalProperties: false
+      required: [mediaId]
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+          description: Görüntünün medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+      examples:
+        - mediaId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
+
+    SetCompanyLogoRequest:
+      type: object
+      description: Logonun medya kimliği; medya hazır durumda olmak zorundadır.
+      additionalProperties: false
+      required: [mediaId]
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+          description: Logonun medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+      examples:
+        - mediaId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
+
+    CompanyGallery:
+      type: object
+      description: Şirketin galerisi; en çok on görüntü (MED-011).
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 10
+          description: Galerideki görüntüler, eklenme sırasına göre.
+          items:
+            $ref: "#/components/schemas/GalleryImage"
+
+    GalleryImage:
+      type: object
+      description: Galerideki bir görüntü.
+      required: [mediaId, url]
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+          description: Görüntünün medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+        url:
+          type: string
+          description: Görüntünün genel adresi.
+          examples: ["https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg"]
+
+    # --- Faz 2: medya (ADR-0029 Karar 6)
+
+    MediaKind:
+      type: string
+      description: |
+        Medyanın türü; depolama önekini ve kabul edilen tipleri belirler. `IDENTITY_DOCUMENT`
+        hiçbir genel yoldan okunamaz (IDN-007).
+      enum: [PROFILE_PICTURE, COMPANY_LOGO, COMPANY_IMAGE, IDENTITY_DOCUMENT, CV]
+
+    MediaStatus:
+      type: string
+      description: |
+        Medyanın durumu. `PENDING` yükleme tamamlanmamıştır, `READY` nesne doğrulanmış,
+        üstverisi striplenmiş ve son yerine taşınmıştır, `REJECTED` doğrulamada düşmüştür
+        (MED-001).
+      enum: [PENDING, READY, REJECTED]
+
+    MediaContentType:
+      type: string
+      description: Sunucunun içerikten saptadığı tip; istemcinin beyanı karara girmez (IDN-003).
+      enum: [IMAGE_JPEG, IMAGE_PNG, APPLICATION_PDF]
+
+    StartMediaUploadRequest:
+      type: object
+      description: |
+        Yüklemenin türü ve bildirilen boyutu. Bildirilen boyut yalnız yazma adresinin
+        sınırını kurar; gerçek boyut, tip ve tuval tamamlama adımında içerikten doğrulanır
+        (IDN-003, IDN-004).
+      additionalProperties: false
+      required: [kind, sizeBytes]
+      properties:
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+        sizeBytes:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 10485760
+          description: Bildirilen boyut; en çok 10 MiB.
+      examples:
+        - kind: PROFILE_PICTURE
+          sizeBytes: 524288
+
+    MediaUpload:
+      type: object
+      description: |
+        Beklemede medya kaydı ve karantina için kısa ömürlü yazma adresi. İstemci nesneyi
+        bu adrese yazar, sonra tamamlama operasyonunu çağırır (MED-001).
+      required: [media, uploadUrl, uploadExpiresAt]
+      properties:
+        media:
+          $ref: "#/components/schemas/Media"
+          description: Beklemede medya kaydı.
+        uploadUrl:
+          type: string
+          description: Karantina anahtarına yazmak için imzalı adres.
+          examples: ["https://objects.example.com/incoming/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg?X-Amz-Expires=900"]
+        uploadExpiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Yazma adresinin son geçerli anı.
+
+    Media:
+      type: object
+      description: |
+        Bir medya kaydı. Hazır olduğunda nesnenin üstverisi tümden striplenmiştir: konum
+        (GPS), kamera ve seri numaraları dahil (MED-005). Kimlik belgesi fotoğrafının
+        adresi hiçbir durumda üretilmez (IDN-007).
+      required: [id, kind, status, contentType, sizeBytes, url, rejectionCode, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Medyanın kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+        kind:
+          $ref: "#/components/schemas/MediaKind"
+          description: Medyanın türü.
+        status:
+          $ref: "#/components/schemas/MediaStatus"
+          description: Medyanın durumu.
+        contentType:
+          oneOf:
+            - $ref: "#/components/schemas/MediaContentType"
+            - type: "null"
+          description: Saptanan tip; yükleme tamamlanmadıysa `null`.
+        sizeBytes:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+          description: Stripleme sonrası boyut; yükleme tamamlanmadıysa `null`.
+        url:
+          type: [string, "null"]
+          description: |
+            Nesnenin genel adresi; yalnız genel okunabilen türlerde ve hazır durumda dolar.
+            Kimlik belgesi fotoğrafında her zaman `null`'dır.
+          examples: ["https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg"]
+        rejectionCode:
+          oneOf:
+            - $ref: "./components/problem.yaml#/components/schemas/ErrorCode"
+            - type: "null"
+          description: Doğrulamada düştüyse sebebin kodu; düşmediyse `null`.
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Yüklemenin başlatıldığı an.
+
+    # --- Faz 2: adres ve referans verisi (ADR-0029 Karar 8)
+
+    Coordinates:
+      type: object
+      description: |
+        Koordinat. Depolamada tam hassasiyet tutulur; yanıtta görünen hassasiyeti çağırana
+        göre projeksiyon belirler (MED-009, [[job-location-rule]]).
+      required: [latitude, longitude, precision]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Enlem.
+          examples: [40.9876]
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Boylam.
+          examples: [29.0254]
+        precision:
+          type: string
+          description: |
+            Bu yanıtta verilen hassasiyet. `EXACT` tam koordinattır, `APPROXIMATE`
+            yuvarlanmıştır.
+          enum: [EXACT, APPROXIMATE]
+
+    CoordinatesInput:
+      type: object
+      description: Koordinat girdisi; her zaman tam hassasiyetle saklanır.
+      additionalProperties: false
+      required: [latitude, longitude]
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Enlem.
+          examples: [40.9876]
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Boylam.
+          examples: [29.0254]
+
+    AddressInput:
+      type: object
+      description: |
+        Adresin bileşenleri. Sağlayıcının biçimlendirdiği adres metni ve ham yanıtı
+        gönderilmez ve saklanmaz; yalnız yer kimliği ve bizim bileşenlerimiz kalır
+        (MED-008).
+      additionalProperties: false
+      required: [cityId, districtId]
+      properties:
+        cityId:
+          type: string
+          format: uuid
+          description: Şehrin referans kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d01]
+        districtId:
+          type: string
+          format: uuid
+          description: İlçenin referans kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d02]
+        neighborhood:
+          type: string
+          maxLength: 120
+          description: Mahalle.
+          examples: [Caferağa]
+        thoroughfare:
+          type: string
+          maxLength: 160
+          description: Cadde ya da sokak.
+          examples: [Moda Caddesi]
+        buildingNumber:
+          type: string
+          maxLength: 30
+          description: Bina numarası.
+          examples: ["12"]
+        buildingName:
+          type: string
+          maxLength: 120
+          description: Bina adı.
+          examples: [Moda Apartmanı]
+        floor:
+          type: string
+          maxLength: 20
+          description: Kat.
+          examples: ["3"]
+        unitNumber:
+          type: string
+          maxLength: 30
+          description: Daire numarası.
+          examples: ["7"]
+        postalCode:
+          type: string
+          maxLength: 5
+          description: Posta kodu.
+          examples: ["34710"]
+        additionalDirections:
+          type: string
+          maxLength: 500
+          description: Adres tarifi.
+          examples: [Eczanenin yanındaki giriş.]
+        providerPlaceId:
+          type: string
+          maxLength: 255
+          description: |
+            Sağlayıcının yer kimliği. Saklanan tek sağlayıcı verisidir; kalıcı değil,
+            yenilenebilir bir işaretçi olarak tutulur (MED-008).
+          examples: [ChIJAbCdEfGhIjKlMnOpQrStUv]
+        coordinates:
+          $ref: "#/components/schemas/CoordinatesInput"
+
+    Address:
+      type: object
+      description: |
+        Bir adres kaydı. Koordinatın görünen hassasiyeti çağırana göre değişir (MED-009).
+        Görünen adres metni sağlayıcıdan değil, kendi bileşenlerimizden üretilir (MED-008).
+      required:
+        [id, city, district, neighborhood, thoroughfare, buildingNumber, buildingName, floor,
+        unitNumber, postalCode, additionalDirections, displayLine, coordinates, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Adresin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a40]
+        city:
+          $ref: "#/components/schemas/ReferenceItem"
+          description: Şehir.
+        district:
+          $ref: "#/components/schemas/ReferenceItem"
+          description: İlçe.
+        neighborhood:
+          type: [string, "null"]
+          description: Mahalle.
+          examples: [Caferağa]
+        thoroughfare:
+          type: [string, "null"]
+          description: Cadde ya da sokak.
+          examples: [Moda Caddesi]
+        buildingNumber:
+          type: [string, "null"]
+          description: Bina numarası.
+          examples: ["12"]
+        buildingName:
+          type: [string, "null"]
+          description: Bina adı.
+          examples: [Moda Apartmanı]
+        floor:
+          type: [string, "null"]
+          description: Kat.
+          examples: ["3"]
+        unitNumber:
+          type: [string, "null"]
+          description: Daire numarası.
+          examples: ["7"]
+        postalCode:
+          type: [string, "null"]
+          description: Posta kodu.
+          examples: ["34710"]
+        additionalDirections:
+          type: [string, "null"]
+          description: Adres tarifi.
+          examples: [Eczanenin yanındaki giriş.]
+        displayLine:
+          type: string
+          description: Kendi bileşenlerimizden üretilen görünen adres metni.
+          examples: [Moda Caddesi 12/7, Caferağa, Kadıköy, İstanbul]
+        coordinates:
+          oneOf:
+            - $ref: "#/components/schemas/Coordinates"
+            - type: "null"
+          description: Koordinat; bilinmiyorsa `null`.
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Adresin kaydedildiği an.
+
+    AddressPage:
+      description: Çağıranın adresleri.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Adresler, yeniden eskiye.
+              items:
+                $ref: "#/components/schemas/Address"
+
+    ResolvedAddress:
+      type: object
+      description: |
+        Bir önerinin bizim bileşenlerimize çözülmüş hâli. İstemci bunu olduğu gibi
+        `POST /v1/me/addresses`'e verebilir. Sağlayıcının biçimlendirdiği metin ve ham
+        yanıtı dönmez (MED-008).
+      required:
+        [cityId, districtId, neighborhood, thoroughfare, buildingNumber, postalCode,
+        providerPlaceId, latitude, longitude]
+      properties:
+        cityId:
+          type: string
+          format: uuid
+          description: Şehrin referans kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d01]
+        districtId:
+          type: string
+          format: uuid
+          description: İlçenin referans kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d02]
+        neighborhood:
+          type: [string, "null"]
+          description: Mahalle.
+          examples: [Caferağa]
+        thoroughfare:
+          type: [string, "null"]
+          description: Cadde ya da sokak.
+          examples: [Moda Caddesi]
+        buildingNumber:
+          type: [string, "null"]
+          description: Bina numarası.
+          examples: ["12"]
+        postalCode:
+          type: [string, "null"]
+          description: Posta kodu.
+          examples: ["34710"]
+        providerPlaceId:
+          type: [string, "null"]
+          description: Sağlayıcının yer kimliği.
+          examples: [ChIJAbCdEfGhIjKlMnOpQrStUv]
+        latitude:
+          type: [number, "null"]
+          format: double
+          minimum: -90
+          maximum: 90
+          description: Enlem; sağlayıcı vermediyse `null`.
+          examples: [40.9876]
+        longitude:
+          type: [number, "null"]
+          format: double
+          minimum: -180
+          maximum: 180
+          description: Boylam; sağlayıcı vermediyse `null`.
+          examples: [29.0254]
+
+    AddressSearchSession:
+      type: object
+      description: |
+        Sağlayıcıya karşı bir adres arama oturumu. Çağırana bağlıdır ve on beş dakika
+        yaşar; kimliğini ele geçiren başka bir kullanıcı onu kullanamaz (MED-010).
+      required: [id, expiresAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Oturumun kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a70]
+        expiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Oturumun son geçerli anı.
+      examples:
+        - id: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a70
+          expiresAt: "2026-11-08T09:15:00Z"
+
+    AddressSuggestion:
+      type: object
+      description: |
+        Bir adres önerisi. `candidateId` oturum içinde geçerlidir ve çözme operasyonuna
+        verilir. Sağlayıcının biçimlendirdiği metin önbelleğe alınmaz ve kalıcılaşmaz
+        (MED-008).
+      required: [candidateId, primaryText, secondaryText]
+      properties:
+        candidateId:
+          type: string
+          description: Önerinin oturum içindeki kimliği.
+          examples: [c_01]
+        primaryText:
+          type: string
+          description: Önerinin ana satırı.
+          examples: [Moda Caddesi]
+        secondaryText:
+          type: string
+          description: Önerinin ikinci satırı.
+          examples: [Caferağa, Kadıköy, İstanbul]
+
+    AddressSuggestionList:
+      type: object
+      description: Adres önerileri; tek sayfa, en çok on öneri.
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 10
+          description: Öneriler, sağlayıcının verdiği sırayla.
+          items:
+            $ref: "#/components/schemas/AddressSuggestion"
+
+    ReferenceItem:
+      type: object
+      description: Bir referans verisi satırı (şehir, ilçe, üniversite, fakülte, bölüm).
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Satırın kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d01]
+        name:
+          type: string
+          description: Görünen ad.
+          examples: [İstanbul]
+
+    ReferenceItemList:
+      type: object
+      description: Referans verisi listesi; tek sayfa, salt okunur (MED-012).
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: Satırlar, ada göre sıralı.
+          items:
+            $ref: "#/components/schemas/ReferenceItem"
+
+    # --- Faz 2: personel yüzeyi (ADR-0029 Karar 9)
+
+    ApprovalRequest:
+      type: object
+      description: Onay kararının notu; isteğe bağlıdır ve kırpılarak kaydedilir (CMP-003).
+      additionalProperties: false
+      properties:
+        note:
+          type: string
+          maxLength: 1000
+          description: Kararın notu.
+          examples: [Vergi levhası doğrulandı.]
+
+    RejectionRequest:
+      type: object
+      description: |
+        Ret gerekçesi. Zorunludur, serbest metindir ve en çok bin karakterdir; enum yoktur
+        (CMP-003, IDN-013).
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Ret gerekçesi.
+          examples: [Belgenin arka yüzü okunamıyor.]
+      examples:
+        - reason: Belgenin arka yüzü okunamıyor.
+
+    StaffUser:
+      type: object
+      description: |
+        Personelin listede gördüğü kullanıcı. Liste kişisel veri taşımaz: e-posta, telefon
+        ve kimlik numarası dönmez.
+      required:
+        [id, firstName, lastName, employer, emailVerified, phoneVerified, identityVerified,
+        createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kullanıcı kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        firstName:
+          type: string
+          description: Ad.
+          examples: [Ayşe]
+        lastName:
+          type: string
+          description: Soyad.
+          examples: [Yılmaz]
+        employer:
+          type: boolean
+          description: İşveren hesabı mı.
+        emailVerified:
+          type: boolean
+          description: Adres doğrulanmış mı.
+        phoneVerified:
+          type: boolean
+          description: Telefon doğrulanmış mı.
+        identityVerified:
+          type: boolean
+          description: Kimlik doğrulanmış mı.
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Hesabın açıldığı an.
+
+    StaffUserPage:
+      description: Personelin gördüğü kullanıcı listesi.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CountedCursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Kullanıcılar.
+              items:
+                $ref: "#/components/schemas/StaffUser"
+
+    StaffUserDetail:
+      type: object
+      description: |
+        Personelin gördüğü kullanıcı detayı. Kişisel veri alanları (`email`,
+        `phoneNumber`, `birthDate`, `address`) yalnız `user.read_pii` tutan personel için
+        dolar; tutmayan personel onları `null` görür (ADR-0029 Karar 9). Kimlik numarası
+        hiçbir projeksiyonda dönmez (IDN-018).
+      required:
+        [id, firstName, lastName, email, phoneNumber, birthDate, address, employer,
+        emailVerified, phoneVerified, identityVerified, identityReviewId,
+        identityReviewStatus, companies, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kullanıcı kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10]
+        firstName:
+          type: string
+          description: Ad.
+          examples: [Ayşe]
+        lastName:
+          type: string
+          description: Soyad.
+          examples: [Yılmaz]
+        email:
+          type: [string, "null"]
+          description: Giriş adresi; yalnız `user.read_pii` ile dolar.
+          examples: [ayse@example.com]
+        phoneNumber:
+          type: [string, "null"]
+          description: Telefon numarası; yalnız `user.read_pii` ile dolar.
+          examples: ["+905551112233"]
+        birthDate:
+          type: [string, "null"]
+          format: date
+          description: Doğum tarihi; yalnız `user.read_pii` ile dolar.
+          examples: ["1996-04-17"]
+        address:
+          oneOf:
+            - $ref: "#/components/schemas/Address"
+            - type: "null"
+          description: Birincil adres; yalnız `user.read_pii` ile dolar.
+        employer:
+          type: boolean
+          description: İşveren hesabı mı.
+        emailVerified:
+          type: boolean
+          description: Adres doğrulanmış mı.
+        phoneVerified:
+          type: boolean
+          description: Telefon doğrulanmış mı.
+        identityVerified:
+          type: boolean
+          description: Kimlik doğrulanmış mı.
+        identityReviewId:
+          type: [string, "null"]
+          format: uuid
+          description: En son kimlik incelemesinin kimliği; hiç gönderim yoksa `null`.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6b00]
+        identityReviewStatus:
+          oneOf:
+            - $ref: "#/components/schemas/IdentityReviewStatus"
+            - type: "null"
+          description: En son incelemenin durumu; hiç gönderim yoksa `null`.
+        companies:
+          type: array
+          description: Kullanıcının şirket üyelikleri.
+          items:
+            $ref: "#/components/schemas/CompanyMembership"
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Hesabın açıldığı an.
+
+    IdentityReveal:
+      type: object
+      description: |
+        Bir işçinin kimliğinin açıldığı kayıt. Satır ekle-sil-yapılamaz. Adres bilgisi
+        yazım anında maskelenmiştir; personel tam adresi görmez. Kimlik numarası dönmez
+        (IDN-018).
+      required:
+        [id, viewerId, viewerName, jobAssignmentId, jobTitle, revealedAt, maskedIpAddress]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Kaydın kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a80]
+        viewerId:
+          type: string
+          format: uuid
+          description: Kimliği açan kullanıcının kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a90]
+        viewerName:
+          type: [string, "null"]
+          description: Açanın görünen adı; hesabını silmişse `null`.
+          examples: [Mehmet Demir]
+        jobAssignmentId:
+          type: string
+          format: uuid
+          description: Açmanın dayandığı atamanın kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6aa0]
+        jobTitle:
+          type: [string, "null"]
+          description: İlanın başlığı.
+          examples: [Depo görevlisi]
+        revealedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Açmanın anı.
+        maskedIpAddress:
+          type: string
+          description: Açanın adresinin maskeli hâli; tam adres hiç saklanmaz.
+          examples: ["192.0.***.***"]
+
+    IdentityRevealPage:
+      description: Kimlik açılma izleri.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CountedCursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: İzler, yeniden eskiye.
+              items:
+                $ref: "#/components/schemas/IdentityReveal"
+
+    StaffCompany:
+      type: object
+      description: Personelin listede gördüğü şirket.
+      required: [id, name, taxNumber, type, approvalStatus, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Şirketin kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a20]
+        name:
+          type: string
+          description: Şirketin adı.
+          examples: [Koala Lojistik A.Ş.]
+        taxNumber:
+          type: string
+          description: Vergi numarası.
+          examples: ["1234567890"]
+        type:
+          $ref: "#/components/schemas/CompanyType"
+          description: Hukuki tür.
+        approvalStatus:
+          $ref: "#/components/schemas/CompanyApprovalStatus"
+          description: Onay durumu.
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Şirketin kurulduğu an.
+
+    StaffCompanyPage:
+      description: Şirket onay kuyruğu.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CountedCursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Şirketler.
+              items:
+                $ref: "#/components/schemas/StaffCompany"
+
+    StaffCompanyReview:
+      type: object
+      description: |
+        Personelin gördüğü şirket incelemesi: vergi numarası, kararın notu, kararı veren
+        personelin kimliği, üye listesi ve galeri. Üyeler kişisel veri taşımaz.
+      required: [company, approvalDecidedAt, approvedByStaffId, createdBy, contacts, gallery]
+      properties:
+        company:
+          $ref: "#/components/schemas/Company"
+          description: Şirketin kendisi; kararın notu personel için her zaman dolar.
+        approvalDecidedAt:
+          $ref: "./components/datetime.yaml#/components/schemas/NullableTimestamp"
+          description: Kararın anı; karar verilmediyse `null`.
+        approvedByStaffId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Kararı veren personelin kimliği; karar verilmediyse `null`. Ret kararında da
+            yazılır.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6c00]
+        createdBy:
+          oneOf:
+            - $ref: "#/components/schemas/UserSummary"
+            - type: "null"
+          description: Şirketi kuran kullanıcı; kaydı artık yoksa `null`.
+        contacts:
+          type: array
+          description: Şirketin üyeleri.
+          items:
+            $ref: "#/components/schemas/CompanyContact"
+        gallery:
+          $ref: "#/components/schemas/CompanyGallery"
+          description: Şirketin galerisi.
+
   # Ortak hata yanıtları. Her biri Problem gövdesi döner; kodlar
   # ErrorCode'dadır.
   responses:
@@ -1040,6 +5836,14 @@ components:
       headers:
         Retry-After:
           $ref: "./components/headers.yaml#/components/headers/RetryAfter"
+      content:
+        application/problem+json:
+          schema:
+            $ref: "./components/problem.yaml#/components/schemas/Problem"
+    BadGateway:
+      description: |
+        Üst sistem yanıt vermiyor (adres sağlayıcısı, ödeme sağlayıcısı);
+        `ADDRESS_PROVIDER_UNAVAILABLE` gibi uca özgü bir kod döner.
       content:
         application/problem+json:
           schema:

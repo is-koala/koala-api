@@ -133,7 +133,7 @@ actions:
   payment_attempt.complete_callback: "go:provider_token"
   payment_attempt.read_outcome: "go:provider_token"
   realtime_destination.subscribe: "go:ws_destination"
-  company.follow: "company#viewer"
+  company.follow: "company#can_follow"
   user.read_own_follows: "go:owner"
   user.write_own_profile: "go:owner"
   user.create_company: "go:attribute_identity_verified"

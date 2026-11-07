@@ -77,6 +77,7 @@ func TestStatusOfEveryKind(t *testing.T) {
 		{apperr.KindPayloadTooLarge, http.StatusRequestEntityTooLarge},
 		{apperr.KindUnavailable, http.StatusServiceUnavailable},
 		{apperr.KindUnsupportedMediaType, http.StatusUnsupportedMediaType},
+		{apperr.KindNotImplemented, http.StatusNotImplemented},
 		{apperr.KindInternal, http.StatusInternalServerError},
 		{apperr.Kind(200), http.StatusInternalServerError},
 	}

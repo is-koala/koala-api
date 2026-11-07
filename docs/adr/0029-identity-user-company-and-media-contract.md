@@ -42,6 +42,13 @@ x-not-implemented: |
 
 **Okuma testinin gevşemesi.** `softdeletetest.ReadTest.plan` işaretli operasyonu kataloğa bakmadan **atlar**. Böylece donmuş bir GET okuyacağı tabloyu dürüstçe adlandırabilir (`x-resource: companies`), tablo henüz yokken. İşaret kalkınca okuma testi kendiliğinden silahlanır: o gün tablo, sınıflandırma ve fikstür zorunlu olur. Bu, Karar 1'in sözleşmeyi veri katmanından önce dondurabilmesinin tek nedenidir ve `x-resource`'un zorunluluğunu (ADR-0026, ADR-0020 §11) kaldırmaz, yalnız **ne zaman** denetlendiğini erteler.
 
+**Dondurmanın dört yan kararı**, uygulama sırasında çıktı ve burada kayda geçiyor:
+
+1. **`GET /v1/me` kimlik çekirdeği kalır; profil `/v1/me/profile`'dadır.** `Me` şemasına zorunlu profil alanları eklemek derlemeyi kırmazdı — Go'da adlandırılmış alanlı struct literal'i eksik alanla da derlenir — ama bugünkü handler o alanları yazmadığı için yanıt sessizce sıfır değer (`""`, `false`) taşırdı. Bu tam olarak [[silent-invalidation-defect-class]]'ın biçimidir, bu yüzden profil ayrı bir kaynağa konuldu. `/v1/me`'nin açıklamasındaki "profil alanları Faz 2'de gelir" cümlesinin yerine bu karar geçer.
+2. **Nullable yanıt alanı `required`'dır.** Stil rehberi §9 "değer yok null ile yazılır, alan atlanmaz" diyor; üretici bunu ancak alan `required` ise sağlıyor. Aksi hâlde `omitempty` koyuyor ve alan yanıttan tümden düşüyor. Alanın görünür ve `null` olması istemci için "bilinmiyor" ile "yok"u ayırt edilebilir kılar.
+3. **`NullableTimestamp`** `components/datetime.yaml`'a eklendi. `oneOf: [{$ref: Timestamp}, {type: "null"}]` biçimi `koala-instant-is-date-time`'ı geçmiyor (çözülmüş şemanın kökünde `format` yok) ve Go'da birlik tipi üretiyor. Bileşen `type: [string, "null"] + format: date-time + pattern: Z$` taşır ve `Timestamp` ile aynı `x-go-type`'ı kullanır, böylece `*jsontime.UTC` olur ve UTC kuralı tek yerde kalır.
+4. **Yükleme `/v1/me/media` altındadır**, `/v1/media` değil. Medya sahibine bağlı bir kaynaktır (`owner` sınıfı, Scope); `/v1/me/...` altında olması ADR-0025'in oturum uçlarında kurduğu `x-authz-exempt` kalıbını aynen uygulamayı sağlar ve "başkasının medyası var olmayandan ayırt edilemez" kuralını yol düzeyinde de söyler.
+
 **Katalog bağı (`test/scenarios.TestFrozenDomainsDeferTheirScenarios`).** Sözleşmenin `tags`'i ile kataloğun `domain`'i eşlenir. Bir etikette hâlâ işaretli operasyon varsa o alanın her P0 senaryosu `deferred: {phase: 2, reason: …}` taşımak zorundadır; etiketin hiçbir operasyonu işaretli değilse o alanın hiçbir P0'ı `deferred` olamaz. Granülerlik **alan düzeyidir**, senaryo düzeyinde değil: senaryolar API'den bağımsız dilde yazılır (`test/scenarios/README.md`) ve operasyon adı taşımaz, bu yüzden senaryo-operasyon eşlemesi kataloğa API sızdırır. Alan düzeyi bağ, "son operasyonu uygulayan PR o alanın P0'larını bağlamak zorundadır" kuralını makineye verir.
 
 ### 2. Üç adımlı kayıt
@@ -199,6 +206,8 @@ ADR-0013, ADR-0014, ADR-0019, ADR-0024, ADR-0026 ve ADR-0028'in kararları deği
   - `incoming/` ve `pending_registrations`'ın temizlik işleri (M2 saklama süreleri).
   - Onaylanmamış şirketin ilan yayınlayamaması (Karar 7) Faz 3'ün ilan ucunda uygulanır; bu sözleşmede ilan ucu yok.
   - ADR-0027'den devredilen `Keeps` kalemi: ilk gerçek "ebeveyni silinmiş çocuk listede kalır" ucu Faz 2'nin veri PR'ıyla gelir.
+  - `softdeletetest` iki yol parametreli GET'i desteklemiyor ("operations with 2 path parameters are not supported yet"). Sözleşmede böyle bir uç var: `GET /v1/admin/identity-verifications/{reviewId}/documents/{documentId}`. Bugün `x-not-implemented` taşıdığı için atlanıyor; handler'ı getiren PR önce `ReadTest`'i genişletmek zorundadır.
+  - İlk gerçek PATCH operasyonunun uçtan uca doğrulama ve bağlama testi (stil rehberi §3): `PATCH /v1/me/profile` ve `PATCH /v1/companies/{companyId}` sözleşmede var ama handler'ları yok, bu yüzden test onların uygulama PR'ında gelir.
 
 ## Açık sorular
 

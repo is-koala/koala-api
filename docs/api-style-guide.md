@@ -221,6 +221,17 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 
 - **Oran sınırı grubu:** Operasyon varsayılan grubundan (GET/HEAD/OPTIONS → `read`, diğerleri → `write`) başka bir gruba `x-rate-limit: <grup>` ile girer (`auth`, `upload`, `message`, `sitemap`, `boarding`). Grup tablosu `internal/app/edge.go`'dadır; bilinmeyen grup açılışı durdurur (ADR-0021) **[test]**. `auth_account` grubunun route'u yoktur: giriş, hedef başına (adres fark etmeksizin) kovayı buradan alır (ADR-0025 §8).
 
+## 11.1 Dondurulmuş ama uygulanmamış operasyon (ADR-0029 §1)
+
+Bir alanın sözleşmesi bir kerede dondurulur ki istemci işi (plan §4.2) uygulamayı beklemeden başlasın. Handler'ı henüz gelmemiş operasyon şunu taşır:
+
+- `x-not-implemented: <gerekçe>` (en az 20 karakter). Operasyon `501 NOT_IMPLEMENTED` döner ve bu kod **operasyonun `default` yanıtının altındadır**; `501` ayrı bir yanıt olarak yazılmaz. Gerekçe: `501`'i yazıp handler gelince silmek operasyonun durum kümesini değiştirir, §2 bunu uyumsuz değişiklik sayar.
+- İşaret üç kapıyı birden gevşetir ve üçü de işaret kalkınca kendiliğinden silahlanır:
+  - `internal/app.TestNotImplementedOperationsAreDeclared` işaretli operasyonların kümesini `pending.Operations()`'a **iki yönlü** bağlar: unutulan handler da unutulan işaret de kırmızıdır **[test]**.
+  - `softdeletetest.ReadTest` işaretli GET'i kataloğa bakmadan atlar, böylece `x-resource` henüz var olmayan bir tabloyu dürüstçe adlandırabilir **[test]**.
+  - `test/scenarios.TestFrozenDomainsDeferTheirScenarios` alanın P0 senaryolarının `deferred` olmasını ister; işaretli operasyon kalmayınca bağlanmış olmalarını ister **[test]**.
+- `501` `404 ROUTE_NOT_FOUND` ile karıştırılmaz: yol **vardır** ve sözleşmesi bağlayıcıdır, yalnız uygulaması yoktur.
+
 ## 12. Kullanımdan kaldırma (öneri)
 
 Bu bölümün planda ya da bir ADR'de dayanağı yoktur.

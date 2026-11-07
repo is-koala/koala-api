@@ -390,7 +390,7 @@ pair("realtime_destination", "subscribe", "bilinen hedef dışı SUBSCRIBE redde
 
 # ---- Faz 2 alanının Faz 0 taramasında eksik kalan kararları (ADR-0029)
 pair("company", "follow", "kimlikli her kullanıcı; yalnız varlık kontrolü", "= Java", "", "company#viewer", "✓",
-     "company#viewer", FGA, "",
+     "company#can_follow", FGA, "",
      [("user:u_stranger", "company:co_1", A, A, "public"),
       ("user:u_co_admin", "company:co_1", A, A, "public", "kendi şirketini de takip edebilir"),
       ("anonymous", "company:co_1", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"}, GO)],
