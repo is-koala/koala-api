@@ -57,6 +57,10 @@ python3 -I docs/faz0/tarama/pairs.py                                            
 python3 -I docs/faz0/tarama/oracle_uret.py                                               # → testdata/oracle/*.csv
 ```
 
+`pairs.py` tek başına `make generate`'in bir adımıdır ve çıktısı `make
+gen-check`'te denetlenir (ADR-0028): matris bayat kalırsa kapı kırmızıdır.
+Öteki betikler Java deposunu ister, kapıda koşmazlar.
+
 ## Satır kuralı
 
 Bir satır, **(guard'ın konumu, korunan public metot)** ikilisidir.
