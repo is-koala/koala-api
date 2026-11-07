@@ -5,19 +5,60 @@ package app
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/is-koala/koala-api/api"
+	dbsrc "github.com/is-koala/koala-api/db"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/authn/authndb"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/softdelete"
 	"github.com/is-koala/koala-api/internal/platform/softdelete/softdeletetest"
 )
+
+// queryName starts one sqlc query.
+var queryName = regexp.MustCompile(`(?m)^-- name: (\w+)`)
+
+// markedParents reads the inner-by-design markers (ADR-0027 §5) of every
+// sqlc query and returns the detach parents they exempt. It is what ties
+// the marker in the SQL to the JoinTest declaration below: the same
+// decision is written in two places, and neither may be removed alone.
+func markedParents(t *testing.T) map[string]bool {
+	t.Helper()
+	queries := dbsrc.Queries()
+	files, err := fs.Glob(queries, "*/*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no query files under db/queries")
+	}
+	out := map[string]bool{}
+	for _, f := range files {
+		data, err := fs.ReadFile(queries, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bounds := queryName.FindAllStringIndex(string(data), -1)
+		for i, b := range bounds {
+			end := len(data)
+			if i+1 < len(bounds) {
+				end = bounds[i+1][0]
+			}
+			for _, parent := range softdelete.MarkedParents(string(data[b[0]:end])) {
+				out[parent] = true
+			}
+		}
+	}
+	return out
+}
 
 // TestJoinTestOnTheContract is the generated JOIN test (ADR-0020 Karar 11,
 // ADR-0027 §2) on the real contract and router: every detach edge of
@@ -182,5 +223,6 @@ func TestJoinTestOnTheContract(t *testing.T) {
 	softdeletetest.JoinTest{
 		Spec: spec, Handler: a.router, App: a.db,
 		Catalog: dbtest.SoftDeleteCatalog(t), Cases: cases,
+		Marked: markedParents(t),
 	}.Run(t)
 }

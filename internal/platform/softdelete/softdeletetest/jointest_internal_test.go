@@ -52,10 +52,10 @@ func TestJoinPlanReportsProblems(t *testing.T) {
 	}{
 		"edge without a case": {reader, nil, "has no case"},
 		"unread but read": {reader, map[string]DetachCase{
-			key: {Unread: "nothing reads it"},
+			key: {Unread: "nothing reads it, and nothing is going to for a while"},
 		}, "but GET /comments does"},
 		"unread with a fixture": {map[string]any{"/livez": nil}, map[string]DetachCase{
-			key: {Unread: "nothing reads it", Fixture: noRow},
+			key: {Unread: "nothing reads it, and nothing is going to for a while", Fixture: noRow},
 		}, "carries no fixture and no outcome"},
 		"read by nothing and not declared so": {map[string]any{"/livez": nil}, map[string]DetachCase{
 			key: {Fixture: noRow, Outcome: Keeps},
@@ -69,8 +69,14 @@ func TestJoinPlanReportsProblems(t *testing.T) {
 		"a child that disappears without a reason": {reader, map[string]DetachCase{
 			key: {Fixture: noRow, Outcome: Hides},
 		}, "needs a reason"},
+		"a reason too short to say anything": {reader, map[string]DetachCase{
+			key: {Fixture: noRow, Outcome: Hides, Reason: "it is dead"},
+		}, "needs a reason of at least"},
+		"an Unread reason too short": {map[string]any{"/livez": nil}, map[string]DetachCase{
+			key: {Unread: "nothing reads it"},
+		}, "in at least"},
 		"null fields on a child that disappears": {reader, map[string]DetachCase{
-			key: {Fixture: noRow, Outcome: Hides, Reason: "the session is dead", NullFields: []string{"platform"}},
+			key: {Fixture: noRow, Outcome: Hides, Reason: "the session is dead without its device, so it has no platform", NullFields: []string{"platform"}},
 		}, "NullFields belong"},
 	}
 	for name, tt := range tests {
@@ -99,13 +105,43 @@ func TestJoinPlanReportsProblems(t *testing.T) {
 		}
 	})
 
+	// The marker in the SQL and the declaration here say the same thing;
+	// Keeps contradicts the marker (ADR-0027 §2).
+	t.Run("Keeps against an inner-by-design marker", func(t *testing.T) {
+		t.Parallel()
+		_, problems := JoinTest{
+			Spec:    spec(reader),
+			Catalog: detachCatalog(t),
+			Cases:   map[string]DetachCase{key: {Fixture: noRow, Outcome: Keeps}},
+			Marked:  map[string]bool{"owners": true},
+		}.plan()
+		if len(problems) != 1 || !strings.Contains(problems[0], "does not stay") {
+			t.Fatalf("problems = %q, want one about the marker contradicting Keeps", problems)
+		}
+	})
+	t.Run("Hides beside an inner-by-design marker", func(t *testing.T) {
+		t.Parallel()
+		cases, problems := JoinTest{
+			Spec:    spec(reader),
+			Catalog: detachCatalog(t),
+			Cases: map[string]DetachCase{key: {
+				Fixture: noRow, Outcome: Hides,
+				Reason: "the query destroys the nullable side on purpose and fails closed",
+			}},
+			Marked: map[string]bool{"owners": true},
+		}.plan()
+		if len(problems) > 0 || len(cases) != 1 {
+			t.Fatalf("cases = %v, problems = %q; want the edge and no problem", cases, problems)
+		}
+	})
+
 	t.Run("a case on no edge", func(t *testing.T) {
 		t.Parallel()
 		_, problems := JoinTest{
 			Spec: spec(reader), Catalog: detachCatalog(t),
 			Cases: map[string]DetachCase{
 				key:            {Fixture: noRow, Outcome: Keeps},
-				"comments.old": {Unread: "an edge that was removed from the catalog"},
+				"comments.old": {Unread: "an edge that was removed from the catalog long ago"},
 			},
 		}.plan()
 		if len(problems) != 1 || !strings.Contains(problems[0], "is on no detach edge") {
@@ -142,7 +178,7 @@ func TestJoinPlanAcceptsAnUnreadEdge(t *testing.T) {
 		Spec:    spec(map[string]any{"/owners/{id}": "owners"}),
 		Catalog: detachCatalog(t),
 		Cases: map[string]DetachCase{
-			"comments.author_id": {Unread: "no operation reads comments yet"},
+			"comments.author_id": {Unread: "no GET operation reads comments yet; the first one will declare an outcome"},
 		},
 	}.plan()
 	if len(problems) > 0 || len(cases) != 0 {

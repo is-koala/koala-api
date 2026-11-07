@@ -62,9 +62,10 @@ func (r Row) shown() string {
 
 // DetachCase declares one detach edge of the catalog.
 type DetachCase struct {
-	// Unread says no GET operation reads the edge's child and why.
-	// JoinTest holds the claim against the contract, so an operation
-	// added later fails the test. The other fields stay empty.
+	// Unread says no GET operation reads the edge's child and why, in at
+	// least softdelete.ExemptionReasonLen characters. JoinTest holds the
+	// claim against the contract, so an operation added later fails the
+	// test. The other fields stay empty.
 	Unread string
 	// Fixture creates one active child under one active parent. It opens
 	// its own transactions; JoinTest does not wrap it in one, so it may
@@ -79,7 +80,9 @@ type DetachCase struct {
 	// Outcome is what the child's operations do after the deletion.
 	Outcome Outcome
 	// Reason is why the child disappears; required unless the outcome is
-	// Keeps. There is no silent exception to the detach rule.
+	// Keeps, and at least softdelete.ExemptionReasonLen characters, the
+	// threshold of its sibling rules. There is no silent exception to the
+	// detach rule.
 	Reason string
 	// NullFields are the JSON fields of the child that came from the
 	// parent. With Keeps they must read null (or be absent) after the
@@ -120,6 +123,18 @@ type JoinTest struct {
 	// Cases declares every detach edge of Catalog, keyed by
 	// "<child>.<column>" as db/softdelete.yaml keys them.
 	Cases map[string]DetachCase
+	// Marked holds the detach parents some sqlc query exempts with the
+	// inner-by-design marker (softdelete.MarkedParents over db.Queries()).
+	// An edge whose parent is in it cannot be declared Keeps: the query
+	// says the child goes. Empty means no query carries a marker, which is
+	// right for a contract served by hand-written queries.
+	Marked map[string]bool
+}
+
+// short reports whether a reason is below the threshold its sibling rules
+// use (softdelete.ExemptionReasonLen, x-resource-reason).
+func short(reason string) bool {
+	return len([]rune(strings.TrimSpace(reason))) < softdelete.ExemptionReasonLen
 }
 
 // EdgeKey is the key of an edge in JoinTest.Cases.
@@ -178,6 +193,8 @@ func (jt JoinTest) plan() ([]edgeCase, []string) {
 				problems = append(problems, fmt.Sprintf("%s: the case says no GET reads %s (%s), but GET %s does", e, e.Child, decl.Unread, ops[0].path))
 			case decl.Fixture != nil || decl.Outcome != "":
 				problems = append(problems, fmt.Sprintf("%s: an Unread case carries no fixture and no outcome", e))
+			case short(decl.Unread):
+				problems = append(problems, fmt.Sprintf("%s: say why nothing reads %s, in at least %d characters", e, e.Child, softdelete.ExemptionReasonLen))
 			}
 			continue
 		}
@@ -188,10 +205,18 @@ func (jt JoinTest) plan() ([]edgeCase, []string) {
 			problems = append(problems, fmt.Sprintf("%s: the case needs a fixture that creates a child under an active parent", e))
 		case decl.Outcome != Keeps && decl.Outcome != Hides && decl.Outcome != Unauthenticated:
 			problems = append(problems, fmt.Sprintf("%s: outcome %q, want %s, %s or %s", e, decl.Outcome, Keeps, Hides, Unauthenticated))
-		case decl.Outcome != Keeps && strings.TrimSpace(decl.Reason) == "":
-			problems = append(problems, fmt.Sprintf("%s: outcome %s needs a reason; on a detach edge the child stays unless the query means otherwise", e, decl.Outcome))
+		case decl.Outcome != Keeps && short(decl.Reason):
+			problems = append(problems, fmt.Sprintf("%s: outcome %s needs a reason of at least %d characters; on a detach edge the child stays unless the query means otherwise",
+				e, decl.Outcome, softdelete.ExemptionReasonLen))
 		case decl.Outcome != Keeps && len(decl.NullFields) > 0:
 			problems = append(problems, fmt.Sprintf("%s: NullFields belong to the %s outcome", e, Keeps))
+		// The same decision is written twice: here and as the
+		// inner-by-design marker of the child's query. The two are tied
+		// so that removing one fails (ADR-0027 §2); dropping the marker
+		// alone makes CheckJoins red.
+		case decl.Outcome == Keeps && jt.Marked[e.Parent]:
+			problems = append(problems, fmt.Sprintf("%s: a query exempts %s with the `%s` marker, so the child does not stay; declare %s or %s, or drop the marker",
+				e, e.Parent, softdelete.Exemption, Hides, Unauthenticated))
 		default:
 			out = append(out, edgeCase{edge: e, decl: decl, ops: ops})
 		}
@@ -351,7 +376,9 @@ func (jt JoinTest) get(ctx context.Context, c edgeCase, row Row, path string) (i
 }
 
 // nullFields checks that the child's fields that came from the parent read
-// null, or are absent, once the parent is deleted.
+// null, or are absent, once the parent is deleted. A field that vanishes
+// from the body counts as null; the first real Keeps endpoint should
+// narrow that to "present and null" (ADR-0027 §2, izleyen kalem).
 func nullFields(body string, row Row, fields []string) error {
 	if len(fields) == 0 {
 		return nil
