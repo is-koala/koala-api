@@ -267,7 +267,7 @@ func TestLoadModelRejects(t *testing.T) {
 		// unbounded type - and which rule speaks depends on the order
 		// Relations() returns: can_view sorts before viewer, so the
 		// exclusion is checked first. That is why msg is asserted: it is
-		// the only thing holding validateExclusion's own behaviour, and
+		// the only thing holding validateExclusion's own behavior, and
 		// renaming the relation would otherwise move the test silently to
 		// rule 2.
 		{msg: "the subtracted side", name: "but not over a recursive userset relation", model: doc(user, `{"type":"doc","relations":{"owner":{"this":{}},"viewer":{"this":{}},"can_view":{"difference":{"base":{"computedUserset":{"relation":"owner"}},"subtract":{"computedUserset":{"relation":"viewer"}}}}},"metadata":{"relations":{"owner":{"directly_related_user_types":[{"type":"user"}]},"viewer":{"directly_related_user_types":[{"type":"user"},{"type":"doc","relation":"viewer"}]},"can_view":{}}}}`)},
