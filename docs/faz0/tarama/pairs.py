@@ -38,6 +38,7 @@ BASIS = {
     "contact": "ortak sohbeti olan kullanıcı (user#contact)",
     "public": "herkese açık ([user:*] ya da kimliksiz)",
     "attribute_is_employer": "öznitelik: kullanıcı işveren ve kimliği doğrulanmış",
+    "attribute_identity_verified": "öznitelik: kullanıcının kimliği doğrulanmış",
     "capability_url": "tahmin edilemez kimlik taşıyan URL",
     "provider_token": "sağlayıcı ödeme token'ı",
     "user_destination": "kullanıcının kendi WS kuyruğu",
@@ -386,6 +387,37 @@ pair("realtime_destination", "subscribe", "bilinen hedef dışı SUBSCRIBE redde
      "go:ws_destination", GO, "",
      [("user:u_worker", "realtime_destination:queue_own", A, A, "user_destination"),
       ("user:u_worker", "realtime_destination:topic_unknown", D, D, False)])
+
+# ---- Faz 2 alanının Faz 0 taramasında eksik kalan kararları (ADR-0029)
+pair("company", "follow", "kimlikli her kullanıcı; yalnız varlık kontrolü", "= Java", "", "company#viewer", "✓",
+     "company#viewer", FGA, "",
+     [("user:u_stranger", "company:co_1", A, A, "public"),
+      ("user:u_co_admin", "company:co_1", A, A, "public", "kendi şirketini de takip edebilir"),
+      ("anonymous", "company:co_1", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"}, GO)],
+     "Onay durumu takibi etkilemez; tekrar takip ve takip edilmeyeni bırakmak sessiz no-op'tur.")
+pair("user", "read_own_follows", "yalnız kendisi (Scope)", "= Java", "", "owner (model dışı)", "dış", "go:owner", GO, "",
+     [("user:u_worker", "user:u_worker", A, A, "self"),
+      ("anonymous", "user:u_worker", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"})])
+pair("user", "write_own_profile", "yalnız kendisi (/users/me)", "= Java", "", "owner (model dışı)", "dış", "go:owner", GO, "",
+     [("user:u_worker", "user:u_worker", A, A, "self"),
+      ("anonymous", "user:u_worker", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"})],
+     "Kimlik doğrulanmışsa ad, soyad ve doğum tarihi alan düzeyinde dondurulur (ADR-0029 Karar 5).")
+pair("user", "create_company", "öznitelik: kimlik doğrulanmış", "= Java", "", "—", "dış",
+     "go:attribute_identity_verified", GO, "",
+     [("user:u_creator", "user:u_creator", A, A, "attribute_identity_verified"),
+      ("user:u_worker", "user:u_worker", D, D, False, "kimliği doğrulanmamış kullanıcı şirket kuramaz")])
+pair("user", "submit_identity_documents", "yalnız kendisi (/users/me)", "= Java", "", "owner (model dışı)", "dış", "go:owner", GO, "",
+     [("user:u_worker", "user:u_worker", A, A, "self"),
+      ("anonymous", "user:u_worker", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"})],
+     "Açık inceleme ikinci gönderimi durum kuralıyla reddeder, yetkiyle değil.")
+pair("user", "read_own_identity_review", "yalnız kendisi (/users/me)", "= Java", "", "owner (model dışı)", "dış", "go:owner", GO, "",
+     [("user:u_worker", "user:u_worker", A, A, "self"),
+      ("anonymous", "user:u_worker", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"})])
+pair("user", "prove_chip_presence", "meydan okuma özneye göre aranır; başkasınınki bulunamaz", "= Java", "",
+     "owner (model dışı)", "dış", "go:owner", GO, "",
+     [("user:u_worker", "user:u_worker", A, A, "self"),
+      ("user:u_stranger", "user:u_worker", D, D, True, {"jrow": "AZ-141"})],
+     "Deneme sayacı ve oran sınırı Java'da yok; Faz 2b düzeltir (ADR-0029 Karar 5).")
 
 # ----------------------------------------------------------------------------------
 # Personel RBAC (ADR-0026): uç izinleri platform:koala'nın 25 relation'ıdır; roller ve
