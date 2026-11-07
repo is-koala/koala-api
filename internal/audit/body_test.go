@@ -120,39 +120,135 @@ func TestMaskBodyMasksComposedKeysThatEndInAllowedOnes(t *testing.T) {
 	}
 }
 
-// A class ending is kept only when the key holds no personal part, so an
-// identifier of a person's identity document is masked although it ends
-// in "id", and so is a coordinate that ends in "type".
+// A class ending names the shape of a value, and it is kept only when the
+// key holds no personal part: an identifier of a person's identity
+// document is masked although it ends in "id".
 func TestMaskBodyNarrowsTheKeyClasses(t *testing.T) {
 	t.Parallel()
 	body := map[string]any{
 		"nationalId":    "10000000146",
 		"emailId":       "ayse@example.com",
 		"addressId":     "9a1c0f10-0003-4c00-8000-000000000001",
-		"latitudeType":  "EXACT",
+		"passportId":    "U1234567",
+		"salaryTotal":   42000,
 		"deviceId":      "d-1",
 		"sessionIds":    []string{"s-1", "s-2"},
 		"entryCount":    3,
 		"schemaVersion": 2,
-		"recordType":    "STAFF",
+		"isEnabled":     true,
 	}
 	got, err := audit.MaskBody(body)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(got)
-	for _, k := range []string{"nationalId", "emailId", "addressId", "latitudeType"} {
+	for _, k := range []string{"nationalId", "emailId", "addressId", "passportId", "salaryTotal"} {
 		if !strings.Contains(s, `"`+k+`":"***"`) {
 			t.Errorf("masked body %s: %s is not masked", s, k)
 		}
 	}
 	for _, kept := range []string{
 		`"deviceId":"d-1"`, `"sessionIds":["s-1","s-2"]`, `"entryCount":3`,
-		`"schemaVersion":2`, `"recordType":"STAFF"`,
+		`"schemaVersion":2`, `"isEnabled":true`,
 	} {
 		if !strings.Contains(s, kept) {
 			t.Errorf("masked body %s lost %s", s, kept)
 		}
+	}
+}
+
+// KVKK m.6 special-category fields are masked, and so is each one's
+// Turkish spelling. Their natural names end in "status", "type", "code"
+// and "flag", which is why those endings are no longer key classes: the
+// only thing that narrowed a class was a deny list, and a deny list that
+// has to name every special-category field before Faz 2 writes one into
+// an append-only trail is the arrangement this allow list replaced.
+func TestMaskBodyMasksSpecialCategoryKeys(t *testing.T) {
+	t.Parallel()
+	body := map[string]any{
+		"bloodType":             "0 Rh+",
+		"disabilityStatus":      "YUZDE_45",
+		"healthStatus":          "KRONIK",
+		"pregnancyStatus":       true,
+		"criminalRecordStatus":  "VAR",
+		"religionType":          "ISLAM",
+		"unionMembershipStatus": "UYE",
+		"maritalStatus":         "EVLI",
+		"militaryStatus":        "TECILLI",
+		"genderType":            "KADIN",
+		"sexualOrientationType": "X",
+		"biometricType":         "PARMAK_IZI",
+		"diseaseCode":           "E11",
+		"medicationCode":        "A10BA02",
+		"allergyType":           "POLEN",
+		"smokerFlag":            true,
+		"handicapFlag":          true,
+		"sgkStatus":             "AKTIF",
+		"expectedSalaryTotal":   50000,
+		"drivingLicenseId":      "B-123",
+		"sicilId":               "12345",
+		// The same meanings as a Turkish body writes them.
+		"askerlikDurumu": "YAPILDI",
+		"medeniHal":      "BEKAR",
+		"kanGrubu":       "A Rh-",
+		"engelliDurumu":  "YOK",
+		"cinsiyet":       "ERKEK",
+		"saglikRaporu":   "VAR",
+		"gebelikDurumu":  "YOK",
+		"adliSicilKaydi": "YOK",
+		"sendikaUyeligi": "YOK",
+		"maasBilgisi":    30000,
+		"alerjiListesi":  []string{"POLEN"},
+		"ehliyetNo":      "123456",
+		"pasaportNo":     "U1234567",
+		"vergiKimlikNo":  "1234567890",
+	}
+	got, err := audit.MaskBody(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	for k := range body {
+		if k == "alerjiListesi" {
+			if !strings.Contains(s, `"alerjiListesi":["***"]`) {
+				t.Errorf("masked body %s: alerjiListesi is not masked", s)
+			}
+			continue
+		}
+		if !strings.Contains(s, `"`+k+`":"***"`) {
+			t.Errorf("masked body %s: %s is not masked", s, k)
+		}
+	}
+	for _, leaked := range []string{"YUZDE_45", "KRONIK", "ISLAM", "EVLI", "TECILLI", "PARMAK_IZI", "E11", "A10BA02", "POLEN", "Rh"} {
+		if strings.Contains(s, leaked) {
+			t.Errorf("masked body %s still carries %q", s, leaked)
+		}
+	}
+}
+
+// A key written with a space or a dot is the key it names, not a new one:
+// MaskBody takes any JSON value, a decoded request map included, so
+// "national id" may not pass where "nationalId" does not.
+func TestMaskBodyNormalizesKeySeparators(t *testing.T) {
+	t.Parallel()
+	body := map[string]any{
+		"national id": "10000000146",
+		"adres id":    "9a1c0f10-0003-4c00-8000-000000000001",
+		"user.email":  "ayse@example.com",
+		"target id":   "9a1c0f10-0003-4c00-8000-000000000002",
+	}
+	got, err := audit.MaskBody(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	for _, k := range []string{"national id", "adres id", "user.email"} {
+		if !strings.Contains(s, `"`+k+`":"***"`) {
+			t.Errorf("masked body %s: %s is not masked", s, k)
+		}
+	}
+	if !strings.Contains(s, `"target id":"9a1c0f10-0003-4c00-8000-000000000002"`) {
+		t.Errorf("masked body %s lost the target id", s)
 	}
 }
 
@@ -163,10 +259,11 @@ func TestMaskBodyMasksPersonalValuesUnderAllowedKeys(t *testing.T) {
 	t.Parallel()
 	body := map[string]any{
 		"code":       "4111 1111 1111 1111", // a card number under an enum key
-		"orderCode":  "4111111111111111",    // and under a class-matched one
+		"targetId":   "4111111111111111",    // and under a class-matched one
 		"cursor":     "ayse@example.com",
-		"total":      5551112233,       // a phone number as a JSON number
-		"quantity":   4111111111111111, // a card number as a JSON number
+		"accountId":  "TR33 0006 1005 1978 6457 8413 26", // an IBAN: letters, no Luhn
+		"total":      5551112233,                         // a phone number as a JSON number
+		"quantity":   4111111111111111,                   // a card number as a JSON number
 		"statusName": "ACTIVE",
 	}
 	got, err := audit.MaskBody(body)
@@ -174,12 +271,12 @@ func TestMaskBodyMasksPersonalValuesUnderAllowedKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(got)
-	for _, k := range []string{"code", "orderCode", "cursor", "total", "quantity"} {
+	for _, k := range []string{"code", "targetId", "cursor", "accountId", "total", "quantity"} {
 		if !strings.Contains(s, `"`+k+`":"***"`) {
 			t.Errorf("masked body %s: %s is not masked", s, k)
 		}
 	}
-	for _, leaked := range []string{"4111", "ayse@example.com", "5551112233"} {
+	for _, leaked := range []string{"4111", "ayse@example.com", "5551112233", "TR33", "6457"} {
 		if strings.Contains(s, leaked) {
 			t.Errorf("masked body %s still carries %q", s, leaked)
 		}

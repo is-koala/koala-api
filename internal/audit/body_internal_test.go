@@ -80,18 +80,57 @@ func TestAllowedDecisionTable(t *testing.T) {
 		{"ROLES", true},               // case does not matter
 		{"token_version", true},       // exact, separators dropped
 		{"mustChangePassword", true},  // exact, kept although it reads personal
+		{"status", true},              // exact: the ending is no class, the key is listed
+		{"statusName", true},          // exact
+		{"errorCode", true},           // exact
 		{"deviceId", true},            // class "id"
 		{"sessionIds", true},          // class "ids"
 		{"entry-count", true},         // class "count"
+		{"appVersion", true},          // class "version"
+		{"isEnabled", true},           // class "enabled"
 		{"nationalId", false},         // class, but a personal part
+		{"taxId", false},              // same
+		{"passportId", false},         // same
+		{"drivingLicenseId", false},   // same
+		{"salaryTotal", false},        // class "total", but a personal part
 		{"emailHostname", false},      // not the exact key "hostname" (and unlisted)
 		{"passwordFieldName", false},  // not the exact key "fieldname"
 		{"secretTokenVersion", false}, // class "version", but personal parts
 		{"memberTokenVersion", false}, // same
 		{"targetRoleName", false},     // not the exact key "rolename"
-		{"doorCode", false},           // class "code", but a personal part
+		{"doorCode", false},           // "code" is no class any more
 		{"note", false},               // free text
 		{"", false},                   // the root of a body that is not an object
+		// KVKK m.6: the endings these end in are no longer classes, and
+		// their identifier forms are caught by the personal parts.
+		{"disabilityStatus", false},
+		{"bloodType", false},
+		{"religionType", false},
+		{"diseaseCode", false},
+		{"smokerFlag", false},
+		{"unionMembershipStatus", false},
+		{"maritalStatus", false},
+		{"militaryStatus", false},
+		{"healthRecordCount", false},
+		{"disabilityId", false},
+		{"askerlikDurumu", false},
+		{"kanGrubu", false},
+		{"engelliDurumu", false},
+		{"saglikRaporuId", false},
+		// The keys a class ending must keep working for; none of them
+		// holds a personal part, and the ones that read closest to one
+		// ("financialTotal", "orderingId") are why "inanc" and "din" are
+		// not personal parts.
+		{"financialTotal", true},
+		{"orderingId", true},
+		{"bindingId", true},
+		{"estateCount", true},
+		{"paidTotal", true},
+		// Separators: a key written apart is the key it names.
+		{"national id", false},
+		{"adres id", false},
+		{"user.email", false},
+		{"target id", true},
 	}
 	for _, tt := range tests {
 		if got := allowed(tt.key); got != tt.want {

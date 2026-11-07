@@ -70,6 +70,11 @@ var (
 	emailInValue = regexp.MustCompile(`[^\s@"]+@[^\s@"]+\.[^\s@"]+`)
 	phoneValue   = regexp.MustCompile(`^\+?\d{10,15}$`)
 	cardValue    = regexp.MustCompile(`^\d{13,19}$`)
+	// ibanValue is ISO 13616: two letters for the country, two check
+	// digits, then 11 to 30 alphanumerics (26 for TR). An IBAN is neither
+	// a phone nor a card number - it has letters and no Luhn checksum -
+	// so without this it printed in clear under any allowed key.
+	ibanValue = regexp.MustCompile(`^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$`)
 )
 
 // numberDigits drops the separators people write in phone and card
@@ -184,9 +189,27 @@ func maskValue(v any) any {
 }
 
 // personalValue reports whether the string is an e-mail address, a phone
-// number or a payment card number.
+// number, a payment card number or a bank account number.
 func personalValue(s string) bool {
-	return emailInValue.MatchString(s) || personalNumber(s)
+	return emailInValue.MatchString(s) || personalNumber(s) || bankAccount(s)
+}
+
+// bankAccount reports whether s is an IBAN. Only spaces are dropped, the
+// separator banks print it with: a dash or a dot would make it a
+// different kind of string (a uuid, a hostname) and those keep their
+// value under an allowed key.
+func bankAccount(s string) bool {
+	return ibanValue.MatchString(strings.ToUpper(strings.ReplaceAll(s, " ", "")))
+}
+
+// normalizeKey is the form the three key lists are written in: lower
+// case, without the separators a writer may put between words. Space and
+// dot are dropped with "_" and "-", because a body is not only written by
+// our own panel - MaskBody takes any JSON value, including a decoded
+// request map - and "national id" or "user.email" must be read as the one
+// key they name, not slip past the lists as something they are not.
+func normalizeKey(key string) string {
+	return strings.NewReplacer("_", "", "-", "", " ", "", ".", "").Replace(strings.ToLower(key))
 }
 
 // allowed reports whether a member's key lets its value stay in the
@@ -195,7 +218,7 @@ func personalValue(s string) bool {
 // else masked. Nothing short-circuits, so no composition of a listed
 // ending can buy an exemption the bare key does not have.
 func allowed(key string) bool {
-	k := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
+	k := normalizeKey(key)
 	if slices.Contains(allowedKeys(), k) {
 		return true
 	}

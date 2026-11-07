@@ -87,15 +87,18 @@ func allowedKeys() []string {
 		// Roles, permissions and scopes: names of authorizations, not of people.
 		"permission", "permissionname", "permissions", "role", "rolecode", "rolecodes",
 		"rolename", "rolenames", "roles", "scope", "scopes",
-		// Counters, sizes and paging.
-		"bytes", "count", "cursor", "limit", "offset", "page", "quantity", "sort", "total", "truncated",
+		// Counters, sizes and paging. ("count", "total", "version" and
+		// "enabled" are not here: they are classes below, and a key that
+		// is exactly a class would be a second rule saying the same.)
+		"bytes", "cursor", "limit", "offset", "page", "quantity", "sort", "truncated",
 		// Money (ADR-0008): minor units and a currency, never a card.
 		"amount", "currency", "fee", "rate",
-		// Flags of the staff contract and of a command.
-		"active", "approved", "disabled", "dryrun", "enabled", "force",
+		// Flags of the staff contract and of a command. ("enabled" is a
+		// class below.)
+		"active", "approved", "disabled", "dryrun", "force",
 		"mustchangepassword", "mutating", "required", "verified",
-		// Version counters.
-		"tokenversion", "version",
+		// Version counters. ("version" itself is a class below.)
+		"tokenversion",
 		// Times and durations, set by the database or the service.
 		"createdat", "deletedat", "duration", "expiresat", "lastseenat", "occurredat",
 		"retention", "retentionuntil", "revokedat", "timestamp", "ttl", "updatedat",
@@ -107,16 +110,28 @@ func allowedKeys() []string {
 	}
 }
 
-// allowedKeyClasses are key endings that name a class of value no person
-// is in: an identifier, a counter, a version, an enum or a flag. A key
+// allowedKeyClasses are key endings that name the *shape* of a value, not
+// its meaning: an identifier, a counter, a version, a boolean. A key
 // matched by its class is kept only when it holds no part of piiKeyParts,
-// so "nationalId", "emailId", "latitudeType" and "doorCode" are masked
-// although they end in an allowed class.
+// so "nationalId", "emailId" and "passportId" are masked although they
+// end in an allowed class.
+//
+// Meaning-bearing endings are deliberately not here. "status", "state",
+// "type", "kind", "code", "codes" and "flag" were, and they reopened the
+// hole the allow list exists to close: the only thing narrowing a class is
+// piiKeyParts, which is a deny list, and the natural names of KVKK m.6
+// special-category fields end in exactly those words
+// ("disabilityStatus", "bloodType", "religionType", "diseaseCode",
+// "smokerFlag"). A deny list cannot be relied on to name every one of
+// them before Faz 2 writes one into an append-only trail. The keys that
+// really need those endings today are in allowedKeys by name ("status",
+// "statusname", "type", "kind", "code", "codes", "errorcode",
+// "reasoncode", "rolecode"), which is a reviewed decision per key.
+//
+// A class ending stays short, generic and about shape. Adding one buys
+// every future key that ends in it, so a single key goes in allowedKeys.
 func allowedKeyClasses() []string {
-	return []string{
-		"code", "codes", "count", "enabled", "flag", "id", "ids",
-		"kind", "state", "status", "total", "type", "uuid", "version",
-	}
+	return []string{"count", "enabled", "id", "ids", "total", "uuid", "version"}
 }
 
 // piiKeyParts are the parts of a key that make its value personal data or
@@ -126,13 +141,35 @@ func allowedKeyClasses() []string {
 // allowedKeyClasses, which is the only generalizing rule left. Turkish
 // spellings sit next to the English ones: a body written by the panel may
 // use either.
+//
+// The special-category group (KVKK m.6: health, disability, religion,
+// union membership, criminal record, sex life, biometrics, and the civil
+// and military status Turkish forms ask for) is here because an
+// identifier of such a record ("disabilityId", "healthRecordCount") would
+// otherwise pass on its class alone. It is fail-closed on purpose: a few
+// innocent keys lose their value ("healthCheckCount", "licenseCode" of a
+// software license) and nothing of a data subject's reaches the trail.
+//
+// Two words were considered and left out because a part is matched
+// anywhere in the key, with no word boundary: "din" (religion) also
+// matches ordering, binding, holding, funding and pending, and "inanc"
+// (belief) also matches financial. Their fields are covered by
+// "religio", "mezhep", "sabika" and by the class pruning above.
 func piiKeyParts() []string {
 	return []string{
 		"email", "phone", "mobile", "gsm", "tckn", "nationalid", "identitynumber", "kimlik", "iban", "password", "passwd",
-		"secret", "token", "authorization", "apikey", "otp", "address", "street", "postcode", "zipcode",
+		"secret", "token", "authorization", "apikey", "otp", "address", "adres", "street", "postcode", "zipcode",
 		"latitude", "longitude", "coordinate", "location", "birth", "dogum",
 		"firstname", "lastname", "fullname", "surname", "soyad", "ipaddress", "clientip",
 		"cardnumber", "cardholder", "cardno", "creditcard", "cvv", "cvc", "doorcode",
+		// KVKK m.6 and the identity documents that carry it.
+		"health", "saglik", "disabilit", "engel", "handicap", "pregnan", "gebe",
+		"religio", "mezhep", "union", "sendika", "criminal", "sabika", "sicil",
+		"gender", "cinsiyet", "orientation", "biometric", "biyometri",
+		"marital", "medenihal", "military", "askerlik",
+		"blood", "kangrubu", "disease", "hastalik", "medication", "ilac", "allergy", "alerji",
+		"smoker", "sigara", "salary", "maas", "sgk",
+		"passport", "pasaport", "license", "ehliyet", "taxid",
 	}
 }
 
