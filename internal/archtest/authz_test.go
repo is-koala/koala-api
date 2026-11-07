@@ -76,22 +76,11 @@ func callsIn(f *ast.File, name string) map[*ast.FuncDecl][]token.Pos {
 }
 
 // piiPath is the import path of the PII gate.
-const piiPath = "github.com/is-koala/koala-api/internal/pii"
+const piiPath = modulePath + "/internal/pii"
 
 // piiImport returns the name f uses for the pii package: its alias, "pii",
 // or "." for a dot import; "" when f does not import it.
-func piiImport(f *ast.File) string {
-	for _, imp := range f.Imports {
-		if strings.Trim(imp.Path.Value, `"`) != piiPath {
-			continue
-		}
-		if imp.Name != nil {
-			return imp.Name.Name
-		}
-		return "pii"
-	}
-	return ""
-}
+func piiImport(f *ast.File) string { return importName(f, piiPath) }
 
 // takesGrant reports whether the function type has a parameter of type
 // *<name>.Grant (*Grant under a dot import).

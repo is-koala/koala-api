@@ -348,10 +348,7 @@ func folderChain(n int) []string {
 func TestConformanceFolderModel(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	m, err := authz.LoadModel([]byte(folderModel))
-	if err != nil {
-		t.Fatal(err)
-	}
+	m := loadFolderModel(t)
 	deepest := authz.MaxResolutionDepth - 3 // f -> f0 -> ... : 24 nested lookups in Go
 	cycle := []string{"folder:f#parent@folder:p", "folder:p#parent@folder:f"}
 	cases := []folderCase{
