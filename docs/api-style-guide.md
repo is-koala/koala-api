@@ -228,7 +228,7 @@ Bir alanın sözleşmesi bir kerede dondurulur ki istemci işi (plan §4.2) uygu
 - `x-not-implemented: <gerekçe>` (en az 20 karakter). Operasyon `501 NOT_IMPLEMENTED` döner ve bu kod **operasyonun `default` yanıtının altındadır**; `501` ayrı bir yanıt olarak yazılmaz. Gerekçe: `501`'i yazıp handler gelince silmek operasyonun durum kümesini değiştirir, §2 bunu uyumsuz değişiklik sayar.
 - İşaret üç kapıyı birden gevşetir ve üçü de işaret kalkınca kendiliğinden silahlanır:
   - `internal/app.TestNotImplementedOperationsAreDeclared` işaretli operasyonların kümesini `pending.Operations()`'a **iki yönlü** bağlar: unutulan handler da unutulan işaret de kırmızıdır **[test]**.
-  - `softdeletetest.ReadTest` işaretli GET'i kataloğa bakmadan atlar, böylece `x-resource` henüz var olmayan bir tabloyu dürüstçe adlandırabilir **[test]**.
+  - `softdeletetest.ReadTest` ve `softdeletetest.JoinTest` işaretli GET'i kataloğa bakmadan atlar, böylece `x-resource` henüz var olmayan bir tabloyu dürüstçe adlandırabilir **[test]**.
   - `test/scenarios.TestFrozenDomainsDeferTheirScenarios` alanın P0 senaryolarının `deferred` olmasını ister; işaretli operasyon kalmayınca bağlanmış olmalarını ister **[test]**.
 - `501` `404 ROUTE_NOT_FOUND` ile karıştırılmaz: yol **vardır** ve sözleşmesi bağlayıcıdır, yalnız uygulaması yoktur.
 

@@ -40,7 +40,7 @@ x-not-implemented: |
 
 **İki yönlü bağ (`internal/app.TestNotImplementedOperationsAreDeclared`).** Sözleşmede `x-not-implemented` taşıyan operasyonların kümesi, `notImplemented` iskelesinin sunduğu operasyonların kümesine **eşit** olmak zorundadır. Unutulan handler (işaret kalkmış, iskele duruyor) ve unutulan işaret (handler yazılmış, işaret kalmış) ayrı ayrı kırmızıdır. İskele `strictServer`'a gömülür ve her metodu `apperr.New(apperr.KindNotImplemented, "NOT_IMPLEMENTED")` döner; oapi-codegen'in ürettiği `Unimplemented` yalnız strict olmayan arayüz içindir, strict tarafta karşılığı yok.
 
-**Okuma testinin gevşemesi.** `softdeletetest.ReadTest.plan` işaretli operasyonu kataloğa bakmadan **atlar**. Böylece donmuş bir GET okuyacağı tabloyu dürüstçe adlandırabilir (`x-resource: companies`), tablo henüz yokken. İşaret kalkınca okuma testi kendiliğinden silahlanır: o gün tablo, sınıflandırma ve fikstür zorunlu olur. Bu, Karar 1'in sözleşmeyi veri katmanından önce dondurabilmesinin tek nedenidir ve `x-resource`'un zorunluluğunu (ADR-0026, ADR-0020 §11) kaldırmaz, yalnız **ne zaman** denetlendiğini erteler.
+**Üretilmiş testlerin gevşemesi.** `softdeletetest.ReadTest.plan` ve `softdeletetest.JoinTest.readers` işaretli operasyonu kataloğa bakmadan **atlar**. Böylece donmuş bir GET okuyacağı tabloyu dürüstçe adlandırabilir (`x-resource: companies`), tablo henüz yokken. İşaret kalkınca okuma testi kendiliğinden silahlanır: o gün tablo, sınıflandırma ve fikstür zorunlu olur. Bu, Karar 1'in sözleşmeyi veri katmanından önce dondurabilmesinin tek nedenidir ve `x-resource`'un zorunluluğunu (ADR-0026, ADR-0020 §11) kaldırmaz, yalnız **ne zaman** denetlendiğini erteler.
 
 **Dondurmanın dört yan kararı**, uygulama sırasında çıktı ve burada kayda geçiyor:
 
