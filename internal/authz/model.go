@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 )
 
 // modelJSON is model.fga in OpenFGA JSON form (see doc.go).
@@ -76,15 +78,35 @@ type rewrite struct {
 // DefaultModel loads the embedded model.json.
 func DefaultModel() (*Model, error) { return LoadModel(modelJSON) }
 
+// boundedDAGTypes are the object types whose recursive relations are
+// allowed (ADR-0028): their tuples form a bounded, acyclic graph, so a
+// recursive resolution on them terminates in a few steps and the local
+// evaluator cannot diverge from an OpenFGA server.
+//
+// staff_role is the role inclusion DAG: staff_role_includes forbids a
+// self edge and a trigger rejects any write that would close a cycle
+// (db/migrations/0040_staff_rbac.sql, staff_role_includes_acyclic), and
+// the depth is the number of roles. A type joins this list only together
+// with that kind of guarantee, in the PR that brings it.
+func boundedDAGTypes() []string { return []string{"staff_role"} }
+
 // LoadModel loads an authorization model in OpenFGA JSON form and checks
 // it the way OpenFGA does when the model is written (names follow
 // OpenFGA's rules, "self" and "this" are reserved, types and relations
 // exist, type restrictions are valid, tuple-to-userset parents are
 // directly assignable objects), plus the subset rules of ADR-0024:
 // schema 1.1, no modules, no conditions, "and" and "but not" only at the
-// top of a relation over plain operands. Unknown JSON fields are
-// rejected, so a construct the evaluator does not know cannot slip in.
-func LoadModel(data []byte) (*Model, error) {
+// top of a relation over plain operands, and the two recursion rules of
+// ADR-0028 (see validateRecursion). Unknown JSON fields are rejected, so
+// a construct the evaluator does not know cannot slip in.
+func LoadModel(data []byte) (*Model, error) { return loadModel(data, nil) }
+
+// loadModel is LoadModel with the recursion rules relaxed for the given
+// object types, over boundedDAGTypes. Only the tests reach it
+// (export_test.go): the conformance runner keeps a model whose recursion
+// the two engines disagree on, which is the very thing LoadModel now
+// refuses.
+func loadModel(data []byte, alsoBounded []string) (*Model, error) {
 	var w wireModel
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -109,6 +131,9 @@ func LoadModel(data []byte) (*Model, error) {
 		m.types[td.name] = td
 	}
 	if err := m.validate(); err != nil {
+		return nil, err
+	}
+	if err := m.validateRecursion(alsoBounded); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -385,6 +410,170 @@ func (m *Model) reachesDirect(rd *relationDef, rw *rewrite, has map[*relationDef
 		return m.reachesDirect(rd, rw.children[0], has)
 	}
 	return false
+}
+
+// relationRef names one relation of one type: a node of the relation
+// graph the recursion rules below walk.
+type relationRef struct {
+	Type     string
+	Relation string
+}
+
+func (r relationRef) String() string { return r.Type + "#" + r.Relation }
+
+// steps returns the relations that resolving rw on an object of rd's type
+// can ask for next, in model order: the userset restrictions of a direct
+// assignment ([company#member]), the relation a computed userset names,
+// the relation a tuple-to-userset looks up on each parent type the
+// tupleset admits, and the union of a set operation's operands.
+func (m *Model) steps(rd *relationDef, rw *rewrite) []relationRef {
+	var out []relationRef
+	switch rw.kind {
+	case rewriteThis:
+		for _, ref := range rd.directTypes {
+			if ref.Relation != "" {
+				out = append(out, relationRef{Type: ref.Type, Relation: ref.Relation})
+			}
+		}
+	case rewriteComputed:
+		out = append(out, relationRef{Type: rd.typeName, Relation: rw.relation})
+	case rewriteTupleToUserset:
+		ts := m.relation(rd.typeName, rw.tupleset)
+		if ts == nil {
+			return nil
+		}
+		for _, ref := range ts.directTypes {
+			if m.relation(ref.Type, rw.relation) != nil {
+				out = append(out, relationRef{Type: ref.Type, Relation: rw.relation})
+			}
+		}
+	case rewriteUnion, rewriteIntersection, rewriteDifference:
+		for _, c := range rw.children {
+			out = append(out, m.steps(rd, c)...)
+		}
+	}
+	return out
+}
+
+// reaches returns every relation reachable from start through steps,
+// start included.
+func (m *Model) reaches(start []relationRef) map[relationRef]bool {
+	seen := make(map[relationRef]bool, len(start))
+	queue := slices.Clone(start)
+	for len(queue) > 0 {
+		n := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+		if seen[n] {
+			continue
+		}
+		seen[n] = true
+		if rd := m.relation(n.Type, n.Relation); rd != nil {
+			queue = append(queue, m.steps(rd, rd.rewrite)...)
+		}
+	}
+	return seen
+}
+
+// recursive reports whether resolving rd can ask for rd again, whether
+// the loop closes through a "from" chain or through a userset
+// restriction ([doc#viewer] on doc#viewer).
+func (m *Model) recursive(rd *relationDef) bool {
+	return m.reaches(m.steps(rd, rd.rewrite))[relationRef{Type: rd.typeName, Relation: rd.name}]
+}
+
+// validateRecursion applies the two recursion rules of ADR-0028,
+// fail-closed at load time:
+//
+//  1. the subtracted side of "but not" may not reach a recursive
+//     relation, because a loop there cannot falsify the exclusion: the
+//     local evaluator denies (ADR-0024 §4) where OpenFGA v1.22.0 allows;
+//  2. a recursive "from" chain is allowed only on a bounded DAG type
+//     (boundedDAGTypes), because an unbounded chain runs into the local
+//     depth limit, which OpenFGA does not have.
+//
+// Both rules guard the same thing: a model the local evaluator and an
+// OpenFGA server would answer differently. Without them the only bound
+// is MaxResolutionDepth at request time, and moving to OpenFGA would
+// change decisions silently.
+//
+// alsoBounded extends boundedDAGTypes for the tests (loadModel).
+func (m *Model) validateRecursion(alsoBounded []string) error {
+	bounded := make(map[string]bool, len(boundedDAGTypes())+len(alsoBounded))
+	for _, t := range boundedDAGTypes() {
+		bounded[t] = true
+	}
+	for _, t := range alsoBounded {
+		bounded[t] = true
+	}
+	for _, typ := range m.Types() {
+		for _, rel := range m.Relations(typ) {
+			rd := m.relation(typ, rel)
+			if err := m.validateRecursiveFrom(rd, bounded); err != nil {
+				return err
+			}
+			if err := m.validateExclusion(rd, bounded); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// validateRecursiveFrom is rule 2: every tuple-to-userset of rd whose
+// chain comes back to rd must stay inside bounded types, rd's own type
+// and every parent type the chain walks.
+func (m *Model) validateRecursiveFrom(rd *relationDef, bounded map[string]bool) error {
+	self := relationRef{Type: rd.typeName, Relation: rd.name}
+	var walk func(rw *rewrite) error
+	walk = func(rw *rewrite) error {
+		if rw.kind == rewriteTupleToUserset {
+			targets := m.steps(rd, rw)
+			if m.reaches(targets)[self] {
+				types := []string{rd.typeName}
+				for _, t := range targets {
+					types = append(types, t.Type)
+				}
+				slices.Sort(types)
+				for _, t := range slices.Compact(types) {
+					if !bounded[t] {
+						return fmt.Errorf("%w: %s: %q from %q is recursive and %q is not a bounded DAG type, so the chain is bounded only by the depth limit, which OpenFGA does not have (ADR-0028); bounded types: %v",
+							ErrModel, self, rw.relation, rw.tupleset, t, boundedDAGTypes())
+					}
+				}
+			}
+		}
+		for _, c := range rw.children {
+			if err := walk(c); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return walk(rd.rewrite)
+}
+
+// validateExclusion is rule 1: nothing the subtracted side of rd's "but
+// not" reaches may be recursive, unless its type is a bounded DAG type,
+// where the resolution cannot loop.
+func (m *Model) validateExclusion(rd *relationDef, bounded map[string]bool) error {
+	if rd.rewrite.kind != rewriteDifference {
+		return nil
+	}
+	subtract := rd.rewrite.children[1]
+	reached := make([]relationRef, 0, 8)
+	for ref := range m.reaches(m.steps(rd, subtract)) {
+		reached = append(reached, ref)
+	}
+	slices.SortFunc(reached, func(a, b relationRef) int { return strings.Compare(a.String(), b.String()) })
+	for _, ref := range reached {
+		target := m.relation(ref.Type, ref.Relation)
+		if target == nil || bounded[ref.Type] || !m.recursive(target) {
+			continue
+		}
+		return fmt.Errorf("%w: %s#%s: the subtracted side of \"but not\" reaches the recursive relation %s, whose loop cannot falsify the exclusion: the local evaluator denies where OpenFGA allows (ADR-0028)",
+			ErrModel, rd.typeName, rd.name, ref)
+	}
+	return nil
 }
 
 func (m *Model) validateRelation(rd *relationDef) error {
