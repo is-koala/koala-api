@@ -47,6 +47,14 @@ x-not-implemented: |
 
 **Üretilmiş testlerin gevşemesi.** `softdeletetest.ReadTest.plan` ve `softdeletetest.JoinTest.readers` işaretli operasyonu kataloğa bakmadan **atlar**. Böylece donmuş bir GET okuyacağı tabloyu dürüstçe adlandırabilir (`x-resource: companies`), tablo henüz yokken. İşaret kalkınca okuma testi kendiliğinden silahlanır: o gün tablo, sınıflandırma ve fikstür zorunlu olur. Bu, Karar 1'in sözleşmeyi veri katmanından önce dondurabilmesinin tek nedenidir ve `x-resource`'un zorunluluğunu (ADR-0026, ADR-0020 §11) kaldırmaz, yalnız **ne zaman** denetlendiğini erteler.
 
+**Operasyon kendi hata kodlarını sayar.** Donmuş bir sözleşmenin en kolay kırıldığı yer burasıydı: handler'ın üreteceği kodun HTTP durumu operasyonun yanıt kümesinde yoksa istemcinin üretilmiş tipi yanıtı çözemez, ve durumu sonradan eklemek stil rehberi §2'ye göre uyumsuz değişikliktir — yani 501'i ayrı yanıt yazmama gerekçesinin aynısı, ters yönden. Bu PR'ın incelemesinde beş operasyonda tam bu kusur bulundu (`POST /v1/companies` 403, 404 ve 409'u taşımıyordu).
+
+Çözüm: her operasyon `x-error-codes` ile **kendi alan kodlarını** sayar (kodu olmayan operasyon boş liste yazar), ve `api.TestOperationStatusesCoverTheirErrorCodes` listelenen her kodun `ErrorCode` açıklamasındaki durumunu operasyonun yanıt kümesinde arar. Aynı test her `ErrorCode` üyesinin bir durumu olmasını da ister; olmayan üye gerekçeli istisna listesindedir (`FIELD_*` kodları `ProblemField.code`'da taşınır, realtime olay kodları soket üzerinde).
+
+İki sınır bilinçlidir ve burada kayda geçer:
+- **Evrensel kodlar denetlenmez.** Platform (`REQUEST_INVALID`, `RATE_LIMITED`, `INTERNAL`…), oturum (`AUTH_TOKEN_*`, `STAFF_PERMISSION_DENIED`…) ve Idempotency-Key kodları ortak yanıtlardan gelir; her operasyonda tekrar edilmeleri listeyi gürültüye çevirirdi.
+- **Ters yön denetlenmez:** karşılığı hiçbir kod olmayan bir yanıt durumu (gereksiz bir `409` gibi) kırmızı vermez. Çünkü 400, 401, 429 ve 404'ün çoğu evrensel kodlarla ya da yol parametresinin varlığıyla açıklanır; kuralı ters yöne çevirmek yanlış pozitif üretirdi. İncelemede bakılır.
+
 **Dondurmanın dört yan kararı**, uygulama sırasında çıktı ve burada kayda geçiyor:
 
 1. **`GET /v1/me` kimlik çekirdeği kalır; profil `/v1/me/profile`'dadır.** `Me` şemasına zorunlu profil alanları eklemek derlemeyi kırmazdı — Go'da adlandırılmış alanlı struct literal'i eksik alanla da derlenir — ama bugünkü handler o alanları yazmadığı için yanıt sessizce sıfır değer (`""`, `false`) taşırdı. Bu tam olarak [[silent-invalidation-defect-class]]'ın biçimidir, bu yüzden profil ayrı bir kaynağa konuldu. `/v1/me`'nin açıklamasındaki "profil alanları Faz 2'de gelir" cümlesinin yerine bu karar geçer.
