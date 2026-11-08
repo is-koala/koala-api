@@ -440,12 +440,22 @@ func TestValidateRequestsRefuses2020ParameterSchemas(t *testing.T) {
 
 // A 2020-only keyword under not or oneOf would make the 3.0 validator,
 // which ignores it, reject valid bodies; such a schema is refused.
+//
+// The last two shapes are the ones that used to escape. The gate walked
+// seven of the nineteen slots a schema can nest another schema in, so a
+// `not` or a `oneOf` sitting under one of the other twelve was never
+// reached: the spec was accepted, the 3.0 validator ran alone and
+// ignored the keyword, and `not` then refused every body the operation
+// was sent -- a silent outage behind four green jobs. One walk answers
+// both questions now (ADR-0031 Karar 5).
 func TestValidateRequestsRefuses2020UnderNotOrOneOf(t *testing.T) {
 	t.Parallel()
 
 	for name, schema := range map[string]string{
-		"not":   "{type: object, not: {const: {}}}",
-		"oneOf": "{type: object, properties: {kind: {oneOf: [{const: A}, {const: B}]}}}",
+		"not":                "{type: object, not: {const: {}}}",
+		"oneOf":              "{type: object, properties: {kind: {oneOf: [{const: A}, {const: B}]}}}",
+		"not under contains": "{type: array, contains: {not: {const: 1}}}",
+		"oneOf under then":   "{type: object, if: {const: 1}, then: {oneOf: [{const: A}, {const: B}]}}",
 	} {
 		spec := strings.Replace(validateSpec,
 			"              type: object\n              additionalProperties: false\n              properties:\n                blob: {type: string}",

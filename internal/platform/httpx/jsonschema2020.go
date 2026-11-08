@@ -32,7 +32,10 @@ type compiled2020 struct {
 //     would match several branches, a 400 the body does not deserve.
 func compileBody2020(name string, item *openapi3.PathItem, op *openapi3.Operation) (*compiled2020, error) {
 	for _, p := range slices.Concat(item.Parameters, op.Parameters) {
-		if p != nil && p.Value != nil && p.Value.Schema != nil && schemaUses2020(p.Value.Schema.Value, map[*openapi3.Schema]bool{}) {
+		if p == nil || p.Value == nil || p.Value.Schema == nil {
+			continue
+		}
+		if anywhere, _ := uses2020(p.Value.Schema.Value); anywhere {
 			return nil, fmt.Errorf("parameter %s uses a JSON Schema 2020-only keyword; parameters may not", p.Value.Name)
 		}
 	}
@@ -44,11 +47,14 @@ func compileBody2020(name string, item *openapi3.PathItem, op *openapi3.Operatio
 		if mt.Schema == nil {
 			continue
 		}
-		if schemaUses2020(mt.Schema.Value, map[*openapi3.Schema]bool{}) {
-			needed = true
-		}
-		if uses2020UnderNotOrOneOf(mt.Schema.Value, false, map[*openapi3.Schema]bool{}) {
+		anywhere, underNotOrOneOf := uses2020(mt.Schema.Value)
+		// The refusal is checked before the decision to compile, so a
+		// schema this package cannot honour never reaches the compiler.
+		if underNotOrOneOf {
 			return nil, fmt.Errorf("request body %s: a JSON Schema 2020-only keyword under not or oneOf is not supported", media)
+		}
+		if anywhere {
+			needed = true
 		}
 	}
 	if !needed {
@@ -81,29 +87,89 @@ func compileBody2020(name string, item *openapi3.PathItem, op *openapi3.Operatio
 	return out, nil
 }
 
-// uses2020UnderNotOrOneOf reports whether a 2020-only keyword appears in s
-// below a `not` or a `oneOf` (under is true once one has been passed).
-func uses2020UnderNotOrOneOf(s *openapi3.Schema, under bool, seen map[*openapi3.Schema]bool) bool {
-	if s == nil || seen[s] {
-		return false
+// uses2020 walks s and answers the two questions compileBody2020 asks of
+// a schema: whether it uses a keyword only the JSON Schema 2020-12
+// validator checks, and whether one of those keywords sits below a `not`
+// or a `oneOf`.
+//
+// One walk answers both on purpose. They used to be two walks with two
+// hand written child lists, and the lists drifted: the rejection gate
+// reached seven of the nineteen slots a schema can nest another schema
+// in, so `{contains: {not: {const: 1}}}` in a request body was neither
+// refused nor validated -- the 3.0 validator ran alone, ignored the
+// `not`, and every body on that operation would have been refused with
+// 400. Nothing was red. One list cannot drift from itself, and a slot
+// added to it is known to both answers at once (ADR-0031 Karar 5).
+func uses2020(s *openapi3.Schema) (anywhere, underNotOrOneOf bool) {
+	w := walker2020{seen: map[visit2020]bool{}}
+	w.walk(s, false)
+	return w.anywhere, w.under
+}
+
+// visit2020 is a schema looked at with a particular answer to "are we
+// below a not or a oneOf".
+type visit2020 struct {
+	schema *openapi3.Schema
+	under  bool
+}
+
+type walker2020 struct {
+	seen     map[visit2020]bool
+	anywhere bool
+	under    bool
+}
+
+// walk visits s and everything nested in it. under is true once a `not`
+// or a `oneOf` has been passed.
+//
+// seen is keyed by the pair and not by the schema alone, which is a fix
+// and not a detail: a schema reached first through an ordinary member
+// and later through a `oneOf` has to be looked at twice, because the
+// second visit is the one that can refuse the spec. Keying on the schema
+// alone let the first visit swallow the second, so a schema shared
+// between an ordinary member and a `oneOf` -- which is what a `$ref`
+// used twice is -- hid its keyword from the gate.
+func (w *walker2020) walk(s *openapi3.Schema, under bool) {
+	if s == nil || w.seen[visit2020{schema: s, under: under}] {
+		return
 	}
-	seen[s] = true
-	if under && schemaUses2020Here(s) {
-		return true
-	}
-	walk := func(refs openapi3.SchemaRefs, below bool) bool {
-		for _, r := range refs {
-			if r != nil && uses2020UnderNotOrOneOf(r.Value, below, seen) {
-				return true
-			}
+	w.seen[visit2020{schema: s, under: under}] = true
+	if schemaUses2020Here(s) {
+		w.anywhere = true
+		if under {
+			w.under = true
 		}
-		return false
 	}
-	children := slices.Concat(s.AnyOf, s.AllOf, openapi3.SchemaRefs{s.Items, s.AdditionalProperties.Schema})
-	for _, p := range s.Properties {
-		children = append(children, p)
+	// `not` and `oneOf` are the two the 3.0 validator misreads, so
+	// everything below them is "under" whatever the caller said; every
+	// other slot inherits.
+	for _, ref := range slices.Concat(openapi3.SchemaRefs{s.Not}, s.OneOf) {
+		if ref != nil {
+			w.walk(ref.Value, true)
+		}
 	}
-	return walk(openapi3.SchemaRefs{s.Not}, true) || walk(s.OneOf, true) || walk(children, under)
+	for _, ref := range subschemas2020(s) {
+		if ref != nil {
+			w.walk(ref.Value, under)
+		}
+	}
+}
+
+// subschemas2020 is every slot a schema can hold another schema in,
+// except `not` and `oneOf`, which walk handles itself. It is the same
+// vocabulary inlineSchema serializes, and the two lists are the only
+// places in this package that enumerate it.
+func subschemas2020(s *openapi3.Schema) openapi3.SchemaRefs {
+	out := slices.Concat(s.AllOf, s.AnyOf, s.PrefixItems, openapi3.SchemaRefs{
+		s.Items, s.Contains, s.PropertyNames, s.If, s.Then, s.Else, s.ContentSchema,
+		s.AdditionalProperties.Schema, s.UnevaluatedItems.Schema, s.UnevaluatedProperties.Schema,
+	})
+	for _, named := range []openapi3.Schemas{s.Properties, s.PatternProperties, s.DependentSchemas, s.Defs} {
+		for _, ref := range named {
+			out = append(out, ref)
+		}
+	}
+	return out
 }
 
 func isJSONMediaType(media string) bool {
