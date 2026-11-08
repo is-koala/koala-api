@@ -1,11 +1,14 @@
 // Package fakes holds test fakes of the external HTTP services Koala calls
-// (plan §6.1 Faz 1): Iyzico and FCM. A fake is the HTTP server the real
-// client talks to, started with httptest: point the client's base URL at
-// it. It records every request and answers from a programmed scenario.
+// (plan §6.1 Faz 1): Iyzico, FCM and the S3 compatible object store. A
+// fake is the HTTP server the real client talks to, started with
+// httptest: point the client's base URL at it. It records every request
+// and answers from a programmed scenario.
 //
-// The real clients come in Faz 5 (FCM) and Faz 6 (Iyzico); the fakes only
-// model what those clients need from the wire. Only tests import this
-// package (TestOnlyTestsImportFakes).
+// The real clients come in Faz 5 (FCM) and Faz 6 (Iyzico); those two
+// fakes only model what those clients need from the wire. The object
+// store client is real as of Faz 2 (internal/platform/storage), so its
+// fake is the one a real client runs against (ADR-0030 Karar 6). Only
+// tests import this package (TestOnlyTestsImportFakes).
 package fakes
 
 import (
