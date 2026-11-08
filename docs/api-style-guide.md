@@ -58,7 +58,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 | Metot | Kullanım | Başarı |
 |---|---|---|
 | `GET` | Okuma; yan etkisi yok, gövdesi yok. | 200 |
-| `POST /koleksiyon` | Oluşturma. | 201 + `Location` + oluşan kaynak |
+| `POST /koleksiyon` | Oluşturma. | 201 + `Location` + oluşan kaynak **[lint: koala-location-on-201]** |
 | `POST /kaynak/{id}/<eylem>` | Durum geçişi ve CRUD'a sığmayan eylem: `…/complete`, `…/cancel` (ADR-0005 madde 2, plan §4.1-2; Stripe `…/confirm` kalıbı). Google'ın `:verb` biçimi yerine alt yol kullanılır. | 200 + güncel kaynak; gövde yoksa 204 |
 | `PATCH` | Kısmi güncelleme, **JSON Merge Patch** (RFC 7396, `application/merge-patch+json`; ADR-0019): gönderilmeyen alan değişmez, `null` alanı temizler. | 200 + güncel kaynak |
 | `PUT` | Yalnız istemcinin tamamını bildiği alt kaynakta tam yer değiştirme (ör. tercihler). | 200 |
@@ -102,7 +102,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 | Kod | Ne zaman |
 |---|---|
 | 200 | Okuma, güncelleme, gövdeli eylem |
-| 201 | Oluşturma; `Location` başlığı yeni kaynağı gösterir |
+| 201 | Oluşturma; `Location` başlığı yeni kaynağı gösterir. Adreslenebilir bir kaynak oluşmuyorsa (kısa ömürlü bilet) operasyon `x-no-location: <gerekçe>` yazar **[lint: koala-location-on-201]** |
 | 202 | Kabul edildi, iş arka planda (River) |
 | 204 | Gövdesiz başarı (`DELETE`, gövdesiz eylem) |
 | 400 | Sözleşmeye uymayan istek: `REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`, `SORT_FIELD_NOT_ALLOWED`, `CURSOR_INVALID`, `IDEMPOTENCY_KEY_REQUIRED`. Alan kuralı ihlali alanın kendi kodunu taşır. Desteklenmeyen istemci sürümü `APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` döner (426 değil: RFC 9110 426'da `Upgrade` başlığını zorunlu tutar; ADR-0019) |
@@ -154,6 +154,8 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - Önek alan adıdır (`PAYMENT_`, `JOB_`); platform kodları öneksizdir.
   - HTTP durum adı tekrar edilmez (`CONFLICT_…` yok).
   - Biçim hatalarının kodları `FIELD_*`'dır (`FIELD_REQUIRED`, `FIELD_UNKNOWN`, `FIELD_TYPE_INVALID`, `FIELD_FORMAT_INVALID`, `FIELD_VALUE_INVALID`, `FIELD_OUT_OF_RANGE`). Alan kuralının ihlali kendi kodunu taşır (`IBAN_INVALID`).
+- **Operasyon kendi hata kodlarını sayar:** `x-error-codes` operasyonun ürettiği alan kodlarını listeler (boş liste de yazılır). Listelenen her kodun `ErrorCode` açıklamasındaki HTTP durumu operasyonun yanıt kümesinde bulunmak zorundadır **[test: api TestOperationStatusesCoverTheirErrorCodes]**. Platform, oturum ve Idempotency-Key kodları evrenseldir, ortak yanıtlardan gelir ve listelenmez. Sınır: ters yön (karşılığı hiçbir kod olmayan bir durum) ve evrensel kodlar denetlenmez (ADR-0029).
+- **Her `ErrorCode` üyesi HTTP durumunu açıklamasında yazar.** Yazmayan üye gerekçeli istisna listesindedir (`FIELD_*` kodları `ProblemField.code`'da, realtime olay kodları soket üzerinde taşınır) **[test: api TestOperationStatusesCoverTheirErrorCodes]**.
 - **Alan hataları** `errors[]`'tadır (ADR-0019; JSON:API `source`, Microsoft `target`):
   - Gövdedeki üye: `{pointer, code}`. `pointer` RFC 6901'dir: `/amount/currency`; gövdenin tamamı için `""`.
   - İki biçim birbirini dışlar; şema bunu zorlar (`dependentRequired`, `not`, `if`/`then`) **[test: api TestProblemFieldIsPointerXorParameter]**.

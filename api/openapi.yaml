@@ -100,6 +100,7 @@ paths:
   /v1/realtime/tickets:
     post:
       operationId: issueRealtimeTicket
+      x-error-codes: [REALTIME_TICKET_RATE_LIMITED]
       tags: [realtime]
       summary: WebSocket bağlantısı için tek kullanımlık bilet verir.
       description: |
@@ -113,6 +114,7 @@ paths:
         Bilet çağıranın kendi oturumu için verilir; yetkilendirilecek bir nesne yoktur.
         Kimlik ve oturum kontrolü yeter (ADR-0018 §2, ADR-0021).
       x-no-idempotency-key: Bilet tek kullanımlık ve 60 saniyeliktir; tekrar eden istek yalnız yeni bir bilet üretir.
+      x-no-location: Bilet kısa ömürlü bir değerdir; adreslenebilir bir kaynak oluşmaz.
       responses:
         "201":
           description: "Bilet. Yanıt önbelleğe alınmaz (`Cache-Control: no-store`)."
@@ -132,6 +134,9 @@ paths:
   /v1/realtime:
     get:
       operationId: connectRealtime
+      x-error-codes:
+        [REALTIME_TICKET_INVALID, REALTIME_DEVICE_REQUIRED, REALTIME_PROTOCOL_UNSUPPORTED,
+        REALTIME_ORIGIN_FORBIDDEN, REALTIME_TOO_MANY_CONNECTIONS, REALTIME_DRAINING]
       x-resource: realtime_tickets
       tags: [realtime]
       summary: WebSocket bağlantısını açar (alt protokol `koala.v1`).
@@ -167,6 +172,7 @@ paths:
   /v1/auth/login:
     post:
       operationId: loginUser
+      x-error-codes: [AUTH_EMAIL_OR_PASSWORD_MISMATCH, AUTH_ACCOUNT_SUSPENDED]
       tags: [auth]
       summary: E-posta ve parolayla giriş yapar; cihaza bağlı bir oturum açar.
       description: |
@@ -213,6 +219,8 @@ paths:
   /v1/auth/refresh:
     post:
       operationId: refreshUserSession
+      x-error-codes:
+        [AUTH_REFRESH_TOKEN_INVALID, AUTH_REFRESH_TOKEN_EXPIRED, AUTH_REFRESH_TOKEN_REUSED]
       tags: [auth]
       summary: Refresh token'ı döndürür ve yeni bir token çifti verir.
       description: |
@@ -256,6 +264,7 @@ paths:
   /v1/auth/logout:
     post:
       operationId: logoutUser
+      x-error-codes: []
       tags: [auth]
       summary: Çağıranın oturumunu kapatır.
       description: |
@@ -279,6 +288,7 @@ paths:
   /v1/me:
     get:
       operationId: getMe
+      x-error-codes: []
       tags: [auth]
       summary: Çağıranın kimlik çekirdeğini döndürür.
       description: Kimlik çekirdeğinin iskeleti; profil alanları Faz 2'de gelir.
@@ -305,6 +315,7 @@ paths:
   /v1/me/sessions:
     get:
       operationId: listMySessions
+      x-error-codes: []
       tags: [auth]
       summary: Çağıranın açık oturumlarını listeler.
       description: |
@@ -333,6 +344,7 @@ paths:
   /v1/me/sessions/revoke-others:
     post:
       operationId: revokeMyOtherSessions
+      x-error-codes: []
       tags: [auth]
       summary: İsteği yapan dışındaki bütün oturumları kapatır.
       description: Çağıranın diğer bütün oturumları kapanır; isteği yapan oturum açık kalır (AUTH-016).
@@ -362,6 +374,7 @@ paths:
           format: uuid
     get:
       operationId: getMySession
+      x-error-codes: [AUTH_SESSION_NOT_FOUND]
       tags: [auth]
       summary: Çağıranın açık oturumlarından birini döndürür.
       description: |
@@ -389,6 +402,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: revokeMySession
+      x-error-codes: [AUTH_SESSION_NOT_FOUND]
       tags: [auth]
       summary: Çağıranın açık oturumlarından birini kapatır.
       description: |
@@ -413,6 +427,7 @@ paths:
   /v1/admin/auth/login:
     post:
       operationId: loginStaff
+      x-error-codes: [STAFF_LOGIN_FAILED]
       tags: [admin-auth]
       summary: Personel girişi.
       description: |
@@ -454,6 +469,7 @@ paths:
   /v1/admin/auth/refresh:
     post:
       operationId: refreshStaffSession
+      x-error-codes: [STAFF_LOGIN_FAILED]
       tags: [admin-auth]
       summary: Personel refresh token'ını döndürür.
       description: |
@@ -494,6 +510,7 @@ paths:
   /v1/admin/auth/logout:
     post:
       operationId: logoutStaff
+      x-error-codes: []
       tags: [admin-auth]
       summary: Personelin bütün token'larını geçersiz kılar.
       description: |
@@ -517,6 +534,7 @@ paths:
   /v1/admin/auth/password:
     post:
       operationId: changeStaffPassword
+      x-error-codes: [STAFF_CURRENT_PASSWORD_MISMATCH, PASSWORD_POLICY_VIOLATION]
       tags: [admin-auth]
       summary: Personel parolasını değiştirir.
       description: |
@@ -560,6 +578,7 @@ paths:
   /v1/admin/me:
     get:
       operationId: getStaffMe
+      x-error-codes: []
       tags: [admin-auth]
       summary: Personelin kendi hesabını döndürür.
       description: |
@@ -590,6 +609,7 @@ paths:
   /v1/admin/me/capabilities:
     get:
       operationId: getStaffCapabilities
+      x-error-codes: []
       x-resource: staff_role_assignments
       tags: [admin-auth]
       summary: Personelin tuttuğu izinleri ve arayüz yeteneklerini döndürür.
@@ -619,6 +639,7 @@ paths:
   /v1/admin/permissions:
     get:
       operationId: listStaffPermissions
+      x-error-codes: []
       x-resource: none
       x-resource-reason: İzin kataloğu kodda tanımlıdır (internal/authz/permissions.go); tablo okunmaz.
       tags: [admin-auth]
@@ -649,6 +670,7 @@ paths:
   /v1/auth/registrations:
     post:
       operationId: startRegistration
+      x-error-codes: []
       tags: [users]
       summary: Kaydı başlatır ve adrese doğrulama bağlantısı gönderir.
       description: |
@@ -691,6 +713,7 @@ paths:
   /v1/auth/registrations/verify:
     post:
       operationId: verifyRegistration
+      x-error-codes: [REGISTRATION_TOKEN_INVALID]
       tags: [users]
       summary: Bağlantının token'ını kısa ömürlü bir kayıt token'ına çevirir.
       description: |
@@ -734,6 +757,9 @@ paths:
   /v1/auth/registrations/complete:
     post:
       operationId: completeRegistration
+      x-error-codes:
+        [REGISTRATION_TOKEN_INVALID, CONSENT_REQUIRED, PASSWORD_POLICY_VIOLATION,
+        VERIFICATION_TARGET_IN_USE]
       tags: [users]
       summary: Parolayı belirler, kullanıcıyı oluşturur ve oturum açar.
       description: |
@@ -788,6 +814,7 @@ paths:
   /v1/auth/password-reset:
     post:
       operationId: requestPasswordReset
+      x-error-codes: []
       tags: [users]
       summary: Parola sıfırlama bağlantısı ister.
       description: |
@@ -826,6 +853,7 @@ paths:
   /v1/auth/password-reset/complete:
     post:
       operationId: completePasswordReset
+      x-error-codes: [PASSWORD_RESET_TOKEN_INVALID, PASSWORD_POLICY_VIOLATION]
       tags: [users]
       summary: Sıfırlama token'ıyla yeni parolayı yazar ve bütün oturumları kapatır.
       description: |
@@ -866,6 +894,7 @@ paths:
   /v1/me/profile:
     get:
       operationId: getMyProfile
+      x-error-codes: []
       tags: [users]
       summary: Çağıranın profilini döndürür.
       description: |
@@ -896,6 +925,9 @@ paths:
           $ref: "#/components/responses/InternalError"
     patch:
       operationId: updateMyProfile
+      x-error-codes:
+        [USER_FIELD_IMMUTABLE, VERIFICATION_TARGET_IN_USE, MEDIA_NOT_FOUND, MEDIA_NOT_READY,
+        ADDRESS_NOT_FOUND]
       tags: [users]
       summary: Çağıranın profilini kısmen günceller.
       description: |
@@ -927,6 +959,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "413":
@@ -941,6 +975,9 @@ paths:
   /v1/me/password:
     put:
       operationId: changeMyPassword
+      x-error-codes:
+        [PASSWORD_MISMATCH, PASSWORD_REUSED, PASSWORD_CONFIRMATION_MISMATCH,
+        PASSWORD_POLICY_VIOLATION]
       tags: [users]
       summary: Çağıranın parolasını değiştirir.
       description: |
@@ -983,6 +1020,7 @@ paths:
   /v1/me/verifications:
     get:
       operationId: listMyVerifications
+      x-error-codes: []
       tags: [users]
       summary: Çağıranın açık doğrulamalarını listeler.
       description: |
@@ -1015,6 +1053,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: startMyVerification
+      x-error-codes: [VERIFICATION_TARGET_IN_USE, VERIFICATION_RESEND_TOO_SOON]
       tags: [users]
       summary: Yeni bir e-posta ya da telefon için doğrulama başlatır.
       description: |
@@ -1077,6 +1116,7 @@ paths:
           format: uuid
     get:
       operationId: getMyVerification
+      x-error-codes: [VERIFICATION_NOT_FOUND]
       tags: [users]
       summary: Çağıranın doğrulamalarından birini döndürür.
       description: |
@@ -1107,6 +1147,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: cancelMyVerification
+      x-error-codes: [VERIFICATION_NOT_FOUND]
       tags: [users]
       summary: Çağıranın açık doğrulamasını iptal eder.
       description: |
@@ -1142,6 +1183,9 @@ paths:
           format: uuid
     post:
       operationId: confirmMyVerification
+      x-error-codes:
+        [VERIFICATION_NOT_FOUND, VERIFICATION_CODE_INVALID, VERIFICATION_CODE_EXPIRED,
+        VERIFICATION_ATTEMPTS_EXHAUSTED, VERIFICATION_ALREADY_CONFIRMED, VERIFICATION_TARGET_IN_USE]
       tags: [users]
       summary: Doğrulama kodunu onaylar ve yeni değeri yazar.
       description: |
@@ -1200,6 +1244,7 @@ paths:
           format: uuid
     get:
       operationId: getPublicProfile
+      x-error-codes: [USER_NOT_FOUND]
       tags: [users]
       summary: Bir kullanıcının herkese açık profilini döndürür.
       description: |
@@ -1236,6 +1281,7 @@ paths:
   /v1/me/identity-documents:
     get:
       operationId: getMyIdentityReview
+      x-error-codes: [IDENTITY_DOCUMENTS_NOT_FOUND]
       tags: [identity]
       summary: Çağıranın en son kimlik incelemesini döndürür.
       description: |
@@ -1267,6 +1313,8 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: submitMyIdentityDocuments
+      x-error-codes:
+        [IDENTITY_ALREADY_VERIFIED, IDENTITY_REVIEW_PENDING, MEDIA_NOT_FOUND, MEDIA_NOT_READY]
       tags: [identity]
       summary: Dört fotoğrafla kimlik incelemesi açar.
       description: |
@@ -1308,6 +1356,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
         "413":
@@ -1324,6 +1374,8 @@ paths:
   /v1/companies:
     post:
       operationId: createCompany
+      x-error-codes:
+        [USER_MUST_VERIFY_IDENTITY, MEDIA_NOT_FOUND, MEDIA_NOT_READY, REFERENCE_ITEM_NOT_FOUND]
       tags: [company]
       summary: Şirket kurar; kurucu şirketin yöneticisi olur.
       description: |
@@ -1364,6 +1416,12 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
@@ -1386,6 +1444,7 @@ paths:
           format: uuid
     get:
       operationId: getCompany
+      x-error-codes: [COMPANY_NOT_FOUND]
       tags: [company]
       summary: Bir şirketi döndürür.
       description: |
@@ -1418,6 +1477,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     patch:
       operationId: updateCompany
+      x-error-codes: [COMPANY_NOT_FOUND, REFERENCE_ITEM_NOT_FOUND]
       tags: [company]
       summary: Şirketi kısmen günceller.
       description: |
@@ -1472,6 +1532,7 @@ paths:
           format: uuid
     get:
       operationId: listCompanyContacts
+      x-error-codes: [COMPANY_NOT_FOUND]
       tags: [company]
       summary: Şirketin üyelerini listeler.
       description: |
@@ -1524,6 +1585,8 @@ paths:
           format: uuid
     delete:
       operationId: removeCompanyContact
+      x-error-codes:
+        [COMPANY_NOT_FOUND, COMPANY_CONTACT_NOT_FOUND, COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED]
       tags: [company]
       summary: Şirketin bir üyesini çıkarır.
       description: |
@@ -1564,6 +1627,7 @@ paths:
           format: uuid
     get:
       operationId: listCompanyInvitations
+      x-error-codes: [COMPANY_NOT_FOUND]
       tags: [company]
       summary: Şirketin davetlerini listeler.
       description: |
@@ -1604,6 +1668,9 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: inviteCompanyContact
+      x-error-codes:
+        [COMPANY_NOT_FOUND, USER_NOT_FOUND, USER_MUST_VERIFY_IDENTITY,
+        COMPANY_CONTACT_ALREADY_MEMBER, COMPANY_INVITATION_ALREADY_PENDING]
       tags: [company]
       summary: Kayıtlı bir kullanıcıyı şirkete davet eder.
       description: |
@@ -1646,6 +1713,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -1672,6 +1741,7 @@ paths:
           format: uuid
     get:
       operationId: getCompanyInvitation
+      x-error-codes: [COMPANY_INVITATION_NOT_FOUND]
       tags: [company]
       summary: Bir daveti döndürür.
       description: |
@@ -1714,6 +1784,9 @@ paths:
           format: uuid
     post:
       operationId: acceptCompanyInvitation
+      x-error-codes:
+        [COMPANY_INVITATION_NOT_FOUND, COMPANY_INVITATION_ALREADY_ANSWERED,
+        COMPANY_INVITATION_EXPIRED]
       tags: [company]
       summary: Daveti kabul eder ve üyeliği oluşturur.
       description: |
@@ -1760,6 +1833,9 @@ paths:
           format: uuid
     post:
       operationId: declineCompanyInvitation
+      x-error-codes:
+        [COMPANY_INVITATION_NOT_FOUND, COMPANY_INVITATION_ALREADY_ANSWERED,
+        COMPANY_INVITATION_EXPIRED]
       tags: [company]
       summary: Daveti reddeder.
       description: |
@@ -1803,6 +1879,9 @@ paths:
           format: uuid
     post:
       operationId: revokeCompanyInvitation
+      x-error-codes:
+        [COMPANY_INVITATION_NOT_FOUND, COMPANY_INVITATION_ALREADY_ANSWERED,
+        COMPANY_INVITATION_EXPIRED]
       tags: [company]
       summary: Açık bir daveti geri alır.
       description: |
@@ -1847,6 +1926,7 @@ paths:
           format: uuid
     put:
       operationId: followCompany
+      x-error-codes: [COMPANY_NOT_FOUND]
       tags: [company]
       summary: Şirketi takip eder.
       description: |
@@ -1875,6 +1955,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: unfollowCompany
+      x-error-codes: [COMPANY_NOT_FOUND]
       tags: [company]
       summary: Şirketin takibini bırakır.
       description: |
@@ -1903,6 +1984,7 @@ paths:
   /v1/me/followed-companies:
     get:
       operationId: listMyFollowedCompanies
+      x-error-codes: [SORT_FIELD_NOT_ALLOWED]
       tags: [company]
       summary: Çağıranın takip ettiği şirketleri listeler.
       description: |
@@ -1946,6 +2028,7 @@ paths:
           format: uuid
     get:
       operationId: listCompanyImages
+      x-error-codes: [COMPANY_NOT_FOUND]
       tags: [company]
       summary: Şirketin galerisini döndürür.
       description: Kimliksiz okunabilir; galeri herkese açıktır.
@@ -1971,6 +2054,8 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: addCompanyImage
+      x-error-codes:
+        [COMPANY_NOT_FOUND, MEDIA_NOT_FOUND, MEDIA_NOT_READY, COMPANY_GALLERY_LIMIT_REACHED]
       tags: [company]
       summary: Şirketin galerisine görüntü ekler.
       description: |
@@ -1997,6 +2082,12 @@ paths:
       responses:
         "201":
           description: Görüntü galeriye eklendi.
+          headers:
+            Location:
+              description: Galerinin kaynağı; eklenen görüntü oradan okunur.
+              schema:
+                type: string
+                examples: ["/v1/companies/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a20/images"]
           content:
             application/json:
               schema:
@@ -2015,6 +2106,57 @@ paths:
           $ref: "#/components/responses/UnsupportedMediaType"
         "422":
           $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    put:
+      operationId: replaceCompanyGallery
+      x-error-codes:
+        [COMPANY_NOT_FOUND, MEDIA_NOT_FOUND, MEDIA_NOT_READY, COMPANY_GALLERY_LIMIT_REACHED]
+      tags: [company]
+      summary: Şirketin galerisini verilen sırayla değiştirir.
+      description: |
+        Galerinin tamamı gönderilen listeyle yer değiştirir ve **sıra anlamlıdır**:
+        listedeki ilk görüntü kapaktır. Böylece kapağı değiştirmek ve görüntüleri yeniden
+        sıralamak tek işlemdir; kapak ayrı bir uç istemez (ADR-0029 Karar 7). Listede
+        olmayan görüntüler galeriden çıkar, medya kayıtları silinmez. Boş liste galeriyi
+        boşaltır ve kapağı `null` yapar. En çok on görüntü (MED-011); her görüntü hazır
+        durumda olmak zorundadır.
+      x-authz:
+        action: can_manage
+        object: company
+      x-rate-limit: upload
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      requestBody:
+        description: Galerinin yeni içeriği, kapak ilk olacak şekilde sıralı.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplaceCompanyGalleryRequest"
+      responses:
+        "200":
+          description: Güncel galeri.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompanyGallery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         default:
@@ -2038,6 +2180,7 @@ paths:
           format: uuid
     delete:
       operationId: removeCompanyImage
+      x-error-codes: [COMPANY_NOT_FOUND, MEDIA_NOT_FOUND]
       tags: [company]
       summary: Şirketin galerisinden bir görüntüyü çıkarır.
       description: |
@@ -2074,6 +2217,7 @@ paths:
           format: uuid
     put:
       operationId: setCompanyLogo
+      x-error-codes: [COMPANY_NOT_FOUND, MEDIA_NOT_FOUND, MEDIA_NOT_READY]
       tags: [company]
       summary: Şirketin logosunu belirler.
       description: |
@@ -2107,6 +2251,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
@@ -2117,6 +2263,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: removeCompanyLogo
+      x-error-codes: [COMPANY_NOT_FOUND]
       tags: [company]
       summary: Şirketin logosunu kaldırır.
       description: Yalnız şirketin yöneticisine açıktır. Logosu olmayan şirkette sessizce geçer.
@@ -2143,6 +2290,7 @@ paths:
   /v1/me/media:
     post:
       operationId: startMediaUpload
+      x-error-codes: [MEDIA_TYPE_UNSUPPORTED, MEDIA_TOO_LARGE]
       tags: [media]
       summary: Yüklemeyi başlatır ve karantina için yazma adresi verir.
       description: |
@@ -2206,6 +2354,7 @@ paths:
           format: uuid
     get:
       operationId: getMedia
+      x-error-codes: [MEDIA_NOT_FOUND]
       tags: [media]
       summary: Çağıranın medyasından birini döndürür.
       description: |
@@ -2238,6 +2387,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: deleteMedia
+      x-error-codes: [MEDIA_NOT_FOUND, SOFT_DELETE_RESTRICTED]
       tags: [media]
       summary: Çağıranın medyasından birini siler.
       description: |
@@ -2275,6 +2425,8 @@ paths:
           format: uuid
     post:
       operationId: completeMediaUpload
+      x-error-codes:
+        [MEDIA_NOT_FOUND, MEDIA_UPLOAD_INCOMPLETE, MEDIA_TYPE_UNSUPPORTED, MEDIA_TOO_LARGE]
       tags: [media]
       summary: "Yüklemeyi tamamlar: doğrular, üstveriyi stripler ve son yerine taşır."
       description: |
@@ -2314,6 +2466,7 @@ paths:
   /v1/me/addresses:
     get:
       operationId: listMyAddresses
+      x-error-codes: []
       tags: [address]
       summary: Çağıranın adreslerini listeler.
       description: Adresin sahibi çağırandır; başkasının adresi hiçbir biçimde görünmez.
@@ -2343,6 +2496,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: createMyAddress
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
       tags: [address]
       summary: Çağırana yeni bir adres ekler.
       description: |
@@ -2382,6 +2536,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
@@ -2404,6 +2560,7 @@ paths:
           format: uuid
     get:
       operationId: getMyAddress
+      x-error-codes: [ADDRESS_NOT_FOUND]
       tags: [address]
       summary: Çağıranın adreslerinden birini döndürür.
       description: Başkasına ait ve hiç olmamış adres aynı 404'ü alır.
@@ -2432,6 +2589,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     put:
       operationId: replaceMyAddress
+      x-error-codes: [ADDRESS_NOT_FOUND, REFERENCE_ITEM_NOT_FOUND]
       tags: [address]
       summary: Çağıranın bir adresini tümden değiştirir.
       description: |
@@ -2474,6 +2632,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: deleteMyAddress
+      x-error-codes: [ADDRESS_NOT_FOUND, SOFT_DELETE_RESTRICTED]
       tags: [address]
       summary: Çağıranın bir adresini siler.
       description: |
@@ -2503,6 +2662,7 @@ paths:
   /v1/me/address-search-sessions:
     post:
       operationId: startAddressSearchSession
+      x-error-codes: [ADDRESS_PROVIDER_UNAVAILABLE]
       tags: [address]
       summary: Sağlayıcıya karşı bir adres arama oturumu açar.
       description: |
@@ -2552,6 +2712,7 @@ paths:
           format: uuid
     get:
       operationId: listAddressSuggestions
+      x-error-codes: [ADDRESS_SEARCH_SESSION_NOT_FOUND, ADDRESS_PROVIDER_UNAVAILABLE]
       tags: [address]
       summary: Arama oturumunda adres önerilerini döndürür.
       description: |
@@ -2614,6 +2775,7 @@ paths:
           maxLength: 512
     post:
       operationId: resolveAddressCandidate
+      x-error-codes: [ADDRESS_SEARCH_SESSION_NOT_FOUND, ADDRESS_PROVIDER_UNAVAILABLE]
       tags: [address]
       summary: Bir öneriyi adres bileşenlerine çözer.
       description: |
@@ -2647,31 +2809,6 @@ paths:
         default:
           $ref: "#/components/responses/InternalError"
 
-  /v1/reference/cities:
-    get:
-      operationId: listCities
-      tags: [reference]
-      summary: Şehirleri döndürür.
-      description: Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
-      security: []
-      x-resource: cities
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
-      responses:
-        "200":
-          description: Şehirler, ada göre sıralı.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReferenceItemList"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-        default:
-          $ref: "#/components/responses/InternalError"
-
   /v1/reference/cities/{cityId}/districts:
     parameters:
       - name: cityId
@@ -2683,6 +2820,7 @@ paths:
           format: uuid
     get:
       operationId: listDistricts
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
       tags: [reference]
       summary: Bir şehrin ilçelerini döndürür.
       description: Salt okunur referans verisi; kimlik istemez (MED-012).
@@ -2710,6 +2848,7 @@ paths:
   /v1/reference/universities:
     get:
       operationId: listUniversities
+      x-error-codes: []
       tags: [reference]
       summary: Üniversiteleri döndürür.
       description: Salt okunur referans verisi; kimlik istemez (MED-012).
@@ -2743,6 +2882,7 @@ paths:
           format: uuid
     get:
       operationId: listFaculties
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
       tags: [reference]
       summary: Bir üniversitenin fakültelerini döndürür.
       description: Salt okunur referans verisi; kimlik istemez (MED-012).
@@ -2778,6 +2918,7 @@ paths:
           format: uuid
     get:
       operationId: listDepartments
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
       tags: [reference]
       summary: Bir fakültenin bölümlerini döndürür.
       description: Salt okunur referans verisi; kimlik istemez (MED-012).
@@ -2805,6 +2946,7 @@ paths:
   /v1/admin/users:
     get:
       operationId: listUsersForStaff
+      x-error-codes: [SORT_FIELD_NOT_ALLOWED]
       tags: [admin-users]
       summary: Kullanıcıları personel için listeler.
       description: |
@@ -2862,6 +3004,7 @@ paths:
           format: uuid
     get:
       operationId: getUserForStaff
+      x-error-codes: [USER_NOT_FOUND]
       tags: [admin-users]
       summary: Bir kullanıcının detayını personel için döndürür.
       description: |
@@ -2907,6 +3050,7 @@ paths:
           format: uuid
     get:
       operationId: listIdentityRevealsForStaff
+      x-error-codes: [USER_NOT_FOUND, SORT_FIELD_NOT_ALLOWED]
       tags: [admin-users]
       summary: Bir işçinin kimliğini kimlerin açtığını listeler.
       description: |
@@ -2950,6 +3094,7 @@ paths:
   /v1/admin/identity-verifications:
     get:
       operationId: listIdentityReviews
+      x-error-codes: [SORT_FIELD_NOT_ALLOWED]
       tags: [admin-identity]
       summary: Kimlik inceleme kuyruğunu döndürür.
       description: |
@@ -3015,6 +3160,7 @@ paths:
           format: uuid
     get:
       operationId: getIdentityReview
+      x-error-codes: [IDENTITY_REVIEW_NOT_FOUND]
       tags: [admin-identity]
       summary: Bir kimlik incelemesini döndürür.
       description: |
@@ -3067,6 +3213,7 @@ paths:
           format: uuid
     get:
       operationId: getIdentityReviewDocument
+      x-error-codes: [IDENTITY_REVIEW_NOT_FOUND, IDENTITY_DOCUMENT_NOT_FOUND]
       tags: [admin-identity]
       summary: İncelemenin bir fotoğrafı için kısa ömürlü indirme adresi verir.
       description: |
@@ -3116,6 +3263,9 @@ paths:
           format: uuid
     post:
       operationId: approveIdentityReview
+      x-error-codes:
+        [IDENTITY_REVIEW_NOT_FOUND, IDENTITY_REVIEW_ALREADY_DECIDED,
+        IDENTITY_REVIEW_DOCUMENTS_MISSING, IDENTITY_NUMBER_IN_USE]
       tags: [admin-identity]
       summary: Kimlik incelemesini onaylar ve kullanıcıyı damgalar.
       description: |
@@ -3170,6 +3320,7 @@ paths:
           format: uuid
     post:
       operationId: rejectIdentityReview
+      x-error-codes: [IDENTITY_REVIEW_NOT_FOUND, IDENTITY_REVIEW_ALREADY_DECIDED]
       tags: [admin-identity]
       summary: Kimlik incelemesini gerekçesiyle reddeder.
       description: |
@@ -3225,6 +3376,7 @@ paths:
   /v1/admin/companies:
     get:
       operationId: listCompaniesForStaff
+      x-error-codes: [SORT_FIELD_NOT_ALLOWED]
       tags: [admin-company]
       summary: Şirket onay kuyruğunu döndürür.
       description: |
@@ -3287,6 +3439,7 @@ paths:
           format: uuid
     get:
       operationId: getCompanyForStaff
+      x-error-codes: [COMPANY_NOT_FOUND]
       tags: [admin-company]
       summary: Bir şirketi inceleme için döndürür.
       description: |
@@ -3331,6 +3484,7 @@ paths:
           format: uuid
     post:
       operationId: approveCompany
+      x-error-codes: [COMPANY_NOT_FOUND, COMPANY_ALREADY_APPROVED]
       tags: [admin-company]
       summary: Şirketi onaylar.
       description: |
@@ -3394,6 +3548,7 @@ paths:
           format: uuid
     post:
       operationId: rejectCompany
+      x-error-codes: [COMPANY_NOT_FOUND, COMPANY_ALREADY_REJECTED, COMPANY_APPROVED_NOT_REJECTABLE]
       tags: [admin-company]
       summary: Şirketi gerekçesiyle reddeder.
       description: |
@@ -3444,6 +3599,282 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         default:
           $ref: "#/components/responses/InternalError"
+  /v1/me/educations:
+    get:
+      operationId: listMyEducations
+      x-error-codes: []
+      tags: [users]
+      summary: Çağıranın eğitim kayıtlarını listeler.
+      description: |
+        Eğitim kayıtları profilin alt kaynağıdır ve sahibine bağlıdır. Üniversite,
+        fakülte ve bölüm referans verisine (`/v1/reference`) bağlanır.
+      x-authz-exempt: |
+        Liste çağıranın kendi eğitim kayıtlarıyla sınırlıdır; seçilecek başka bir nesne yoktur.
+      x-resource: educations
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/pagination.yaml#/components/parameters/Limit"
+        - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Çağıranın eğitim kayıtları, bitiş yılına göre yeniden eskiye.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EducationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    post:
+      operationId: createMyEducation
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND, EDUCATION_PERIOD_INVALID]
+      tags: [users]
+      summary: Çağırana yeni bir eğitim kaydı ekler.
+      description: |
+        Üniversite, fakülte ve bölüm referans verisinden gelir; bilinmeyen referans
+        `REFERENCE_ITEM_NOT_FOUND` döner. Bitiş yılı başlangıç yılından küçük olamaz ve
+        süren eğitimde bitiş yılı boştur.
+      x-authz-exempt: |
+        Eğitim kaydı çağıranın kendi kaydıdır; henüz var olmayan nesne yetkilendirilemez.
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Eğitim kaydının alanları.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EducationInput"
+      responses:
+        "201":
+          description: Eğitim kaydı eklendi.
+          headers:
+            Location:
+              description: Oluşan eğitim kaydının kaynağı.
+              schema:
+                type: string
+                examples: ["/v1/me/educations/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6e01"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Education"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableContent"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/educations/{educationId}:
+    parameters:
+      - name: educationId
+        in: path
+        required: true
+        description: Eğitim kaydının kimliği.
+        schema:
+          type: string
+          format: uuid
+    put:
+      operationId: replaceMyEducation
+      x-error-codes: [EDUCATION_NOT_FOUND, REFERENCE_ITEM_NOT_FOUND, EDUCATION_PERIOD_INVALID]
+      tags: [users]
+      summary: Çağıranın bir eğitim kaydını tümden değiştirir.
+      description: |
+        Kaydın alanları birbirine bağlı olduğu için kısmi güncelleme yoktur: istemci
+        kaydın tamamını gönderir (stil rehberi §3). Başkasına ait kayıt var olmayandan
+        ayırt edilemez.
+      x-authz-exempt: |
+        Değiştirme çağıranın kendi eğitim kayıtlarıyla sınırlıdır; başkasınınki yok sayılır.
+      x-body-limit: 4096
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      requestBody:
+        description: Eğitim kaydının tamamı.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EducationInput"
+      responses:
+        "200":
+          description: Güncel eğitim kaydı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Education"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+    delete:
+      operationId: deleteMyEducation
+      x-error-codes: [EDUCATION_NOT_FOUND]
+      tags: [users]
+      summary: Çağıranın bir eğitim kaydını siler.
+      description: Başkasına ait ve hiç olmamış kayıt aynı 404'ü alır.
+      x-authz-exempt: |
+        Silme çağıranın kendi eğitim kayıtlarıyla sınırlıdır; başkasınınki yok sayılır.
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "204":
+          description: Eğitim kaydı silindi.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/address-lookups/reverse:
+    post:
+      operationId: reverseLookupAddress
+      x-error-codes: [ADDRESS_OUTSIDE_SERVICE_AREA, ADDRESS_PROVIDER_UNAVAILABLE]
+      tags: [address]
+      summary: Harita konumunu adres bileşenlerine çevirir.
+      description: |
+        Haritada seçilen bir pini adrese çevirir (ters geocoding). Konum hizmet alanının
+        dışındaysa ya da eşleşme yoksa `ADDRESS_OUTSIDE_SERVICE_AREA` döner. Sağlayıcıdan
+        yalnız yer kimliği ve bizim bileşenlerimiz alınır; biçimlendirilmiş metin ve ham
+        yanıt saklanmaz (MED-008). Çözülen değer bir adres kaydı oluşturmaz; istemci onu
+        `POST /v1/me/addresses`'e verir.
+      x-authz-exempt: |
+        Arama çağıranın kendisi için yapılır; yetkilendirilecek bir nesne yoktur.
+      x-body-limit: 2048
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      x-no-idempotency-key: Çözme salt okunurdur ve hiçbir kayıt yazmaz; tekrar güvenlidir.
+      requestBody:
+        description: Haritadan seçilen konum.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoordinatesInput"
+      responses:
+        "200":
+          description: Çözülen adres bileşenleri.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolvedAddress"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "502":
+          $ref: "#/components/responses/BadGateway"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reference/countries:
+    get:
+      operationId: listCountries
+      x-error-codes: []
+      tags: [reference]
+      summary: Ülkeleri döndürür.
+      description: Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+      security: []
+      x-resource: countries
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Ülkeler, ada göre sıralı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItemList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
+  /v1/reference/countries/{countryId}/cities:
+    parameters:
+      - name: countryId
+        in: path
+        required: true
+        description: Ülkenin kimliği.
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: listCities
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
+      tags: [reference]
+      summary: Bir ülkenin şehirlerini döndürür.
+      description: |
+        Salt okunur referans verisi; kimlik istemez (MED-012). Şehir ülkeye bağlıdır:
+        adres bileşenleri ülke → şehir → ilçe zinciriyle çözülür (ADR-0029 Karar 8).
+      security: []
+      x-resource: cities
+      x-not-implemented: |
+        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
+        Bugün 501 NOT_IMPLEMENTED döner.
+      responses:
+        "200":
+          description: Şehirler, ada göre sıralı.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReferenceItemList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        default:
+          $ref: "#/components/responses/InternalError"
+
 
 components:
   securitySchemes:
@@ -5031,8 +5462,15 @@ components:
     CompanyGallery:
       type: object
       description: Şirketin galerisi; en çok on görüntü (MED-011).
-      required: [items]
+      required: [coverMediaId, items]
       properties:
+        coverMediaId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Kapak görüntüsünün medya kimliği; galerinin ilk görüntüsüdür. Galeri boşsa
+            `null`. Kapak ayrı bir uçla değil, galeriyi sıralayarak değişir.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
         items:
           type: array
           maxItems: 10
@@ -5490,6 +5928,126 @@ components:
           description: Satırlar, ada göre sıralı.
           items:
             $ref: "#/components/schemas/ReferenceItem"
+
+    ReplaceCompanyGalleryRequest:
+      type: object
+      description: |
+        Galerinin yeni içeriği. Sıra anlamlıdır: ilk medya kapaktır. Boş liste galeriyi
+        boşaltır. Her medya hazır durumda olmak zorundadır (ADR-0029 Karar 7).
+      additionalProperties: false
+      required: [mediaIds]
+      properties:
+        mediaIds:
+          type: array
+          maxItems: 10
+          description: Galerideki görüntülerin medya kimlikleri, kapak ilk olacak şekilde.
+          items:
+            type: string
+            format: uuid
+            examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+      examples:
+        - mediaIds:
+            - 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
+            - 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31
+
+    EducationDegree:
+      type: string
+      description: Eğitim kaydının derecesi.
+      enum: [HIGH_SCHOOL, ASSOCIATE, BACHELOR, MASTER, DOCTORATE]
+
+    EducationInput:
+      type: object
+      description: |
+        Bir eğitim kaydının alanları. Üniversite, fakülte ve bölüm referans verisinden
+        gelir (`/v1/reference`). Süren eğitimde `endYear` boştur; verildiğinde
+        `startYear`'dan küçük olamaz.
+      additionalProperties: false
+      required: [universityId, degree, startYear]
+      properties:
+        universityId:
+          type: string
+          format: uuid
+          description: Üniversitenin referans kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d10]
+        facultyId:
+          type: string
+          format: uuid
+          description: Fakültenin referans kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d11]
+        departmentId:
+          type: string
+          format: uuid
+          description: Bölümün referans kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d12]
+        degree:
+          $ref: "#/components/schemas/EducationDegree"
+        startYear:
+          type: integer
+          format: int32
+          minimum: 1950
+          maximum: 2100
+          description: Başlangıç yılı.
+          examples: [2014]
+        endYear:
+          type: [integer, "null"]
+          format: int32
+          minimum: 1950
+          maximum: 2100
+          description: Bitiş yılı; eğitim sürüyorsa `null`.
+          examples: [2018]
+
+    Education:
+      type: object
+      description: Çağıranın bir eğitim kaydı.
+      required: [id, university, faculty, department, degree, startYear, endYear, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Eğitim kaydının kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6e01]
+        university:
+          $ref: "#/components/schemas/ReferenceItem"
+          description: Üniversite.
+        faculty:
+          oneOf:
+            - $ref: "#/components/schemas/ReferenceItem"
+            - type: "null"
+          description: Fakülte; verilmediyse `null`.
+        department:
+          oneOf:
+            - $ref: "#/components/schemas/ReferenceItem"
+            - type: "null"
+          description: Bölüm; verilmediyse `null`.
+        degree:
+          $ref: "#/components/schemas/EducationDegree"
+          description: Derece.
+        startYear:
+          type: integer
+          format: int32
+          description: Başlangıç yılı.
+          examples: [2014]
+        endYear:
+          type: [integer, "null"]
+          format: int32
+          description: Bitiş yılı; eğitim sürüyorsa `null`.
+          examples: [2018]
+        createdAt:
+          $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
+          description: Kaydın eklendiği an.
+
+    EducationPage:
+      description: Çağıranın eğitim kayıtları.
+      allOf:
+        - $ref: "./components/pagination.yaml#/components/schemas/CursorPage"
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              description: Eğitim kayıtları, bitiş yılına göre yeniden eskiye.
+              items:
+                $ref: "#/components/schemas/Education"
 
     # --- Faz 2: personel yüzeyi (ADR-0029 Karar 9)
 

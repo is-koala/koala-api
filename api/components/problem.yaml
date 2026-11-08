@@ -273,6 +273,11 @@ components:
           bir kullanıcının; üçü ayırt edilemez (MED-010).
         - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
         - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
+        - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
+          adrese eşleşmiyor.
+        - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
+          edilemez.
+        - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
 
         Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
         - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -378,6 +383,9 @@ components:
         - ADDRESS_SEARCH_SESSION_NOT_FOUND
         - ADDRESS_PROVIDER_UNAVAILABLE
         - REFERENCE_ITEM_NOT_FOUND
+        - ADDRESS_OUTSIDE_SERVICE_AREA
+        - EDUCATION_NOT_FOUND
+        - EDUCATION_PERIOD_INVALID
         - FIELD_REQUIRED
         - FIELD_UNKNOWN
         - FIELD_TYPE_INVALID
