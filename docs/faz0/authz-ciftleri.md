@@ -21,16 +21,21 @@ Java hataları (oracle'da Java davranışı kalır, Go hedefi ayrı kolonda):
 
 ## Özet
 
+<!-- özet:başla (pairs.py üretir) -->
+
 | Ölçü | Değer |
 |---|---|
-| Envanter satırı | 134 |
-| Tekil `(nesne tipi, karar eylemi)` çifti | **71** |
-| §5.4 hedefi aynen ifade ediyor (✓) | 21 |
+| Envanter satırı | 141 |
+| Tekil `(nesne tipi, karar eylemi)` çifti | **79** |
+| Java'da karşılığı olmayan çift | 1 |
+| §5.4 hedefi aynen ifade ediyor (✓) | 22 |
 | §5.4 ifade ediyor ama farklı karar veriyor (≈) | 5 |
-| §5.4'te karşılığı yok (✗) | 24 |
-| Bilinçli olarak model dışı (dış) | 21 |
+| §5.4'te karşılığı yok (✗) | 25 |
+| Bilinçli olarak model dışı (dış) | 27 |
 | Önerilen DSL'de karşılığı olmayan çift | 0 (model dışı olanlar `go:<kural>`) |
-| Matris ([`internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml)) | 214 satır; 21'inde Java hedeften farklı. `skip` olmayan her çiftte ≥1 izin ve ≥1 ret; istisna C54 (hedefte izinli pazaryeri öznesi yok). C37 `skip`. `java_conceal` envanterin `gizleme_404` kolonundan türetilir. |
+| Matris ([`internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml)) | 332 satır; 21'inde Java hedeften farklı. `skip` olmayan her çiftte ≥1 izin ve ≥1 ret; istisna C54 (hedefte izinli pazaryeri öznesi yok). C37 `skip`. `java_conceal` envanterin `gizleme_404` kolonundan türetilir. |
+
+<!-- özet:bitir -->
 
 "Uyum" kolonu §5.4'ün **mevcut** modelini hedefe göre değerlendirir. Önerilen DSL (aşağıda) bütün ReBAC çiftlerini karşılar.
 
@@ -71,7 +76,7 @@ Uyum: ✓ aynen · ≈ §5.4 farklı karar verir · ✗ §5.4'te yok · dış = 
 | C21 | `job` | `apply` | AZ-035, AZ-036 | editor olmayan herkes; OPEN; hazır olma | applicant_pool but not editor (applicant_pool yalnız OPEN iken) (D3) | — | ✗ | `job#can_apply` | go + openfga | — |
 | C22 | `job` | `open_conversation` | AZ-037, AZ-038, AZ-039 | creator ∪ yetkili herhangi bir işçiyle; işçi kendisi için; ödeme ve engelleme ön süzgeç | editor (+ ödeme/engelleme ön süzgeci) (D1) | — | ✗ | `job#can_open_conversation` | go + openfga | eski creator (D1) |
 | C23 | `job` | `copy_as_template` | AZ-040 | editor (JobEditors kopyası) | editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi (D1) | job#can_edit | ✓ | `job#can_edit` | go + openfga | eski creator (D1) |
-| C24 | `company` | `read` | AZ-123, AZ-124 | kimlikli her kullanıcı; galeri herkese | = Java | — | ✗ | `company#viewer` | go + openfga | — |
+| C24 | `company` | `read` | AZ-123, AZ-124 | kimlikli her kullanıcı; galeri herkese | = Java | — | ✗ | `company#can_view` | go + openfga | — |
 | C25 | `company` | `read_member_view` | AZ-057, AZ-058, AZ-060 | üye: onay notu, kişi listesi, şirket ilanları | = Java | company#member | ✓ | `company#can_read_internal` | go + openfga | ret biçimi (404/403/maske) |
 | C26 | `company` | `manage` | AZ-048, AZ-049, AZ-050, AZ-051, AZ-052, AZ-053, AZ-054, AZ-055, AZ-056, AZ-061 | yalnız ADMIN | = Java | company#can_manage | ✓ | `company#can_manage` | go + openfga | — |
 | C27 | `company` | `create_job` | AZ-059 | üye | = Java | company#can_manage_jobs | ✓ | `company#can_manage_jobs` | go + openfga | ret biçimi (400) |
@@ -94,7 +99,7 @@ Uyum: ✓ aynen · ≈ §5.4 farklı karar verir · ✗ §5.4'te yok · dış = 
 | C44 | `shuttle` | `read_details` | AZ-116 | işveren tarafı tümü; işçi yalnız koltuğu olan servis (VIEW_STATUSES) | can_manage ∪ seat_holder (+ atama durumu ön süzgeci) | — | ✗ | `shuttle#can_read_details` | go + openfga | — |
 | C45 | `seat_assignment` | `mark_boarding` | AZ-090 | koltuğun ilanının editor'ı | can_manage from shuttle (D1) | — | ✗ | `seat_assignment#can_mark_boarding` | go + openfga | — |
 | C46 | `user` | `read_public` | AZ-126, AZ-127, AZ-128, AZ-129, AZ-130, AZ-131 | kimliksiz dahil herkes: deneyim, müsaitlik, rozet, yorum, puan, işveren istatistiği | = Java | — | ✗ | `user#public_viewer` | go + openfga | — |
-| C47 | `user` | `read_public_profile` | AZ-125 | kimlikli her kullanıcı (profil) | = Java | — | ✗ | `user#public_viewer` | go + openfga | — |
+| C47 | `user` | `read_public_profile` | AZ-125 | kimlikli her kullanıcı (profil) | = Java | — | ✗ | `user#can_read_profile` | go + openfga | — |
 | C48 | `user` | `read_cv_url` | AZ-094 | kendisi ∪ başvuru almış işveren (projeksiyon) | private_file#can_download (D5) | — | ✗ | `private_file#can_download` | go + openfga | — |
 | C49 | `private_file` | `download` | AZ-093 | sahip ∪ ROLE_ADMIN ∪ başvuru almış işveren | sahip ∪ reviewer (ROLE_ADMIN yok) (D5) | — | ✗ | `private_file#can_download` | go + openfga | ROLE_ADMIN baypası (D5) |
 | C50 | `user` | `read_presence` | AZ-078, AZ-079 | REST'te KONTROL YOK | self ∪ contact | — | ✗ | `user#can_see_presence` | go + openfga | kontrol yok |
@@ -119,13 +124,14 @@ Uyum: ✓ aynen · ≈ §5.4 farklı karar verir · ✗ §5.4'te yok · dış = 
 | C69 | `payment_attempt` | `complete_callback` | AZ-133 | kimliksiz; sağlayıcı token'ı + sunucudan sorgu | = Java | — | dış | `go:provider_token` | skip | — |
 | C70 | `payment_attempt` | `read_outcome` | AZ-134 | kimliksiz; kayıtlı sonucu okur | = Java | — | dış | `go:provider_token` | skip | — |
 | C71 | `realtime_destination` | `subscribe` | AZ-076 | bilinen hedef dışı SUBSCRIBE reddedilir | = Java (K4 protokolünde) (K4) | — | dış | `go:ws_destination` | go_only | — |
-| C72 | `company` | `follow` | AZ-135 | kimlikli her kullanıcı; yalnız varlık kontrolü | = Java | company#viewer | ✓ | `company#can_follow` | go + openfga | — |
-| C73 | `user` | `read_own_follows` | AZ-136 | yalnız kendisi (Scope) | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C74 | `user` | `write_own_profile` | AZ-139 | yalnız kendisi (/users/me) | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C75 | `user` | `create_company` | AZ-140 | öznitelik: kimlik doğrulanmış | = Java | — | dış | `go:attribute_identity_verified` | go_only | — |
-| C76 | `user` | `submit_identity_documents` | AZ-137 | yalnız kendisi (/users/me) | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C77 | `user` | `read_own_identity_review` | AZ-138 | yalnız kendisi (/users/me) | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
-| C78 | `user` | `prove_chip_presence` | AZ-141 | meydan okuma özneye göre aranır; başkasınınki bulunamaz | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C72 | `company_invitation` | `revoke` | — (Java'da yok) | — | şirketin ADMIN'i açık daveti geri alır | — | ✗ | `company_invitation#can_revoke` | go + openfga | Java'da operasyon yok |
+| C73 | `company` | `follow` | AZ-135 | kimlikli her kullanıcı; yalnız varlık kontrolü | = Java | company#viewer | ✓ | `company#can_follow` | go + openfga | — |
+| C74 | `user` | `read_own_follows` | AZ-136 | yalnız kendisi (Scope) | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C75 | `user` | `write_own_profile` | AZ-139 | yalnız kendisi (/users/me) | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C76 | `user` | `create_company` | AZ-140 | öznitelik: kimlik doğrulanmış | = Java | — | dış | `go:attribute_identity_verified` | go_only | — |
+| C77 | `user` | `submit_identity_documents` | AZ-137 | yalnız kendisi (/users/me) | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C78 | `user` | `read_own_identity_review` | AZ-138 | yalnız kendisi (/users/me) | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
+| C79 | `user` | `prove_chip_presence` | AZ-141 | meydan okuma özneye göre aranır; başkasınınki bulunamaz | = Java | owner (model dışı) | dış | `go:owner` | go_only | — |
 
 <!-- tablo:bitir -->
 

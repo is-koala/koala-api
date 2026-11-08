@@ -150,15 +150,16 @@ func TestMatrixShape(t *testing.T) {
 		counts[mx.Cases[i].Engine]++
 	}
 	// 98 staff rows (pairs S01-S26, ADR-0026) run on both engines. The
-	// Faz 2 pairs of ADR-0029 added 2 dual rows (company.follow) and 13
-	// go_only ones (the self-scoped surface and the identity attribute).
-	want := map[matrix.Engine]int{matrix.EngineBoth: 253, matrix.EngineGoOnly: 68, matrix.EngineSkip: 6}
+	// Faz 2 pairs of ADR-0029 added 7 dual rows (company.follow and
+	// company_invitation.revoke) and 13 go_only ones (the self-scoped
+	// surface and the identity attribute).
+	want := map[matrix.Engine]int{matrix.EngineBoth: 258, matrix.EngineGoOnly: 68, matrix.EngineSkip: 6}
 	for engine, n := range want {
 		if counts[engine] != n {
 			t.Errorf("%s rows: %d, want %d", engine, counts[engine], n)
 		}
 	}
-	if len(mx.Cases) != 327 {
-		t.Errorf("cases: %d, want 327", len(mx.Cases))
+	if len(mx.Cases) != 332 {
+		t.Errorf("cases: %d, want 332", len(mx.Cases))
 	}
 }

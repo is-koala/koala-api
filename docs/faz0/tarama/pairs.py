@@ -15,6 +15,7 @@ INV = "docs/faz0/authz-envanteri.csv"
 MD = "docs/faz0/authz-ciftleri.md"
 YAML_OUT = "internal/authz/testdata/matrix.yaml"
 BEGIN, END = "<!-- tablo:başla (pairs.py üretir) -->", "<!-- tablo:bitir -->"
+SBEGIN, SEND = "<!-- özet:başla (pairs.py üretir) -->", "<!-- özet:bitir -->"
 
 FGA = ["go", "openfga"]
 GO = "go_only"
@@ -63,6 +64,8 @@ def pair(obj, act, java, target, dec, rel54, fit, rel, engine, jdiff, cases, not
 
 
 A, D = "allow", "deny"
+# java alanının değeri: Java'da bu kararın hiç karşılığı yok (ADR-0029).
+NEW = "—"
 ED = "editor (D1): bireysel ilanda sahibi, şirket ilanında güncel şirket üyesi"
 FORMER = ("user:u_co_former", "Java JobEditors/partyOf creator'ı her zaman içeriyor; D1 şirket ilanında yalnız üyelik")
 
@@ -202,7 +205,7 @@ pair("job", "copy_as_template", "editor (JobEditors kopyası)", ED, "D1", "job#c
       ("user:u_stranger", "job:job_co", D, D, True),
       (FORMER[0], "job:job_co_orphan", A, D, True, FORMER[1])])
 # ---- company
-pair("company", "read", "kimlikli her kullanıcı; galeri herkese", "= Java", "", "—", "✗", "company#viewer", FGA, "",
+pair("company", "read", "kimlikli her kullanıcı; galeri herkese", "= Java", "", "—", "✗", "company#can_view", FGA, "",
      [("user:u_stranger", "company:co_1", A, A, "public"),
       ("anonymous", "company:co_1", D, D, False, {"note": "kimlik doğrulaması yok", "jrow": "authn"}, GO)])
 pair("company", "read_member_view", "üye: onay notu, kişi listesi, şirket ilanları", "= Java", "", "company#member", "✓",
@@ -312,7 +315,7 @@ pair("user", "read_public", "kimliksiz dahil herkes: deneyim, müsaitlik, rozet,
      [("user:u_stranger", "user:u_worker", A, A, "public"),
       ("anonymous", "user:u_worker", A, A, "public", "kimliksiz okuma", GO),
       ("user:u_stranger", "user:u_deleted", D, D, True, {"note": "soft-delete: public_viewer tuple'ı silinmiş", "jrow": "missing"})])
-pair("user", "read_public_profile", "kimlikli her kullanıcı (profil)", "= Java", "", "—", "✗", "user#public_viewer", FGA, "",
+pair("user", "read_public_profile", "kimlikli her kullanıcı (profil)", "= Java", "", "—", "✗", "user#can_read_profile", FGA, "",
      [("user:u_stranger", "user:u_worker", A, A, "public"),
       ("anonymous", "user:u_worker", D, D, False, {"note": "profil kimlik ister", "jrow": "authn"}, GO),
       ("user:u_stranger", "user:u_deleted", D, D, True, {"note": "soft-delete", "jrow": "missing"})])
@@ -389,6 +392,14 @@ pair("realtime_destination", "subscribe", "bilinen hedef dışı SUBSCRIBE redde
       ("user:u_worker", "realtime_destination:topic_unknown", D, D, False)])
 
 # ---- Faz 2 alanının Faz 0 taramasında eksik kalan kararları (ADR-0029)
+pair("company_invitation", "revoke", NEW, "şirketin ADMIN'i açık daveti geri alır", "", "—", "✗",
+     "company_invitation#can_revoke", FGA, "Java'da operasyon yok",
+     [("user:u_co_admin", "company_invitation:inv_1", A, A, "company_admin"),
+      ("user:u_co_admin2", "company_invitation:inv_1", A, A, "company_admin", "daveti göndermeyen ikinci ADMIN de geri alabilir"),
+      ("user:u_invitee", "company_invitation:inv_1", D, D, True, {"jrow": "AZ-063"}),
+      ("user:u_other_co_admin", "company_invitation:inv_1", D, D, True, {"jrow": "AZ-063"}),
+      ("user:u_stranger", "company_invitation:inv_1", D, D, True, {"jrow": "AZ-063"})],
+     "Java emsali yok: gönderilen davet geri alınamıyor (ADR-0029 Karar 7). Kanıtı yalnız bu matris verir.")
 pair("company", "follow", "kimlikli her kullanıcı; yalnız varlık kontrolü", "= Java", "", "company#viewer", "✓",
      "company#can_follow", FGA, "",
      [("user:u_stranger", "company:co_1", A, A, "public"),
@@ -667,9 +678,14 @@ def main():
     by = defaultdict(list)
     for r in rows:
         by[(r["nesne_tipi"], r["eylem"])].append(r)
+    # Java'da karşılığı olmayan karar (java "—") envanterde satır bulamaz:
+    # envanter Java'nın korunan metotlarının dökümüdür. Öteki her çiftin
+    # envanterde satırı, envanterdeki her çiftin de burada tanımı olmak
+    # zorundadır (ADR-0029).
     keys = {(p["obj"], p["act"]) for p in P}
-    if set(by) != keys:
-        print("eşleşmeyen çiftler:", set(by) - keys, keys - set(by), file=sys.stderr)
+    new_pairs = {(p["obj"], p["act"]) for p in P if p["java"] == NEW}
+    if set(by) != keys - new_pairs:
+        print("eşleşmeyen çiftler:", set(by) - keys, keys - new_pairs - set(by), file=sys.stderr)
         sys.exit(1)
 
     OBJECTS.update(STAFF_OBJECTS)
@@ -716,7 +732,7 @@ def main():
              "| # | Nesne | Eylem | Satırlar | Java kuralı | Hedef (karar) | §5.4 | Uyum | Önerilen relation | Motor | Java hedeften farklı |",
              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for i, p in enumerate(P, 1):
-        ids = ", ".join(r["id"] for r in by[(p["obj"], p["act"])])
+        ids = ", ".join(r["id"] for r in by[(p["obj"], p["act"])]) or "— (Java'da yok)"
         eng = "go + openfga" if p["engine"] == FGA else p["engine"]
         tgt = p["target"] + (f" ({p['dec']})" if p["dec"] else "")
         lines.append(f"| C{i:02d} | `{p['obj']}` | `{p['act']}` | {ids} | {esc(p['java'])} | {esc(tgt)} | {esc(p['rel54'])} | "
@@ -724,7 +740,8 @@ def main():
     lines += ["", END]
     md = open(MD, encoding="utf-8").read()
     a, b = md.index(BEGIN), md.index(END) + len(END)
-    open(MD, "w", encoding="utf-8").write(md[:a] + "\n".join(lines) + md[b:])
+    md = md[:a] + "\n".join(lines) + md[b:]
+
 
     # --- matris
     out = [HEADER, "basis:"]
@@ -810,6 +827,28 @@ def main():
         print("\n".join(errs), file=sys.stderr)
         sys.exit(1)
     open(YAML_OUT, "w", encoding="utf-8").write("\n".join(out) + "\n")
+    # --- özet tablosu: elle tutulduğu sürece bayatlıyordu (ADR-0029)
+    fits = defaultdict(int)
+    for p in P:
+        fits[p["fit"]] += 1
+    summary = [SBEGIN, "",
+               "| Ölçü | Değer |",
+               "|---|---|",
+               f"| Envanter satırı | {len(rows)} |",
+               f"| Tekil `(nesne tipi, karar eylemi)` çifti | **{len(P)}** |",
+               f"| Java'da karşılığı olmayan çift | {len(new_pairs)} |",
+               f"| §5.4 hedefi aynen ifade ediyor (✓) | {fits['✓']} |",
+               f"| §5.4 ifade ediyor ama farklı karar veriyor (≈) | {fits['≈']} |",
+               f"| §5.4'te karşılığı yok (✗) | {fits['✗']} |",
+               f"| Bilinçli olarak model dışı (dış) | {fits['dış']} |",
+               "| Önerilen DSL'de karşılığı olmayan çift | 0 (model dışı olanlar `go:<kural>`) |",
+               f"| Matris ([`internal/authz/testdata/matrix.yaml`](../../internal/authz/testdata/matrix.yaml)) | "
+               f"{n} satır; {diff}'inde Java hedeften farklı. `skip` olmayan her çiftte ≥1 izin ve ≥1 ret; "
+               "istisna C54 (hedefte izinli pazaryeri öznesi yok). C37 `skip`. `java_conceal` envanterin "
+               "`gizleme_404` kolonundan türetilir. |",
+               "", SEND]
+    a, b = md.index(SBEGIN), md.index(SEND) + len(SEND)
+    open(MD, "w", encoding="utf-8").write(md[:a] + "\n".join(summary) + md[b:])
     print(f"{len(P)} çift, {n} matris satırı ({nstaff} personel), {diff} satırda Java hedeften farklı", file=sys.stderr)
 
 

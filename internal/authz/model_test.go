@@ -115,6 +115,13 @@ func TestModelDecisions(t *testing.T) {
 		"define can_apply: applicant_pool but not editor", // D3
 		"define can_read_exact_address: individual_owner or can_manage_jobs from owner_company or active_worker or public_address_viewer", // C15
 		"define can_download: owner or reviewer", // D5: no marketplace admin
+		// ADR-0029: the decision relations the Faz 2 contract names in
+		// x-authz. can_revoke has no Java counterpart at all, so this
+		// line and the matrix are its only proof.
+		"define can_read_profile: public_viewer",
+		"define can_view: viewer",
+		"define can_follow: viewer",
+		"define can_revoke: admin from company",
 	} {
 		if !bytes.Contains(dsl, []byte(want)) {
 			t.Errorf("model.fga lost %q", want)
