@@ -16,7 +16,7 @@ ADR-0029 ve ADR-0030 kabul edildi ve birleşti; ikisinde de ürün tarafına bil
 
 Kabul edilmiş ADR değiştirilmez (`docs/adr/README.md`), bu yüzden düzeltme bu ADR'dedir. ADR-0029 ve ADR-0030'un dosyalarına dokunulmadı; ikisinin durumu "Kabul edildi" kalıyor, çünkü yerine geçilen şey bütünleri değil, aşağıda tek tek sayılan kayıtlarıdır (ADR-0018'in ADR-0022 karşısındaki konumuyla aynı).
 
-Planın §6.1'i kabul edilmiş bir ADR değil, bu yüzden metni düzeltilebilir; neyin değiştiği Karar 3'te.
+Planın §6.1'i kabul edilmiş bir ADR değil, bu yüzden metni düzeltilebilir; neyin değiştiği Karar 4'te.
 
 ## Karar
 
@@ -82,7 +82,15 @@ Anahtar alfabesi `jpg | png | pdf` üçlüsünden `jpg | png | pdf | doc | docx`
 
 `imaging.Types()` ile imza tablosu arasına dışarıdan bir bağ eklendi (`TestEveryAcceptedTypeIsDetectedFromASample`): bir tür `Types()`'a girip imzası eklenmezse, o türün her yüklemesi `TYPE_UNSUPPORTED` ile reddedilirdi ve hiçbir test kırmızıya dönmezdi. `Type.Container()` de ayrı bir liste değil, imza tablosundan okunuyor; ikisinin ayrışması mümkün değil.
 
-### 3. Planın §6.1'inde iki düzeltme
+### 3. Yükleme başlatma isteği: dosya adı bildirilmez, beyan edilen tipi handler seçer
+
+Bu PR'ın açtığı iki soruyu Faz 2 koordinasyonu 08.11.2026'da karara bağladı; ikisi de `StartMediaUploadRequest` ile `Pipeline.Start` arasındaki boşlukla ilgili ve ikisi de burada kapanıyor, ki handler PR'ı tartışmayı yeniden açmasın.
+
+**Dosya adı bildirilmez.** `StartMediaUploadRequest`'e `fileName` alanı **girmiyor**; istek `kind` ve `sizeBytes` ile kalıyor. Karar **Yusuf'undur**, gerekçesi sade kalmak ve saklanacak bir kullanıcı metni daha olmaması: bildirilen her ad doğrulanacak, saklanacak, maskelenecek ve KVKK kapsamında düşünülecek bir alan daha demektir. Görünür sonucu ADR-0030'un kaydettiği daralmadır — kullanıcı özgeçmişini `0192f3c4-….pdf` adıyla indirir — ve bu daralma **kabul ediliyor**. Kapı kapanmıyor: alanı sonradan eklemek uyumlu bir değişikliktir (stil rehberi §2), yani ihtiyaç görülürse ayrı bir kararla gelir. ADR-0030'un "özgün ad isteniyorsa isteğe bağlı bir alan gerekir" kalemi bu yüzden açık soru olmaktan çıkıp karara dönüşüyor.
+
+**Beyan edilen tip için handler `AllowedTypes()[0]`'ı seçer ve bunu açıkça yazar.** `Pipeline.Start(ctx, kind, declared)` bir tip istiyor ama istek bir tip taşımıyor; boşluk gerçek, sonucu yok. Gerekçe: karantina anahtarının uzantısı **kozmetiktir**. Son anahtarın uzantısı `Complete`'in içerikten saptadığı tipten gelir (`final.WithExt(ext)`), dolayısıyla yanlış tahmin edilen bir karantina uzantısının hiçbir gözlenebilir sonucu yoktur — bugün de öyle: bir istemci PNG beyan edip JPEG yüklediğinde son anahtar `jpg` oluyor (`TestCompleteNamesTheKeyFromTheDetectedType`). Sözleşmeye beyan alanı eklemek bu yüzden gereksiz; seçim handler'da, kaynağında yorumla yazılacak. Bu PR seçimi CV'de bir seçenekten üçe çıkardı, karar o yüzden burada kayda geçiyor: `AllowedTypes()` sıralı ve ilk öğesi CV'de PDF'tir, yani kozmetik tahmin de en yaygın türü tahmin ediyor.
+
+### 4. Planın §6.1'inde iki düzeltme
 
 Plan kabul edilmiş bir ADR değil, bu yüzden §6.1'in metni düzeltildi. ADR-0029 ikisini de "Yusuf'a bildirildi" diye kaydetmişti; bildirim karşılığını buldu:
 
@@ -98,7 +106,9 @@ Plan kabul edilmiş bir ADR değil, bu yüzden §6.1'in metni düzeltildi. ADR-0
 5. **ADR-0030'un açık soru 1'i: "CV'de `doc` ve `docx` düştü; PDF-only kalıyor"** → Karar 2. Yerine geçen karar **Yusuf'un 08.11.2026 kararıdır** ve gerekçesi sektör standardıdır: LinkedIn, Indeed, Greenhouse, Lever ve Kariyer.net üçünü de kabul ediyor, Java da üçünü kabul ediyor. ADR-0030'un "sektör pratiği PDF-only'dir" dayanağı yanlıştı.
 6. **ADR-0030 Karar 4'ün "PDF üstverisi sökülmez" sınırı** → Karar 2'de **genişletiliyor**, kaldırılmıyor: aynı gerekçe, aynı azaltma ve aynı tetikleyici DOC ve DOCX için de geçerli, ve sınırı gösteren test üç türü de kapsar hâle geldi.
 7. **ADR-0030'un `finishedEarlier` sayısı** → Karar 2. "Görüntü türünde iki `Head`, CV'de bir" cümlesi artık "CV'de üç": kurtarma yolu türün kabul ettiği her uzantıyı dener ve CV'nin üç uzantısı var. Yol yalnız karantina boşken koşuyor, yani sıcak yolda bir maliyet yok.
-8. **Plan §6.1 Faz 2'nin çıkış kriterindeki `owner` tipi ve eğitim kayıtları boşluğu** → Karar 3. ADR-0029'un "Yerine geçtiği" bölümündeki 6. ve 7. kalemler "Yusuf'a bildirildi" diyordu; bu PR bildirimi planın metnine işliyor, yani iki kalem kapanıyor.
+8. **Plan §6.1 Faz 2'nin çıkış kriterindeki `owner` tipi ve eğitim kayıtları boşluğu** → Karar 4. ADR-0029'un "Yerine geçtiği" bölümündeki 6. ve 7. kalemler "Yusuf'a bildirildi" diyordu; bu PR bildirimi planın metnine işliyor, yani iki kalem kapanıyor.
+
+9. **ADR-0030'un "özgün ad isteniyorsa `StartMediaUploadRequest`'e isteğe bağlı bir alan gerekir — uyumlu bir ekleme, acelesi yok" kalemi** → Karar 3. Kalem kapanıyor: Yusuf'un kararı "bildirilmesin". Daralmanın kendisi (nesne kendi UUID'siyle iniyor) **duruyor** ve kabul ediliyor; değişen şey, onun bir gün kapatılacak bir açık uç olarak değil, gerekçeli bir karar olarak durması.
 
 ADR-0029'un geri kalan on bir kararı, ADR-0030'un geri kalan altı kararı, ADR-0003, ADR-0005, ADR-0014, ADR-0019 ve ADR-0024 değişmiyor. ADR-0029 Karar 1'in dondurma mekanizması bu PR'da **aynen** duruyor: 71 donmuş operasyonun işaretleri, `pending` listesi ve iskeleleri değişmedi, bu PR handler yazmıyor.
 
@@ -106,13 +116,15 @@ ADR-0029'un geri kalan on bir kararı, ADR-0030'un geri kalan altı kararı, ADR
 
 - Sözleşmede ilk 2020-12'ye özgü anahtar var, yani `compileBody2020` yolu artık bir operasyonda **canlı**. Yolun kendisi açılışta fail-closed: derleme hatası sunucuyu kaldırmaz, sessizce geçmez. Yine de bu, kenarda bugüne kadar koşmayan bir doğrulayıcı demek; kuralın gerçekten zorlandığının kanıtı Faz 2'nin galeri handler'ı geldiğinde uçtan uca bir testle de yazılmalı — bugün kanıt zincirin okunmasıdır, koşmasının gözlenmesi değil.
 - **Zararlı yazılım taraması bir sonraki kalemdir.** Özgeçmiş artık işverenin makinesinde açılacak iki belge biçimini daha kabul ediyor; ek olarak sunmak tarayıcıyı korur, dosyayı açan insanı korumaz. Onaylı bir tarayıcı (ClamAV ya da sağlayıcı tarafı) ve nerede koşacağı (tamamlama adımı mı, sonradan bir River işi mi) ayrı bir karar ister. Yusuf'a bilgi olarak geçilecek.
-- **`StartMediaUploadRequest`'in beyan ettiği tip yok, ama `Pipeline.Start` bir tip istiyor.** `Start(ctx, kind, declared)`'ın `declared` parametresinin sözleşmede kaynağı yok: istek yalnız `kind` ve `sizeBytes` taşıyor. Bugün sonuçsuz, çünkü `declared` yalnız karantina nesnesinin adını belirliyor ve son tür içerikten saptanıyor — ama handler'ın onu bir yerden seçmesi gerekiyor ve bu PR seçimi CV'de bir seçenekten üçe çıkardı. Handler PR'ı ya `AllowedTypes()[0]`'ı seçtiğini açıkça yazmak ya da sözleşmeye isteğe bağlı bir beyan alanı eklemek zorundadır (uyumlu bir ekleme). Kalem burada duruyor ki handler'da sessiz bir varsayım olarak doğmasın.
+- Handler PR'ının Karar 3'ten devraldığı tek yükümlülük: `Pipeline.Start`'a verdiği tipin `AllowedTypes()[0]` olduğunu ve bunun neden kozmetik olduğunu çağrı yerinde yazmak. Sessiz bir varsayım olarak doğmaması bu yüzden kayda geçti.
 - `MediaContentType`'ın ikinci Word değeri 71 karakter ve üretilen Go sabiti 82; mekanik olması pahasına çirkin. Kuralı bozmaktan iyi, ama istemci üreteçlerinde (Dart, TypeScript) uzun enum adının bir sorun çıkarması Faz C'de görülecek.
 - `RejectionCorrupt`'ın hata kodu olmaması (ADR-0030'un yükümlülüğü) değişmedi ve genişlemedi: DOC ve DOCX yolunda `Sanitize` koşmuyor, yani yeni bir `CORRUPT` kaynağı doğmadı — yapısı bozuk bir kap `TYPE_UNSUPPORTED` ile düşüyor.
 - Senaryo katalogu 86'dan 88'e, P0'lar 70'ten 72'ye çıktı: CMP-025 (kapak) ve MED-014 (özgeçmiş türleri). İkisi de `deferred: {phase: 2}`, çünkü uçları donmuş durumda; MED-014'ün tür kabulü ve taşıması `internal/media`'da bugün yeşil ve bu, gerekçesinde yazılı. CMP-023 yeniden yazıldı: başlığı "sıra kapağı belirler"den "sıra ve açıklamalar tek işlemde değişir"e döndü, kapak kendi senaryosuna taşındı.
-- Bu PR'da kalanlar: galeri handler'ı (kapak kuralının dört davranışı ve `COMPANY_GALLERY_DUPLICATE_IMAGE`), özgeçmiş uçları, zararlı yazılım taraması ve yukarıdaki `declared` kalemi.
+- Bu PR'da kalanlar: galeri handler'ı (kapak kuralının dört davranışı ve `COMPANY_GALLERY_DUPLICATE_IMAGE`), özgeçmiş uçları ve zararlı yazılım taraması. Dosya adı ve beyan edilen tip kalem değil, karar (Karar 3).
 
 ## Açık sorular
 
 1. **Kapak, galeri dışındaki görüntüler için de işaretle mi seçilecek?** Java'nın `JobImage` tarafında aynı `cover` alanı ve aynı `applyDefaultCover` var (`replaceJobGallery`, `removeJobImage`). İlan galerisi Faz 3'ün konusu; bu ADR yalnız şirket galerisini bağlıyor. Faz 3 aynı biçimi almalı — iki galerinin kapak kuralının ayrışması, Java'nın tek yerde yazıp iki yerde kopyaladığı hatanın (koala-backend #362) sözleşme düzeyindeki karşılığı olurdu.
-2. **Özgeçmişin özgün adı taşınacak mı?** ADR-0030 bunu bir daralma olarak kaydetti (kullanıcı CV'sini `0192f3c4-….pdf` adıyla indiriyor). DOC ve DOCX ile daralma biraz daha görünür hâle geliyor, çünkü artık indirilen dosyanın uzantısı da üç olasılıktan biri. Çözümü aynı: `StartMediaUploadRequest`'e isteğe bağlı bir alan, uyumlu bir ekleme. Acelesi yok, ama Sonuçlar'daki `declared` kalemiyle **aynı alanda** çözülür; ikisi birlikte karara bağlanmalı.
+2. **Zararlı yazılım taraması nerede koşacak?** Özgeçmiş artık işverenin makinesinde açılacak iki belge biçimi daha kabul ediyor ve tür saptaması taramanın yerine geçmiyor. Onaylı bir tarayıcı (ClamAV ya da sağlayıcı tarafı) ve koşma yeri — tamamlama adımı mı, sonradan bir River işi mi — ayrı bir karar ister ve Yusuf'un listesinde duruyor. Bu PR'da çözülmedi, izleyen kalem.
+
+Özgeçmişin özgün adı ve `Pipeline.Start`'ın beyan ettiği tip bu listede **değil**: ikisi Karar 3'te karara bağlandı.
