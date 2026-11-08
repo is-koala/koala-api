@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -73,42 +74,46 @@ func TestPendingServerServesExactlyItsOperations(t *testing.T) {
 func TestFrozenOperationsAreNotShadowed(t *testing.T) {
 	t.Parallel()
 
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", nil, parser.SkipObjectResolution)
+	// go/parser.ParseDir is deprecated (SA1019) and x/tools/go/packages is
+	// not an approved dependency (ADR-0003), so the files are globbed:
+	// every .go of this directory, test files included, since a method on
+	// strictServer in a _test.go would shadow the stub just as well.
+	paths, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pkgs) == 0 {
-		t.Fatal("no Go package parsed in this directory; the walk is looking in the wrong place")
-	}
 	frozen := methodNames(reflect.TypeOf(pending.Server{}))
-	own, files := 0, 0
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			files++
-			for _, decl := range f.Decls {
-				fd, ok := decl.(*ast.FuncDecl)
-				if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 {
-					continue
-				}
-				// A value receiver is the only form that compiles here:
-				// strictServer is passed by value to the generated
-				// handler. A pointer receiver would not satisfy the
-				// interface, so it cannot hide a forwarder.
-				ident, ok := fd.Recv.List[0].Type.(*ast.Ident)
-				if !ok || ident.Name != "strictServer" {
-					continue
-				}
-				own++
-				if slices.Contains(frozen, fd.Name.Name) {
-					t.Errorf("%s: strictServer declares %s, which pending.Server also serves: the forwarder shadows the 501 stub while the contract still marks the operation frozen",
-						fset.Position(fd.Pos()), fd.Name.Name)
-				}
+	fset := token.NewFileSet()
+	own := 0
+	for _, path := range paths {
+		f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 {
+				continue
+			}
+			// A value receiver is the only form that compiles here:
+			// strictServer is passed by value to the generated handler, so
+			// a pointer receiver would not satisfy the interface and
+			// cannot hide a forwarder.
+			ident, ok := fd.Recv.List[0].Type.(*ast.Ident)
+			if !ok || ident.Name != "strictServer" {
+				continue
+			}
+			own++
+			if slices.Contains(frozen, fd.Name.Name) {
+				t.Errorf("%s: strictServer declares %s, which pending.Server also serves: the forwarder shadows the 501 stub while the contract still marks the operation frozen",
+					fset.Position(fd.Pos()), fd.Name.Name)
 			}
 		}
 	}
-	if files < 2 || own == 0 {
-		t.Fatalf("walked %d file(s) and found %d strictServer method(s); the walk is looking in the wrong place", files, own)
+	// The walk narrowing to one file is the failure this test exists to
+	// avoid, so the file count is checked too.
+	if len(paths) < 5 || own == 0 {
+		t.Fatalf("walked %d file(s) and found %d strictServer method(s); the walk is looking in the wrong place", len(paths), own)
 	}
 }
 
