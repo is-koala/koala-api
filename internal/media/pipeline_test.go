@@ -402,8 +402,9 @@ func TestCompleteCVMovesTheDocumentAsItIs(t *testing.T) {
 func TestCompleteCVAcceptsAForgedWordContainer(t *testing.T) {
 	t.Parallel()
 
-	// A zip that is not a Word document at all: the entry is empty and
-	// the archive carries an Android manifest next to it.
+	// A zip that is not a Word document at all: the Word part is the same
+	// four byte stub zipOf writes into every entry, and the archive
+	// carries an Android manifest and a dex file next to it.
 	forged := zipOf(t, "AndroidManifest.xml", "classes.dex", "word/document.xml")
 
 	h := newHarness(t)
