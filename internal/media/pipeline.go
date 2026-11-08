@@ -272,8 +272,8 @@ func (p *Pipeline) Complete(ctx context.Context, kind Kind, quarantined storage.
 //
 // The final extension follows the type detected on the first run, which
 // is not knowable here any more, so every extension the kind accepts is
-// tried: two heads for an image kind, one for a CV, and only on this
-// path. The object itself is the durable record this layer has, because
+// tried: two heads for an image kind, three for a CV since it took DOC
+// and DOCX (ADR-0031 Karar 2), and only on this path. The object itself is the durable record this layer has, because
 // the row may be exactly what failed.
 func (p *Pipeline) finishedEarlier(ctx context.Context, kind Kind, quarantined storage.Key, prefix storage.Prefix) (Completion, error) {
 	for _, typ := range kind.AllowedTypes() {

@@ -384,6 +384,56 @@ func TestCompleteCVMovesTheDocumentAsItIs(t *testing.T) {
 	}
 }
 
+// TestCompleteCVAcceptsAForgedWordContainer is the accepted false
+// positive of the Word detection, written down as a test because a limit
+// that only an ADR mentions is a limit nobody re-reads.
+//
+// Both signals are **imitable**: the DOCX check looks for the name
+// `word/document.xml` in the archive's table of contents, so an apk or
+// any other zip with an entry of that name passes; the DOC check looks
+// for a 24 byte UTF-16 stream name, so any OLE file with those bytes in
+// it passes. The protection is therefore against a careless upload and
+// not against an attacker (ADR-0031 Karar 2). What it still buys is
+// real: a file carrying neither marker cannot be stored at all, so the
+// CV slot is not an open file host, and what an imitated marker gets is
+// bounded by how the object is served -- attachment, no-store, no public
+// address, a short lived signed URL, 10 MiB, and the uploader's own
+// slot.
+func TestCompleteCVAcceptsAForgedWordContainer(t *testing.T) {
+	t.Parallel()
+
+	// A zip that is not a Word document at all: the entry is empty and
+	// the archive carries an Android manifest next to it.
+	forged := zipOf(t, "AndroidManifest.xml", "classes.dex", "word/document.xml")
+
+	h := newHarness(t)
+	up := h.upload(t, media.KindCV, imaging.TypeDOCX, forged)
+
+	done, err := h.pipeline.Complete(context.Background(), media.KindCV, up.Key)
+	if err != nil {
+		t.Fatalf("Complete() = %v", err)
+	}
+	if done.Rejected() {
+		t.Fatalf("Complete() rejected with %q; the limit this test records is gone, "+
+			"which is good news -- update ADR-0031 Karar 2 and this test together", done.Rejection)
+	}
+	if done.Key.Ext() != storage.ExtDOCX || done.Key.Prefix() != storage.PrefixFiles {
+		t.Errorf("Key = %q, want a files/ docx", done.Key.String())
+	}
+	// The mitigations are what the limit rests on, so they are asserted
+	// here and not taken on trust.
+	stored, ok := h.fake.Object(done.Key.String())
+	if !ok {
+		t.Fatal("the final object is not in the store")
+	}
+	if stored.ContentDisposition != "attachment" || stored.CacheControl != "no-store" {
+		t.Errorf("stored as %+v, want an uncached attachment", stored)
+	}
+	if done.PublicURL != "" {
+		t.Errorf("PublicURL = %q; a CV resolves to no public address", done.PublicURL)
+	}
+}
+
 // oleHeader is the 512 byte header of an OLE compound file, which an
 // xls, a ppt and an msi share with a doc.
 func oleHeader() []byte {
