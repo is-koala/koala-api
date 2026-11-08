@@ -44,6 +44,13 @@ const (
 	VarJWTStaffKeys         = "KOALA_JWT_STAFF_KEYS"
 	VarRealtimeOrigins      = "KOALA_REALTIME_ORIGINS"
 	VarLoginPepper          = "KOALA_LOGIN_PEPPER"
+	VarObjectEndpoint       = "KOALA_OBJECT_ENDPOINT"
+	VarObjectRegion         = "KOALA_OBJECT_REGION"
+	VarObjectBucket         = "KOALA_OBJECT_BUCKET"
+	VarObjectAccessKeyID    = "KOALA_OBJECT_ACCESS_KEY_ID"
+	VarObjectSecretKey      = "KOALA_OBJECT_SECRET_ACCESS_KEY" //nolint:gosec // G101: a variable name, not a credential
+	VarObjectPathStyle      = "KOALA_OBJECT_PATH_STYLE"
+	VarObjectPublicBaseURL  = "KOALA_OBJECT_PUBLIC_BASE_URL"
 )
 
 // known lists every variable Load understands. A KOALA_* variable outside
@@ -53,7 +60,19 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarDatabaseURL, VarOwnerDatabaseURL, VarMaintDatabaseURL, VarBootstrapDatabaseURL,
 	VarMinAppVersion, VarTrustedProxies, VarMetricsAddr,
 	VarJWTMarketplaceKeys, VarJWTStaffKeys, VarRealtimeOrigins, VarLoginPepper,
+	VarObjectEndpoint, VarObjectRegion, VarObjectBucket,
+	VarObjectAccessKeyID, VarObjectSecretKey, VarObjectPathStyle, VarObjectPublicBaseURL,
 }
+
+// Variables returns every KOALA_* variable Load understands, in the
+// order the known list declares them.
+//
+// It exists so that the documentation can be bound to the code: a
+// variable this service reads and the runbook does not mention is a
+// deployment that fails at startup with no hint where to look, which is
+// what happened when the object store variables were added
+// (TestEveryVariableIsDocumented, ADR-0030).
+func Variables() []string { return slices.Clone(known) }
 
 // Env is the deployment environment.
 type Env string
@@ -122,6 +141,33 @@ type Config struct {
 	// attempt log and the rate limit keys (ADR-0025 §5): unpadded base64url
 	// of at least 32 random bytes. Required like the key rings.
 	LoginPepper Secret
+	// Object is the S3 compatible object store uploads land in (ADR-0019
+	// §9, ADR-0029 Karar 6, ADR-0030). Its fields are either all set or
+	// all empty; a partly configured store stops startup, and serve
+	// requires it outside local and test (ServeStorageErrors).
+	Object ObjectStore
+}
+
+// ObjectStore is the validated object store configuration. The secret is
+// a Secret, so it prints as a placeholder wherever the configuration is
+// logged; Endpoint and PublicBaseURL are plain, because they are
+// addresses the API hands to clients anyway.
+type ObjectStore struct {
+	Endpoint      string
+	Region        string
+	Bucket        string
+	AccessKeyID   string
+	SecretKey     Secret
+	PathStyle     bool
+	PublicBaseURL string
+}
+
+// Configured reports whether any object store variable was set. An
+// unconfigured store is allowed in local and test, where no upload path
+// runs; a partly configured one never is.
+func (o ObjectStore) Configured() bool {
+	return o.Endpoint != "" || o.Region != "" || o.Bucket != "" ||
+		o.AccessKeyID != "" || o.SecretKey != "" || o.PublicBaseURL != "" || o.PathStyle
 }
 
 // Secret is a configuration value that must not reach logs or error
@@ -248,6 +294,7 @@ func Load(environ []string) (Config, error) {
 
 	errs = append(errs, loadEdge(vars, &cfg)...)
 	errs = append(errs, loadAuth(vars, &cfg)...)
+	errs = append(errs, loadObjectStore(vars, &cfg)...)
 
 	if len(errs) > 0 {
 		slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
@@ -521,4 +568,160 @@ func validateDatabaseURL(v string, production bool) error {
 		}
 	}
 	return nil
+}
+
+// loadObjectStore reads the object store variables (ADR-0030 Karar 7).
+// A value is only shape-checked here; whether serve may start without
+// one is ServeStorageErrors's decision, so migrate and bootstrap keep
+// running with no object store configured at all.
+func loadObjectStore(vars map[string]string, cfg *Config) []error {
+	var errs []error
+	for name, dst := range map[string]*string{
+		VarObjectEndpoint:      &cfg.Object.Endpoint,
+		VarObjectRegion:        &cfg.Object.Region,
+		VarObjectBucket:        &cfg.Object.Bucket,
+		VarObjectAccessKeyID:   &cfg.Object.AccessKeyID,
+		VarObjectPublicBaseURL: &cfg.Object.PublicBaseURL,
+	} {
+		if v, ok := vars[name]; ok {
+			*dst = strings.TrimSpace(v)
+		}
+	}
+	if v, ok := vars[VarObjectSecretKey]; ok {
+		cfg.Object.SecretKey = Secret(strings.TrimSpace(v))
+	}
+	if v, ok := vars[VarObjectPathStyle]; ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w: want true or false", VarObjectPathStyle, errInvalidValue))
+		} else {
+			cfg.Object.PathStyle = b
+		}
+	}
+	if cfg.Object.Bucket != "" && !validBucket(cfg.Object.Bucket) {
+		errs = append(errs, fmt.Errorf("%s: %w: want 3-63 characters of a-z, 0-9, '.' and '-', starting and ending alphanumeric",
+			VarObjectBucket, errInvalidValue))
+	}
+	for name, raw := range map[string]string{
+		VarObjectEndpoint: cfg.Object.Endpoint, VarObjectPublicBaseURL: cfg.Object.PublicBaseURL,
+	} {
+		if raw == "" {
+			continue
+		}
+		if err := validateObjectURL(raw, cfg.Env != EnvLocal && cfg.Env != EnvTest); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", name, err))
+		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errs
+}
+
+// Bucket name bounds (the S3 rule, which MinIO and R2 also apply).
+const (
+	minBucketLen = 3
+	maxBucketLen = 63
+)
+
+// validBucket checks the S3 bucket naming rule the three stores share.
+// A bucket name goes into the request path, so its alphabet is closed
+// here for the same reason the object key's is (ADR-0029 Karar 6).
+func validBucket(name string) bool {
+	if len(name) < minBucketLen || len(name) > maxBucketLen {
+		return false
+	}
+	for i := range len(name) {
+		c := name[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case (c == '.' || c == '-') && i > 0 && i < len(name)-1:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// validateObjectURL accepts an http or https origin. Every environment
+// where the upload endpoints are live requires https -- staging as well
+// as production, because ServeStorageErrors counts staging as live: the
+// endpoint carries the signature of every presigned address and the
+// public base URL is handed to every client, so neither may be reachable
+// over plain text in either. Plain http stays allowed in local and test,
+// where a MinIO on loopback is the normal setup. The value is never
+// echoed.
+func validateObjectURL(raw string, requireTLS bool) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("%w: not a URL", errInvalidValue)
+	}
+	switch {
+	case u.Scheme != "http" && u.Scheme != "https":
+		return fmt.Errorf("%w: want an http:// or https:// URL", errInvalidValue)
+	case u.Host == "":
+		return fmt.Errorf("%w: want a host", errInvalidValue)
+	case u.User != nil:
+		return fmt.Errorf("%w: must not carry credentials", errInvalidValue)
+	case u.RawQuery != "" || u.Fragment != "":
+		return fmt.Errorf("%w: must not carry a query or fragment", errInvalidValue)
+	case requireTLS && u.Scheme != "https":
+		return fmt.Errorf("%w: this environment requires https", errInvalidValue)
+	}
+	return nil
+}
+
+// ServeStorageErrors reports what serve needs of the object store
+// (ADR-0030 Karar 7), fail closed in two directions:
+//
+//   - A partly configured store is an error everywhere. Half a
+//     configuration is a typo or a half finished deployment, and
+//     starting on it would turn every upload into a 500 at the moment a
+//     user tries one.
+//   - serve requires a store in staging and production, where the upload
+//     endpoints are live. local and test may run without one, so a
+//     developer who is not working on uploads needs no bucket.
+//
+// The public base URL is in the required set too, and the reason is the
+// second kind of failure above rather than the first: without it
+// PublicURL answers nothing for every key, so Media.url is null on every
+// ready profile picture, logo and gallery image -- a field the contract
+// says is filled for a publicly readable kind in a ready state. Nothing
+// returns 500; the service starts, answers 200 and quietly breaks a
+// promise the contract made, which is why it is not optional.
+func (c Config) ServeStorageErrors() error {
+	required := map[string]string{
+		VarObjectRegion:      c.Object.Region,
+		VarObjectBucket:      c.Object.Bucket,
+		VarObjectAccessKeyID: c.Object.AccessKeyID,
+		VarObjectSecretKey:   c.Object.SecretKey.Reveal(),
+		// The public base URL is required too, which it was not at
+		// first. Without it PublicURL answers nothing for every key, so
+		// Media.url comes out null on every ready profile picture, logo
+		// and gallery image -- and the contract says that field is
+		// filled for a publicly readable kind in a ready state. That
+		// failure is worse than the 500 the rest of this rule is about,
+		// because it is silent: the service starts, answers 200 and
+		// serves a response that quietly breaks a promise the contract
+		// made (ADR-0030 Karar 7).
+		VarObjectPublicBaseURL: c.Object.PublicBaseURL,
+	}
+	live := c.Env == EnvStaging || c.Env == EnvProduction
+	if !c.Object.Configured() {
+		if !live {
+			return nil
+		}
+		var errs []error
+		for name := range required {
+			errs = append(errs, fmt.Errorf("%s: required by serve in %s", name, c.Env))
+		}
+		slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+		return errors.Join(errs...)
+	}
+	var errs []error
+	for name, v := range required {
+		if v == "" {
+			errs = append(errs, fmt.Errorf("%s: required once any %sOBJECT_* variable is set", name, Prefix))
+		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errors.Join(errs...)
 }
