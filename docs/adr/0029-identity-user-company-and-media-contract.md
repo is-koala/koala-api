@@ -4,7 +4,12 @@
 - Tarih: 08.11.2026
 - Karar kaydı: K10, K11, K14, K15 (hazırlık), K17, K19, S4, D5
 - Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §4.1 (sözleşme ilkeleri), §4.2 (istemci işi), §5.4–5.5 (authz), §6.1 Faz 2, §6.2 (Java testlerini senaryoya çevirme); [ADR-0005](0005-api-contract-principles.md), [ADR-0013](0013-soft-delete.md), [ADR-0014](0014-authorization.md), [ADR-0019](0019-openapi-31-codegen-and-request-validation.md) §4 (dosya yüklemeleri), [ADR-0020](0020-sqlc-toolchain-and-soft-delete-platform.md) §11, [ADR-0024](0024-authz-core-evaluator-and-conformance.md), [ADR-0025](0025-authentication-tokens-sessions-and-staff-sign-in.md), [ADR-0026](0026-staff-rbac-audit-trail-and-pii-gate.md), [ADR-0027](0027-soft-delete-platform-hardening.md), [ADR-0028](0028-recursion-rules-body-allowlist-and-gate-completeness.md); Java `origin/main` (0cbbce69, v0.9.32) — 19 manager ve IT'leri okundu, koşturulmadı
-- Dış kaynaklar: NIST SP 800-63B §5.1.3.3 ve §5.1.4.2 (bir kerelik kodlar, saklama ve deneme sınırı); OWASP ASVS 4.0 §2.1, §3.3, §4.2; RFC 9457; Google Maps Platform [Hizmet Şartları](https://cloud.google.com/maps-platform/terms) §3.2.3(b) (önbellekleme); Stripe Connect ve Upwork (işletme doğrulanmadan işlem yok); GitHub organizasyon daveti (süreli, iptal edilebilir); S3 + sunucu tarafı dönüştürme kalıbı
+- Dış kaynaklar (madde numaraları **NIST SP 800-63B Rev. 3**'e ve **OWASP ASVS 4.0.3**'e göredir; Rev. 4 bütün bölüm numaralarını değiştirdi, 5.x → 3.x):
+  - NIST SP 800-63B Rev. 3 §5.1.3.2 (bant dışı doğrulayıcılar: doğrulama 10 dakika içinde tamamlanmazsa geçersiz), §5.1.1.2 (hatırlanan sırların özetlenerek saklanması ve kompozisyon kuralı önerilmemesi), §5.2.2 (kısıtlama: ardışık başarısız deneme sınırı)
+  - OWASP ASVS 4.0.3 V3.3.3 (parola değişimi ve sıfırlamadan sonra diğer oturumların kapanması)
+  - RFC 9457, RFC 7396, RFC 6901
+  - Google Maps Platform [Hizmet Şartları](https://cloud.google.com/maps-platform/terms) ve Places için Service Specific Terms: yer kimliği süresiz, diğer içerik sınırlı süre önbelleklenebilir (madde numarası açık soru 4)
+  - Stripe Connect ve Upwork (işletme doğrulanmadan işlem yok); GitHub organizasyon daveti (süreli, iptal edilebilir); S3 + sunucu tarafı dönüştürme kalıbı
 - Kod: `api/openapi.yaml`, `test/scenarios/{user,identity,company,media}.yaml`, `docs/faz0/authz-envanteri.csv`, `internal/authz/model.fga`, `internal/platform/softdelete/softdeletetest/readtest.go`
 
 ## Bağlam
@@ -76,9 +81,9 @@ OTP bu alanda **yalnız** kimliği doğrulanmış kullanıcının e-posta ya da 
 |---|---|---|---|
 | Uzunluk ve alfabe | 6 ondalık basamak, `000000`–`999999` **dahil** | `100000 + nextInt(900000)` | Java baştaki sıfırı dışlıyor: uzay 1.000.000 değil 900.000. Tam uzay kullanılır. |
 | Üretim | CSPRNG, düzgün dağılım (modulo yanlılığı yok) | `SecureRandom` | — |
-| Saklama | SHA-256 özeti; doğrulamadan sonra özet silinir | **düz metin** | NIST SP 800-63B §5.1.4.2: bant dışı sır özetlenerek saklanır. **Java'dan bilinçli ayrılık.** |
-| Ömür | **10 dakika** | 15 dakika | NIST SP 800-63B §5.1.3.3: bant dışı sır 10 dakikayı aşmamalı. |
-| Deneme sınırı | **5**; dolunca doğrulama yakılır (`VERIFICATION_ATTEMPTS_EXHAUSTED`), yenisi başlatılır | **yok** | NIST §5.2.2 kısıtlama zorunlu. Java'da sayaç kolonu bile yok: 15 dakika boyunca sınırsız tahmin. **Java'dan bilinçli ayrılık.** |
+| Saklama | SHA-256 özeti; doğrulamadan sonra özet silinir | **düz metin** | Sektör pratiği ve §5.1.1.2'nin hatırlanan sırlar için koyduğu kuralın benzeşimi: NIST'in hiçbir maddesi bant dışı sırrın özetlenmesini **istemiyor**, ama kodun düz metin saklanması veritabanı okumasını tam bir kimlik doğrulama atlatmasına çeviriyor. **Java'dan bilinçli ayrılık.** |
+| Ömür | **10 dakika** | 15 dakika | NIST SP 800-63B Rev. 3 §5.1.3.2: bant dışı doğrulama 10 dakika içinde tamamlanmazsa geçersiz sayılmalı. |
+| Deneme sınırı | **5**; dolunca doğrulama yakılır (`VERIFICATION_ATTEMPTS_EXHAUSTED`), yenisi başlatılır | **yok** | §5.2.2 kısıtlamayı zorunlu kılıyor; verdiği üst sınır 100 ardışık başarısız denemedir. **5 bizim daha sıkı tercihimizdir** (altı haneli kodda 100 deneme 10.000'de 1 tahmin şansı demek). Java'da sayaç kolonu bile yok: ömür boyunca sınırsız tahmin. **Java'dan bilinçli ayrılık.** |
 | Yeniden gönderme | (kullanıcı, kanal, hedef) başına **tek aktif** doğrulama; yenisi öncekini iptal eder. Bekleme 60 sn, hedef başına saatte en çok 5 gönderim | e-postada hedefe göre tekilleme var; **telefonda hiç yok** (her PATCH yeni satır, hepsi geçerli) | Telefon tarafı Java'da aynı anda onlarca geçerli kod bırakıyor. **Java'dan bilinçli ayrılık.** |
 | Oran sınırı | `auth` grubu, adres **ve** hedef özeti başına (ADR-0025 §8) | genel `WRITE` kovası, 60/dk, yalnız IP | Hedef başına kova olmadan tek adrese yoğunlaşan tahmin serbest. |
 | Doğrulama tüketir mi | Evet: `verified` işaretlenir, özet silinir. İkinci onay `VERIFICATION_ALREADY_CONFIRMED` (409) | Zaten doğrulanmışsa **kodu hiç bakmadan 200** döner | Java'nın erken dönüşü yanlış kodu da kabul ediyor. **Java'dan bilinçli ayrılık.** |
@@ -97,10 +102,10 @@ Java'nın biçimi doğru ve korunuyor: 32 baytlık opak token, SHA-256 özeti (`
 
 - **Ömür 15 dakika.**
 - Bilinmeyen, süresi dolmuş, iptal edilmiş ve zaten kullanılmış token'ın **dördü de** aynı `PASSWORD_RESET_TOKEN_INVALID` gövdesini alır.
-- Kayıtsız adres ayırt edilemez: aynı 200 gövdesi, posta yok. **Java'dan ayrılık:** Java'nın bilinen dalı token üretip posta kuyruğa atıyor, bilinmeyen dalı atmıyor; zamanlama farkı `docs/research/password-reset-token-design.md`'de açık bir boşluk olarak duruyor. Go iki dalda da aynı işi yapar (bilinmeyen dalda üretilen token atılır), AUTH-001'in giriş için kurduğu kalıp.
-- **Başarılı sıfırlama çağıran dahil bütün oturumları kapatır** ve token çifti **döndürmez**; kullanıcı yeniden giriş yapar (OWASP ASVS §3.3.1; Java da böyle). Uygulama içi parola değişimi ise çağıranın oturumunu açık bırakır ve diğerlerini kapatır (Java'nın davranışı, korunuyor) — ikisi farklı, çünkü sıfırlamada hesabın ele geçtiği varsayılır.
+- Kayıtsız adres ayırt edilemez: aynı `202` gövdesi, posta yok. (`202`, çünkü posta kuyruğa girer ve iş arka planda koşar; stil rehberi §5.) **Java'dan ayrılık:** Java'nın bilinen dalı token üretip posta kuyruğa atıyor, bilinmeyen dalı atmıyor; zamanlama farkı `docs/research/password-reset-token-design.md`'de açık bir boşluk olarak duruyor. Go iki dalda da aynı işi yapar (bilinmeyen dalda üretilen token atılır), AUTH-001'in giriş için kurduğu kalıp.
+- **Başarılı sıfırlama çağıran dahil bütün oturumları kapatır** ve token çifti **döndürmez**; kullanıcı yeniden giriş yapar (OWASP ASVS 4.0.3 V3.3.3; Java da böyle). Uygulama içi parola değişimi ise çağıranın oturumunu açık bırakır ve diğerlerini kapatır (Java'nın davranışı, korunuyor) — ikisi farklı, çünkü sıfırlamada hesabın ele geçtiği varsayılır.
 - Sıfırlama ve uygulama içi değişim, kullanıcının **açık parola sıfırlama token'larını** iptal eder.
-- **Parola kuralı ADR-0025'in kuralıdır:** en az 15, en çok 128 karakter, `PASSWORD_POLICY_VIOLATION`. Java'nın 12 kod noktası / 72 bayt sınırı bcrypt'ten geliyordu; Go bcrypt kullanmadığı için 72 bayt sınırı yok. Karakter sınıfı kuralı yok (NIST SP 800-63B §5.1.1.2 kompozisyon kurallarını önermiyor).
+- **Parola kuralı ADR-0025'in kuralıdır:** en az 15, en çok 128 karakter, `PASSWORD_POLICY_VIOLATION`. Java'nın 12 kod noktası / 72 bayt sınırı bcrypt'ten geliyordu; Go bcrypt kullanmadığı için 72 bayt sınırı yok. Karakter sınıfı kuralı yok (NIST SP 800-63B Rev. 3 §5.1.1.2 kompozisyon kurallarını önermiyor).
 
 ### 5. Kimlik belgesi yükleme: kabul edilen tipler ve EXIF
 
@@ -127,6 +132,7 @@ Java'nın biçimi doğru ve korunuyor: 32 baytlık opak token, SHA-256 özeti (`
 - **Yükleme API'den geçmez** (stil rehberi §4, ADR-0019): istemci presigned PUT ile doğrudan nesne deposuna yazar. Java multipart kullanıyor; **Java'dan bilinçli ayrılık**, dayanağı ADR-0019'un zaten verilmiş kararı.
   - Akış üç adımdır: **başlat** (API `incoming/<uuidv7>.<uzantı>` için presigned PUT ve bir `media` satırı verir, durum `PENDING`) → istemci doğrudan yükler → **tamamla** (API nesneyi doğrular: boyut, saptanan tip, tuval; sonra EXIF'i striple yeniden kodlar ve son anahtara taşır, durum `READY`).
   - EXIF stripleme sunucu tarafında kalmak zorunda olduğu için saf presigned yükleme yetmez: karantina öneki + tamamlama adımı sektörün standart cevabıdır (S3 + sunucu tarafı dönüştürme). Doğrulama ve dönüştürme River işine taşınır; `complete` `202` döner ve medya kaynağından okunur (stil rehberi §3, "uzun iş isteğe bağlanmaz").
+  - Karantina anahtarının uzantısı **başlatma anında istemcinin bildirdiği türden** türetilir ve yalnız yazma adresini kurar; son anahtarın uzantısı tamamlama adımında **saptanan** tipten gelir. İkisi ayrışabilir: karantinadaki `.jpg`, PNG olduğu anlaşılırsa `images/<uuid>.png` olarak taşınır. Karantina anahtarı hiçbir yanıtta kaynak adresi olarak verilmez.
   - `incoming/` **M2**: tamamlanmayan yükleme 24 saat sonra temizlik işiyle silinir.
   - Rollback değişmezi Java'dan korunur ve genelleştirilir: nesne yazıldıktan sonra DB yazımı düşerse nesne silinir; **sonucu belirsiz** transaction'da nesne **silinmez** (fail-safe); temizlik hatası özgün hatayı maskelemez, yalnız `ERROR` seviyesinde loglanır.
 
@@ -152,6 +158,8 @@ Java'nın eksikleri kapatılır:
 - Daveti **okuyabilenler**: davet edilen, daveti gönderen ve şirketin bugünkü `ADMIN`'i. **Cevaplayabilen yalnız davet edilendir** (Java'nın ayrımı, korunuyor). Aynı (şirket, davetli) için tek açık davet.
 - **Davet edilenin kimliği doğrulanmış olmalıdır.** Java burada `tcIdentityNumber != null`, şirket kurmada ise `identityVerified` bakıyor — aynı kavrama iki ölçüt. Go her ikisinde `identity_verified`'ı kullanır.
 
+**Galeri görünürlüğü.** Şirketin galerisi **kimliksiz okunabilir** (Java'nın kararı, korunuyor): galeri şirketin vitrinidir ve SEO'lu şirket sayfasında görünür. Şirketin kendisi (`GET /v1/companies/{companyId}`) kimlik ister, yani galeri kimliksiz bir **varlık oracle'ıdır**: var olmayan şirketin galerisi 404, var olanın 200 döner. Kabul ediyoruz, çünkü şirket kimliği UUIDv7'dir ve tahmin edilemez; şirket listesi kimliksiz hiçbir uçtan sayılamaz. Galeri sıralaması aynı zamanda kapağı belirler: listedeki ilk görüntü kapaktır, ayrı bir kapak ucu yoktur.
+
 **Takip.** Herhangi bir kimlikli kullanıcı var olan herhangi bir şirketi takip edebilir (onaylanmamış ve kendi şirketi dahil). Tekrar takip sessiz no-op, takip edilmeyeni bırakmak sessiz no-op; ikisi de `204`.
 
 - **Soft-delete sınıfı: M6 (bağ ve ayar), yani soft-delete'li değil.** Takip satırı bir aboneliktir; bırakmak bir **tercih**, silme değil. Denetim ya da hukuki değeri yok. Bırakma **hard delete**'tir, yeniden takip yeni satır açar, tekil indeks kısmi değil **tam** olabilir.
@@ -161,7 +169,7 @@ Java'nın eksikleri kapatılır:
 ### 8. Adres verisi: Google'dan gelenin ne kadarı bizde kalır
 
 - **Saklanan:** Google'ın `place_id`'si, bizim normalleştirdiğimiz bileşenler (ülke/şehir/ilçe referans tabloları + mahalle, cadde, site, blok, bina, kat, daire serbest alanları), posta kodu ve koordinatlar.
-- **Saklanmayan:** Google'ın `formatted_address` dizgisi, ham API yanıtı ve diğer Google içeriği. Gerekçe **lisanstır**: Google Maps Platform Hizmet Şartları §3.2.3(b) `place_id`'nin süresiz önbelleklenmesine izin verir, diğer içeriği 30 günle sınırlar. Uzun süre `formatted_address` tutmak şartları ihlal eder. Adres metnini **kendi bileşenlerimizden** üretiriz; `place_id` kalıcı değil **yenilenebilir** bir işaretçi olarak tutulur.
+- **Saklanmayan:** Google'ın `formatted_address` dizgisi, ham API yanıtı ve diğer Google içeriği. Gerekçe **lisanstır**: Google Maps Platform'un yayımlanmış politikası `place_id`'nin süresiz önbelleklenmesine izin verir, diğer içeriği sınırlı bir süreyle (yaygın olarak 30 gün) sınırlar. Uzun süre `formatted_address` tutmak şartları ihlal eder. Kuralın tam madde numarası Places'in Service Specific Terms'inde arandı ve doğrulanamadı; **açık soru 4**. Adres metnini **kendi bileşenlerimizden** üretiriz; `place_id` kalıcı değil **yenilenebilir** bir işaretçi olarak tutulur.
 - **Koordinatlar tam hassasiyetle saklanır, yuvarlama yanıtta yapılır** ([[job-location-rule]], 04.11.2026): şirket adresi tam (gizlenebilir), bireysel ilan yaklaşık, harita hep yaklaşık. Yuvarlama projeksiyon fonksiyonundadır, depolamada değil; aynı satır farklı çağırana farklı hassasiyetle görünür ve kural tek yerde durur.
 - Adres arama oturumu **sahibine bağlıdır** (Scope / `SelfUserID`), ömrü 15 dakika; başka kullanıcı oturum kimliğini ele geçirse de kullanamaz (Java'da da böyle, AZ-114/115).
 - Adres kaydının sahibi kullanıcı ya da şirkettir; sahiplik `owner` sınıfıdır, yani modelde relation değil `Scope`'tur (plan §5.4 "Modelin dışında kalanlar").
@@ -184,6 +192,76 @@ Alanın bütün kodları `api/components/problem.yaml`'ın `ErrorCode` listesine
 - **Görme yetkisi olmayan çağıran kaynağın 404'ünü alır**, gövdesi hiç var olmamış bir kaynağın 404'üyle bayt bayt aynıdır (ADR-0014). Java aynı "üyesi değil" durumuna üç ayrı yanıt veriyor: `CompanyManager` 404 `USER_NOT_ASSOCIATED_WITH_COMPANY`, `JobManager#createCorporateJob` 400, `JobManager#getJobsOfCompany` 403. Go'da hepsi kaynağın 404'üdür.
 - Durum çakışması 409, biçim hatası 400; "izin var ama durum elvermiyor" 403 değildir.
 
+### 10. Kapsam defteri: Java ucu → Go operasyonu ya da faz
+
+"Alanın spec'i donduruldu" ancak alan **gerçekten** kapsanmışsa doğrudur, ve bu iddia bugüne kadar hiçbir yerde denetlenebilir değildi: plan §1.2 yalnız toplu sayı (266 uç) veriyor. Aşağıdaki defter Faz 2'nin alanına değen 12 controller'ın her ucunu ya bir Go operasyonuna ya da onu alacak faza bağlar. Sonradan çıkan bir uç, sözleşmeye uyumsuz ekleme olarak geri döner (bu PR'ın incelemesinde dört örneği çıktı), bu yüzden defter sözleşmenin parçasıdır.
+
+Kaynak: `koala-backend` `origin/main` (0cbbce69), `webAPI/*Controller.java`'nın `@*Mapping` bildirimleri.
+
+| Java controller | Uç | Go karşılığı ya da faz |
+|---|---|---|
+| `AuthController` (8) | `POST /auth/start-registration` | `POST /v1/auth/registrations` |
+| | `POST /auth/verify-registration-token` | `POST /v1/auth/registrations/verify` |
+| | `POST /auth/complete-registration` | `POST /v1/auth/registrations/complete` |
+| | `POST /auth/forgot-password` | `POST /v1/auth/password-reset` |
+| | `POST /auth/reset-password` | `POST /v1/auth/password-reset/complete` |
+| | `POST /auth/login`, `/refresh-token`, `/logout` | Faz 1 (ADR-0025) |
+| `UsersController` (13) | `GET /users/{userId}` | `GET /v1/users/{userId}` |
+| | `PATCH /users/me` | `PATCH /v1/me/profile` |
+| | `PUT /users/me/password` | `PUT /v1/me/password` |
+| | `PUT /users/me/profile-picture` | `POST /v1/me/media` + `PATCH /v1/me/profile` (`profilePictureId`) |
+| | `GET /users/me/identity-documents` | `GET /v1/me/identity-documents` |
+| | `POST /users/me/identity-documents` | `POST /v1/me/identity-documents` |
+| | `PUT /users/me/address` | `POST`/`PUT /v1/me/addresses` (tek adres yerine liste) |
+| | `GET /users/me` | Faz 1 (`GET /v1/me`) |
+| | `POST /users/me/identity-verification`, `…/challenge` | **Faz 2b** (çip, K15) |
+| | `GET /users/{userId}/employer-stats` | Faz 3 |
+| | `GET`/`POST /users/me/jobs` | Faz 3 |
+| `UserProfileController` (13) | `GET`/`POST /users/me/educations`, `PUT`/`DELETE /…/{educationId}` | `GET`/`POST /v1/me/educations`, `PUT`/`DELETE /v1/me/educations/{educationId}` |
+| | `GET /users/me/followed-companies` | `GET /v1/me/followed-companies` |
+| | `PUT /users/me/cv` | `POST /v1/me/media` (`kind: CV`) + `PATCH /v1/me/profile` (`cvId`) |
+| | `DELETE /users/me/cv` | `PATCH /v1/me/profile` ile `cvId: null` |
+| | `PUT`/`DELETE /users/me/devices/push-token`, `PATCH /…/devices/{deviceId}` | Faz 5 (bildirim) |
+| | `GET`/`POST`/`DELETE /users/me/saved-jobs…` | Faz 3 |
+| `VerificationsController` (1) | `POST /verifications/{verificationId}/confirm` | `POST /v1/me/verifications/{verificationId}/confirm` |
+| `CompaniesController` (17) | `POST /companies` | `POST /v1/companies` |
+| | `GET`/`PATCH /companies/{companyId}` | `GET`/`PATCH /v1/companies/{companyId}` |
+| | `GET /companies/{companyId}/contacts` | `GET /v1/companies/{companyId}/contacts` |
+| | `DELETE /companies/{companyId}/contacts/{userId}` | `DELETE /v1/companies/{companyId}/contacts/{userId}` |
+| | `POST`/`GET /companies/{companyId}/contact-invitations` | aynı yollar `/v1` altında |
+| | `PUT`/`DELETE /companies/{companyId}/logo` | `PUT`/`DELETE /v1/companies/{companyId}/logo` |
+| | `POST`/`DELETE /companies/{companyId}/follow` | `PUT`/`DELETE /v1/companies/{companyId}/follow` (idempotent metot) |
+| | `GET`/`POST`/`PUT /companies/{companyId}/images`, `DELETE /…/{imageId}` | aynı yollar `/v1` altında; `PUT` kapağı da belirler |
+| | `POST`/`GET /companies/{companyId}/jobs` | Faz 3 |
+| `CompanyContactInvitationsController` (2) | `GET /contact-invitations/{invitationId}` | `GET /v1/contact-invitations/{invitationId}` |
+| | `POST /contact-invitations/{invitationId}` (kabul/ret) | `POST /v1/contact-invitations/{invitationId}/accept` ve `/decline` (ayrı alt eylemler) |
+| | — (Java'da yok) | `POST /v1/contact-invitations/{invitationId}/revoke` (**yeni karar**, Karar 7) |
+| `AddressSearchController` (4) | `POST /locations/address-search-sessions` | `POST /v1/me/address-search-sessions` |
+| | `GET /locations/address-search-sessions/{sessionId}/suggestions` | aynı, `/v1/me/…` altında |
+| | `POST /locations/address-search-sessions/{sessionId}/candidates/{candidateId}/resolve` | aynı, `/v1/me/…` altında |
+| | `POST /locations/address-candidates/reverse` | `POST /v1/me/address-lookups/reverse` |
+| `ReferenceDataController` (7) | `GET /reference/countries` | `GET /v1/reference/countries` |
+| | `GET /reference/countries/{countryId}/cities` | `GET /v1/reference/countries/{countryId}/cities` |
+| | `GET /reference/cities/{cityId}/districts` | `GET /v1/reference/cities/{cityId}/districts` |
+| | `GET /reference/universities`, `…/{universityId}/faculties`, `/faculties/{facultyId}/departments` | aynı yollar `/v1` altında |
+| | `GET /reference/job-categories` | Faz 3 |
+| `ImagesController` (2) | `POST /images` | `POST /v1/me/media` + `POST /v1/me/media/{mediaId}/complete` |
+| | `DELETE /images/{imageId}` | `DELETE /v1/me/media/{mediaId}` |
+| `AdminController` (28; 13'ü bu alanda) | `GET /admin/companies`, `/{companyId}` | `GET /v1/admin/companies`, `/{companyId}` |
+| | `POST /admin/companies/{companyId}/approve`, `/reject` | aynı yollar `/v1` altında |
+| | `GET /admin/users`, `/{userId}` | `GET /v1/admin/users`, `/{userId}` |
+| | `GET /admin/users/{userId}/identity-reveals` | aynı yol `/v1` altında |
+| | `GET /admin/identity-verifications`, `/{reviewId}`, `…/documents/{documentId}/download` | `GET /v1/admin/identity-verifications`, `/{reviewId}`, `…/documents/{documentId}` |
+| | `POST /admin/identity-verifications/{reviewId}/approve`, `/reject` | aynı yollar `/v1` altında |
+| | `GET /admin/companies/{companyId}/images/{imageId}/download` | **ikame:** galeri kimliksiz okunabiliyor ve bayt CDN'den geliyor; ayrı bir personel indirmesi bir şey eklemiyor (Karar 7) |
+| | `DELETE /admin/images/{imageId}` | Faz 8 (`content.moderate`) |
+| | kalan 14 uç (atama, ödeme, ilan, banka hesabı, rol) | Faz 3, 6, 8 |
+| `StorageDownloadController` (3) | `GET /uploads/images/**`, `/public/**` | **ikame:** nesne adresi yanıtta CDN URL'si olarak verilir (`logoUrl`, `profilePictureUrl`, galeri). Ayrı bir okuma ucu yok; Karar 6'nın "okuma yolunda anahtar izin listesiyle doğrulanır" kuralı CDN'in önündeki nesne deposuna ve personel indirmesine uygulanır |
+| | `GET /uploads/files/**` | **ikame:** özel dosya (özgeçmiş) indirmesi Faz 3'e kalıyor, çünkü yetkisi "başvuru almış işveren"e bağlı (MED-007) |
+| `AuthLinkController` (2) | `GET /auth-links/complete-registration`, `/reset-password` | **kapsam dışı:** istemciye 301 yönlendiren web katmanı uçları. Go API'si token'ı gövdede alıyor; derin bağlantı çözümü web ve mobil istemcinin işi (plan §4.2) |
+
+Defterin dışındaki 37 controller Faz 3–9'a aittir ve o fazların ADR'lerinde aynı biçimde defterlenir.
+
 ## Yerine geçtiği
 
 1. **ADR-0020 §11 ve ADR-0026'nın `x-resource` kuralı** → bu ADR Karar 1'in son paragrafı: kural duruyor, ama `x-not-implemented` taşıyan operasyonda **denetimi erteleniyor**. İşaret kalkınca kural tam hâliyle geri gelir.
@@ -191,6 +269,8 @@ Alanın bütün kodları `api/components/problem.yaml`'ın `ErrorCode` listesine
 3. **ADR-0025 §9'un self-servis listesi** → değişmiyor; bu ADR Karar 9 listeyi büyütmediğini kayda geçirir.
 4. **Plan §6.1 Faz 2'nin çıkış kriterindeki "Alanın P0 senaryolarının %100'ü … yeşil"** → bu PR o kriteri karşılamaz ve karşılamayı iddia etmez: sözleşme ve katalog donuyor, senaryolar `deferred: {phase: 2}` ile Faz 2'nin uygulama PR'larını bekliyor. Karar 1'in katalog bağı bunu makinece zorlar.
 5. **Plan §6.1 Faz 2'nin "kimlik belgesi yükleme (NFC'siz)" kalemi** → Karar 5: çip yolu ve çip meydan okuması Faz 2b'ye, kendi ADR'siyle.
+6. **Plan §6.1 Faz 2'nin çıkış kriterindeki `owner` tipi** → `owner` bir model tipi değildir: plan **§5.4'ün "Modelin dışında kalanlar" maddesi** onu açıkça modelin dışına, `Scope`/`SelfUserID`'ye koyuyor. Kriter bu yüzden planın kendi §5.4'üyle çelişiyor. Modeli `owner` için genişletmek yanlış olurdu: kullanıcı-sahipli her satır için tuple yazmak ADR-0024'ün "yetki kararı veriden türetilir" tasarımını tersine çevirir. Kriterin karşılığı şudur: modelin sahiplik temsili `private_file#owner`'dır ve onun 4 satırı iki motorda yeşildir; kalan sahiplik kararları (`bank_account`, `education`, `device`, `session`, `address_search_session`, `media`…) `go_only` kalır ve Go değerlendiricisinin dışında, store'un `Scope`'unda sınanır. Kriter metninin düzeltilmesi Yusuf'a bildirildi.
+7. **Plan §6.1'in eğitim kayıtlarını hiçbir faza atamaması** → `/users/me/educations` dört ucu Faz 2'ye alındı (Karar 10'un kapsam defteri). Eğitim kaydı profilin alt kaynağıdır; planın boşluğu Yusuf'a bildirildi.
 
 ADR-0013, ADR-0014, ADR-0019, ADR-0024, ADR-0026 ve ADR-0028'in kararları değişmiyor. ADR-0019 §4'ün "dosya yüklemeleri API'den geçmez" kararı Karar 6'da karantina öneği ve tamamlama adımıyla **uygulanıyor**, değiştirilmiyor.
 
@@ -198,7 +278,11 @@ ADR-0013, ADR-0014, ADR-0019, ADR-0024, ADR-0026 ve ADR-0028'in kararları deği
 
 - Sözleşme bugün kamuya açık: plan §4.2'nin istemci işi (web → admin → mobil) Faz 2'nin uygulamasını beklemeden tip üretimine başlayabilir. Hangi ucun canlı olmadığı spec'te `x-not-implemented` ile okunur.
 - Uygulanmamış operasyon `501` döner. Bu, "404 ROUTE_NOT_FOUND" ile karıştırılmaz: yol **vardır**, sözleşmesi bağlayıcıdır, yalnız handler'ı yoktur.
-- Bir operasyonu uygulamanın yolu uzadı ve adımları makine zorluyor: işareti kaldır → iskeleyi sil (`TestNotImplementedOperationsAreDeclared`) → `x-resource`'un tablosunu ve fikstürünü getir (`ReadTest`) → alanın P0 senaryolarını bağla (`TestFrozenDomainsDeferTheirScenarios`). Üçü de ayrı ayrı kırmızı verir.
+- Bir operasyonu uygulamanın yolu uzadı: işareti kaldır → iskeleyi sil → `x-resource`'un tablosunu ve fikstürünü getir → alanın P0 senaryolarını bağla. **Kapıların granülerliği operasyon değil, şu üç şeydir** ve bunu olduğu gibi yazmak önemli:
+  - `TestNotImplementedOperationsAreDeclared` ve `TestPendingServerServesExactlyItsOperations` **operasyon başına** bağlar: işaret, liste satırı ve iskele metodu üçü birlikte gider ya da birlikte kalır.
+  - `ReadTest` ve `JoinTest` yalnız **`x-resource` taşıyan GET'lerde** silahlanır. 71 donmuş operasyonun 43'ünün `x-resource`'u yok (mutating uçlar), yani onlarda okuma testi hiçbir şey zorlamaz.
+  - `TestFrozenDomainsDeferTheirScenarios` **alan başına** bağlar, operasyon başına değil: `company`'nin 19 ucundan 18'ini uygulamak 23 CMP senaryosunun hiçbirini bağlamaya zorlamaz. Granülerlik bilinçlidir (senaryo API'den bağımsız yazılır ve operasyon adlandırmaz, §1), ama "her uç kendi senaryosunu zorlar" demek **yanlış** olur.
+- Kalan iki sessiz yol, kabul edilmiş sınır olarak: (a) bir operasyonun işaretini ve liste satırını kaldırıp iskele metodunu silmeyi unutmak — `TestPendingServerServesExactlyItsOperations` sayıyı yakalar, ama aynı turda başka bir operasyon donarsa sayı tutar ve `x-resource`'u olmayan mutating bir uç sonsuza kadar 501 döner; (b) `strictServer`'a iletme metodu yazarak iskeleyi gölgelemek — `TestFrozenOperationsAreNotShadowed` bunu kapatır.
 - `server.gen.go` bu PR'da büyük ölçüde büyüyor. Dosya **üretilmiştir**, elle düzenlenmez ve birebirliğini `make gen-check` kanıtlar; incelemenin odağı spec, senaryo katalogu, authz ve bu ADR'dir.
 - Bu PR'da kalanlar:
   - Faz 2'nin migration'ları, `db/softdelete.yaml` sınıflandırmaları, sqlc sorguları ve fikstürleri. `x-resource`'un tabloları o PR'da gerçek olur.
@@ -208,9 +292,14 @@ ADR-0013, ADR-0014, ADR-0019, ADR-0024, ADR-0026 ve ADR-0028'in kararları deği
   - ADR-0027'den devredilen `Keeps` kalemi: ilk gerçek "ebeveyni silinmiş çocuk listede kalır" ucu Faz 2'nin veri PR'ıyla gelir.
   - `softdeletetest` iki yol parametreli GET'i desteklemiyor ("operations with 2 path parameters are not supported yet"). Sözleşmede böyle bir uç var: `GET /v1/admin/identity-verifications/{reviewId}/documents/{documentId}`. Bugün `x-not-implemented` taşıdığı için atlanıyor; handler'ı getiren PR önce `ReadTest`'i genişletmek zorundadır.
   - İlk gerçek PATCH operasyonunun uçtan uca doğrulama ve bağlama testi (stil rehberi §3): `PATCH /v1/me/profile` ve `PATCH /v1/companies/{companyId}` sözleşmede var ama handler'ları yok, bu yüzden test onların uygulama PR'ında gelir.
+  - **Profil senkronu giden kaydı (outbox) ve River gönderim döngüsü** (USR-022, USR-023). Plan §6.1 Iyzico istemcisini Faz 6'ya koyuyor, ama giden kaydın **yazımı** profil değişikliğiyle aynı transaction'da olmak zorunda, yani Faz 2'nin profil PR'ına ait; gönderim döngüsü ve sağlayıcı çağrısı Faz 6'da bağlanır. İki senaryo bu yüzden `deferred: phase 2`.
+  - `pii.knownFields()` `birth_date` taşımıyor; ADR Karar 9 doğum tarihini PII projeksiyonuna koyuyor. `Gate.Open` bilinmeyen alanda fail-closed olduğu için bugün bir sızıntı yok, ama profil PR'ı listeyi büyütmek zorundadır.
+  - `StaffUserDetail` maskeli kimlik numarası alanı taşımıyor. Karar 9 maskeyi sayıyor; yanıta alan eklemek uyumlu bir değişiklik olduğu için uygulama PR'ında eklenebilir.
+  - **Üretilmiş okuma testinin bugünkü kapsamı:** 71 donmuş operasyonun 28'i `x-resource` taşıyor ve 17 ayrı tabloyu adlandırıyor; hepsi atlanıyor. `JoinTest` tarafında atlanan `detach` kenarı **yok** (bastırılan tek şey iki yol parametreli ucun global problemiydi). Sayı burada duruyor ki atlamanın büyüklüğü sessiz kalmasın.
 
 ## Açık sorular
 
 1. **Onaylanmamış şirket ilan yayınlayabilir mi?** Karar 7 "yayınlayamaz" diyor ve sektör standardı bu, ama Java'da kontrol hiç yok: bugün `PENDING` bir şirket ilan açabiliyor, davet gönderebiliyor, takip edilebiliyor. Bu bir **ürün kararıdır** ve Yusuf'un onayını bekler. "Yayınlayabilir" seçilirse Karar 7'nin o maddesi düşer, geri kalanı durur.
 2. **Şirket üyesinin rolü değiştirilebilsin mi?** Java'da operasyon yok: rol davet anında donuyor ve yalnız çıkarıp yeniden davet ederek değişiyor. Sözleşmeye `PATCH …/contacts/{userId}` eklemek küçük bir iştir ama K17'nin "v1'de ADMIN/STAFF" kararının ötesinde bir ürün kararı; sorulmadan eklenmedi.
 3. **Davetin 14 günü ve iptali** Java'da olmayan iki yeni davranış. Sektör standardı oldukları için karar verildi, ama süre (14 gün) bir ürün tercihidir.
+4. **Google Maps Platform önbellekleme kuralının madde numarası.** Karar 8'in dayanağı Google'ın yayımlanmış politikasıdır ve esası (yer kimliği süresiz, diğer içerik sınırlı süre) doğrulandı; ayrıntılı kuralın Places'in Service Specific Terms'indeki madde numarası doğrulanamadı. **Hukukçu teyidi bekliyor.** Teyit gelene kadar karar değişmiyor: `formatted_address` ve ham yanıt saklanmıyor.

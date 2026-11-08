@@ -34,7 +34,8 @@ func Codes() []apperr.Code { return []apperr.Code{CodeNotImplemented} }
 
 // Operations lists the frozen operations as "METHOD /pattern", sorted.
 // It is the code side of the two-way binding with the contract's
-// `x-not-implemented`.
+// `x-not-implemented`; internal/app holds it against both the contract
+// and the methods Server actually has.
 func Operations() []string {
 	return []string{
 		"DELETE /v1/companies/{companyId}/contacts/{userId}",
@@ -42,6 +43,7 @@ func Operations() []string {
 		"DELETE /v1/companies/{companyId}/images/{imageId}",
 		"DELETE /v1/companies/{companyId}/logo",
 		"DELETE /v1/me/addresses/{addressId}",
+		"DELETE /v1/me/educations/{educationId}",
 		"DELETE /v1/me/media/{mediaId}",
 		"DELETE /v1/me/verifications/{verificationId}",
 		"GET /v1/admin/companies",
@@ -60,14 +62,16 @@ func Operations() []string {
 		"GET /v1/me/address-search-sessions/{sessionId}/suggestions",
 		"GET /v1/me/addresses",
 		"GET /v1/me/addresses/{addressId}",
+		"GET /v1/me/educations",
 		"GET /v1/me/followed-companies",
 		"GET /v1/me/identity-documents",
 		"GET /v1/me/media/{mediaId}",
 		"GET /v1/me/profile",
 		"GET /v1/me/verifications",
 		"GET /v1/me/verifications/{verificationId}",
-		"GET /v1/reference/cities",
 		"GET /v1/reference/cities/{cityId}/districts",
+		"GET /v1/reference/countries",
+		"GET /v1/reference/countries/{countryId}/cities",
 		"GET /v1/reference/faculties/{facultyId}/departments",
 		"GET /v1/reference/universities",
 		"GET /v1/reference/universities/{universityId}/faculties",
@@ -89,17 +93,21 @@ func Operations() []string {
 		"POST /v1/contact-invitations/{invitationId}/accept",
 		"POST /v1/contact-invitations/{invitationId}/decline",
 		"POST /v1/contact-invitations/{invitationId}/revoke",
+		"POST /v1/me/address-lookups/reverse",
 		"POST /v1/me/address-search-sessions",
 		"POST /v1/me/address-search-sessions/{sessionId}/candidates/{candidateId}/resolve",
 		"POST /v1/me/addresses",
+		"POST /v1/me/educations",
 		"POST /v1/me/identity-documents",
 		"POST /v1/me/media",
 		"POST /v1/me/media/{mediaId}/complete",
 		"POST /v1/me/verifications",
 		"POST /v1/me/verifications/{verificationId}/confirm",
 		"PUT /v1/companies/{companyId}/follow",
+		"PUT /v1/companies/{companyId}/images",
 		"PUT /v1/companies/{companyId}/logo",
 		"PUT /v1/me/addresses/{addressId}",
+		"PUT /v1/me/educations/{educationId}",
 		"PUT /v1/me/password",
 	}
 }
@@ -172,6 +180,11 @@ func (Server) CreateMyAddress(context.Context, apiv1.CreateMyAddressRequestObjec
 	return nil, notImplemented()
 }
 
+// CreateMyEducation answers POST /v1/me/educations with 501 until its handler lands.
+func (Server) CreateMyEducation(context.Context, apiv1.CreateMyEducationRequestObject) (apiv1.CreateMyEducationResponseObject, error) {
+	return nil, notImplemented()
+}
+
 // DeclineCompanyInvitation answers POST /v1/contact-invitations/{invitationId}/decline with 501 until its handler lands.
 func (Server) DeclineCompanyInvitation(context.Context, apiv1.DeclineCompanyInvitationRequestObject) (apiv1.DeclineCompanyInvitationResponseObject, error) {
 	return nil, notImplemented()
@@ -184,6 +197,11 @@ func (Server) DeleteMedia(context.Context, apiv1.DeleteMediaRequestObject) (apiv
 
 // DeleteMyAddress answers DELETE /v1/me/addresses/{addressId} with 501 until its handler lands.
 func (Server) DeleteMyAddress(context.Context, apiv1.DeleteMyAddressRequestObject) (apiv1.DeleteMyAddressResponseObject, error) {
+	return nil, notImplemented()
+}
+
+// DeleteMyEducation answers DELETE /v1/me/educations/{educationId} with 501 until its handler lands.
+func (Server) DeleteMyEducation(context.Context, apiv1.DeleteMyEducationRequestObject) (apiv1.DeleteMyEducationResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -262,7 +280,7 @@ func (Server) ListAddressSuggestions(context.Context, apiv1.ListAddressSuggestio
 	return nil, notImplemented()
 }
 
-// ListCities answers GET /v1/reference/cities with 501 until its handler lands.
+// ListCities answers GET /v1/reference/countries/{countryId}/cities with 501 until its handler lands.
 func (Server) ListCities(context.Context, apiv1.ListCitiesRequestObject) (apiv1.ListCitiesResponseObject, error) {
 	return nil, notImplemented()
 }
@@ -284,6 +302,11 @@ func (Server) ListCompanyImages(context.Context, apiv1.ListCompanyImagesRequestO
 
 // ListCompanyInvitations answers GET /v1/companies/{companyId}/contact-invitations with 501 until its handler lands.
 func (Server) ListCompanyInvitations(context.Context, apiv1.ListCompanyInvitationsRequestObject) (apiv1.ListCompanyInvitationsResponseObject, error) {
+	return nil, notImplemented()
+}
+
+// ListCountries answers GET /v1/reference/countries with 501 until its handler lands.
+func (Server) ListCountries(context.Context, apiv1.ListCountriesRequestObject) (apiv1.ListCountriesResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -314,6 +337,11 @@ func (Server) ListIdentityReviews(context.Context, apiv1.ListIdentityReviewsRequ
 
 // ListMyAddresses answers GET /v1/me/addresses with 501 until its handler lands.
 func (Server) ListMyAddresses(context.Context, apiv1.ListMyAddressesRequestObject) (apiv1.ListMyAddressesResponseObject, error) {
+	return nil, notImplemented()
+}
+
+// ListMyEducations answers GET /v1/me/educations with 501 until its handler lands.
+func (Server) ListMyEducations(context.Context, apiv1.ListMyEducationsRequestObject) (apiv1.ListMyEducationsResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -362,8 +390,18 @@ func (Server) RemoveCompanyLogo(context.Context, apiv1.RemoveCompanyLogoRequestO
 	return nil, notImplemented()
 }
 
+// ReplaceCompanyGallery answers PUT /v1/companies/{companyId}/images with 501 until its handler lands.
+func (Server) ReplaceCompanyGallery(context.Context, apiv1.ReplaceCompanyGalleryRequestObject) (apiv1.ReplaceCompanyGalleryResponseObject, error) {
+	return nil, notImplemented()
+}
+
 // ReplaceMyAddress answers PUT /v1/me/addresses/{addressId} with 501 until its handler lands.
 func (Server) ReplaceMyAddress(context.Context, apiv1.ReplaceMyAddressRequestObject) (apiv1.ReplaceMyAddressResponseObject, error) {
+	return nil, notImplemented()
+}
+
+// ReplaceMyEducation answers PUT /v1/me/educations/{educationId} with 501 until its handler lands.
+func (Server) ReplaceMyEducation(context.Context, apiv1.ReplaceMyEducationRequestObject) (apiv1.ReplaceMyEducationResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -374,6 +412,11 @@ func (Server) RequestPasswordReset(context.Context, apiv1.RequestPasswordResetRe
 
 // ResolveAddressCandidate answers POST /v1/me/address-search-sessions/{sessionId}/candidates/{candidateId}/resolve with 501 until its handler lands.
 func (Server) ResolveAddressCandidate(context.Context, apiv1.ResolveAddressCandidateRequestObject) (apiv1.ResolveAddressCandidateResponseObject, error) {
+	return nil, notImplemented()
+}
+
+// ReverseLookupAddress answers POST /v1/me/address-lookups/reverse with 501 until its handler lands.
+func (Server) ReverseLookupAddress(context.Context, apiv1.ReverseLookupAddressRequestObject) (apiv1.ReverseLookupAddressResponseObject, error) {
 	return nil, notImplemented()
 }
 

@@ -4580,7 +4580,8 @@ components:
       required:
         [id, firstName, lastName, email, phoneNumber, birthDate, gender, jobTitle, about,
         qualifications, interests, employer, emailVerified, phoneVerified, identityVerified,
-        maskedIdentityNumber, maskedIban, profilePictureId, addressId, companies, createdAt]
+        maskedIdentityNumber, maskedIban, profilePictureId, cvId, addressId, companies,
+        createdAt]
       properties:
         id:
           type: string
@@ -4655,6 +4656,13 @@ components:
           format: uuid
           description: Profil fotoğrafının medya kimliği.
           examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+        cvId:
+          type: [string, "null"]
+          format: uuid
+          description: |
+            Özgeçmişin medya kimliği. Bağlantısı herkese açık profilde yalnız sahibine ve
+            başvuru almış işverene görünür (USR-026).
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a50]
         addressId:
           type: [string, "null"]
           format: uuid
@@ -4754,6 +4762,14 @@ components:
           type: [string, "null"]
           format: uuid
           description: Profil fotoğrafının medya kimliği; temizlenebilir.
+          x-go-type: nullable.Nullable[openapi_types.UUID]
+          x-go-type-import:
+            path: github.com/oapi-codegen/nullable
+          x-go-type-skip-optional-pointer: true
+        cvId:
+          type: [string, "null"]
+          format: uuid
+          description: Özgeçmişin medya kimliği; temizlenebilir (Java'nın `DELETE /users/me/cv`'si).
           x-go-type: nullable.Nullable[openapi_types.UUID]
           x-go-type-import:
             path: github.com/oapi-codegen/nullable
@@ -6416,7 +6432,11 @@ components:
           schema:
             $ref: "./components/problem.yaml#/components/schemas/Problem"
     InternalError:
-      description: Beklenmeyen hata (`INTERNAL`) ya da üst sistem hatası.
+      description: |
+        Beklenmeyen hata (`INTERNAL`) ya da üst sistem hatası. Sözleşmesi dondurulmuş ama
+        handler'ı henüz gelmemiş bir operasyon da buradan yanıt verir:
+        `501 NOT_IMPLEMENTED` (stil rehberi §11.1, ADR-0029 §1). Yol vardır ve sözleşmesi
+        bağlayıcıdır; `404 ROUTE_NOT_FOUND` ile karıştırılmaz.
       content:
         application/problem+json:
           schema:

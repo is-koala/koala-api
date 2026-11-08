@@ -6,6 +6,7 @@ package apiv1
 // Defines values for ErrorCode.
 const (
 	ErrorCodeADDRESSNOTFOUND                     ErrorCode = "ADDRESS_NOT_FOUND"
+	ErrorCodeADDRESSOUTSIDESERVICEAREA           ErrorCode = "ADDRESS_OUTSIDE_SERVICE_AREA"
 	ErrorCodeADDRESSPROVIDERUNAVAILABLE          ErrorCode = "ADDRESS_PROVIDER_UNAVAILABLE"
 	ErrorCodeADDRESSSEARCHSESSIONNOTFOUND        ErrorCode = "ADDRESS_SEARCH_SESSION_NOT_FOUND"
 	ErrorCodeAPPVERSIONUNSUPPORTED               ErrorCode = "APP_VERSION_UNSUPPORTED"
@@ -39,6 +40,8 @@ const (
 	ErrorCodeCURSORINVALID                       ErrorCode = "CURSOR_INVALID"
 	ErrorCodeDELETIONALREADYRESTORED             ErrorCode = "DELETION_ALREADY_RESTORED"
 	ErrorCodeDELETIONNOTFOUND                    ErrorCode = "DELETION_NOT_FOUND"
+	ErrorCodeEDUCATIONNOTFOUND                   ErrorCode = "EDUCATION_NOT_FOUND"
+	ErrorCodeEDUCATIONPERIODINVALID              ErrorCode = "EDUCATION_PERIOD_INVALID"
 	ErrorCodeFIELDFORMATINVALID                  ErrorCode = "FIELD_FORMAT_INVALID"
 	ErrorCodeFIELDOUTOFRANGE                     ErrorCode = "FIELD_OUT_OF_RANGE"
 	ErrorCodeFIELDREQUIRED                       ErrorCode = "FIELD_REQUIRED"
@@ -114,6 +117,8 @@ func (e ErrorCode) Valid() bool {
 	switch e {
 	case ErrorCodeADDRESSNOTFOUND:
 		return true
+	case ErrorCodeADDRESSOUTSIDESERVICEAREA:
+		return true
 	case ErrorCodeADDRESSPROVIDERUNAVAILABLE:
 		return true
 	case ErrorCodeADDRESSSEARCHSESSIONNOTFOUND:
@@ -179,6 +184,10 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeDELETIONALREADYRESTORED:
 		return true
 	case ErrorCodeDELETIONNOTFOUND:
+		return true
+	case ErrorCodeEDUCATIONNOTFOUND:
+		return true
+	case ErrorCodeEDUCATIONPERIODINVALID:
 		return true
 	case ErrorCodeFIELDFORMATINVALID:
 		return true
@@ -508,6 +517,11 @@ func (e ProblemFieldIn) Valid() bool {
 //     bir kullanıcının; üçü ayırt edilemez (MED-010).
 //   - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
 //   - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
+//   - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
+//     adrese eşleşmiyor.
+//   - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
+//     edilemez.
+//   - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
 //
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -688,6 +702,11 @@ type Problem struct {
 	//   bir kullanıcının; üçü ayırt edilemez (MED-010).
 	// - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
 	// - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
+	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
+	//   adrese eşleşmiyor.
+	// - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
+	//   edilemez.
+	// - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -899,6 +918,11 @@ type ProblemField struct {
 	//   bir kullanıcının; üçü ayırt edilemez (MED-010).
 	// - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
 	// - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
+	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
+	//   adrese eşleşmiyor.
+	// - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
+	//   edilemez.
+	// - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.

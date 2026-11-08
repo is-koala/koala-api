@@ -138,6 +138,33 @@ func (e CoordinatesPrecision) Valid() bool {
 	}
 }
 
+// Defines values for EducationDegree.
+const (
+	EducationDegreeASSOCIATE  EducationDegree = "ASSOCIATE"
+	EducationDegreeBACHELOR   EducationDegree = "BACHELOR"
+	EducationDegreeDOCTORATE  EducationDegree = "DOCTORATE"
+	EducationDegreeHIGHSCHOOL EducationDegree = "HIGH_SCHOOL"
+	EducationDegreeMASTER     EducationDegree = "MASTER"
+)
+
+// Valid indicates whether the value is a known member of the EducationDegree enum.
+func (e EducationDegree) Valid() bool {
+	switch e {
+	case EducationDegreeASSOCIATE:
+		return true
+	case EducationDegreeBACHELOR:
+		return true
+	case EducationDegreeDOCTORATE:
+		return true
+	case EducationDegreeHIGHSCHOOL:
+		return true
+	case EducationDegreeMASTER:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Gender.
 const (
 	GenderFEMALE       Gender = "FEMALE"
@@ -708,6 +735,13 @@ type CompanyContactRole string
 
 // CompanyGallery Şirketin galerisi; en çok on görüntü (MED-011).
 type CompanyGallery struct {
+	// CoverMediaID Kapak görüntüsünün medya kimliği; galerinin ilk görüntüsüdür. Galeri boşsa
+	// `null`. Kapak ayrı bir uçla değil, galeriyi sıralayarak değişir.
+	//
+	//
+	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
+	CoverMediaID *openapi_types.UUID `json:"coverMediaId"`
+
 	// Items Galerideki görüntüler, eklenme sırasına göre.
 	Items []GalleryImage `json:"items"`
 }
@@ -964,6 +998,89 @@ type CreateCompanyRequest struct {
 	//
 	// Examples: https://koalalojistik.example.com
 	Website *string `json:"website,omitempty"`
+}
+
+// Education Çağıranın bir eğitim kaydı.
+type Education struct {
+	// CreatedAt Kaydın eklendiği an.
+	//
+	// Examples: 2026-08-27T06:30:00Z
+	CreatedAt Timestamp `json:"createdAt"`
+
+	// Degree Derece.
+	Degree EducationDegree `json:"degree"`
+
+	// Department Bölüm; verilmediyse `null`.
+	Department *ReferenceItem `json:"department"`
+
+	// EndYear Bitiş yılı; eğitim sürüyorsa `null`.
+	//
+	// Examples: 2018
+	EndYear *int32 `json:"endYear"`
+
+	// Faculty Fakülte; verilmediyse `null`.
+	Faculty *ReferenceItem `json:"faculty"`
+
+	// ID Eğitim kaydının kimliği.
+	//
+	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6e01
+	ID openapi_types.UUID `json:"id"`
+
+	// StartYear Başlangıç yılı.
+	//
+	// Examples: 2014
+	StartYear int32 `json:"startYear"`
+
+	// University Üniversite.
+	University ReferenceItem `json:"university"`
+}
+
+// EducationDegree Eğitim kaydının derecesi.
+type EducationDegree string
+
+// EducationInput Bir eğitim kaydının alanları. Üniversite, fakülte ve bölüm referans verisinden
+// gelir (`/v1/reference`). Süren eğitimde `endYear` boştur; verildiğinde
+// `startYear`'dan küçük olamaz.
+type EducationInput struct {
+	// Degree Eğitim kaydının derecesi.
+	Degree EducationDegree `json:"degree"`
+
+	// DepartmentID Bölümün referans kimliği.
+	//
+	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d12
+	DepartmentID *openapi_types.UUID `json:"departmentId,omitempty"`
+
+	// EndYear Bitiş yılı; eğitim sürüyorsa `null`.
+	//
+	// Examples: 2018
+	EndYear *int32 `json:"endYear,omitempty"`
+
+	// FacultyID Fakültenin referans kimliği.
+	//
+	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d11
+	FacultyID *openapi_types.UUID `json:"facultyId,omitempty"`
+
+	// StartYear Başlangıç yılı.
+	//
+	// Examples: 2014
+	StartYear int32 `json:"startYear"`
+
+	// UniversityID Üniversitenin referans kimliği.
+	//
+	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d10
+	UniversityID openapi_types.UUID `json:"universityId"`
+}
+
+// EducationPage Çağıranın eğitim kayıtları.
+type EducationPage struct {
+	// Items Eğitim kayıtları, bitiş yılına göre yeniden eskiye.
+	Items []Education `json:"items"`
+
+	// NextCursor Sonraki sayfanın cursor'ı.
+	NextCursor *string `json:"nextCursor"`
+
+	// PrevCursor Önceki sayfanın cursor'ı.
+	PrevCursor *string `json:"prevCursor"`
 }
 
 // FollowedCompany Çağıranın takip ettiği bir şirket. `followedAt` güncel aboneliğin başlangıcıdır:
@@ -1419,6 +1536,15 @@ type RejectionRequest struct {
 	//
 	// Examples: Belgenin arka yüzü okunamıyor.
 	Reason string `json:"reason"`
+}
+
+// ReplaceCompanyGalleryRequest Galerinin yeni içeriği. Sıra anlamlıdır: ilk medya kapaktır. Boş liste galeriyi
+// boşaltır. Her medya hazır durumda olmak zorundadır (ADR-0029 Karar 7).
+//
+// Examples: {"mediaIds":["0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30","0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31"]}
+type ReplaceCompanyGalleryRequest struct {
+	// MediaIds Galerideki görüntülerin medya kimlikleri, kapak ilk olacak şekilde.
+	MediaIds []openapi_types.UUID `json:"mediaIds"`
 }
 
 // ResolvedAddress Bir önerinin bizim bileşenlerimize çözülmüş hâli. İstemci bunu olduğu gibi
@@ -2073,6 +2199,13 @@ type UserProfile struct {
 	// Examples: 2026-08-27T06:30:00Z
 	CreatedAt Timestamp `json:"createdAt"`
 
+	// CvID Özgeçmişin medya kimliği. Bağlantısı herkese açık profilde yalnız sahibine ve
+	// başvuru almış işverene görünür (USR-026).
+	//
+	//
+	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a50
+	CvID *openapi_types.UUID `json:"cvId"`
+
 	// Email Giriş adresi.
 	//
 	// Examples: ayse@example.com
@@ -2158,6 +2291,9 @@ type UserProfilePatch struct {
 
 	// BirthDate Doğum tarihi; kimlik doğrulanmadıysa temizlenebilir.
 	BirthDate nullable.Nullable[openapi_types.Date] `json:"birthDate,omitempty"`
+
+	// CvID Özgeçmişin medya kimliği; temizlenebilir (Java'nın `DELETE /users/me/cv`'si).
+	CvID nullable.Nullable[openapi_types.UUID] `json:"cvId,omitempty"`
 
 	// Email Yeni giriş adresi; yazılmaz, doğrulama başlatır. Temizlenemez.
 	//
@@ -2646,6 +2782,31 @@ type CreateMyAddressParams struct {
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
+// ListMyEducationsParams defines parameters for ListMyEducations.
+type ListMyEducationsParams struct {
+	// Limit Sayfadaki en fazla öğe sayısı (1–100, varsayılan 20; öneri).
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Cursor Önceki yanıtın `nextCursor` ya da `prevCursor` değeri. Opak bir değerdir;
+	// istemci içini çözmez, kurmaz ve saklamaz. Cursor sıralama anahtarını ve
+	// süzgeçleri kodlar; süzgeç değişirse ilk sayfaya dönülür. Bozuk ya da başka
+	// bir sorguya ait cursor 400 `CURSOR_INVALID` döner.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+}
+
+// CreateMyEducationParams defines parameters for CreateMyEducation.
+type CreateMyEducationParams struct {
+	// IdempotencyKey İsteğin tekil anahtarı (IETF draft-ietf-httpapi-idempotency-key-header).
+	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
+	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
+	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
+	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
+	// saklanır.
+	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
+}
+
 // ListMyFollowedCompaniesParams defines parameters for ListMyFollowedCompanies.
 type ListMyFollowedCompaniesParams struct {
 	// Limit Sayfadaki en fazla öğe sayısı (1–100, varsayılan 20; öneri).
@@ -2752,14 +2913,26 @@ type InviteCompanyContactJSONRequestBody = InviteCompanyContactRequest
 // AddCompanyImageJSONRequestBody defines body for AddCompanyImage for application/json ContentType.
 type AddCompanyImageJSONRequestBody = AddCompanyImageRequest
 
+// ReplaceCompanyGalleryJSONRequestBody defines body for ReplaceCompanyGallery for application/json ContentType.
+type ReplaceCompanyGalleryJSONRequestBody = ReplaceCompanyGalleryRequest
+
 // SetCompanyLogoJSONRequestBody defines body for SetCompanyLogo for application/json ContentType.
 type SetCompanyLogoJSONRequestBody = SetCompanyLogoRequest
+
+// ReverseLookupAddressJSONRequestBody defines body for ReverseLookupAddress for application/json ContentType.
+type ReverseLookupAddressJSONRequestBody = CoordinatesInput
 
 // CreateMyAddressJSONRequestBody defines body for CreateMyAddress for application/json ContentType.
 type CreateMyAddressJSONRequestBody = AddressInput
 
 // ReplaceMyAddressJSONRequestBody defines body for ReplaceMyAddress for application/json ContentType.
 type ReplaceMyAddressJSONRequestBody = AddressInput
+
+// CreateMyEducationJSONRequestBody defines body for CreateMyEducation for application/json ContentType.
+type CreateMyEducationJSONRequestBody = EducationInput
+
+// ReplaceMyEducationJSONRequestBody defines body for ReplaceMyEducation for application/json ContentType.
+type ReplaceMyEducationJSONRequestBody = EducationInput
 
 // SubmitMyIdentityDocumentsJSONRequestBody defines body for SubmitMyIdentityDocuments for application/json ContentType.
 type SubmitMyIdentityDocumentsJSONRequestBody = SubmitIdentityDocumentsRequest
@@ -2895,6 +3068,9 @@ type ServerInterface interface {
 	// AddCompanyImage Şirketin galerisine görüntü ekler.
 	// (POST /v1/companies/{companyId}/images)
 	AddCompanyImage(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID, params AddCompanyImageParams)
+	// ReplaceCompanyGallery Şirketin galerisini verilen sırayla değiştirir.
+	// (PUT /v1/companies/{companyId}/images)
+	ReplaceCompanyGallery(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID)
 	// RemoveCompanyImage Şirketin galerisinden bir görüntüyü çıkarır.
 	// (DELETE /v1/companies/{companyId}/images/{imageId})
 	RemoveCompanyImage(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID, imageID openapi_types.UUID)
@@ -2919,6 +3095,9 @@ type ServerInterface interface {
 	// GetMe Çağıranın kimlik çekirdeğini döndürür.
 	// (GET /v1/me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// ReverseLookupAddress Harita konumunu adres bileşenlerine çevirir.
+	// (POST /v1/me/address-lookups/reverse)
+	ReverseLookupAddress(w http.ResponseWriter, r *http.Request)
 	// StartAddressSearchSession Sağlayıcıya karşı bir adres arama oturumu açar.
 	// (POST /v1/me/address-search-sessions)
 	StartAddressSearchSession(w http.ResponseWriter, r *http.Request)
@@ -2943,6 +3122,18 @@ type ServerInterface interface {
 	// ReplaceMyAddress Çağıranın bir adresini tümden değiştirir.
 	// (PUT /v1/me/addresses/{addressId})
 	ReplaceMyAddress(w http.ResponseWriter, r *http.Request, addressID openapi_types.UUID)
+	// ListMyEducations Çağıranın eğitim kayıtlarını listeler.
+	// (GET /v1/me/educations)
+	ListMyEducations(w http.ResponseWriter, r *http.Request, params ListMyEducationsParams)
+	// CreateMyEducation Çağırana yeni bir eğitim kaydı ekler.
+	// (POST /v1/me/educations)
+	CreateMyEducation(w http.ResponseWriter, r *http.Request, params CreateMyEducationParams)
+	// DeleteMyEducation Çağıranın bir eğitim kaydını siler.
+	// (DELETE /v1/me/educations/{educationId})
+	DeleteMyEducation(w http.ResponseWriter, r *http.Request, educationID openapi_types.UUID)
+	// ReplaceMyEducation Çağıranın bir eğitim kaydını tümden değiştirir.
+	// (PUT /v1/me/educations/{educationId})
+	ReplaceMyEducation(w http.ResponseWriter, r *http.Request, educationID openapi_types.UUID)
 	// ListMyFollowedCompanies Çağıranın takip ettiği şirketleri listeler.
 	// (GET /v1/me/followed-companies)
 	ListMyFollowedCompanies(w http.ResponseWriter, r *http.Request, params ListMyFollowedCompaniesParams)
@@ -3000,12 +3191,15 @@ type ServerInterface interface {
 	// ConfirmMyVerification Doğrulama kodunu onaylar ve yeni değeri yazar.
 	// (POST /v1/me/verifications/{verificationId}/confirm)
 	ConfirmMyVerification(w http.ResponseWriter, r *http.Request, verificationID openapi_types.UUID)
-	// ListCities Şehirleri döndürür.
-	// (GET /v1/reference/cities)
-	ListCities(w http.ResponseWriter, r *http.Request)
 	// ListDistricts Bir şehrin ilçelerini döndürür.
 	// (GET /v1/reference/cities/{cityId}/districts)
 	ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID)
+	// ListCountries Ülkeleri döndürür.
+	// (GET /v1/reference/countries)
+	ListCountries(w http.ResponseWriter, r *http.Request)
+	// ListCities Bir ülkenin şehirlerini döndürür.
+	// (GET /v1/reference/countries/{countryId}/cities)
+	ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID)
 	// ListDepartments Bir fakültenin bölümlerini döndürür.
 	// (GET /v1/reference/faculties/{facultyId}/departments)
 	ListDepartments(w http.ResponseWriter, r *http.Request, facultyID openapi_types.UUID)
@@ -3252,6 +3446,12 @@ func (_ Unimplemented) AddCompanyImage(w http.ResponseWriter, r *http.Request, c
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ReplaceCompanyGallery Şirketin galerisini verilen sırayla değiştirir.
+// (PUT /v1/companies/{companyId}/images)
+func (_ Unimplemented) ReplaceCompanyGallery(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // RemoveCompanyImage Şirketin galerisinden bir görüntüyü çıkarır.
 // (DELETE /v1/companies/{companyId}/images/{imageId})
 func (_ Unimplemented) RemoveCompanyImage(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID, imageID openapi_types.UUID) {
@@ -3300,6 +3500,12 @@ func (_ Unimplemented) GetMe(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// ReverseLookupAddress Harita konumunu adres bileşenlerine çevirir.
+// (POST /v1/me/address-lookups/reverse)
+func (_ Unimplemented) ReverseLookupAddress(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // StartAddressSearchSession Sağlayıcıya karşı bir adres arama oturumu açar.
 // (POST /v1/me/address-search-sessions)
 func (_ Unimplemented) StartAddressSearchSession(w http.ResponseWriter, r *http.Request) {
@@ -3345,6 +3551,30 @@ func (_ Unimplemented) GetMyAddress(w http.ResponseWriter, r *http.Request, addr
 // ReplaceMyAddress Çağıranın bir adresini tümden değiştirir.
 // (PUT /v1/me/addresses/{addressId})
 func (_ Unimplemented) ReplaceMyAddress(w http.ResponseWriter, r *http.Request, addressID openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListMyEducations Çağıranın eğitim kayıtlarını listeler.
+// (GET /v1/me/educations)
+func (_ Unimplemented) ListMyEducations(w http.ResponseWriter, r *http.Request, params ListMyEducationsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// CreateMyEducation Çağırana yeni bir eğitim kaydı ekler.
+// (POST /v1/me/educations)
+func (_ Unimplemented) CreateMyEducation(w http.ResponseWriter, r *http.Request, params CreateMyEducationParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// DeleteMyEducation Çağıranın bir eğitim kaydını siler.
+// (DELETE /v1/me/educations/{educationId})
+func (_ Unimplemented) DeleteMyEducation(w http.ResponseWriter, r *http.Request, educationID openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ReplaceMyEducation Çağıranın bir eğitim kaydını tümden değiştirir.
+// (PUT /v1/me/educations/{educationId})
+func (_ Unimplemented) ReplaceMyEducation(w http.ResponseWriter, r *http.Request, educationID openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -3462,15 +3692,21 @@ func (_ Unimplemented) ConfirmMyVerification(w http.ResponseWriter, r *http.Requ
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// ListCities Şehirleri döndürür.
-// (GET /v1/reference/cities)
-func (_ Unimplemented) ListCities(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
 // ListDistricts Bir şehrin ilçelerini döndürür.
 // (GET /v1/reference/cities/{cityId}/districts)
 func (_ Unimplemented) ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListCountries Ülkeleri döndürür.
+// (GET /v1/reference/countries)
+func (_ Unimplemented) ListCountries(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ListCities Bir ülkenin şehirlerini döndürür.
+// (GET /v1/reference/countries/{countryId}/cities)
+func (_ Unimplemented) ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -4880,6 +5116,32 @@ func (siw *ServerInterfaceWrapper) AddCompanyImage(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// ReplaceCompanyGallery operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceCompanyGallery(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "companyId" -------------
+	var companyID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "companyId", chi.URLParam(r, "companyId"), &companyID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "companyId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceCompanyGallery(w, r, companyID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // RemoveCompanyImage operation middleware
 func (siw *ServerInterfaceWrapper) RemoveCompanyImage(w http.ResponseWriter, r *http.Request) {
 
@@ -5076,6 +5338,20 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReverseLookupAddress operation middleware
+func (siw *ServerInterfaceWrapper) ReverseLookupAddress(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReverseLookupAddress(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5336,6 +5612,149 @@ func (siw *ServerInterfaceWrapper) ReplaceMyAddress(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceMyAddress(w, r, addressID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListMyEducations operation middleware
+func (siw *ServerInterfaceWrapper) ListMyEducations(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListMyEducationsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListMyEducations(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateMyEducation operation middleware
+func (siw *ServerInterfaceWrapper) CreateMyEducation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateMyEducationParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = IdempotencyKey
+
+	} else {
+		err := fmt.Errorf("Header parameter Idempotency-Key is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "Idempotency-Key", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateMyEducation(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteMyEducation operation middleware
+func (siw *ServerInterfaceWrapper) DeleteMyEducation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "educationId" -------------
+	var educationID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "educationId", chi.URLParam(r, "educationId"), &educationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "educationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteMyEducation(w, r, educationID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceMyEducation operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceMyEducation(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "educationId" -------------
+	var educationID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "educationId", chi.URLParam(r, "educationId"), &educationID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "educationId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceMyEducation(w, r, educationID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -5846,20 +6265,6 @@ func (siw *ServerInterfaceWrapper) ConfirmMyVerification(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
-// ListCities operation middleware
-func (siw *ServerInterfaceWrapper) ListCities(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListCities(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // ListDistricts operation middleware
 func (siw *ServerInterfaceWrapper) ListDistricts(w http.ResponseWriter, r *http.Request) {
 
@@ -5877,6 +6282,46 @@ func (siw *ServerInterfaceWrapper) ListDistricts(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListDistricts(w, r, cityID)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCountries operation middleware
+func (siw *ServerInterfaceWrapper) ListCountries(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCountries(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCities operation middleware
+func (siw *ServerInterfaceWrapper) ListCities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "countryId" -------------
+	var countryID openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "countryId", chi.URLParam(r, "countryId"), &countryID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: r.URL.RawPath == ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "countryId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCities(w, r, countryID)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6233,6 +6678,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/v1/companies/{companyId}/images", wrapper.AddCompanyImage)
 	})
 	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/companies/{companyId}/images", wrapper.ReplaceCompanyGallery)
+	})
+	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/v1/companies/{companyId}/images/{imageId}", wrapper.RemoveCompanyImage)
 	})
 	r.Group(func(r chi.Router) {
@@ -6276,9 +6724,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/me/address-search-sessions/{sessionId}/candidates/{candidateId}/resolve", wrapper.ResolveAddressCandidate)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/v1/reference/cities", wrapper.ListCities)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/v1/reference/cities/{cityId}/districts", wrapper.ListDistricts)
@@ -6327,6 +6772,27 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/v1/admin/companies/{companyId}/reject", wrapper.RejectCompany)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/me/educations", wrapper.ListMyEducations)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/me/educations", wrapper.CreateMyEducation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/v1/me/educations/{educationId}", wrapper.DeleteMyEducation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/v1/me/educations/{educationId}", wrapper.ReplaceMyEducation)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v1/me/address-lookups/reverse", wrapper.ReverseLookupAddress)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/reference/countries", wrapper.ListCountries)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v1/reference/countries/{countryId}/cities", wrapper.ListCities)
 	})
 
 	return r
@@ -9764,6 +10230,54 @@ func (response CreateCompany401ApplicationProblemPlusJSONResponse) VisitCreateCo
 	return err
 }
 
+type CreateCompany403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCompany403ApplicationProblemPlusJSONResponse) VisitCreateCompanyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCompany404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCompany404ApplicationProblemPlusJSONResponse) VisitCreateCompanyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateCompany409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateCompany409ApplicationProblemPlusJSONResponse) VisitCreateCompanyResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateCompany413ApplicationProblemPlusJSONResponse struct {
 	PayloadTooLargeApplicationProblemPlusJSONResponse
 }
@@ -10274,6 +10788,22 @@ func (response InviteCompanyContact401ApplicationProblemPlusJSONResponse) VisitI
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type InviteCompanyContact403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response InviteCompanyContact403ApplicationProblemPlusJSONResponse) VisitInviteCompanyContactResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -10933,15 +11463,25 @@ type AddCompanyImageResponseObject interface {
 	VisitAddCompanyImageResponse(w http.ResponseWriter) error
 }
 
-type AddCompanyImage201JSONResponse CompanyGallery
+type AddCompanyImage201ResponseHeaders struct {
+	Location *string
+}
+
+type AddCompanyImage201JSONResponse struct {
+	Body    CompanyGallery
+	Headers AddCompanyImage201ResponseHeaders
+}
 
 func (response AddCompanyImage201JSONResponse) VisitAddCompanyImageResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
 	w.WriteHeader(201)
 	_, err := buf.WriteTo(w)
 	return err
@@ -11087,6 +11627,164 @@ type AddCompanyImagedefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response AddCompanyImagedefaultApplicationProblemPlusJSONResponse) VisitAddCompanyImageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGalleryRequestObject struct {
+	CompanyID openapi_types.UUID `json:"companyId"`
+	Body      *ReplaceCompanyGalleryJSONRequestBody
+}
+
+type ReplaceCompanyGalleryResponseObject interface {
+	VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error
+}
+
+type ReplaceCompanyGallery200JSONResponse CompanyGallery
+
+func (response ReplaceCompanyGallery200JSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGallery400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceCompanyGallery400ApplicationProblemPlusJSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGallery401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceCompanyGallery401ApplicationProblemPlusJSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGallery404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceCompanyGallery404ApplicationProblemPlusJSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGallery409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceCompanyGallery409ApplicationProblemPlusJSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGallery413ApplicationProblemPlusJSONResponse struct {
+	PayloadTooLargeApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceCompanyGallery413ApplicationProblemPlusJSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGallery415ApplicationProblemPlusJSONResponse struct {
+	UnsupportedMediaTypeApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceCompanyGallery415ApplicationProblemPlusJSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGallery429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceCompanyGallery429ApplicationProblemPlusJSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceCompanyGallerydefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReplaceCompanyGallerydefaultApplicationProblemPlusJSONResponse) VisitReplaceCompanyGalleryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -11375,6 +12073,22 @@ func (response SetCompanyLogo404ApplicationProblemPlusJSONResponse) VisitSetComp
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetCompanyLogo409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response SetCompanyLogo409ApplicationProblemPlusJSONResponse) VisitSetCompanyLogoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -12023,6 +12737,147 @@ func (response GetMedefaultApplicationProblemPlusJSONResponse) VisitGetMeRespons
 	return err
 }
 
+type ReverseLookupAddressRequestObject struct {
+	Body *ReverseLookupAddressJSONRequestBody
+}
+
+type ReverseLookupAddressResponseObject interface {
+	VisitReverseLookupAddressResponse(w http.ResponseWriter) error
+}
+
+type ReverseLookupAddress200JSONResponse ResolvedAddress
+
+func (response ReverseLookupAddress200JSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReverseLookupAddress400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ReverseLookupAddress400ApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReverseLookupAddress401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ReverseLookupAddress401ApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReverseLookupAddress413ApplicationProblemPlusJSONResponse struct {
+	PayloadTooLargeApplicationProblemPlusJSONResponse
+}
+
+func (response ReverseLookupAddress413ApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReverseLookupAddress415ApplicationProblemPlusJSONResponse struct {
+	UnsupportedMediaTypeApplicationProblemPlusJSONResponse
+}
+
+func (response ReverseLookupAddress415ApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReverseLookupAddress429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ReverseLookupAddress429ApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReverseLookupAddress502ApplicationProblemPlusJSONResponse struct {
+	BadGatewayApplicationProblemPlusJSONResponse
+}
+
+func (response ReverseLookupAddress502ApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(502)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReverseLookupAddressdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReverseLookupAddressdefaultApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type StartAddressSearchSessionRequestObject struct {
 }
 
@@ -12554,6 +13409,22 @@ func (response CreateMyAddress401ApplicationProblemPlusJSONResponse) VisitCreate
 	return err
 }
 
+type CreateMyAddress404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyAddress404ApplicationProblemPlusJSONResponse) VisitCreateMyAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateMyAddress413ApplicationProblemPlusJSONResponse struct {
 	PayloadTooLargeApplicationProblemPlusJSONResponse
 }
@@ -13008,6 +13879,512 @@ func (response ReplaceMyAddressdefaultApplicationProblemPlusJSONResponse) VisitR
 	return err
 }
 
+type ListMyEducationsRequestObject struct {
+	Params ListMyEducationsParams
+}
+
+type ListMyEducationsResponseObject interface {
+	VisitListMyEducationsResponse(w http.ResponseWriter) error
+}
+
+type ListMyEducations200JSONResponse EducationPage
+
+func (response ListMyEducations200JSONResponse) VisitListMyEducationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyEducations400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListMyEducations400ApplicationProblemPlusJSONResponse) VisitListMyEducationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyEducations401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ListMyEducations401ApplicationProblemPlusJSONResponse) VisitListMyEducationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyEducations429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListMyEducations429ApplicationProblemPlusJSONResponse) VisitListMyEducationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListMyEducationsdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListMyEducationsdefaultApplicationProblemPlusJSONResponse) VisitListMyEducationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducationRequestObject struct {
+	Params CreateMyEducationParams
+	Body   *CreateMyEducationJSONRequestBody
+}
+
+type CreateMyEducationResponseObject interface {
+	VisitCreateMyEducationResponse(w http.ResponseWriter) error
+}
+
+type CreateMyEducation201ResponseHeaders struct {
+	Location *string
+}
+
+type CreateMyEducation201JSONResponse struct {
+	Body    Education
+	Headers CreateMyEducation201ResponseHeaders
+}
+
+func (response CreateMyEducation201JSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.Location != nil {
+		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
+	}
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducation400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyEducation400ApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducation401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyEducation401ApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducation404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyEducation404ApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducation413ApplicationProblemPlusJSONResponse struct {
+	PayloadTooLargeApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyEducation413ApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducation415ApplicationProblemPlusJSONResponse struct {
+	UnsupportedMediaTypeApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyEducation415ApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducation422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableContentApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyEducation422ApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducation429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyEducation429ApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response CreateMyEducationdefaultApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMyEducationRequestObject struct {
+	EducationID openapi_types.UUID `json:"educationId"`
+}
+
+type DeleteMyEducationResponseObject interface {
+	VisitDeleteMyEducationResponse(w http.ResponseWriter) error
+}
+
+type DeleteMyEducation204Response struct {
+}
+
+func (response DeleteMyEducation204Response) VisitDeleteMyEducationResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteMyEducation400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMyEducation400ApplicationProblemPlusJSONResponse) VisitDeleteMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMyEducation401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMyEducation401ApplicationProblemPlusJSONResponse) VisitDeleteMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMyEducation404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMyEducation404ApplicationProblemPlusJSONResponse) VisitDeleteMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMyEducation429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMyEducation429ApplicationProblemPlusJSONResponse) VisitDeleteMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMyEducationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response DeleteMyEducationdefaultApplicationProblemPlusJSONResponse) VisitDeleteMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceMyEducationRequestObject struct {
+	EducationID openapi_types.UUID `json:"educationId"`
+	Body        *ReplaceMyEducationJSONRequestBody
+}
+
+type ReplaceMyEducationResponseObject interface {
+	VisitReplaceMyEducationResponse(w http.ResponseWriter) error
+}
+
+type ReplaceMyEducation200JSONResponse Education
+
+func (response ReplaceMyEducation200JSONResponse) VisitReplaceMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceMyEducation400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceMyEducation400ApplicationProblemPlusJSONResponse) VisitReplaceMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceMyEducation401ApplicationProblemPlusJSONResponse struct {
+	UnauthorizedApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceMyEducation401ApplicationProblemPlusJSONResponse) VisitReplaceMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceMyEducation404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceMyEducation404ApplicationProblemPlusJSONResponse) VisitReplaceMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceMyEducation413ApplicationProblemPlusJSONResponse struct {
+	PayloadTooLargeApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceMyEducation413ApplicationProblemPlusJSONResponse) VisitReplaceMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(413)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceMyEducation415ApplicationProblemPlusJSONResponse struct {
+	UnsupportedMediaTypeApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceMyEducation415ApplicationProblemPlusJSONResponse) VisitReplaceMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(415)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceMyEducation429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ReplaceMyEducation429ApplicationProblemPlusJSONResponse) VisitReplaceMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReplaceMyEducationdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ReplaceMyEducationdefaultApplicationProblemPlusJSONResponse) VisitReplaceMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMyFollowedCompaniesRequestObject struct {
 	Params ListMyFollowedCompaniesParams
 }
@@ -13273,6 +14650,22 @@ func (response SubmitMyIdentityDocuments401ApplicationProblemPlusJSONResponse) V
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SubmitMyIdentityDocuments404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response SubmitMyIdentityDocuments404ApplicationProblemPlusJSONResponse) VisitSubmitMyIdentityDocumentsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -14162,6 +15555,22 @@ func (response UpdateMyProfile401ApplicationProblemPlusJSONResponse) VisitUpdate
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyProfile404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMyProfile404ApplicationProblemPlusJSONResponse) VisitUpdateMyProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -15254,82 +16663,6 @@ func (response ConfirmMyVerificationdefaultApplicationProblemPlusJSONResponse) V
 	return err
 }
 
-type ListCitiesRequestObject struct {
-}
-
-type ListCitiesResponseObject interface {
-	VisitListCitiesResponse(w http.ResponseWriter) error
-}
-
-type ListCities200JSONResponse ReferenceItemList
-
-func (response ListCities200JSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListCities400ApplicationProblemPlusJSONResponse struct {
-	BadRequestApplicationProblemPlusJSONResponse
-}
-
-func (response ListCities400ApplicationProblemPlusJSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	if response.Headers.XMinimumAppVersion != nil {
-		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
-	}
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListCities429ApplicationProblemPlusJSONResponse struct {
-	TooManyRequestsApplicationProblemPlusJSONResponse
-}
-
-func (response ListCities429ApplicationProblemPlusJSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	if response.Headers.RetryAfter != nil {
-		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
-	}
-	w.WriteHeader(429)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListCitiesdefaultApplicationProblemPlusJSONResponse struct {
-	Body       Problem
-	StatusCode int
-}
-
-func (response ListCitiesdefaultApplicationProblemPlusJSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(response.StatusCode)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ListDistrictsRequestObject struct {
 	CityID openapi_types.UUID `json:"cityId"`
 }
@@ -15412,6 +16745,175 @@ type ListDistrictsdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response ListDistrictsdefaultApplicationProblemPlusJSONResponse) VisitListDistrictsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCountriesRequestObject struct {
+}
+
+type ListCountriesResponseObject interface {
+	VisitListCountriesResponse(w http.ResponseWriter) error
+}
+
+type ListCountries200JSONResponse ReferenceItemList
+
+func (response ListCountries200JSONResponse) VisitListCountriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCountries400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListCountries400ApplicationProblemPlusJSONResponse) VisitListCountriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCountries429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListCountries429ApplicationProblemPlusJSONResponse) VisitListCountriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCountriesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListCountriesdefaultApplicationProblemPlusJSONResponse) VisitListCountriesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCitiesRequestObject struct {
+	CountryID openapi_types.UUID `json:"countryId"`
+}
+
+type ListCitiesResponseObject interface {
+	VisitListCitiesResponse(w http.ResponseWriter) error
+}
+
+type ListCities200JSONResponse ReferenceItemList
+
+func (response ListCities200JSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCities400ApplicationProblemPlusJSONResponse struct {
+	BadRequestApplicationProblemPlusJSONResponse
+}
+
+func (response ListCities400ApplicationProblemPlusJSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.XMinimumAppVersion != nil {
+		w.Header().Set("X-Minimum-App-Version", fmt.Sprint(*response.Headers.XMinimumAppVersion))
+	}
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCities404ApplicationProblemPlusJSONResponse struct {
+	NotFoundApplicationProblemPlusJSONResponse
+}
+
+func (response ListCities404ApplicationProblemPlusJSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCities429ApplicationProblemPlusJSONResponse struct {
+	TooManyRequestsApplicationProblemPlusJSONResponse
+}
+
+func (response ListCities429ApplicationProblemPlusJSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	if response.Headers.RetryAfter != nil {
+		w.Header().Set("Retry-After", fmt.Sprint(*response.Headers.RetryAfter))
+	}
+	w.WriteHeader(429)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCitiesdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ListCitiesdefaultApplicationProblemPlusJSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -15910,6 +17412,9 @@ type StrictServerInterface interface {
 	// AddCompanyImage Şirketin galerisine görüntü ekler.
 	// (POST /v1/companies/{companyId}/images)
 	AddCompanyImage(ctx context.Context, request AddCompanyImageRequestObject) (AddCompanyImageResponseObject, error)
+	// ReplaceCompanyGallery Şirketin galerisini verilen sırayla değiştirir.
+	// (PUT /v1/companies/{companyId}/images)
+	ReplaceCompanyGallery(ctx context.Context, request ReplaceCompanyGalleryRequestObject) (ReplaceCompanyGalleryResponseObject, error)
 	// RemoveCompanyImage Şirketin galerisinden bir görüntüyü çıkarır.
 	// (DELETE /v1/companies/{companyId}/images/{imageId})
 	RemoveCompanyImage(ctx context.Context, request RemoveCompanyImageRequestObject) (RemoveCompanyImageResponseObject, error)
@@ -15934,6 +17439,9 @@ type StrictServerInterface interface {
 	// GetMe Çağıranın kimlik çekirdeğini döndürür.
 	// (GET /v1/me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// ReverseLookupAddress Harita konumunu adres bileşenlerine çevirir.
+	// (POST /v1/me/address-lookups/reverse)
+	ReverseLookupAddress(ctx context.Context, request ReverseLookupAddressRequestObject) (ReverseLookupAddressResponseObject, error)
 	// StartAddressSearchSession Sağlayıcıya karşı bir adres arama oturumu açar.
 	// (POST /v1/me/address-search-sessions)
 	StartAddressSearchSession(ctx context.Context, request StartAddressSearchSessionRequestObject) (StartAddressSearchSessionResponseObject, error)
@@ -15958,6 +17466,18 @@ type StrictServerInterface interface {
 	// ReplaceMyAddress Çağıranın bir adresini tümden değiştirir.
 	// (PUT /v1/me/addresses/{addressId})
 	ReplaceMyAddress(ctx context.Context, request ReplaceMyAddressRequestObject) (ReplaceMyAddressResponseObject, error)
+	// ListMyEducations Çağıranın eğitim kayıtlarını listeler.
+	// (GET /v1/me/educations)
+	ListMyEducations(ctx context.Context, request ListMyEducationsRequestObject) (ListMyEducationsResponseObject, error)
+	// CreateMyEducation Çağırana yeni bir eğitim kaydı ekler.
+	// (POST /v1/me/educations)
+	CreateMyEducation(ctx context.Context, request CreateMyEducationRequestObject) (CreateMyEducationResponseObject, error)
+	// DeleteMyEducation Çağıranın bir eğitim kaydını siler.
+	// (DELETE /v1/me/educations/{educationId})
+	DeleteMyEducation(ctx context.Context, request DeleteMyEducationRequestObject) (DeleteMyEducationResponseObject, error)
+	// ReplaceMyEducation Çağıranın bir eğitim kaydını tümden değiştirir.
+	// (PUT /v1/me/educations/{educationId})
+	ReplaceMyEducation(ctx context.Context, request ReplaceMyEducationRequestObject) (ReplaceMyEducationResponseObject, error)
 	// ListMyFollowedCompanies Çağıranın takip ettiği şirketleri listeler.
 	// (GET /v1/me/followed-companies)
 	ListMyFollowedCompanies(ctx context.Context, request ListMyFollowedCompaniesRequestObject) (ListMyFollowedCompaniesResponseObject, error)
@@ -16015,12 +17535,15 @@ type StrictServerInterface interface {
 	// ConfirmMyVerification Doğrulama kodunu onaylar ve yeni değeri yazar.
 	// (POST /v1/me/verifications/{verificationId}/confirm)
 	ConfirmMyVerification(ctx context.Context, request ConfirmMyVerificationRequestObject) (ConfirmMyVerificationResponseObject, error)
-	// ListCities Şehirleri döndürür.
-	// (GET /v1/reference/cities)
-	ListCities(ctx context.Context, request ListCitiesRequestObject) (ListCitiesResponseObject, error)
 	// ListDistricts Bir şehrin ilçelerini döndürür.
 	// (GET /v1/reference/cities/{cityId}/districts)
 	ListDistricts(ctx context.Context, request ListDistrictsRequestObject) (ListDistrictsResponseObject, error)
+	// ListCountries Ülkeleri döndürür.
+	// (GET /v1/reference/countries)
+	ListCountries(ctx context.Context, request ListCountriesRequestObject) (ListCountriesResponseObject, error)
+	// ListCities Bir ülkenin şehirlerini döndürür.
+	// (GET /v1/reference/countries/{countryId}/cities)
+	ListCities(ctx context.Context, request ListCitiesRequestObject) (ListCitiesResponseObject, error)
 	// ListDepartments Bir fakültenin bölümlerini döndürür.
 	// (GET /v1/reference/faculties/{facultyId}/departments)
 	ListDepartments(ctx context.Context, request ListDepartmentsRequestObject) (ListDepartmentsResponseObject, error)
@@ -17167,6 +18690,39 @@ func (sh *strictHandler) AddCompanyImage(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// ReplaceCompanyGallery operation middleware
+func (sh *strictHandler) ReplaceCompanyGallery(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID) {
+	var request ReplaceCompanyGalleryRequestObject
+
+	request.CompanyID = companyID
+
+	var body ReplaceCompanyGalleryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceCompanyGallery(ctx, request.(ReplaceCompanyGalleryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceCompanyGallery")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceCompanyGalleryResponseObject); ok {
+		if err := validResponse.VisitReplaceCompanyGalleryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // RemoveCompanyImage operation middleware
 func (sh *strictHandler) RemoveCompanyImage(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID, imageID openapi_types.UUID) {
 	var request RemoveCompanyImageRequestObject
@@ -17374,6 +18930,37 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetMeResponseObject); ok {
 		if err := validResponse.VisitGetMeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReverseLookupAddress operation middleware
+func (sh *strictHandler) ReverseLookupAddress(w http.ResponseWriter, r *http.Request) {
+	var request ReverseLookupAddressRequestObject
+
+	var body ReverseLookupAddressJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReverseLookupAddress(ctx, request.(ReverseLookupAddressRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReverseLookupAddress")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReverseLookupAddressResponseObject); ok {
+		if err := validResponse.VisitReverseLookupAddressResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -17596,6 +19183,124 @@ func (sh *strictHandler) ReplaceMyAddress(w http.ResponseWriter, r *http.Request
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ReplaceMyAddressResponseObject); ok {
 		if err := validResponse.VisitReplaceMyAddressResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListMyEducations operation middleware
+func (sh *strictHandler) ListMyEducations(w http.ResponseWriter, r *http.Request, params ListMyEducationsParams) {
+	var request ListMyEducationsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListMyEducations(ctx, request.(ListMyEducationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListMyEducations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListMyEducationsResponseObject); ok {
+		if err := validResponse.VisitListMyEducationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateMyEducation operation middleware
+func (sh *strictHandler) CreateMyEducation(w http.ResponseWriter, r *http.Request, params CreateMyEducationParams) {
+	var request CreateMyEducationRequestObject
+
+	request.Params = params
+
+	var body CreateMyEducationJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateMyEducation(ctx, request.(CreateMyEducationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateMyEducation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateMyEducationResponseObject); ok {
+		if err := validResponse.VisitCreateMyEducationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteMyEducation operation middleware
+func (sh *strictHandler) DeleteMyEducation(w http.ResponseWriter, r *http.Request, educationID openapi_types.UUID) {
+	var request DeleteMyEducationRequestObject
+
+	request.EducationID = educationID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteMyEducation(ctx, request.(DeleteMyEducationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteMyEducation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteMyEducationResponseObject); ok {
+		if err := validResponse.VisitDeleteMyEducationResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReplaceMyEducation operation middleware
+func (sh *strictHandler) ReplaceMyEducation(w http.ResponseWriter, r *http.Request, educationID openapi_types.UUID) {
+	var request ReplaceMyEducationRequestObject
+
+	request.EducationID = educationID
+
+	var body ReplaceMyEducationJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReplaceMyEducation(ctx, request.(ReplaceMyEducationRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReplaceMyEducation")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReplaceMyEducationResponseObject); ok {
+		if err := validResponse.VisitReplaceMyEducationResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -18125,30 +19830,6 @@ func (sh *strictHandler) ConfirmMyVerification(w http.ResponseWriter, r *http.Re
 	}
 }
 
-// ListCities operation middleware
-func (sh *strictHandler) ListCities(w http.ResponseWriter, r *http.Request) {
-	var request ListCitiesRequestObject
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListCities(ctx, request.(ListCitiesRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListCities")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListCitiesResponseObject); ok {
-		if err := validResponse.VisitListCitiesResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
 // ListDistricts operation middleware
 func (sh *strictHandler) ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID) {
 	var request ListDistrictsRequestObject
@@ -18168,6 +19849,56 @@ func (sh *strictHandler) ListDistricts(w http.ResponseWriter, r *http.Request, c
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListDistrictsResponseObject); ok {
 		if err := validResponse.VisitListDistrictsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCountries operation middleware
+func (sh *strictHandler) ListCountries(w http.ResponseWriter, r *http.Request) {
+	var request ListCountriesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCountries(ctx, request.(ListCountriesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCountries")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCountriesResponseObject); ok {
+		if err := validResponse.VisitListCountriesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCities operation middleware
+func (sh *strictHandler) ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID) {
+	var request ListCitiesRequestObject
+
+	request.CountryID = countryID
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCities(ctx, request.(ListCitiesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCities")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCitiesResponseObject); ok {
+		if err := validResponse.VisitListCitiesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
