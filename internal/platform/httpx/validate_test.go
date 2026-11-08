@@ -25,6 +25,11 @@ import (
 //     also checked against the schema compiled once at start-up with the
 //     2020-12 validator. Both must report the same field errors.
 //   - POST /big raises its body limit with x-body-limit.
+//   - PUT /gallery carries the "at most one cover" invariant of the real
+//     contract's ReplaceCompanyGalleryRequest, keyword for keyword
+//     (ADR-0031 Karar 1): contains + minContains: 0 + maxContains: 1.
+//     The real operation is behind authn, so this is where the rule's
+//     rejection is observed end to end until its handler exists.
 const validateSpec = `
 openapi: 3.1.1
 info: {title: validate test, version: "1"}
@@ -89,6 +94,37 @@ paths:
       operationId: getPlain
       responses:
         "204": {description: ok}
+  /gallery:
+    put:
+      operationId: putGallery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  maxItems: 10
+                  items:
+                    type: object
+                    additionalProperties: false
+                    required: [mediaId]
+                    properties:
+                      mediaId: {type: string}
+                      cover: {type: boolean}
+                  contains:
+                    type: object
+                    required: [cover]
+                    properties:
+                      cover: {const: true}
+                  minContains: 0
+                  maxContains: 1
+      responses:
+        "204": {description: ok}
 components:
   schemas:
     Name: {type: string, maxLength: 5}
@@ -138,6 +174,7 @@ func newValidateRouter(t *testing.T) http.Handler {
 		g.Post("/strict", noContent)
 		g.Post("/big", noContent)
 		g.Get("/plain", noContent)
+		g.Put("/gallery", noContent)
 		g.Get("/not-in-spec", noContent)
 	})
 	return withClient(r)
@@ -323,6 +360,66 @@ func TestValidateRequestsJSONSchema2020(t *testing.T) {
 			name: "const", target: "/strict", body: `{"name":"a","kind":"OTHER"}`,
 			wantStatus: http.StatusBadRequest, wantCode: "REQUEST_INVALID",
 			wantErrors: []map[string]any{bodyErr("/kind", "FIELD_VALUE_INVALID")},
+		},
+	})
+}
+
+// TestValidateRequestsAtMostOneCover is the "at most one cover"
+// invariant of ADR-0031 Karar 1, observed where it is actually enforced:
+// a real router, the real ValidateRequests, and the same three keywords
+// the contract carries. Without it the rule would be written in the
+// schema and asserted nowhere -- dropping maxContains, or moving
+// fields2020's *kind.MaxContains branch into its default, would leave
+// every job green.
+//
+// The three passing cases are the compatibility promise: a client that
+// never sends the field, an empty gallery, and a client that sends the
+// field as false everywhere are all accepted. They are what minContains:
+// 0 buys, and TestFields2020 shows what the same schema does without it.
+func TestValidateRequestsAtMostOneCover(t *testing.T) {
+	t.Parallel()
+
+	item := func(id string, cover string) string {
+		if cover == "" {
+			return `{"mediaId":"` + id + `"}`
+		}
+		return `{"mediaId":"` + id + `","cover":` + cover + `}`
+	}
+	many := func(n int, cover string) string {
+		out := make([]string, 0, n)
+		for i := range n {
+			out = append(out, item("m"+strconv.Itoa(i), cover))
+		}
+		return `{"items":[` + strings.Join(out, ",") + `]}`
+	}
+	outOfRange := []map[string]any{bodyErr("/items", "FIELD_OUT_OF_RANGE")}
+
+	runValidateCases(t, newValidateRouter(t), []validateCase{
+		{
+			name: "one cover", method: http.MethodPut, target: "/gallery",
+			body: `{"items":[` + item("a", "") + `,` + item("b", "true") + `]}`, wantStatus: http.StatusNoContent,
+		},
+		{
+			name: "no cover marked: the old client's body", method: http.MethodPut, target: "/gallery",
+			body: `{"items":[` + item("a", "") + `,` + item("b", "") + `]}`, wantStatus: http.StatusNoContent,
+		},
+		{
+			name: "empty gallery", method: http.MethodPut, target: "/gallery",
+			body: `{"items":[]}`, wantStatus: http.StatusNoContent,
+		},
+		{
+			name: "every item cover false", method: http.MethodPut, target: "/gallery",
+			body: many(3, "false"), wantStatus: http.StatusNoContent,
+		},
+		{
+			name: "two covers", method: http.MethodPut, target: "/gallery",
+			body:       `{"items":[` + item("a", "true") + `,` + item("b", "true") + `]}`,
+			wantStatus: http.StatusBadRequest, wantCode: "REQUEST_INVALID", wantErrors: outOfRange,
+		},
+		{
+			name: "every item cover true", method: http.MethodPut, target: "/gallery",
+			body:       many(10, "true"),
+			wantStatus: http.StatusBadRequest, wantCode: "REQUEST_INVALID", wantErrors: outOfRange,
 		},
 	})
 }
