@@ -130,8 +130,16 @@ func TestRequestBodiesAreClosed(t *testing.T) {
 	}
 }
 
-// The check catches what vacuum cannot reach and accepts the correct
-// allOf form.
+// The check catches what vacuum cannot reach, accepts the correct allOf
+// form, and reaches every slot the walker claims to reach.
+//
+// The six JSON Schema 2020-12 slots each get a path of their own,
+// because the contract uses none of them today: without a probe, a
+// branch that walked the wrong field (s.Else twice instead of s.Then,
+// say) would travel zero nodes and fail nothing. /predicate-slots is
+// the other half: an open object under contains, not, if or
+// propertyNames must produce **no** finding, because closing a
+// predicate would change what it matches instead of closing anything.
 func TestOpenRequestObjectsFindsAllOfGaps(t *testing.T) {
 	t.Parallel()
 
@@ -188,6 +196,134 @@ paths:
                         x: {type: string}
               unevaluatedProperties: false
       responses: {default: {description: x}}
+  /open-prefix-items:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              prefixItems:
+                - type: object
+                  properties:
+                    x: {type: string}
+      responses: {default: {description: x}}
+  /open-then:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                kind: {type: string}
+              if:
+                properties:
+                  kind: {const: A}
+              then:
+                properties:
+                  inner:
+                    type: object
+                    properties:
+                      x: {type: string}
+      responses: {default: {description: x}}
+  /open-else:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                kind: {type: string}
+              if:
+                properties:
+                  kind: {const: A}
+              else:
+                properties:
+                  inner:
+                    type: object
+                    properties:
+                      x: {type: string}
+      responses: {default: {description: x}}
+  /open-dependent:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                flag: {type: boolean}
+              dependentSchemas:
+                flag:
+                  properties:
+                    inner:
+                      type: object
+                      properties:
+                        x: {type: string}
+      responses: {default: {description: x}}
+  /open-pattern:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              patternProperties:
+                "^x-":
+                  type: object
+                  properties:
+                    x: {type: string}
+      responses: {default: {description: x}}
+  /open-unevaluated-items:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: array
+              prefixItems:
+                - {type: string}
+              unevaluatedItems:
+                type: object
+                properties:
+                  x: {type: string}
+      responses: {default: {description: x}}
+  /predicate-slots:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                items:
+                  type: array
+                  contains:
+                    type: object
+                    properties:
+                      x: {type: string}
+                  minContains: 0
+                  maxContains: 1
+              not:
+                type: object
+                properties:
+                  y: {type: string}
+              if:
+                type: object
+                properties:
+                  z: {type: string}
+              propertyNames:
+                type: object
+                properties:
+                  w: {type: string}
+      responses: {default: {description: x}}
 components:
   schemas:
     Base:
@@ -202,7 +338,13 @@ components:
 	want := []string{
 		"POST /open-allof-property application/json.properties.child",
 		"POST /open-composite application/json",
+		"POST /open-dependent application/json.dependentSchemas.flag.properties.inner",
+		"POST /open-else application/json.else.properties.inner",
 		"POST /open-member-property application/json.allOf[0].properties.inner",
+		"POST /open-pattern application/json.patternProperties.^x-",
+		"POST /open-prefix-items application/json.prefixItems[0]",
+		"POST /open-then application/json.then.properties.inner",
+		"POST /open-unevaluated-items application/json.unevaluatedItems",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("open objects\n got: %q\nwant: %q", got, want)
