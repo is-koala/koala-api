@@ -16,6 +16,7 @@ vacuum="$1"
 # turn a slow rule into a silently passing one; the Makefile passes the
 # same budget it uses for the contract (ADR-0029).
 timeout="${2:-60}"
+. "$(dirname "$0")/lib/vacuum.sh"
 dir="$(mktemp -d)"
 trap 'rm -rf "$dir"' EXIT
 
@@ -35,8 +36,9 @@ koala_results() {
 	fi
 	# A rule vacuum skipped reports nothing, so the probe would read it as
 	# a rule with no case and blame the fixture instead of the budget
-	# (scripts/api-lint.sh says why this is an error, not a warning).
-	if grep -qaE 'Rule timed out, skipping|timed out after' "$dir/raw"; then
+	# (scripts/api-lint.sh says why this is an error, not a warning). The
+	# signature comes from scripts/lib/vacuum.sh, the one place it is written.
+	if grep -qaE "$VACUUM_UNFINISHED" "$dir/raw"; then
 		cat "$dir/raw"
 		echo "api lint probe: vacuum did not finish every rule on $1; raise VACUUM_TIMEOUT"
 		exit 1

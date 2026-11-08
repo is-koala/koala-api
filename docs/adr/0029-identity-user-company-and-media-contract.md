@@ -6,7 +6,7 @@
 - Kaynak: [plan](../plan/go-gecis-degerlendirme.md) §4.1 (sözleşme ilkeleri), §4.2 (istemci işi), §5.4–5.5 (authz), §6.1 Faz 2, §6.2 (Java testlerini senaryoya çevirme); [ADR-0005](0005-api-contract-principles.md), [ADR-0013](0013-soft-delete.md), [ADR-0014](0014-authorization.md), [ADR-0019](0019-openapi-31-codegen-and-request-validation.md) §4 (dosya yüklemeleri), [ADR-0020](0020-sqlc-toolchain-and-soft-delete-platform.md) §11, [ADR-0024](0024-authz-core-evaluator-and-conformance.md), [ADR-0025](0025-authentication-tokens-sessions-and-staff-sign-in.md), [ADR-0026](0026-staff-rbac-audit-trail-and-pii-gate.md), [ADR-0027](0027-soft-delete-platform-hardening.md), [ADR-0028](0028-recursion-rules-body-allowlist-and-gate-completeness.md); Java `origin/main` (0cbbce69, v0.9.32) — 19 manager ve IT'leri okundu, koşturulmadı
 - Dış kaynaklar (madde numaraları **NIST SP 800-63B Rev. 3**'e ve **OWASP ASVS 4.0.3**'e göredir; Rev. 4 bütün bölüm numaralarını değiştirdi, 5.x → 3.x):
   - NIST SP 800-63B Rev. 3 §5.1.3.2 (bant dışı doğrulayıcılar: doğrulama 10 dakika içinde tamamlanmazsa geçersiz), §5.1.1.2 (hatırlanan sırların özetlenerek saklanması ve kompozisyon kuralı önerilmemesi), §5.2.2 (kısıtlama: ardışık başarısız deneme sınırı)
-  - OWASP ASVS 4.0.3 V3.3.3 (parola değişimi ve sıfırlamadan sonra diğer oturumların kapanması)
+  - OWASP ASVS 4.0.3 V3.3.3 (diğer etkin oturumları kapatma seçeneği; bizim kuralımız bundan daha sıkıdır, Karar 4)
   - RFC 9457, RFC 7396, RFC 6901
   - Google Maps Platform [Hizmet Şartları](https://cloud.google.com/maps-platform/terms) ve Places için Service Specific Terms: yer kimliği süresiz, diğer içerik sınırlı süre önbelleklenebilir (madde numarası açık soru 4)
   - Stripe Connect ve Upwork (işletme doğrulanmadan işlem yok); GitHub organizasyon daveti (süreli, iptal edilebilir); S3 + sunucu tarafı dönüştürme kalıbı
@@ -51,9 +51,15 @@ x-not-implemented: |
 
 Çözüm: her operasyon `x-error-codes` ile **kendi alan kodlarını** sayar (kodu olmayan operasyon boş liste yazar), ve `api.TestOperationStatusesCoverTheirErrorCodes` listelenen her kodun `ErrorCode` açıklamasındaki durumunu operasyonun yanıt kümesinde arar. Aynı test her `ErrorCode` üyesinin bir durumu olmasını da ister; olmayan üye gerekçeli istisna listesindedir (`FIELD_*` kodları `ProblemField.code`'da taşınır, realtime olay kodları soket üzerinde).
 
-İki sınır bilinçlidir ve burada kayda geçer:
-- **Evrensel kodlar denetlenmez.** Platform (`REQUEST_INVALID`, `RATE_LIMITED`, `INTERNAL`…), oturum (`AUTH_TOKEN_*`, `STAFF_PERMISSION_DENIED`…) ve Idempotency-Key kodları ortak yanıtlardan gelir; her operasyonda tekrar edilmeleri listeyi gürültüye çevirirdi.
-- **Ters yön denetlenmez:** karşılığı hiçbir kod olmayan bir yanıt durumu (gereksiz bir `409` gibi) kırmızı vermez. Çünkü 400, 401, 429 ve 404'ün çoğu evrensel kodlarla ya da yol parametresinin varlığıyla açıklanır; kuralı ters yöne çevirmek yanlış pozitif üretirdi. İncelemede bakılır.
+**Üç sınır** bilinçlidir ve burada kayda geçer. Mekanizma bir gerileme değil daralmadır — eskiden böyle bir liste hiç yoktu ve kusur yalnız insan gözüyle bulunabiliyordu — ama ne yapmadığını yazmadan "bağlandı" demek yanlış olur:
+
+1. **Evrensel kodlar denetlenmez.** Platform (`REQUEST_INVALID`, `RATE_LIMITED`, `INTERNAL`…), oturum (`AUTH_TOKEN_*`, `STAFF_PERMISSION_DENIED`…) ve Idempotency-Key kodları ortak yanıtlardan gelir; her operasyonda tekrar edilmeleri listeyi gürültüye çevirirdi.
+2. **Ters yön denetlenmez:** karşılığı hiçbir kod olmayan bir yanıt durumu (gereksiz bir `409` gibi) kırmızı vermez. Çünkü 400, 401, 429 ve 404'ün çoğu evrensel kodlarla ya da yol parametresinin varlığıyla açıklanır; kuralı ters yöne çevirmek yanlış pozitif üretirdi. İncelemede bakılır.
+3. **"Operasyonun ürettiği her kod listede mi" diye soran bir şey yok.** Test yalnız listelenen kodun durumunu denetliyor; listede hiç yazılmamış bir kodu göremez, çünkü bugün handler yok ve kodun hangi operasyondan çıktığını sözleşmeden çıkarmanın yolu da yok. Üstelik bir kodun durumu artık **iki bağlı olmayan yerde** yazılı: `problem.yaml`'ın düzyazısı ve `apperr.Kind` → `httpx.StatusOf` eşlemesi. Bir handler `KindConflict` ile dönerken düzyazı 404 demişse, ya da kod listeye hiç yazılmamışsa, kapı yeşil kalır ve istemci yanıtı çözemez.
+
+   **Gereklilik:** Faz 2'nin ilk handler PR'ı, handler'ın ürettiği kodlar ile operasyonun `x-error-codes` listesini bağlayan denetimi kurar — handler'ın döndürdüğü `apperr.Code` sabitleri ile listenin karşılaştırılması, ve kodun `Kind`'ının düzyazıdaki durumla aynı olması. Bugün yazılacak bağ spekülatif olurdu; mekanizma anlam kazandığı anda gelir.
+
+Dördüncü, daha küçük bir sınır: istisna listesi (`statusFreeCodes`) **tek yönlüdür.** Enum'dan silinen bir kodu yakalar, ama "bu kod artık bir REST yolu kazandı" durumunu yakalamaz. `CONVERSATION_NOT_FOUND`'un gerekçesi tam bu: "Faz 4 ona bir REST yolu verene kadar" — o gün istisna sessizce yerinde kalır ve kod bir durum belgelemeden yaşamaya devam eder. Faz 4'ün PR'ı listeyi gözden geçirmek zorundadır.
 
 **Dondurmanın dört yan kararı**, uygulama sırasında çıktı ve burada kayda geçiyor:
 
@@ -111,7 +117,7 @@ Java'nın biçimi doğru ve korunuyor: 32 baytlık opak token, SHA-256 özeti (`
 - **Ömür 15 dakika.**
 - Bilinmeyen, süresi dolmuş, iptal edilmiş ve zaten kullanılmış token'ın **dördü de** aynı `PASSWORD_RESET_TOKEN_INVALID` gövdesini alır.
 - Kayıtsız adres ayırt edilemez: aynı `202` gövdesi, posta yok. (`202`, çünkü posta kuyruğa girer ve iş arka planda koşar; stil rehberi §5.) **Java'dan ayrılık:** Java'nın bilinen dalı token üretip posta kuyruğa atıyor, bilinmeyen dalı atmıyor; zamanlama farkı `docs/research/password-reset-token-design.md`'de açık bir boşluk olarak duruyor. Go iki dalda da aynı işi yapar (bilinmeyen dalda üretilen token atılır), AUTH-001'in giriş için kurduğu kalıp.
-- **Başarılı sıfırlama çağıran dahil bütün oturumları kapatır** ve token çifti **döndürmez**; kullanıcı yeniden giriş yapar (OWASP ASVS 4.0.3 V3.3.3; Java da böyle). Uygulama içi parola değişimi ise çağıranın oturumunu açık bırakır ve diğerlerini kapatır (Java'nın davranışı, korunuyor) — ikisi farklı, çünkü sıfırlamada hesabın ele geçtiği varsayılır.
+- **Başarılı sıfırlama çağıran dahil bütün oturumları kapatır** ve token çifti **döndürmez**; kullanıcı yeniden giriş yapar (Java da böyle). ASVS 4.0.3 V3.3.3 bundan **daha gevşektir**: kullanıcıya diğer oturumları kapatma *seçeneği* verilmesini ister, kapatılmasını zorunlu kılmaz. Bizim kararımız standardın üstündedir, çünkü sıfırlamada hesabın ele geçtiği varsayılır ve o anda seçim kullanıcıda değil, saldırgandadır. Uygulama içi parola değişimi ise çağıranın oturumunu açık bırakır ve diğerlerini kapatır (Java'nın davranışı, korunuyor) — ikisi farklı, çünkü sıfırlamada hesabın ele geçtiği varsayılır.
 - Sıfırlama ve uygulama içi değişim, kullanıcının **açık parola sıfırlama token'larını** iptal eder.
 - **Parola kuralı ADR-0025'in kuralıdır:** en az 15, en çok 128 karakter, `PASSWORD_POLICY_VIOLATION`. Java'nın 12 kod noktası / 72 bayt sınırı bcrypt'ten geliyordu; Go bcrypt kullanmadığı için 72 bayt sınırı yok. Karakter sınıfı kuralı yok (NIST SP 800-63B Rev. 3 §5.1.1.2 kompozisyon kurallarını önermiyor).
 
@@ -166,6 +172,12 @@ Java'nın eksikleri kapatılır:
 - Daveti **okuyabilenler**: davet edilen, daveti gönderen ve şirketin bugünkü `ADMIN`'i. **Cevaplayabilen yalnız davet edilendir** (Java'nın ayrımı, korunuyor). Aynı (şirket, davetli) için tek açık davet.
 - **Davet edilenin kimliği doğrulanmış olmalıdır.** Java burada `tcIdentityNumber != null`, şirket kurmada ise `identityVerified` bakıyor — aynı kavrama iki ölçüt. Go her ikisinde `identity_verified`'ı kullanır.
 
+**Galerinin sırası, kapağı ve açıklamaları.** Galeri tümden değiştirilir, sıra anlamlıdır ve **kapak dizinin ilk öğesidir**; her öğe isteğe bağlı bir açıklama (`caption`, en çok 255 karakter) taşır. Böylece sıralamak, kapağı seçmek ve açıklamayı güncellemek tek işlemdir.
+
+Bu, Java'ya göre **bilinçli bir daralmadır** ve kayda geçmesi gerekiyor: Java her öğeye bir `cover` boolean'ı alıyor ve "en fazla bir kapak" değişmezini doğruluyor, yani sıra `[A, B, C]` iken kapağın `B` olması temsil edilebiliyor. Türetilmiş kapakta bu temsil edilemez. Daralmayı kabul ediyoruz çünkü Java'nın iki gözlenebilir davranışı korunuyor (kapak çıkarılırsa sıradaki kapak olur; ilk görsel kendiliğinden kapaktır), eksilen şey bir değişmez ve sıralamayla kapak seçmek yaygın bir kalıptır. Yine de bugün kayıtsız olan bir yeteneği kaldırıyor; **ürün tarafına bilgi olarak geçer.**
+
+`sortOrder` da ayrı bir alan taşımaz: dizideki konuma katlanmıştır. `caption` katlanamaz — türetilebilecek bir kaynağı yok — bu yüzden sözleşmeye alındı. **Kapsam defterinin (Karar 11) sınırı buradan görülüyor:** defter uç granülerliğindedir, yani bir Java ucunun karşılığı varsa "kapsandı" der; o ucun **alanlarından** birinin düşmesini yakalamaz. `caption` tam böyle düşmüştü ve defter sessiz kaldı. Alan düzeyi karşılaştırma uygulama PR'larının işidir: handler yazılırken Java DTO'su ile Go şeması yan yana okunur.
+
 **Galeri görünürlüğü.** Şirketin galerisi **kimliksiz okunabilir** (Java'nın kararı, korunuyor): galeri şirketin vitrinidir ve SEO'lu şirket sayfasında görünür. Şirketin kendisi (`GET /v1/companies/{companyId}`) kimlik ister, yani galeri kimliksiz bir **varlık oracle'ıdır**: var olmayan şirketin galerisi 404, var olanın 200 döner. Kabul ediyoruz, çünkü şirket kimliği UUIDv7'dir ve tahmin edilemez; şirket listesi kimliksiz hiçbir uçtan sayılamaz. Galeri sıralaması aynı zamanda kapağı belirler: listedeki ilk görüntü kapaktır, ayrı bir kapak ucu yoktur.
 
 **Takip.** Herhangi bir kimlikli kullanıcı var olan herhangi bir şirketi takip edebilir (onaylanmamış ve kendi şirketi dahil). Tekrar takip sessiz no-op, takip edilmeyeni bırakmak sessiz no-op; ikisi de `204`.
@@ -200,7 +212,7 @@ Alanın bütün kodları `api/components/problem.yaml`'ın `ErrorCode` listesine
 - **Görme yetkisi olmayan çağıran kaynağın 404'ünü alır**, gövdesi hiç var olmamış bir kaynağın 404'üyle bayt bayt aynıdır (ADR-0014). Java aynı "üyesi değil" durumuna üç ayrı yanıt veriyor: `CompanyManager` 404 `USER_NOT_ASSOCIATED_WITH_COMPANY`, `JobManager#createCorporateJob` 400, `JobManager#getJobsOfCompany` 403. Go'da hepsi kaynağın 404'üdür.
 - Durum çakışması 409, biçim hatası 400; "izin var ama durum elvermiyor" 403 değildir.
 
-### 10. Kapsam defteri: Java ucu → Go operasyonu ya da faz
+### 11. Kapsam defteri: Java ucu → Go operasyonu ya da faz
 
 "Alanın spec'i donduruldu" ancak alan **gerçekten** kapsanmışsa doğrudur, ve bu iddia bugüne kadar hiçbir yerde denetlenebilir değildi: plan §1.2 yalnız toplu sayı (266 uç) veriyor. Aşağıdaki defter Faz 2'nin alanına değen 12 controller'ın her ucunu ya bir Go operasyonuna ya da onu alacak faza bağlar. Sonradan çıkan bir uç, sözleşmeye uyumsuz ekleme olarak geri döner (bu PR'ın incelemesinde dört örneği çıktı), bu yüzden defter sözleşmenin parçasıdır.
 
@@ -270,7 +282,7 @@ Kaynak: `koala-backend` `origin/main` (0cbbce69), `webAPI/*Controller.java`'nın
 
 Defterin dışındaki 37 controller Faz 3–9'a aittir ve o fazların ADR'lerinde aynı biçimde defterlenir.
 
-### 11. Atlanan lint kuralı kapıyı kırar
+### 12. Atlanan lint kuralı kapıyı kırar
 
 Sözleşme 88 operasyona çıkınca `make api-lint` düştü, ama bir kural ihlalinden değil: vacuum her kurala dosya başına 5 saniyelik bir bütçe veriyor ve bütçesi dolan kuralı **atlıyor**. Beş operasyon düzeyi kural (`koala-operation-authz`, `koala-operation-id-camel-case`, `koala-body-limit`, `koala-error-responses-are-problems`, `koala-deprecation-has-sunset`) sınırı aştı.
 
@@ -293,7 +305,7 @@ Neden çıkış koduna güvenilmiyor: vacuum v0.36.2 zaten zaman aşımından so
 4. **Plan §6.1 Faz 2'nin çıkış kriterindeki "Alanın P0 senaryolarının %100'ü … yeşil"** → bu PR o kriteri karşılamaz ve karşılamayı iddia etmez: sözleşme ve katalog donuyor, senaryolar `deferred: {phase: 2}` ile Faz 2'nin uygulama PR'larını bekliyor. Karar 1'in katalog bağı bunu makinece zorlar.
 5. **Plan §6.1 Faz 2'nin "kimlik belgesi yükleme (NFC'siz)" kalemi** → Karar 5: çip yolu ve çip meydan okuması Faz 2b'ye, kendi ADR'siyle.
 6. **Plan §6.1 Faz 2'nin çıkış kriterindeki `owner` tipi** → `owner` bir model tipi değildir: plan **§5.4'ün "Modelin dışında kalanlar" maddesi** onu açıkça modelin dışına, `Scope`/`SelfUserID`'ye koyuyor. Kriter bu yüzden planın kendi §5.4'üyle çelişiyor. Modeli `owner` için genişletmek yanlış olurdu: kullanıcı-sahipli her satır için tuple yazmak ADR-0024'ün "yetki kararı veriden türetilir" tasarımını tersine çevirir. Kriterin karşılığı şudur: modelin sahiplik temsili `private_file#owner`'dır ve onun 4 satırı iki motorda yeşildir; kalan sahiplik kararları (`bank_account`, `education`, `device`, `session`, `address_search_session`, `media`…) `go_only` kalır ve Go değerlendiricisinin dışında, store'un `Scope`'unda sınanır. Kriter metninin düzeltilmesi Yusuf'a bildirildi.
-7. **Plan §6.1'in eğitim kayıtlarını hiçbir faza atamaması** → `/users/me/educations` dört ucu Faz 2'ye alındı (Karar 10'un kapsam defteri). Eğitim kaydı profilin alt kaynağıdır; planın boşluğu Yusuf'a bildirildi.
+7. **Plan §6.1'in eğitim kayıtlarını hiçbir faza atamaması** → `/users/me/educations` dört ucu Faz 2'ye alındı (Karar 11'in kapsam defteri). Eğitim kaydı profilin alt kaynağıdır; planın boşluğu Yusuf'a bildirildi.
 
 ADR-0013, ADR-0014, ADR-0019, ADR-0024, ADR-0026 ve ADR-0028'in kararları değişmiyor. ADR-0019 §4'ün "dosya yüklemeleri API'den geçmez" kararı Karar 6'da karantina öneği ve tamamlama adımıyla **uygulanıyor**, değiştirilmiyor.
 

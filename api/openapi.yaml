@@ -2118,8 +2118,9 @@ paths:
       summary: Şirketin galerisini verilen sırayla değiştirir.
       description: |
         Galerinin tamamı gönderilen listeyle yer değiştirir ve **sıra anlamlıdır**:
-        listedeki ilk görüntü kapaktır. Böylece kapağı değiştirmek ve görüntüleri yeniden
-        sıralamak tek işlemdir; kapak ayrı bir uç istemez (ADR-0029 Karar 7). Listede
+        listedeki ilk görüntü kapaktır. Böylece kapağı değiştirmek, görüntüleri yeniden
+        sıralamak ve açıklamalarını güncellemek tek işlemdir; kapak ayrı bir uç istemez
+        (ADR-0029 Karar 7). Listede
         olmayan görüntüler galeriden çıkar, medya kayıtları silinmez. Boş liste galeriyi
         boşaltır ve kapağı `null` yapar. En çok on görüntü (MED-011); her görüntü hazır
         durumda olmak zorundadır.
@@ -5449,7 +5450,9 @@ components:
 
     AddCompanyImageRequest:
       type: object
-      description: Galeriye eklenecek görüntünün medya kimliği; medya hazır durumda olmak zorundadır.
+      description: |
+        Galerinin sonuna eklenecek görüntü; medya hazır durumda olmak zorundadır. Galeri
+        boşsa eklenen görüntü kapak olur.
       additionalProperties: false
       required: [mediaId]
       properties:
@@ -5458,8 +5461,14 @@ components:
           format: uuid
           description: Görüntünün medya kimliği.
           examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+        caption:
+          type: string
+          maxLength: 255
+          description: Görüntünün açıklaması.
+          examples: [Kadıköy deposu, yükleme rampası]
       examples:
         - mediaId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
+          caption: Kadıköy deposu, yükleme rampası
 
     SetCompanyLogoRequest:
       type: object
@@ -5490,14 +5499,19 @@ components:
         items:
           type: array
           maxItems: 10
-          description: Galerideki görüntüler, eklenme sırasına göre.
+          description: |
+            Galerideki görüntüler **sıra numarasına göre**: ilk öğe kapaktır. Sıra
+            `PUT /v1/companies/{companyId}/images` ile değişir, eklenme anıyla değil;
+            yoksa sıralamanın sonucu gözlenemez ve kapak hiç değiştirilemezdi (CMP-023).
           items:
             $ref: "#/components/schemas/GalleryImage"
 
     GalleryImage:
       type: object
-      description: Galerideki bir görüntü.
-      required: [mediaId, url]
+      description: |
+        Galerideki bir görüntü. Sıra numarası dizideki konumuna katlanmıştır ve kapak
+        dizinin ilk öğesidir; ikisi de ayrı alan taşımaz (ADR-0029 Karar 7).
+      required: [mediaId, url, caption]
       properties:
         mediaId:
           type: string
@@ -5508,6 +5522,10 @@ components:
           type: string
           description: Görüntünün genel adresi.
           examples: ["https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg"]
+        caption:
+          type: [string, "null"]
+          description: Görüntünün açıklaması; verilmediyse `null`.
+          examples: [Kadıköy deposu, yükleme rampası]
 
     # --- Faz 2: medya (ADR-0029 Karar 6)
 
@@ -5948,23 +5966,39 @@ components:
     ReplaceCompanyGalleryRequest:
       type: object
       description: |
-        Galerinin yeni içeriği. Sıra anlamlıdır: ilk medya kapaktır. Boş liste galeriyi
+        Galerinin yeni içeriği. Sıra anlamlıdır: ilk öğe kapaktır. Boş liste galeriyi
         boşaltır. Her medya hazır durumda olmak zorundadır (ADR-0029 Karar 7).
       additionalProperties: false
-      required: [mediaIds]
+      required: [items]
       properties:
-        mediaIds:
+        items:
           type: array
           maxItems: 10
-          description: Galerideki görüntülerin medya kimlikleri, kapak ilk olacak şekilde.
+          description: Galerinin öğeleri, kapak ilk olacak şekilde sıralı.
           items:
-            type: string
-            format: uuid
-            examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+            $ref: "#/components/schemas/CompanyGalleryItemInput"
       examples:
-        - mediaIds:
-            - 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
-            - 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31
+        - items:
+            - mediaId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
+              caption: Kadıköy deposu, yükleme rampası
+            - mediaId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31
+
+    CompanyGalleryItemInput:
+      type: object
+      description: "Galerinin bir öğesi: medya kimliği ve isteğe bağlı açıklaması."
+      additionalProperties: false
+      required: [mediaId]
+      properties:
+        mediaId:
+          type: string
+          format: uuid
+          description: Görüntünün medya kimliği.
+          examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
+        caption:
+          type: string
+          maxLength: 255
+          description: Görüntünün açıklaması.
+          examples: [Kadıköy deposu, yükleme rampası]
 
     EducationDegree:
       type: string

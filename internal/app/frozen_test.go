@@ -65,34 +65,50 @@ func TestPendingServerServesExactlyItsOperations(t *testing.T) {
 // ReadTest and JoinTest keep skipping the operation, and the two-way test
 // still matches. So: no method declared on strictServer may be one
 // pending.Server also has.
+//
+// The walk covers every file of this package, not only the one that
+// declares strictServer today: a forwarder put in staff.go or in a new
+// file would be exactly as invisible, and the file the type lives in is
+// not where the rule applies.
 func TestFrozenOperationsAreNotShadowed(t *testing.T) {
 	t.Parallel()
 
-	const file = "api.go"
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, file, nil, parser.SkipObjectResolution)
+	pkgs, err := parser.ParseDir(fset, ".", nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(pkgs) == 0 {
+		t.Fatal("no Go package parsed in this directory; the walk is looking in the wrong place")
+	}
 	frozen := methodNames(reflect.TypeOf(pending.Server{}))
-	own := 0
-	for _, decl := range f.Decls {
-		fd, ok := decl.(*ast.FuncDecl)
-		if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 {
-			continue
-		}
-		ident, ok := fd.Recv.List[0].Type.(*ast.Ident)
-		if !ok || ident.Name != "strictServer" {
-			continue
-		}
-		own++
-		if slices.Contains(frozen, fd.Name.Name) {
-			t.Errorf("%s: strictServer declares %s, which pending.Server also serves: the forwarder shadows the 501 stub while the contract still marks the operation frozen",
-				fset.Position(fd.Pos()), fd.Name.Name)
+	own, files := 0, 0
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			files++
+			for _, decl := range f.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 {
+					continue
+				}
+				// A value receiver is the only form that compiles here:
+				// strictServer is passed by value to the generated
+				// handler. A pointer receiver would not satisfy the
+				// interface, so it cannot hide a forwarder.
+				ident, ok := fd.Recv.List[0].Type.(*ast.Ident)
+				if !ok || ident.Name != "strictServer" {
+					continue
+				}
+				own++
+				if slices.Contains(frozen, fd.Name.Name) {
+					t.Errorf("%s: strictServer declares %s, which pending.Server also serves: the forwarder shadows the 501 stub while the contract still marks the operation frozen",
+						fset.Position(fd.Pos()), fd.Name.Name)
+				}
+			}
 		}
 	}
-	if own == 0 {
-		t.Fatalf("no method with a strictServer receiver found in %s; the walk is looking in the wrong place", file)
+	if files < 2 || own == 0 {
+		t.Fatalf("walked %d file(s) and found %d strictServer method(s); the walk is looking in the wrong place", files, own)
 	}
 }
 

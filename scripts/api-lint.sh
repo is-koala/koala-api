@@ -29,11 +29,11 @@ timeout="$2"
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 
-# unfinished is the signature of a rule vacuum did not run to completion.
-# It is matched against vacuum's own words, not against a rule name: no
-# koala-* rule description contains either phrase (the probe's rule walk
-# would notice if one started to).
-unfinished='Rule timed out, skipping|timed out after'
+# The signature of a rule vacuum did not run to completion comes from one
+# place, so the two scripts that look for it cannot drift apart. It is
+# matched against vacuum's own words, not against a rule name: no koala-*
+# rule description contains either phrase.
+. "$(dirname "$0")/lib/vacuum.sh"
 
 # lint <ruleset> <spec>: lint spec and fail on a violation or on a rule
 # that did not finish.
@@ -42,7 +42,7 @@ lint() {
 	"$vacuum" lint --no-update-check --no-banner --no-style --details --no-clip \
 		--timeout "$timeout" --ruleset "$ruleset" "$spec" >"$log" 2>&1 || code=$?
 	cat "$log"
-	if grep -qaE "$unfinished" "$log"; then
+	if grep -qaE "$VACUUM_UNFINISHED" "$log"; then
 		echo
 		echo "api lint: vacuum did not finish every rule on $spec (per-rule budget ${timeout}s)."
 		echo "A skipped rule reports nothing, so it is indistinguishable from a passing rule."

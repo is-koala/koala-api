@@ -226,7 +226,7 @@ scenarios:
       adres akışı sağlayıcı metnini de taşıyor.
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/AddressManager.java#createAddress"
-      - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#suggest"
+      - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#search"
     go_test: null
     deferred:
       phase: 2
@@ -273,7 +273,7 @@ scenarios:
     then:
       - "İki yanıt da var olmayan oturumun yanıtı; gövdeleri bayt bayt aynı"
     source:
-      - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#suggest"
+      - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#search"
       - "docs/faz0/authz-envanteri.csv:AZ-114"
     go_test: null
     deferred:

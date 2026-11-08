@@ -426,10 +426,16 @@ func (e VerificationStatus) Valid() bool {
 	}
 }
 
-// AddCompanyImageRequest Galeriye eklenecek görüntünün medya kimliği; medya hazır durumda olmak zorundadır.
+// AddCompanyImageRequest Galerinin sonuna eklenecek görüntü; medya hazır durumda olmak zorundadır. Galeri
+// boşsa eklenen görüntü kapak olur.
 //
-// Examples: {"mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30"}
+// Examples: {"caption":"Kadıköy deposu, yükleme rampası","mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30"}
 type AddCompanyImageRequest struct {
+	// Caption Görüntünün açıklaması.
+	//
+	// Examples: Kadıköy deposu, yükleme rampası
+	Caption *string `json:"caption,omitempty"`
+
 	// MediaID Görüntünün medya kimliği.
 	//
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
@@ -742,8 +748,23 @@ type CompanyGallery struct {
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
 	CoverMediaID *openapi_types.UUID `json:"coverMediaId"`
 
-	// Items Galerideki görüntüler, eklenme sırasına göre.
+	// Items Galerideki görüntüler **sıra numarasına göre**: ilk öğe kapaktır. Sıra
+	// `PUT /v1/companies/{companyId}/images` ile değişir, eklenme anıyla değil;
+	// yoksa sıralamanın sonucu gözlenemez ve kapak hiç değiştirilemezdi (CMP-023).
 	Items []GalleryImage `json:"items"`
+}
+
+// CompanyGalleryItemInput Galerinin bir öğesi: medya kimliği ve isteğe bağlı açıklaması.
+type CompanyGalleryItemInput struct {
+	// Caption Görüntünün açıklaması.
+	//
+	// Examples: Kadıköy deposu, yükleme rampası
+	Caption *string `json:"caption,omitempty"`
+
+	// MediaID Görüntünün medya kimliği.
+	//
+	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
+	MediaID openapi_types.UUID `json:"mediaId"`
 }
 
 // CompanyInvitation Bir şirket daveti. Taşıyıcı bir kimlik bilgisi değildir: yetki kimlikten gelir,
@@ -1127,8 +1148,14 @@ type FollowedCompanyPage struct {
 	PrevCursor *string `json:"prevCursor"`
 }
 
-// GalleryImage Galerideki bir görüntü.
+// GalleryImage Galerideki bir görüntü. Sıra numarası dizideki konumuna katlanmıştır ve kapak
+// dizinin ilk öğesidir; ikisi de ayrı alan taşımaz (ADR-0029 Karar 7).
 type GalleryImage struct {
+	// Caption Görüntünün açıklaması; verilmediyse `null`.
+	//
+	// Examples: Kadıköy deposu, yükleme rampası
+	Caption *string `json:"caption"`
+
 	// MediaID Görüntünün medya kimliği.
 	//
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
@@ -1538,13 +1565,13 @@ type RejectionRequest struct {
 	Reason string `json:"reason"`
 }
 
-// ReplaceCompanyGalleryRequest Galerinin yeni içeriği. Sıra anlamlıdır: ilk medya kapaktır. Boş liste galeriyi
+// ReplaceCompanyGalleryRequest Galerinin yeni içeriği. Sıra anlamlıdır: ilk öğe kapaktır. Boş liste galeriyi
 // boşaltır. Her medya hazır durumda olmak zorundadır (ADR-0029 Karar 7).
 //
-// Examples: {"mediaIds":["0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30","0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31"]}
+// Examples: {"items":[{"caption":"Kadıköy deposu, yükleme rampası","mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30"},{"mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31"}]}
 type ReplaceCompanyGalleryRequest struct {
-	// MediaIds Galerideki görüntülerin medya kimlikleri, kapak ilk olacak şekilde.
-	MediaIds []openapi_types.UUID `json:"mediaIds"`
+	// Items Galerinin öğeleri, kapak ilk olacak şekilde sıralı.
+	Items []CompanyGalleryItemInput `json:"items"`
 }
 
 // ResolvedAddress Bir önerinin bizim bileşenlerimize çözülmüş hâli. İstemci bunu olduğu gibi
