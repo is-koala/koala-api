@@ -196,7 +196,7 @@ type SignedRequest struct {
 // may write; the size, the detected type and the canvas are checked at
 // the complete step, against the object (ADR-0030 Karar 1).
 func (s *Store) PresignPut(ctx context.Context, key Key, ttl time.Duration) (SignedRequest, error) {
-	if err := s.check(key, ttl); err != nil {
+	if err := checkSigned(key, ttl); err != nil {
 		return SignedRequest{}, err
 	}
 	req, err := s.presign.PresignPutObject(ctx, &s3.PutObjectInput{
@@ -234,7 +234,7 @@ type Download struct {
 // disposition already set, so a client that follows the redirect gets
 // both headers (ADR-0030 Karar 1).
 func (s *Store) PresignGet(ctx context.Context, key Key, ttl time.Duration, d Download) (SignedRequest, error) {
-	if err := s.check(key, ttl); err != nil {
+	if err := checkSigned(key, ttl); err != nil {
 		return SignedRequest{}, err
 	}
 	in := &s3.GetObjectInput{
@@ -287,7 +287,7 @@ type ObjectInfo struct {
 
 // Head returns the object's metadata, or ErrNotFound.
 func (s *Store) Head(ctx context.Context, key Key) (ObjectInfo, error) {
-	if err := s.checkKey(key); err != nil {
+	if err := checkKey(key); err != nil {
 		return ObjectInfo{}, err
 	}
 	out, err := s.api.HeadObject(ctx, &s3.HeadObjectInput{
@@ -318,7 +318,7 @@ func (s *Store) Head(ctx context.Context, key Key) (ObjectInfo, error) {
 // read is one byte over the bound on purpose, so "exactly limit" passes
 // and "limit plus one" is caught without trusting the header.
 func (s *Store) Get(ctx context.Context, key Key, limit int64) ([]byte, error) {
-	if err := s.checkKey(key); err != nil {
+	if err := checkKey(key); err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
@@ -362,7 +362,7 @@ type PutOptions struct {
 
 // Put writes body at key.
 func (s *Store) Put(ctx context.Context, key Key, body []byte, o PutOptions) error {
-	if err := s.checkKey(key); err != nil {
+	if err := checkKey(key); err != nil {
 		return err
 	}
 	if o.ContentType == "" {
@@ -393,10 +393,10 @@ func (s *Store) Put(ctx context.Context, key Key, body []byte, o PutOptions) err
 // are not one operation. The caller owns the order and what a half
 // finished move leaves behind; Move states that order in one place.
 func (s *Store) Copy(ctx context.Context, from, to Key, o PutOptions) error {
-	if err := s.checkKey(from); err != nil {
+	if err := checkKey(from); err != nil {
 		return err
 	}
-	if err := s.checkKey(to); err != nil {
+	if err := checkKey(to); err != nil {
 		return err
 	}
 	if o.ContentType == "" {
@@ -450,7 +450,7 @@ var ErrSourceKept = errors.New("storage: move copied but did not delete the sour
 // Delete removes the object. Deleting an object that is not there
 // succeeds, as S3 does: a retried cleanup must not fail.
 func (s *Store) Delete(ctx context.Context, key Key) error {
-	if err := s.checkKey(key); err != nil {
+	if err := checkKey(key); err != nil {
 		return err
 	}
 	if _, err := s.api.DeleteObject(ctx, &s3.DeleteObjectInput{
@@ -481,8 +481,8 @@ func (s *Store) signed(rawURL, method string, headers http.Header, ttl time.Dura
 // or one download, so a long lived one is a mistake, not a feature.
 const MaxSignedTTL = time.Hour
 
-func (s *Store) check(key Key, ttl time.Duration) error {
-	if err := s.checkKey(key); err != nil {
+func checkSigned(key Key, ttl time.Duration) error {
+	if err := checkKey(key); err != nil {
 		return err
 	}
 	if ttl <= 0 || ttl > MaxSignedTTL {
@@ -494,7 +494,7 @@ func (s *Store) check(key Key, ttl time.Duration) error {
 // checkKey refuses the zero Key. Every other Key came from NewKey or
 // ParseKey and is well formed by construction, which EscapesPrefix
 // restates for the reader and FuzzStorageKey proves.
-func (s *Store) checkKey(key Key) error {
+func checkKey(key Key) error {
 	if key.Zero() || key.EscapesPrefix() {
 		return fmt.Errorf("%w: key", ErrKeyInvalid)
 	}

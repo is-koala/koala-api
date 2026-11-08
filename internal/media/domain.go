@@ -136,7 +136,7 @@ func (k Kind) Accepts(typ imaging.Type) bool {
 // defaults of ADR-0029 Karar 5 today — 10 MiB per file, 50 megapixels of
 // canvas, which are Java's values. The method exists so that a kind
 // which needs its own bound later gets it here and not at a call site.
-func (k Kind) Limits() imaging.Limits {
+func (Kind) Limits() imaging.Limits {
 	return imaging.Limits{
 		MaxBytes:    imaging.DefaultMaxBytes,
 		MaxPixels:   imaging.DefaultMaxPixels,
