@@ -42,6 +42,15 @@ Bir testi bu bulguya bağladık: sahte depo her isteğin imzaladığı başlık 
 
 `MaxSignedTTL` bir saattir. SigV4 yedi güne izin verir; Koala'nın adresi tek istemciye tek yükleme ya da tek indirme için verilir, uzun ömürlüsü hata olur. Yükleme adresi 15 dakika (`media.UploadTTL`), personel indirmesi 3 dakikadır (ADR-0029 Karar 6).
 
+#### Kabul edilen risk: yükleme boyutu adreste bağlı değil
+
+Yukarıdaki bulgunun sonucu bir **kabul edilmiş risktir**, açık soru değil. Faz 2 koordinasyonunda 08.11.2026'da karara bağlandı: **presigned PUT kalıyor.**
+
+- **Risk.** Yazma adresini alan istemci, karantina anahtarına istediği kadar büyük bir nesne yazabilir. Boyut sınırı yalnız tamamlama adımında, nesne zaten yazılmışken ölçülür.
+- **Neden kabul ediliyor.** Adres `Start` çağrısından geliyor, yani yazan taraf **kimlikli** ve o çağrı oran sınırlıdır (`x-rate-limit: upload`). Nesne karantina önekinde duruyor ve `incoming/` hiçbir genel adrese çözülmüyor (`Store.PublicURL`), yani yazılan şey kimseye servis edilmiyor. Tamamlama adımı tipi **içerikten** saptıyor ve boyutu `Head` ile ölçüyor, sınırı aşan nesne `REJECTED` olup siliniyor. Tamamlanmayan yükleme süpürme kuralıyla gidiyor. Kalan zarar tek bir yüklemenin geçici depolama maliyeti.
+- **Neden alternatif seçilmedi.** Boyutu ve tipi gerçekten imzalayan tek yol S3 POST policy'dir (`content-length-range` ve `Content-Type` koşulları imzaya girer). İki nedenle bu aşamada kötü takas: (a) yanıtta form alanları gerektirir, yani **yeni donmuş** `MediaUpload` şemasını değiştirmek demektir; (b) POST policy, S3 uyumlu depoların (MinIO, R2) en çok ayrıştığı yüzeydir. İkisi birlikte, ölçülmüş bir kötüye kullanım olmadan alınacak bir risk değil.
+- **Tetikleyici.** Kötüye kullanım görülürse — karantinada anormal boyutlar, süpürmenin temizlediği hacmin artması, maliyet sinyali — POST policy'ye geçilir ve `MediaUpload` şeması o zaman form alanları taşır. Bu bir **sözleşme değişikliğidir** ve kendi ADR'sini ister.
+
 ### 2. Anahtar düzeni `internal/platform/storage`'ta, tek doğrulama noktasıyla
 
 Anahtar dili ADR-0029 Karar 6'nın dilidir ve burada tekrar edilmez. Uygulama ayrıntıları:
@@ -96,7 +105,27 @@ Mekanizma listeyi tek tek silmek **değil**: görüntü çözülür ve standart 
 - **Tek yer.** Java'da `ImageMetadataStripper.strip` ortak sınıfta duruyor ama `IdentityVerificationManager:289` aynı işi satır içinde tekrar kuruyor (issue #362); bir tarafa yapılan düzeltme öbürüne geçmiyor. Go'da `imaging.Sanitize` tek uygulamadır ve her yükleme yolu ondan geçer.
 - **PNG'de de yön okunur.** Java yön etiketini yalnız JPEG'den okuyor. PNG 2017'den beri `eXIf` parçası taşıyabiliyor; Java'da o parça atılırken yön de kayboluyordu. Go iki biçimi de okur, ikisi de aynı TIFF okuyucusuna gider.
 
-**PDF üstverisi sökülmez — bilinen sınır.** Bir PDF yeniden kodlanamaz; onaylı bağımlılıklar arasında PDF kütüphanesi yok (ADR-0003) ve standart kütüphane PDF bilmez. Dolayısıyla CV'nin belge üstverisi (yazar, üretici, oluşturma tarihi, varsa gömülü betik) **olduğu gibi** kalır. Azaltma, nasıl sunulduğudur: PDF `Content-Disposition: attachment` ve saptanan `Content-Type` ile saklanır, `no-store` ile işaretlenir, genel bir adrese hiç çözülmez ve yalnız kısa ömürlü imzalı adresle verilir. Sınır testte açıkça kayıtlıdır (`TestCompleteCVMovesThePDFAsItIs`), yani sessiz değil. Gerçek temizlik gerekirse ayrı bir ADR ve bağımlılık onayı ister (Açık soru 2).
+**PDF üstverisi sökülmez — kabul edilen sınır.** Bir PDF yeniden kodlanamaz; onaylı bağımlılıklar arasında PDF kütüphanesi yok (ADR-0003) ve standart kütüphane PDF bilmez. Dolayısıyla CV'nin belge üstverisi (yazar, üretici, oluşturma tarihi) **olduğu gibi** kalır.
+
+Bu bir kabul edilmiş sınırdır, açık soru değil; Faz 2 koordinasyonunda 08.11.2026'da karara bağlandı: **Faz 2'de sökülmeyecek.**
+
+- **Gerekçe.** Bir PDF kütüphanesi eklemek bu PR'ın kapsamını aşar ve ayrı onay ister (ADR-0003 madde 3). KVKK açısından zorlayıcı bir gerekçe de görülmedi: özgeçmişin yazar alanındaki ad, kullanıcının kendi koyduğu ve zaten işverene gösterilen veridir — EXIF'teki GPS gibi, kullanıcının **farkında olmadan** verdiği bir veri değil. Ayrımın kendisi EXIF politikasının gerekçesidir (Karar 4'ün konum paragrafı) ve PDF'i onun dışında tutan şeydir.
+- **Azaltma.** Nasıl sunulduğu: PDF `Content-Disposition: attachment` ve saptanan `Content-Type` ile saklanır, `no-store` ile işaretlenir, **genel bir adrese hiç çözülmez** (`files/` öneki `Store.PublicURL`'den `false` döner) ve yalnız kısa ömürlü imzalı adresle verilir. Sınır testte açıkça kayıtlıdır (`TestCompleteCVMovesThePDFAsItIs`), yani sessiz değil.
+- **Tetikleyici.** İki durumda yeniden değerlendirilir: onaylı listeye bir PDF kütüphanesi girerse, ya da PDF'ler genel adrese çözülür hâle gelirse (o anda azaltmanın yarısı düşer). Yusuf'a bilgi olarak geçilecek.
+
+#### Bayt yürüyücüleri fuzz'lanır
+
+Yön okuyucusu üç elle yazılmış bayt yürüyücüsünden geçer: `jpegExifPayload` (JPEG bölüt zinciri), `pngExifChunk` (PNG parça zinciri) ve `tiffOrientation` (TIFF IFD'si). Üçü de **dosyadan gelen** uzunlukları, offset'leri ve giriş sayısını indeks olarak kullanır, ve bu katmanda girdisi doğrudan kullanıcıdan gelen tek yer burasıdır: bir panik, doğrudan servis dışı bırakmadır.
+
+Sınır denetimleri yazıldı ve tablo testleri onları sınıyor — ama tablo testi yazarın **düşündüğü** sınırları sınar. Bu yüzden üç fuzz hedefi var:
+
+- **`FuzzOrientation`** üç yürüyücüyü birlikte sürer. Değişmezler: panik yok, cevap her zaman EXIF aralığında (1–8; aralık dışı bir değer `applyOrientation`'da hedef rasterin dışını indeksler), görüntü olmayan tip hiç etiket taşımaz, ve okuyucu saftır (aynı girdiye iki kez aynı cevap).
+- **`FuzzDetect`** izin listesinin kapalılığını sürer: kabul edilen tip her zaman `Types()`'ta, reddedilen her zaman boş, ve geçerli bir başlığın **sonuna** veri eklemek tipi değiştiremez.
+- **`FuzzSanitize`** hattı uçtan uca sürer: kabul edilen çıktı aynı biçimde, verilen sınırların içinde, yön etiketi olmadan gelir ve ikinci geçiş onu değiştirmez.
+
+Tohumlar (`F.Add`) yürüyücülerin aritmetiğinin ortasına nişan alır: sonu aşan uzunluk, kendi uzunluk alanından küçük uzunluk, yürüyüşü ilerletmeyebilecek sıfır uzunluk zinciri, kendi başlığının içine ya da sonun ötesine işaret eden IFD offset'i, veriden çok daha büyük giriş sayısı, uzunluk taşımayan işaretçiler (RST, TEM, ikinci SOI), SOS'tan sonra devam etmeyi deneyen girdi, `count ≠ 1` ve yanlış tipli yön etiketi, Exif başlığı olmayan `eXIf` yükü, ve gerçek görüntüler (üstverili ve üstverisiz) ile CRC'si onarılmış bir dekompresyon bombası.
+
+`FuzzSanitize`'ın üstveri denetimi **yapısaldır** (etiketi geri okur), `"Exif"`/`"eXIf"` gibi alt dizge araması değil: sabit fikstürde o arama kesindir ve `TestSanitizeDropsEveryMetadataSegment` onu orada yapar, ama fuzz çıktısının sıkıştırılmış görüntü verisi rastgele bayttır ve dört baytlık bir dizi orada tesadüfen çıkıp kapıyı sebepsiz kırmızı yapabilir. Kararsız bir kapı testi, bir eksik iddiadan kötüdür.
 
 ### 5. Sınırlar ve varsayılanlar
 
@@ -148,6 +177,16 @@ Bu PR hiçbir `apperr.Code` sabiti **tanımlamaz**. Medya kodları (`MEDIA_NOT_F
 
 **Soft-delete ve PII:** bu PR hiç tablo, migration ya da sorgu getirmez, dolayısıyla `db/softdelete.yaml` kataloğuna ve `internal/platform/softdelete`'in JOIN lint'ine değmez. `media` tablosu, sınıflandırması ve fikstürü veri PR'ındadır; kimlik belgesi kaydının ADR-0026'nın PII kapısına bağlanması da (erişim kaydı yazılamazsa veri açılmaz) o PR'ın işidir. Bu PR'ın o yöndeki tek katkısı yapısaldır: `identity-documents/` öneki hiçbir genel adrese çözülmez (`Store.PublicURL` onu `false` döner), yani IDN-007 bir çağıranın dikkatine bırakılmaz.
 
+## Zorunlu ops adımı: karantina yaşam döngüsü
+
+Karar 1'in kabul edilen riskini kapatan şey karantinanın boşalmasıdır, dolayısıyla bu bir "sonra yapılır" kalemi değil, **dağıtımın koşuludur**:
+
+1. **`incoming/` önekinde nesne yaşam döngüsü kuralı bulunur.** Bucket'ta, önek `incoming/` için, 1 günde süresi dolan nesneleri silen bir yaşam döngüsü (lifecycle) kuralı tanımlanır. Bu, uygulamadan bağımsızdır: River işi hiç koşmasa, uygulama hiç açılmasa bile depo kendini temizler. S3, MinIO ve R2'nin üçü de nesne yaşam döngüsünü destekler.
+2. **Uygulama tarafındaki süpürme işi buna ek, yedek değil alternatif değildir.** River işi `media` satırlarını da `PENDING`'den çıkarmak zorundadır (satır nesneden bağımsız yaşar); yaşam döngüsü kuralı yalnız nesneyi siler. İş `media` tablosunu istediği için handler PR'ındadır, ama **yaşam döngüsü kuralı onu beklemez.**
+3. **Üretim ve staging'de bu kural olmadan yükleme uçları açılmaz.** `serve`'ün bunu makineyle doğrulaması mümkün değil (bucket politikası uygulamanın göremediği bir şey), bu yüzden kural `docs/runbook/yayin.md`'nin dağıtım adımına yazılır ve incelemede sorulur. Makine zorlayamıyorsa yazılı olması gerekir.
+
+ADR-0029 Karar 6 karantinanın saklama süresini **M2, 24 saat** olarak koydu; buradaki kural o kararın ops karşılığıdır, süresini değiştirmez.
+
 ## Yerine geçtiği
 
 1. **ADR-0029 Karar 6'nın `FuzzStorageKey`'i `internal/media`'ya koyan cümlesi** → Karar 2: hedef `internal/platform/storage`'ta, anahtar sözdizimiyle birlikte. Hedefin adı ve sınadığı iki değişmez değişmedi.
@@ -158,17 +197,18 @@ ADR-0019 §9, ADR-0023, ADR-0026 ve ADR-0029'un geri kalan kararları değişmiy
 ## Sonuçlar
 
 - Faz 2'nin çıkış kriterinin yol geçişi kalemi kapandı: `FuzzStorageKey` yeşil ve kapının `verify` job'ında, `-fuzz` olmadan, bütün tohumlarıyla koşuyor.
+- Dört fuzz hedefi var, hepsi aynı biçimde (`F.Add` tohumları, kapıda `go test` ile): `FuzzStorageKey` (Karar 2), ve `internal/platform/imaging`'in elle yazılmış bayt yürüyücüleri için `FuzzOrientation`, `FuzzDetect`, `FuzzSanitize` (Karar 4, "Bayt yürüyücüleri fuzz'lanır").
 - Handler PR'ının önünde üç şey hazır duruyor: `media.Pipeline.Start`/`Complete`, `media.Rejection` ve `storage.Store`. Ona kalan, tabloyu getirmek, `Rejection`'ı sözleşmenin hata koduna çevirmek ve doğrulamayı River işine taşımaktır (ADR-0029 Karar 6: `complete` `202` döner).
 - `media.Kind` sözleşmenin `MediaKind`'ini aynalar ve **elle** aynalar. Sözleşmeye tür eklenirse (PR #17'ye giren galeri ve kapak kararları böyle bir tür getirebilir) buraya da eklenmek zorundadır; eklenmezse tür hiçbir öneke çözülmez ve hat onu reddeder, yani sessiz bir yanlış yere yazma olamaz. Handler PR'ı spec'ten okuyan bir test yazarak bunu makineye bağlayabilir.
 - Bu PR'da kalanlar:
   - Gerçek MinIO'ya karşı `//go:build integration` testi. Kapıya servis container eklemek gerektiği için yazılmadı (Karar 6); eklenmesi kapı değişikliği olarak kendi PR'ında tartışılmalı.
-  - `incoming/` süpürme işi (24 saat, M2). River işidir ve `media` tablosunu ister.
-  - PDF belge üstverisinin temizlenmesi (Karar 4, Açık soru 2).
-  - `internal/platform/imaging`'in elle yazılmış bayt yürüyücüleri (`jpegExifPayload`, `pngExifChunk`, `tiffOrientation`) için fuzz hedefleri. Sınır denetimleri yazılı ve tablo testleriyle sınanıyor, ama o üç fonksiyon saldırganın verdiği uzunlukları ve offset'leri **indeks olarak** kullanıyor; bir `FuzzOrientation`/`FuzzSanitize` çifti "panik etmiyor ve 1–8 aralığının dışına çıkmıyor" değişmezlerini kanıtlardı. Bu PR'ın kapı turu bütçesi dolduğu için ayrı bir PR'a bırakıldı; çıkış kriterinin istediği yol geçişi fuzz'ı (`FuzzStorageKey`) yeşil ve bu kalem onun yerine geçmiyor, yanına ekleniyor.
+  - `incoming/` süpürme işinin **River tarafı** (`media` satırlarını `PENDING`'den çıkarmak). `media` tablosunu istediği için handler PR'ında; nesnelerin temizliği onu beklemez, "Zorunlu ops adımı" bölümündeki yaşam döngüsü kuralı onu dağıtımın koşulu yapar.
   - Yükleme uçlarının oran sınırı grubu (`x-rate-limit: upload`) `internal/app/edge.go`'nun tablosuna girecek; sözleşme PR #17'de, tablo handler PR'ında.
 
 ## Açık sorular
 
-1. **Yazma adresi boyutu ve tipi bağlasın mı?** Bağlamanın tek yolu S3 POST policy'dir (`content-length-range` ve `Content-Type` koşulları gerçekten imzalanır). Ama POST policy, yanıtta form alanları ister; ADR-0029'un `MediaUpload` şeması (`uploadUrl`, `uploadExpiresAt`) onları taşımıyor ve donmuş durumda. Bugünkü karar: presigned PUT, denetim tamamlamada. Değişmesi **sözleşme değişikliği** olur ve PR #17'nin alanına girer — Yusuf'a ve o PR'a kalan bir karar.
-2. **PDF üstverisi temizlenecek mi?** Bugün temizlenmiyor (Karar 4) ve azaltma sunum tarafında. Temizlemek onaylı liste dışında bir PDF kütüphanesi ister, yani ADR-0003 madde 3'e göre ayrı onay. Bir CV'nin yazar alanı bir KVKK kalemi mi, yoksa kullanıcının kendi koyduğu veri mi — bu bir **hukuk/ürün kararı** ve Yusuf'un onayını bekliyor.
-3. **Galeri ve kapak yeni bir `MediaKind` getiriyor mu? — Hayır, kapandı.** Soru PR #17'ye galeri değiştirme ve kapak kavramı girerken açıldı. PR #17 o kararı bu PR'ın incelemesi sürerken yazdı: "galeri sıralaması aynı zamanda kapağı belirler: listedeki ilk görüntü kapaktır, ayrı bir kapak ucu yoktur" (ADR-0029 Karar 7). Yani kapak bir medya türü değil, galerinin sırası; `MediaKind` beş değerinde kalıyor (`PROFILE_PICTURE`, `COMPANY_LOGO`, `COMPANY_IMAGE`, `IDENTITY_DOCUMENT`, `CV`) ve bu katmanda hiçbir şey değişmiyor — galeri görüntüsü, kapak olanı dahil, `COMPANY_IMAGE`'dır ve `images/` önekine iner. `media.Kind` sözleşmenin enum'unu **elle** aynalamaya devam ediyor; Sonuçlar'daki kalem (bilinmeyen tür hiçbir öneke çözülmez) o aynalamanın sessizce bozulmasını engelleyen şeydir.
+**Bu ADR'nin açtığı üç sorunun üçü de kabul öncesinde karara bağlandı; bugün açık soru kalmıyor.** Kayıt için, kararlar ve nerede durdukları:
+
+1. **Yazma adresi boyutu ve tipi bağlasın mı? → Hayır, presigned PUT kalıyor.** Faz 2 koordinasyonunda 08.11.2026. Risk, azaltmaları ve geçiş tetikleyicisi Karar 1'in "Kabul edilen risk" bölümünde; riski kapatan ops koşulu "Zorunlu ops adımı" bölümünde. POST policy'ye geçmek bir sözleşme değişikliğidir ve kendi ADR'sini ister.
+2. **PDF üstverisi temizlenecek mi? → Faz 2'de hayır.** Faz 2 koordinasyonunda 08.11.2026. Gerekçe, azaltma ve tetikleyici Karar 4'ün "kabul edilen sınır" bölümünde. Yusuf'a bilgi olarak geçilecek; onayı gerektiren bir adım değil, çünkü mevcut davranış korunuyor ve yeni bir bağımlılık alınmıyor.
+3. **Galeri ve kapak yeni bir `MediaKind` getiriyor mu? → Hayır.** PR #17 bu PR'ın incelemesi sürerken karara bağladı: "galeri sıralaması aynı zamanda kapağı belirler: listedeki ilk görüntü kapaktır, ayrı bir kapak ucu yoktur" (ADR-0029 Karar 7). Kapak bir medya türü değil, galerinin sırası; `MediaKind` beş değerinde kalıyor (`PROFILE_PICTURE`, `COMPANY_LOGO`, `COMPANY_IMAGE`, `IDENTITY_DOCUMENT`, `CV`) ve bu katmanda hiçbir şey değişmiyor — galeri görüntüsü, kapak olanı dahil, `COMPANY_IMAGE`'dır ve `images/` önekine iner. `media.Kind` sözleşmenin enum'unu **elle** aynalamaya devam ediyor; Sonuçlar'daki kalem (bilinmeyen tür hiçbir öneke çözülmez) o aynalamanın sessizce bozulmasını engelleyen şeydir.

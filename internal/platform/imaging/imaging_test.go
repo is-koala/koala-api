@@ -29,20 +29,20 @@ func gradient(w, h int) *image.RGBA {
 	return img
 }
 
-func encodeJPEG(t *testing.T, img image.Image) []byte {
-	t.Helper()
+func encodeJPEG(tb testing.TB, img image.Image) []byte {
+	tb.Helper()
 	var buf bytes.Buffer
 	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 95}); err != nil {
-		t.Fatalf("jpeg.Encode() = %v", err)
+		tb.Fatalf("jpeg.Encode() = %v", err)
 	}
 	return buf.Bytes()
 }
 
-func encodePNG(t *testing.T, img image.Image) []byte {
-	t.Helper()
+func encodePNG(tb testing.TB, img image.Image) []byte {
+	tb.Helper()
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
-		t.Fatalf("png.Encode() = %v", err)
+		tb.Fatalf("png.Encode() = %v", err)
 	}
 	return buf.Bytes()
 }
@@ -70,10 +70,10 @@ func tiffBlock(tags map[uint16]uint16) []byte {
 
 // withJPEGAPP1 splices an APP1 segment holding payload in right after
 // the SOI marker, which is where a camera writes EXIF.
-func withJPEGAPP1(t *testing.T, jpegBytes, payload []byte) []byte {
-	t.Helper()
+func withJPEGAPP1(tb testing.TB, jpegBytes, payload []byte) []byte {
+	tb.Helper()
 	if len(jpegBytes) < 2 || jpegBytes[0] != 0xFF || jpegBytes[1] != 0xD8 {
-		t.Fatal("not a JPEG")
+		tb.Fatal("not a JPEG")
 	}
 	segment := append([]byte("Exif\x00\x00"), payload...)
 	out := make([]byte, 0, len(jpegBytes)+len(segment)+4)
@@ -85,11 +85,11 @@ func withJPEGAPP1(t *testing.T, jpegBytes, payload []byte) []byte {
 
 // withPNGeXIf splices an eXIf chunk in front of the first chunk after the
 // signature, which is where the PNG specification puts it.
-func withPNGeXIf(t *testing.T, pngBytes, payload []byte) []byte {
-	t.Helper()
+func withPNGeXIf(tb testing.TB, pngBytes, payload []byte) []byte {
+	tb.Helper()
 	const signatureLen = 8
 	if len(pngBytes) < signatureLen {
-		t.Fatal("not a PNG")
+		tb.Fatal("not a PNG")
 	}
 	// The IHDR chunk has to stay first, so the eXIf chunk goes after it:
 	// 8 signature + 4 length + 4 type + 13 data + 4 crc.

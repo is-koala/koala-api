@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -253,13 +252,12 @@ func (f *S3) keyOf(path string) (string, bool) {
 	if !found || bucket != f.bucket || key == "" {
 		return "", false
 	}
-	// The path arrives decoded; a key with no character needing an
-	// escape, which is every Koala key, round trips unchanged.
-	decoded, err := url.PathUnescape(key)
-	if err != nil {
-		return key, true
-	}
-	return decoded, true
+	// net/http has already percent-decoded the path, and the fake does
+	// not decode it a second time. A second round would make the fake
+	// accept keys the real store would refuse, and the difference
+	// between the fake's decoding and the real client's is exactly what
+	// this file exists not to introduce.
+	return key, true
 }
 
 // setIfAny writes the first non-empty value to the header.
