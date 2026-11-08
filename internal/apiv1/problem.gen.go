@@ -5,6 +5,10 @@ package apiv1
 
 // Defines values for ErrorCode.
 const (
+	ErrorCodeADDRESSNOTFOUND                     ErrorCode = "ADDRESS_NOT_FOUND"
+	ErrorCodeADDRESSOUTSIDESERVICEAREA           ErrorCode = "ADDRESS_OUTSIDE_SERVICE_AREA"
+	ErrorCodeADDRESSPROVIDERUNAVAILABLE          ErrorCode = "ADDRESS_PROVIDER_UNAVAILABLE"
+	ErrorCodeADDRESSSEARCHSESSIONNOTFOUND        ErrorCode = "ADDRESS_SEARCH_SESSION_NOT_FOUND"
 	ErrorCodeAPPVERSIONUNSUPPORTED               ErrorCode = "APP_VERSION_UNSUPPORTED"
 	ErrorCodeAUTHACCOUNTSUSPENDED                ErrorCode = "AUTH_ACCOUNT_SUSPENDED"
 	ErrorCodeAUTHEMAILORPASSWORDMISMATCH         ErrorCode = "AUTH_EMAIL_OR_PASSWORD_MISMATCH"
@@ -17,11 +21,28 @@ const (
 	ErrorCodeAUTHTOKENEXPIRED                    ErrorCode = "AUTH_TOKEN_EXPIRED"
 	ErrorCodeAUTHTOKENINVALID                    ErrorCode = "AUTH_TOKEN_INVALID"
 	ErrorCodeAUTHTOKENMISSING                    ErrorCode = "AUTH_TOKEN_MISSING"
+	ErrorCodeCOMPANYALREADYAPPROVED              ErrorCode = "COMPANY_ALREADY_APPROVED"
+	ErrorCodeCOMPANYALREADYREJECTED              ErrorCode = "COMPANY_ALREADY_REJECTED"
+	ErrorCodeCOMPANYAPPROVEDNOTREJECTABLE        ErrorCode = "COMPANY_APPROVED_NOT_REJECTABLE"
+	ErrorCodeCOMPANYCONTACTALREADYMEMBER         ErrorCode = "COMPANY_CONTACT_ALREADY_MEMBER"
+	ErrorCodeCOMPANYCONTACTNOTFOUND              ErrorCode = "COMPANY_CONTACT_NOT_FOUND"
+	ErrorCodeCOMPANYGALLERYDUPLICATEIMAGE        ErrorCode = "COMPANY_GALLERY_DUPLICATE_IMAGE"
+	ErrorCodeCOMPANYGALLERYLIMITREACHED          ErrorCode = "COMPANY_GALLERY_LIMIT_REACHED"
+	ErrorCodeCOMPANYINVITATIONALREADYANSWERED    ErrorCode = "COMPANY_INVITATION_ALREADY_ANSWERED"
+	ErrorCodeCOMPANYINVITATIONALREADYPENDING     ErrorCode = "COMPANY_INVITATION_ALREADY_PENDING"
+	ErrorCodeCOMPANYINVITATIONEXPIRED            ErrorCode = "COMPANY_INVITATION_EXPIRED"
+	ErrorCodeCOMPANYINVITATIONNOTFOUND           ErrorCode = "COMPANY_INVITATION_NOT_FOUND"
+	ErrorCodeCOMPANYLASTADMINCANNOTBEREMOVED     ErrorCode = "COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED"
+	ErrorCodeCOMPANYNOTAPPROVED                  ErrorCode = "COMPANY_NOT_APPROVED"
+	ErrorCodeCOMPANYNOTFOUND                     ErrorCode = "COMPANY_NOT_FOUND"
+	ErrorCodeCONSENTREQUIRED                     ErrorCode = "CONSENT_REQUIRED"
 	ErrorCodeCONTENTTYPEUNSUPPORTED              ErrorCode = "CONTENT_TYPE_UNSUPPORTED"
 	ErrorCodeCONVERSATIONNOTFOUND                ErrorCode = "CONVERSATION_NOT_FOUND"
 	ErrorCodeCURSORINVALID                       ErrorCode = "CURSOR_INVALID"
 	ErrorCodeDELETIONALREADYRESTORED             ErrorCode = "DELETION_ALREADY_RESTORED"
 	ErrorCodeDELETIONNOTFOUND                    ErrorCode = "DELETION_NOT_FOUND"
+	ErrorCodeEDUCATIONNOTFOUND                   ErrorCode = "EDUCATION_NOT_FOUND"
+	ErrorCodeEDUCATIONPERIODINVALID              ErrorCode = "EDUCATION_PERIOD_INVALID"
 	ErrorCodeFIELDFORMATINVALID                  ErrorCode = "FIELD_FORMAT_INVALID"
 	ErrorCodeFIELDOUTOFRANGE                     ErrorCode = "FIELD_OUT_OF_RANGE"
 	ErrorCodeFIELDREQUIRED                       ErrorCode = "FIELD_REQUIRED"
@@ -31,9 +52,27 @@ const (
 	ErrorCodeIDEMPOTENCYKEYINUSE                 ErrorCode = "IDEMPOTENCY_KEY_IN_USE"
 	ErrorCodeIDEMPOTENCYKEYREQUIRED              ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
 	ErrorCodeIDEMPOTENCYKEYREUSED                ErrorCode = "IDEMPOTENCY_KEY_REUSED"
+	ErrorCodeIDENTITYALREADYVERIFIED             ErrorCode = "IDENTITY_ALREADY_VERIFIED"
+	ErrorCodeIDENTITYDOCUMENTNOTFOUND            ErrorCode = "IDENTITY_DOCUMENT_NOT_FOUND"
+	ErrorCodeIDENTITYDOCUMENTSNOTFOUND           ErrorCode = "IDENTITY_DOCUMENTS_NOT_FOUND"
+	ErrorCodeIDENTITYNUMBERINUSE                 ErrorCode = "IDENTITY_NUMBER_IN_USE"
+	ErrorCodeIDENTITYREVIEWALREADYDECIDED        ErrorCode = "IDENTITY_REVIEW_ALREADY_DECIDED"
+	ErrorCodeIDENTITYREVIEWDOCUMENTSMISSING      ErrorCode = "IDENTITY_REVIEW_DOCUMENTS_MISSING"
+	ErrorCodeIDENTITYREVIEWNOTFOUND              ErrorCode = "IDENTITY_REVIEW_NOT_FOUND"
+	ErrorCodeIDENTITYREVIEWPENDING               ErrorCode = "IDENTITY_REVIEW_PENDING"
 	ErrorCodeINTERNAL                            ErrorCode = "INTERNAL"
+	ErrorCodeMEDIANOTFOUND                       ErrorCode = "MEDIA_NOT_FOUND"
+	ErrorCodeMEDIANOTREADY                       ErrorCode = "MEDIA_NOT_READY"
+	ErrorCodeMEDIATOOLARGE                       ErrorCode = "MEDIA_TOO_LARGE"
+	ErrorCodeMEDIATYPEUNSUPPORTED                ErrorCode = "MEDIA_TYPE_UNSUPPORTED"
+	ErrorCodeMEDIAUPLOADINCOMPLETE               ErrorCode = "MEDIA_UPLOAD_INCOMPLETE"
 	ErrorCodeMETHODNOTALLOWED                    ErrorCode = "METHOD_NOT_ALLOWED"
+	ErrorCodeNOTIMPLEMENTED                      ErrorCode = "NOT_IMPLEMENTED"
+	ErrorCodePASSWORDCONFIRMATIONMISMATCH        ErrorCode = "PASSWORD_CONFIRMATION_MISMATCH"
+	ErrorCodePASSWORDMISMATCH                    ErrorCode = "PASSWORD_MISMATCH"
 	ErrorCodePASSWORDPOLICYVIOLATION             ErrorCode = "PASSWORD_POLICY_VIOLATION"
+	ErrorCodePASSWORDRESETTOKENINVALID           ErrorCode = "PASSWORD_RESET_TOKEN_INVALID"
+	ErrorCodePASSWORDREUSED                      ErrorCode = "PASSWORD_REUSED"
 	ErrorCodePATHINVALID                         ErrorCode = "PATH_INVALID"
 	ErrorCodeRATELIMITED                         ErrorCode = "RATE_LIMITED"
 	ErrorCodeREALTIMECOMMANDINVALID              ErrorCode = "REALTIME_COMMAND_INVALID"
@@ -46,6 +85,8 @@ const (
 	ErrorCodeREALTIMETICKETINVALID               ErrorCode = "REALTIME_TICKET_INVALID"
 	ErrorCodeREALTIMETICKETRATELIMITED           ErrorCode = "REALTIME_TICKET_RATE_LIMITED"
 	ErrorCodeREALTIMETOOMANYCONNECTIONS          ErrorCode = "REALTIME_TOO_MANY_CONNECTIONS"
+	ErrorCodeREFERENCEITEMNOTFOUND               ErrorCode = "REFERENCE_ITEM_NOT_FOUND"
+	ErrorCodeREGISTRATIONTOKENINVALID            ErrorCode = "REGISTRATION_TOKEN_INVALID"
 	ErrorCodeREQUESTBODYMALFORMED                ErrorCode = "REQUEST_BODY_MALFORMED"
 	ErrorCodeREQUESTBODYTOOLARGE                 ErrorCode = "REQUEST_BODY_TOO_LARGE"
 	ErrorCodeREQUESTINVALID                      ErrorCode = "REQUEST_INVALID"
@@ -60,11 +101,29 @@ const (
 	ErrorCodeSTAFFPASSWORDCHANGEREQUIRED         ErrorCode = "STAFF_PASSWORD_CHANGE_REQUIRED"
 	ErrorCodeSTAFFPERMISSIONDENIED               ErrorCode = "STAFF_PERMISSION_DENIED"
 	ErrorCodeSTAFFSESSIONENDED                   ErrorCode = "STAFF_SESSION_ENDED"
+	ErrorCodeUSERFIELDIMMUTABLE                  ErrorCode = "USER_FIELD_IMMUTABLE"
+	ErrorCodeUSERMUSTVERIFYIDENTITY              ErrorCode = "USER_MUST_VERIFY_IDENTITY"
+	ErrorCodeUSERNOTFOUND                        ErrorCode = "USER_NOT_FOUND"
+	ErrorCodeVERIFICATIONALREADYCONFIRMED        ErrorCode = "VERIFICATION_ALREADY_CONFIRMED"
+	ErrorCodeVERIFICATIONATTEMPTSEXHAUSTED       ErrorCode = "VERIFICATION_ATTEMPTS_EXHAUSTED"
+	ErrorCodeVERIFICATIONCODEEXPIRED             ErrorCode = "VERIFICATION_CODE_EXPIRED"
+	ErrorCodeVERIFICATIONCODEINVALID             ErrorCode = "VERIFICATION_CODE_INVALID"
+	ErrorCodeVERIFICATIONNOTFOUND                ErrorCode = "VERIFICATION_NOT_FOUND"
+	ErrorCodeVERIFICATIONRESENDTOOSOON           ErrorCode = "VERIFICATION_RESEND_TOO_SOON"
+	ErrorCodeVERIFICATIONTARGETINUSE             ErrorCode = "VERIFICATION_TARGET_IN_USE"
 )
 
 // Valid indicates whether the value is a known member of the ErrorCode enum.
 func (e ErrorCode) Valid() bool {
 	switch e {
+	case ErrorCodeADDRESSNOTFOUND:
+		return true
+	case ErrorCodeADDRESSOUTSIDESERVICEAREA:
+		return true
+	case ErrorCodeADDRESSPROVIDERUNAVAILABLE:
+		return true
+	case ErrorCodeADDRESSSEARCHSESSIONNOTFOUND:
+		return true
 	case ErrorCodeAPPVERSIONUNSUPPORTED:
 		return true
 	case ErrorCodeAUTHACCOUNTSUSPENDED:
@@ -89,6 +148,36 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeAUTHTOKENMISSING:
 		return true
+	case ErrorCodeCOMPANYALREADYAPPROVED:
+		return true
+	case ErrorCodeCOMPANYALREADYREJECTED:
+		return true
+	case ErrorCodeCOMPANYAPPROVEDNOTREJECTABLE:
+		return true
+	case ErrorCodeCOMPANYCONTACTALREADYMEMBER:
+		return true
+	case ErrorCodeCOMPANYCONTACTNOTFOUND:
+		return true
+	case ErrorCodeCOMPANYGALLERYDUPLICATEIMAGE:
+		return true
+	case ErrorCodeCOMPANYGALLERYLIMITREACHED:
+		return true
+	case ErrorCodeCOMPANYINVITATIONALREADYANSWERED:
+		return true
+	case ErrorCodeCOMPANYINVITATIONALREADYPENDING:
+		return true
+	case ErrorCodeCOMPANYINVITATIONEXPIRED:
+		return true
+	case ErrorCodeCOMPANYINVITATIONNOTFOUND:
+		return true
+	case ErrorCodeCOMPANYLASTADMINCANNOTBEREMOVED:
+		return true
+	case ErrorCodeCOMPANYNOTAPPROVED:
+		return true
+	case ErrorCodeCOMPANYNOTFOUND:
+		return true
+	case ErrorCodeCONSENTREQUIRED:
+		return true
 	case ErrorCodeCONTENTTYPEUNSUPPORTED:
 		return true
 	case ErrorCodeCONVERSATIONNOTFOUND:
@@ -98,6 +187,10 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeDELETIONALREADYRESTORED:
 		return true
 	case ErrorCodeDELETIONNOTFOUND:
+		return true
+	case ErrorCodeEDUCATIONNOTFOUND:
+		return true
+	case ErrorCodeEDUCATIONPERIODINVALID:
 		return true
 	case ErrorCodeFIELDFORMATINVALID:
 		return true
@@ -117,11 +210,47 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeIDEMPOTENCYKEYREUSED:
 		return true
+	case ErrorCodeIDENTITYALREADYVERIFIED:
+		return true
+	case ErrorCodeIDENTITYDOCUMENTNOTFOUND:
+		return true
+	case ErrorCodeIDENTITYDOCUMENTSNOTFOUND:
+		return true
+	case ErrorCodeIDENTITYNUMBERINUSE:
+		return true
+	case ErrorCodeIDENTITYREVIEWALREADYDECIDED:
+		return true
+	case ErrorCodeIDENTITYREVIEWDOCUMENTSMISSING:
+		return true
+	case ErrorCodeIDENTITYREVIEWNOTFOUND:
+		return true
+	case ErrorCodeIDENTITYREVIEWPENDING:
+		return true
 	case ErrorCodeINTERNAL:
+		return true
+	case ErrorCodeMEDIANOTFOUND:
+		return true
+	case ErrorCodeMEDIANOTREADY:
+		return true
+	case ErrorCodeMEDIATOOLARGE:
+		return true
+	case ErrorCodeMEDIATYPEUNSUPPORTED:
+		return true
+	case ErrorCodeMEDIAUPLOADINCOMPLETE:
 		return true
 	case ErrorCodeMETHODNOTALLOWED:
 		return true
+	case ErrorCodeNOTIMPLEMENTED:
+		return true
+	case ErrorCodePASSWORDCONFIRMATIONMISMATCH:
+		return true
+	case ErrorCodePASSWORDMISMATCH:
+		return true
 	case ErrorCodePASSWORDPOLICYVIOLATION:
+		return true
+	case ErrorCodePASSWORDRESETTOKENINVALID:
+		return true
+	case ErrorCodePASSWORDREUSED:
 		return true
 	case ErrorCodePATHINVALID:
 		return true
@@ -146,6 +275,10 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeREALTIMETICKETRATELIMITED:
 		return true
 	case ErrorCodeREALTIMETOOMANYCONNECTIONS:
+		return true
+	case ErrorCodeREFERENCEITEMNOTFOUND:
+		return true
+	case ErrorCodeREGISTRATIONTOKENINVALID:
 		return true
 	case ErrorCodeREQUESTBODYMALFORMED:
 		return true
@@ -174,6 +307,26 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeSTAFFPERMISSIONDENIED:
 		return true
 	case ErrorCodeSTAFFSESSIONENDED:
+		return true
+	case ErrorCodeUSERFIELDIMMUTABLE:
+		return true
+	case ErrorCodeUSERMUSTVERIFYIDENTITY:
+		return true
+	case ErrorCodeUSERNOTFOUND:
+		return true
+	case ErrorCodeVERIFICATIONALREADYCONFIRMED:
+		return true
+	case ErrorCodeVERIFICATIONATTEMPTSEXHAUSTED:
+		return true
+	case ErrorCodeVERIFICATIONCODEEXPIRED:
+		return true
+	case ErrorCodeVERIFICATIONCODEINVALID:
+		return true
+	case ErrorCodeVERIFICATIONNOTFOUND:
+		return true
+	case ErrorCodeVERIFICATIONRESENDTOOSOON:
+		return true
+	case ErrorCodeVERIFICATIONTARGETINUSE:
 		return true
 	default:
 		return false
@@ -285,6 +438,96 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `STAFF_PERMISSION_DENIED` (403): personel, operasyonun `x-authz-permission` iznini
 //     tutmuyor; ret denetim kaydına yazılır (AUTH-012, ADR-0026).
 //
+// Sözleşmesi dondurulmuş ama handler'ı henüz gelmemiş operasyon (ADR-0029 §1):
+//   - `NOT_IMPLEMENTED` (501): yol ve sözleşmesi vardır, uygulaması yoktur. Operasyon
+//     spec'te `x-not-implemented` taşır ve bu kod onun `default` yanıtı altında döner;
+//     `ROUTE_NOT_FOUND` ile karıştırılmaz.
+//
+// Kayıt, parola ve doğrulama kodları (ADR-0029 Karar 2-4):
+//   - `REGISTRATION_TOKEN_INVALID` (400): kayıt bağlantısının ya da kayıt token'ının
+//     bilinmeyen, iptal edilmiş, süresi dolmuş ya da tüketilmiş hâli; dördü ayırt edilemez.
+//   - `CONSENT_REQUIRED` (400): zorunlu bir sözleşme sürümüne rıza verilmedi; kayıt token'ı
+//     tüketilmez.
+//   - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
+//     iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
+//   - `PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+//   - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
+//   - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
+//   - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
+//     aynı yanıtı alır (USR-011).
+//   - `VERIFICATION_CODE_INVALID` (400): kod yanlış; deneme hakkı bir azalır.
+//   - `VERIFICATION_CODE_EXPIRED` (400): kodun on dakikası doldu. Süre kontrolü kodun önüne
+//     geçer, böylece kod doğruluğu sızmaz (USR-012).
+//   - `VERIFICATION_ATTEMPTS_EXHAUSTED` (409): beş yanlış deneme doldu; doğrulama yakıldı ve
+//     doğru kodla bile onaylanamaz (USR-009).
+//   - `VERIFICATION_ALREADY_CONFIRMED` (409): doğrulama zaten onaylanmış; ikinci onay kodu
+//     hiç bakılmadan reddedilir (USR-013).
+//   - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres ya da numara başka bir
+//     hesapta.
+//   - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi ya da hedef
+//     başına saatlik bütçe doldu (USR-010); `Retry-After` döner.
+//   - `USER_NOT_FOUND` (404): kullanıcı yok ya da görme yetkisi yok; ikisi ayırt edilemez.
+//   - `USER_FIELD_IMMUTABLE` (409): kimlik doğrulandıktan sonra ad, soyad ya da doğum tarihi
+//     değiştirilemez (USR-024).
+//   - `USER_MUST_VERIFY_IDENTITY` (403): işlem kimliğin doğrulanmış olmasını istiyor (şirket
+//     kurmak, şirkete davet edilmek; CMP-001, CMP-009).
+//
+// Kimlik incelemesi kodları (ADR-0029 Karar 5):
+//   - `IDENTITY_ALREADY_VERIFIED` (409): kimliği doğrulanmış kullanıcı yeni gönderim yapamaz.
+//   - `IDENTITY_REVIEW_PENDING` (409): açık bir inceleme varken ikinci gönderim yapılamaz
+//     (IDN-002).
+//   - `IDENTITY_REVIEW_NOT_FOUND` (404): inceleme yok ya da görme yetkisi yok.
+//   - `IDENTITY_REVIEW_ALREADY_DECIDED` (409): onaylanmış ya da reddedilmiş incelemeye ikinci
+//     karar verilemez; yarışan iki karardan ikincisi buraya düşer (IDN-010).
+//   - `IDENTITY_REVIEW_DOCUMENTS_MISSING` (409): onay dört fotoğraf yuvasının hepsini ister;
+//     anahtarı boşaltılmış yuva kanıt sayılmaz (IDN-008).
+//   - `IDENTITY_DOCUMENTS_NOT_FOUND` (404): kullanıcı hiç gönderim yapmamış.
+//   - `IDENTITY_DOCUMENT_NOT_FOUND` (404): fotoğraf bu incelemeye ait değil, anahtarı
+//     boşaltılmış ya da hiç olmamış; üçü ayırt edilemez (IDN-016).
+//   - `IDENTITY_NUMBER_IN_USE` (409): kimlik numarası başka bir kullanıcıya onaylanmış
+//     (IDN-012).
+//
+// Şirket, üyelik ve davet kodları (ADR-0029 Karar 7):
+//   - `COMPANY_NOT_FOUND` (404): şirket yok ya da görme yetkisi yok; yönetici olmayan çağıran
+//     da bunu alır (CMP-006).
+//   - `COMPANY_NOT_APPROVED` (409): şirket onaylanmadan ilan yayınlayamaz (CMP-005).
+//   - `COMPANY_ALREADY_APPROVED` (409): onaylanmış şirket yeniden onaylanamaz.
+//   - `COMPANY_ALREADY_REJECTED` (409): reddedilmiş şirket ikinci kez reddedilemez.
+//   - `COMPANY_APPROVED_NOT_REJECTABLE` (409): onaylanmış şirket reddedilemez (CMP-002).
+//   - `COMPANY_CONTACT_NOT_FOUND` (404): böyle bir üyelik yok.
+//   - `COMPANY_CONTACT_ALREADY_MEMBER` (409): kişi şirketin zaten üyesi (CMP-011).
+//   - `COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED` (409): şirketin tek yöneticisi çıkarılamaz
+//     (CMP-007).
+//   - `COMPANY_INVITATION_NOT_FOUND` (404): davet yok ya da çağıran tarafı değil; ikisi ayırt
+//     edilemez ve davetin durumu hiç sorulmaz (CMP-012).
+//   - `COMPANY_INVITATION_ALREADY_PENDING` (409): aynı kişiye aynı anda ikinci davet
+//     gönderilemez (CMP-010).
+//   - `COMPANY_INVITATION_ALREADY_ANSWERED` (409): cevaplanmış ya da geri alınmış davet
+//     yeniden cevaplanamaz (CMP-014).
+//   - `COMPANY_INVITATION_EXPIRED` (409): davetin on dört günü doldu (CMP-015).
+//   - `COMPANY_GALLERY_LIMIT_REACHED` (409): galeri en çok on görüntü taşır (MED-011).
+//   - `COMPANY_GALLERY_DUPLICATE_IMAGE` (409): aynı medya galeri listesinde iki kez geçiyor;
+//     sıra anlamlı olduğu için bir görüntünün iki konumu olamaz (CMP-024).
+//
+// Medya, adres ve referans kodları (ADR-0029 Karar 6, Karar 8):
+//   - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
+//   - `MEDIA_NOT_READY` (409): medya henüz doğrulanıp striplenmedi; bir kaynağa bağlanamaz.
+//   - `MEDIA_UPLOAD_INCOMPLETE` (409): karantinada nesne yok; istemci yazma adresine hiç
+//     yazmamış.
+//   - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil.
+//     İstemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
+//   - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004).
+//   - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
+//   - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
+//     bir kullanıcının; üçü ayırt edilemez (MED-010).
+//   - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
+//   - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
+//   - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
+//     adrese eşleşmiyor.
+//   - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
+//     edilemez.
+//   - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
+//
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
 // - `FIELD_UNKNOWN`: istek şemasında olmayan alan; gövdesi olmayan operasyona gövde.
@@ -381,6 +624,96 @@ type Problem struct {
 	// - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
 	// - `STAFF_PERMISSION_DENIED` (403): personel, operasyonun `x-authz-permission` iznini
 	//   tutmuyor; ret denetim kaydına yazılır (AUTH-012, ADR-0026).
+	//
+	// Sözleşmesi dondurulmuş ama handler'ı henüz gelmemiş operasyon (ADR-0029 §1):
+	// - `NOT_IMPLEMENTED` (501): yol ve sözleşmesi vardır, uygulaması yoktur. Operasyon
+	//   spec'te `x-not-implemented` taşır ve bu kod onun `default` yanıtı altında döner;
+	//   `ROUTE_NOT_FOUND` ile karıştırılmaz.
+	//
+	// Kayıt, parola ve doğrulama kodları (ADR-0029 Karar 2-4):
+	// - `REGISTRATION_TOKEN_INVALID` (400): kayıt bağlantısının ya da kayıt token'ının
+	//   bilinmeyen, iptal edilmiş, süresi dolmuş ya da tüketilmiş hâli; dördü ayırt edilemez.
+	// - `CONSENT_REQUIRED` (400): zorunlu bir sözleşme sürümüne rıza verilmedi; kayıt token'ı
+	//   tüketilmez.
+	// - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
+	//   iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
+	// - `PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+	// - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
+	// - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
+	// - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
+	//   aynı yanıtı alır (USR-011).
+	// - `VERIFICATION_CODE_INVALID` (400): kod yanlış; deneme hakkı bir azalır.
+	// - `VERIFICATION_CODE_EXPIRED` (400): kodun on dakikası doldu. Süre kontrolü kodun önüne
+	//   geçer, böylece kod doğruluğu sızmaz (USR-012).
+	// - `VERIFICATION_ATTEMPTS_EXHAUSTED` (409): beş yanlış deneme doldu; doğrulama yakıldı ve
+	//   doğru kodla bile onaylanamaz (USR-009).
+	// - `VERIFICATION_ALREADY_CONFIRMED` (409): doğrulama zaten onaylanmış; ikinci onay kodu
+	//   hiç bakılmadan reddedilir (USR-013).
+	// - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres ya da numara başka bir
+	//   hesapta.
+	// - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi ya da hedef
+	//   başına saatlik bütçe doldu (USR-010); `Retry-After` döner.
+	// - `USER_NOT_FOUND` (404): kullanıcı yok ya da görme yetkisi yok; ikisi ayırt edilemez.
+	// - `USER_FIELD_IMMUTABLE` (409): kimlik doğrulandıktan sonra ad, soyad ya da doğum tarihi
+	//   değiştirilemez (USR-024).
+	// - `USER_MUST_VERIFY_IDENTITY` (403): işlem kimliğin doğrulanmış olmasını istiyor (şirket
+	//   kurmak, şirkete davet edilmek; CMP-001, CMP-009).
+	//
+	// Kimlik incelemesi kodları (ADR-0029 Karar 5):
+	// - `IDENTITY_ALREADY_VERIFIED` (409): kimliği doğrulanmış kullanıcı yeni gönderim yapamaz.
+	// - `IDENTITY_REVIEW_PENDING` (409): açık bir inceleme varken ikinci gönderim yapılamaz
+	//   (IDN-002).
+	// - `IDENTITY_REVIEW_NOT_FOUND` (404): inceleme yok ya da görme yetkisi yok.
+	// - `IDENTITY_REVIEW_ALREADY_DECIDED` (409): onaylanmış ya da reddedilmiş incelemeye ikinci
+	//   karar verilemez; yarışan iki karardan ikincisi buraya düşer (IDN-010).
+	// - `IDENTITY_REVIEW_DOCUMENTS_MISSING` (409): onay dört fotoğraf yuvasının hepsini ister;
+	//   anahtarı boşaltılmış yuva kanıt sayılmaz (IDN-008).
+	// - `IDENTITY_DOCUMENTS_NOT_FOUND` (404): kullanıcı hiç gönderim yapmamış.
+	// - `IDENTITY_DOCUMENT_NOT_FOUND` (404): fotoğraf bu incelemeye ait değil, anahtarı
+	//   boşaltılmış ya da hiç olmamış; üçü ayırt edilemez (IDN-016).
+	// - `IDENTITY_NUMBER_IN_USE` (409): kimlik numarası başka bir kullanıcıya onaylanmış
+	//   (IDN-012).
+	//
+	// Şirket, üyelik ve davet kodları (ADR-0029 Karar 7):
+	// - `COMPANY_NOT_FOUND` (404): şirket yok ya da görme yetkisi yok; yönetici olmayan çağıran
+	//   da bunu alır (CMP-006).
+	// - `COMPANY_NOT_APPROVED` (409): şirket onaylanmadan ilan yayınlayamaz (CMP-005).
+	// - `COMPANY_ALREADY_APPROVED` (409): onaylanmış şirket yeniden onaylanamaz.
+	// - `COMPANY_ALREADY_REJECTED` (409): reddedilmiş şirket ikinci kez reddedilemez.
+	// - `COMPANY_APPROVED_NOT_REJECTABLE` (409): onaylanmış şirket reddedilemez (CMP-002).
+	// - `COMPANY_CONTACT_NOT_FOUND` (404): böyle bir üyelik yok.
+	// - `COMPANY_CONTACT_ALREADY_MEMBER` (409): kişi şirketin zaten üyesi (CMP-011).
+	// - `COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED` (409): şirketin tek yöneticisi çıkarılamaz
+	//   (CMP-007).
+	// - `COMPANY_INVITATION_NOT_FOUND` (404): davet yok ya da çağıran tarafı değil; ikisi ayırt
+	//   edilemez ve davetin durumu hiç sorulmaz (CMP-012).
+	// - `COMPANY_INVITATION_ALREADY_PENDING` (409): aynı kişiye aynı anda ikinci davet
+	//   gönderilemez (CMP-010).
+	// - `COMPANY_INVITATION_ALREADY_ANSWERED` (409): cevaplanmış ya da geri alınmış davet
+	//   yeniden cevaplanamaz (CMP-014).
+	// - `COMPANY_INVITATION_EXPIRED` (409): davetin on dört günü doldu (CMP-015).
+	// - `COMPANY_GALLERY_LIMIT_REACHED` (409): galeri en çok on görüntü taşır (MED-011).
+	// - `COMPANY_GALLERY_DUPLICATE_IMAGE` (409): aynı medya galeri listesinde iki kez geçiyor;
+	//   sıra anlamlı olduğu için bir görüntünün iki konumu olamaz (CMP-024).
+	//
+	// Medya, adres ve referans kodları (ADR-0029 Karar 6, Karar 8):
+	// - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
+	// - `MEDIA_NOT_READY` (409): medya henüz doğrulanıp striplenmedi; bir kaynağa bağlanamaz.
+	// - `MEDIA_UPLOAD_INCOMPLETE` (409): karantinada nesne yok; istemci yazma adresine hiç
+	//   yazmamış.
+	// - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil.
+	//   İstemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
+	// - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004).
+	// - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
+	// - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
+	//   bir kullanıcının; üçü ayırt edilemez (MED-010).
+	// - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
+	// - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
+	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
+	//   adrese eşleşmiyor.
+	// - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
+	//   edilemez.
+	// - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -509,6 +842,96 @@ type ProblemField struct {
 	// - `STAFF_CURRENT_PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
 	// - `STAFF_PERMISSION_DENIED` (403): personel, operasyonun `x-authz-permission` iznini
 	//   tutmuyor; ret denetim kaydına yazılır (AUTH-012, ADR-0026).
+	//
+	// Sözleşmesi dondurulmuş ama handler'ı henüz gelmemiş operasyon (ADR-0029 §1):
+	// - `NOT_IMPLEMENTED` (501): yol ve sözleşmesi vardır, uygulaması yoktur. Operasyon
+	//   spec'te `x-not-implemented` taşır ve bu kod onun `default` yanıtı altında döner;
+	//   `ROUTE_NOT_FOUND` ile karıştırılmaz.
+	//
+	// Kayıt, parola ve doğrulama kodları (ADR-0029 Karar 2-4):
+	// - `REGISTRATION_TOKEN_INVALID` (400): kayıt bağlantısının ya da kayıt token'ının
+	//   bilinmeyen, iptal edilmiş, süresi dolmuş ya da tüketilmiş hâli; dördü ayırt edilemez.
+	// - `CONSENT_REQUIRED` (400): zorunlu bir sözleşme sürümüne rıza verilmedi; kayıt token'ı
+	//   tüketilmez.
+	// - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
+	//   iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
+	// - `PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+	// - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
+	// - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
+	// - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
+	//   aynı yanıtı alır (USR-011).
+	// - `VERIFICATION_CODE_INVALID` (400): kod yanlış; deneme hakkı bir azalır.
+	// - `VERIFICATION_CODE_EXPIRED` (400): kodun on dakikası doldu. Süre kontrolü kodun önüne
+	//   geçer, böylece kod doğruluğu sızmaz (USR-012).
+	// - `VERIFICATION_ATTEMPTS_EXHAUSTED` (409): beş yanlış deneme doldu; doğrulama yakıldı ve
+	//   doğru kodla bile onaylanamaz (USR-009).
+	// - `VERIFICATION_ALREADY_CONFIRMED` (409): doğrulama zaten onaylanmış; ikinci onay kodu
+	//   hiç bakılmadan reddedilir (USR-013).
+	// - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres ya da numara başka bir
+	//   hesapta.
+	// - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi ya da hedef
+	//   başına saatlik bütçe doldu (USR-010); `Retry-After` döner.
+	// - `USER_NOT_FOUND` (404): kullanıcı yok ya da görme yetkisi yok; ikisi ayırt edilemez.
+	// - `USER_FIELD_IMMUTABLE` (409): kimlik doğrulandıktan sonra ad, soyad ya da doğum tarihi
+	//   değiştirilemez (USR-024).
+	// - `USER_MUST_VERIFY_IDENTITY` (403): işlem kimliğin doğrulanmış olmasını istiyor (şirket
+	//   kurmak, şirkete davet edilmek; CMP-001, CMP-009).
+	//
+	// Kimlik incelemesi kodları (ADR-0029 Karar 5):
+	// - `IDENTITY_ALREADY_VERIFIED` (409): kimliği doğrulanmış kullanıcı yeni gönderim yapamaz.
+	// - `IDENTITY_REVIEW_PENDING` (409): açık bir inceleme varken ikinci gönderim yapılamaz
+	//   (IDN-002).
+	// - `IDENTITY_REVIEW_NOT_FOUND` (404): inceleme yok ya da görme yetkisi yok.
+	// - `IDENTITY_REVIEW_ALREADY_DECIDED` (409): onaylanmış ya da reddedilmiş incelemeye ikinci
+	//   karar verilemez; yarışan iki karardan ikincisi buraya düşer (IDN-010).
+	// - `IDENTITY_REVIEW_DOCUMENTS_MISSING` (409): onay dört fotoğraf yuvasının hepsini ister;
+	//   anahtarı boşaltılmış yuva kanıt sayılmaz (IDN-008).
+	// - `IDENTITY_DOCUMENTS_NOT_FOUND` (404): kullanıcı hiç gönderim yapmamış.
+	// - `IDENTITY_DOCUMENT_NOT_FOUND` (404): fotoğraf bu incelemeye ait değil, anahtarı
+	//   boşaltılmış ya da hiç olmamış; üçü ayırt edilemez (IDN-016).
+	// - `IDENTITY_NUMBER_IN_USE` (409): kimlik numarası başka bir kullanıcıya onaylanmış
+	//   (IDN-012).
+	//
+	// Şirket, üyelik ve davet kodları (ADR-0029 Karar 7):
+	// - `COMPANY_NOT_FOUND` (404): şirket yok ya da görme yetkisi yok; yönetici olmayan çağıran
+	//   da bunu alır (CMP-006).
+	// - `COMPANY_NOT_APPROVED` (409): şirket onaylanmadan ilan yayınlayamaz (CMP-005).
+	// - `COMPANY_ALREADY_APPROVED` (409): onaylanmış şirket yeniden onaylanamaz.
+	// - `COMPANY_ALREADY_REJECTED` (409): reddedilmiş şirket ikinci kez reddedilemez.
+	// - `COMPANY_APPROVED_NOT_REJECTABLE` (409): onaylanmış şirket reddedilemez (CMP-002).
+	// - `COMPANY_CONTACT_NOT_FOUND` (404): böyle bir üyelik yok.
+	// - `COMPANY_CONTACT_ALREADY_MEMBER` (409): kişi şirketin zaten üyesi (CMP-011).
+	// - `COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED` (409): şirketin tek yöneticisi çıkarılamaz
+	//   (CMP-007).
+	// - `COMPANY_INVITATION_NOT_FOUND` (404): davet yok ya da çağıran tarafı değil; ikisi ayırt
+	//   edilemez ve davetin durumu hiç sorulmaz (CMP-012).
+	// - `COMPANY_INVITATION_ALREADY_PENDING` (409): aynı kişiye aynı anda ikinci davet
+	//   gönderilemez (CMP-010).
+	// - `COMPANY_INVITATION_ALREADY_ANSWERED` (409): cevaplanmış ya da geri alınmış davet
+	//   yeniden cevaplanamaz (CMP-014).
+	// - `COMPANY_INVITATION_EXPIRED` (409): davetin on dört günü doldu (CMP-015).
+	// - `COMPANY_GALLERY_LIMIT_REACHED` (409): galeri en çok on görüntü taşır (MED-011).
+	// - `COMPANY_GALLERY_DUPLICATE_IMAGE` (409): aynı medya galeri listesinde iki kez geçiyor;
+	//   sıra anlamlı olduğu için bir görüntünün iki konumu olamaz (CMP-024).
+	//
+	// Medya, adres ve referans kodları (ADR-0029 Karar 6, Karar 8):
+	// - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
+	// - `MEDIA_NOT_READY` (409): medya henüz doğrulanıp striplenmedi; bir kaynağa bağlanamaz.
+	// - `MEDIA_UPLOAD_INCOMPLETE` (409): karantinada nesne yok; istemci yazma adresine hiç
+	//   yazmamış.
+	// - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil.
+	//   İstemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
+	// - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004).
+	// - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
+	// - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
+	//   bir kullanıcının; üçü ayırt edilemez (MED-010).
+	// - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
+	// - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
+	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
+	//   adrese eşleşmiyor.
+	// - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
+	//   edilemez.
+	// - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.

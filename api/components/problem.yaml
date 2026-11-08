@@ -191,6 +191,96 @@ components:
         - `STAFF_PERMISSION_DENIED` (403): personel, operasyonun `x-authz-permission` iznini
           tutmuyor; ret denetim kaydına yazılır (AUTH-012, ADR-0026).
 
+        Sözleşmesi dondurulmuş ama handler'ı henüz gelmemiş operasyon (ADR-0029 §1):
+        - `NOT_IMPLEMENTED` (501): yol ve sözleşmesi vardır, uygulaması yoktur. Operasyon
+          spec'te `x-not-implemented` taşır ve bu kod onun `default` yanıtı altında döner;
+          `ROUTE_NOT_FOUND` ile karıştırılmaz.
+
+        Kayıt, parola ve doğrulama kodları (ADR-0029 Karar 2-4):
+        - `REGISTRATION_TOKEN_INVALID` (400): kayıt bağlantısının ya da kayıt token'ının
+          bilinmeyen, iptal edilmiş, süresi dolmuş ya da tüketilmiş hâli; dördü ayırt edilemez.
+        - `CONSENT_REQUIRED` (400): zorunlu bir sözleşme sürümüne rıza verilmedi; kayıt token'ı
+          tüketilmez.
+        - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
+          iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
+        - `PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+        - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
+        - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
+        - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
+          aynı yanıtı alır (USR-011).
+        - `VERIFICATION_CODE_INVALID` (400): kod yanlış; deneme hakkı bir azalır.
+        - `VERIFICATION_CODE_EXPIRED` (400): kodun on dakikası doldu. Süre kontrolü kodun önüne
+          geçer, böylece kod doğruluğu sızmaz (USR-012).
+        - `VERIFICATION_ATTEMPTS_EXHAUSTED` (409): beş yanlış deneme doldu; doğrulama yakıldı ve
+          doğru kodla bile onaylanamaz (USR-009).
+        - `VERIFICATION_ALREADY_CONFIRMED` (409): doğrulama zaten onaylanmış; ikinci onay kodu
+          hiç bakılmadan reddedilir (USR-013).
+        - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres ya da numara başka bir
+          hesapta.
+        - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi ya da hedef
+          başına saatlik bütçe doldu (USR-010); `Retry-After` döner.
+        - `USER_NOT_FOUND` (404): kullanıcı yok ya da görme yetkisi yok; ikisi ayırt edilemez.
+        - `USER_FIELD_IMMUTABLE` (409): kimlik doğrulandıktan sonra ad, soyad ya da doğum tarihi
+          değiştirilemez (USR-024).
+        - `USER_MUST_VERIFY_IDENTITY` (403): işlem kimliğin doğrulanmış olmasını istiyor (şirket
+          kurmak, şirkete davet edilmek; CMP-001, CMP-009).
+
+        Kimlik incelemesi kodları (ADR-0029 Karar 5):
+        - `IDENTITY_ALREADY_VERIFIED` (409): kimliği doğrulanmış kullanıcı yeni gönderim yapamaz.
+        - `IDENTITY_REVIEW_PENDING` (409): açık bir inceleme varken ikinci gönderim yapılamaz
+          (IDN-002).
+        - `IDENTITY_REVIEW_NOT_FOUND` (404): inceleme yok ya da görme yetkisi yok.
+        - `IDENTITY_REVIEW_ALREADY_DECIDED` (409): onaylanmış ya da reddedilmiş incelemeye ikinci
+          karar verilemez; yarışan iki karardan ikincisi buraya düşer (IDN-010).
+        - `IDENTITY_REVIEW_DOCUMENTS_MISSING` (409): onay dört fotoğraf yuvasının hepsini ister;
+          anahtarı boşaltılmış yuva kanıt sayılmaz (IDN-008).
+        - `IDENTITY_DOCUMENTS_NOT_FOUND` (404): kullanıcı hiç gönderim yapmamış.
+        - `IDENTITY_DOCUMENT_NOT_FOUND` (404): fotoğraf bu incelemeye ait değil, anahtarı
+          boşaltılmış ya da hiç olmamış; üçü ayırt edilemez (IDN-016).
+        - `IDENTITY_NUMBER_IN_USE` (409): kimlik numarası başka bir kullanıcıya onaylanmış
+          (IDN-012).
+
+        Şirket, üyelik ve davet kodları (ADR-0029 Karar 7):
+        - `COMPANY_NOT_FOUND` (404): şirket yok ya da görme yetkisi yok; yönetici olmayan çağıran
+          da bunu alır (CMP-006).
+        - `COMPANY_NOT_APPROVED` (409): şirket onaylanmadan ilan yayınlayamaz (CMP-005).
+        - `COMPANY_ALREADY_APPROVED` (409): onaylanmış şirket yeniden onaylanamaz.
+        - `COMPANY_ALREADY_REJECTED` (409): reddedilmiş şirket ikinci kez reddedilemez.
+        - `COMPANY_APPROVED_NOT_REJECTABLE` (409): onaylanmış şirket reddedilemez (CMP-002).
+        - `COMPANY_CONTACT_NOT_FOUND` (404): böyle bir üyelik yok.
+        - `COMPANY_CONTACT_ALREADY_MEMBER` (409): kişi şirketin zaten üyesi (CMP-011).
+        - `COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED` (409): şirketin tek yöneticisi çıkarılamaz
+          (CMP-007).
+        - `COMPANY_INVITATION_NOT_FOUND` (404): davet yok ya da çağıran tarafı değil; ikisi ayırt
+          edilemez ve davetin durumu hiç sorulmaz (CMP-012).
+        - `COMPANY_INVITATION_ALREADY_PENDING` (409): aynı kişiye aynı anda ikinci davet
+          gönderilemez (CMP-010).
+        - `COMPANY_INVITATION_ALREADY_ANSWERED` (409): cevaplanmış ya da geri alınmış davet
+          yeniden cevaplanamaz (CMP-014).
+        - `COMPANY_INVITATION_EXPIRED` (409): davetin on dört günü doldu (CMP-015).
+        - `COMPANY_GALLERY_LIMIT_REACHED` (409): galeri en çok on görüntü taşır (MED-011).
+        - `COMPANY_GALLERY_DUPLICATE_IMAGE` (409): aynı medya galeri listesinde iki kez geçiyor;
+          sıra anlamlı olduğu için bir görüntünün iki konumu olamaz (CMP-024).
+
+        Medya, adres ve referans kodları (ADR-0029 Karar 6, Karar 8):
+        - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
+        - `MEDIA_NOT_READY` (409): medya henüz doğrulanıp striplenmedi; bir kaynağa bağlanamaz.
+        - `MEDIA_UPLOAD_INCOMPLETE` (409): karantinada nesne yok; istemci yazma adresine hiç
+          yazmamış.
+        - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil.
+          İstemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
+        - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004).
+        - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
+        - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
+          bir kullanıcının; üçü ayırt edilemez (MED-010).
+        - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
+        - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
+        - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
+          adrese eşleşmiyor.
+        - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
+          edilemez.
+        - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
+
         Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
         - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
         - `FIELD_UNKNOWN`: istek şemasında olmayan alan; gövdesi olmayan operasyona gövde.
@@ -248,6 +338,57 @@ components:
         - STAFF_PASSWORD_CHANGE_REQUIRED
         - STAFF_CURRENT_PASSWORD_MISMATCH
         - STAFF_PERMISSION_DENIED
+        - NOT_IMPLEMENTED
+        - REGISTRATION_TOKEN_INVALID
+        - CONSENT_REQUIRED
+        - PASSWORD_RESET_TOKEN_INVALID
+        - PASSWORD_MISMATCH
+        - PASSWORD_REUSED
+        - PASSWORD_CONFIRMATION_MISMATCH
+        - VERIFICATION_NOT_FOUND
+        - VERIFICATION_CODE_INVALID
+        - VERIFICATION_CODE_EXPIRED
+        - VERIFICATION_ATTEMPTS_EXHAUSTED
+        - VERIFICATION_ALREADY_CONFIRMED
+        - VERIFICATION_TARGET_IN_USE
+        - VERIFICATION_RESEND_TOO_SOON
+        - USER_NOT_FOUND
+        - USER_FIELD_IMMUTABLE
+        - USER_MUST_VERIFY_IDENTITY
+        - IDENTITY_ALREADY_VERIFIED
+        - IDENTITY_REVIEW_PENDING
+        - IDENTITY_REVIEW_NOT_FOUND
+        - IDENTITY_REVIEW_ALREADY_DECIDED
+        - IDENTITY_REVIEW_DOCUMENTS_MISSING
+        - IDENTITY_DOCUMENTS_NOT_FOUND
+        - IDENTITY_DOCUMENT_NOT_FOUND
+        - IDENTITY_NUMBER_IN_USE
+        - COMPANY_NOT_FOUND
+        - COMPANY_NOT_APPROVED
+        - COMPANY_ALREADY_APPROVED
+        - COMPANY_ALREADY_REJECTED
+        - COMPANY_APPROVED_NOT_REJECTABLE
+        - COMPANY_CONTACT_NOT_FOUND
+        - COMPANY_CONTACT_ALREADY_MEMBER
+        - COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED
+        - COMPANY_INVITATION_NOT_FOUND
+        - COMPANY_INVITATION_ALREADY_PENDING
+        - COMPANY_INVITATION_ALREADY_ANSWERED
+        - COMPANY_INVITATION_EXPIRED
+        - COMPANY_GALLERY_LIMIT_REACHED
+        - COMPANY_GALLERY_DUPLICATE_IMAGE
+        - MEDIA_NOT_FOUND
+        - MEDIA_NOT_READY
+        - MEDIA_UPLOAD_INCOMPLETE
+        - MEDIA_TYPE_UNSUPPORTED
+        - MEDIA_TOO_LARGE
+        - ADDRESS_NOT_FOUND
+        - ADDRESS_SEARCH_SESSION_NOT_FOUND
+        - ADDRESS_PROVIDER_UNAVAILABLE
+        - REFERENCE_ITEM_NOT_FOUND
+        - ADDRESS_OUTSIDE_SERVICE_AREA
+        - EDUCATION_NOT_FOUND
+        - EDUCATION_PERIOD_INVALID
         - FIELD_REQUIRED
         - FIELD_UNKNOWN
         - FIELD_TYPE_INVALID

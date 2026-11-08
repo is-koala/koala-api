@@ -28,6 +28,11 @@
               }
             ]
           }
+        },
+        "can_read_profile": {
+          "computedUserset": {
+            "relation": "public_viewer"
+          }
         }
       },
       "metadata": {
@@ -54,7 +59,8 @@
               }
             ]
           },
-          "can_see_presence": {}
+          "can_see_presence": {},
+          "can_read_profile": {}
         }
       }
     },
@@ -432,6 +438,16 @@
           "computedUserset": {
             "relation": "member"
           }
+        },
+        "can_view": {
+          "computedUserset": {
+            "relation": "viewer"
+          }
+        },
+        "can_follow": {
+          "computedUserset": {
+            "relation": "viewer"
+          }
         }
       },
       "metadata": {
@@ -461,7 +477,9 @@
           },
           "can_manage": {},
           "can_manage_jobs": {},
-          "can_read_internal": {}
+          "can_read_internal": {},
+          "can_view": {},
+          "can_follow": {}
         }
       }
     },
@@ -507,6 +525,16 @@
           "computedUserset": {
             "relation": "invitee"
           }
+        },
+        "can_revoke": {
+          "tupleToUserset": {
+            "tupleset": {
+              "relation": "company"
+            },
+            "computedUserset": {
+              "relation": "admin"
+            }
+          }
         }
       },
       "metadata": {
@@ -533,7 +561,8 @@
             ]
           },
           "can_read": {},
-          "can_answer": {}
+          "can_answer": {},
+          "can_revoke": {}
         }
       }
     },

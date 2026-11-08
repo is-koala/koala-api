@@ -17,6 +17,8 @@ type user
     define public_viewer: [user:*]
     # REST and WS share the rule (C50, C51).
     define can_see_presence: itself or contact
+    # Public profile of a user; every authenticated caller (ADR-0029 Karar 9).
+    define can_read_profile: public_viewer
 
 # staff_members; no FK to users (ADR-0014).
 type staff
@@ -72,6 +74,10 @@ type company
     define can_manage_jobs: member
     # Approval note, contact list, company jobs (C25).
     define can_read_internal: member
+    # C24 as a decision relation: every authenticated caller reads a company.
+    define can_view: viewer
+    # Following is a subscription, open to every authenticated caller (AZ-135).
+    define can_follow: viewer
 
 # C29, C30
 type company_invitation
@@ -81,6 +87,9 @@ type company_invitation
     define invitee: [user]
     define can_read: inviter or invitee or admin from company
     define can_answer: invitee
+    # The company's admin takes a pending invitation back (ADR-0029 Karar 7);
+    # Java has no such operation.
+    define can_revoke: admin from company
 
 type job
   relations

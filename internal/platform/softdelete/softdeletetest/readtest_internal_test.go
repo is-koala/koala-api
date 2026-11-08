@@ -89,6 +89,24 @@ func TestPlanReportsContractProblems(t *testing.T) {
 			t.Fatalf("ops = %v, problems = %q; want two operations on example_owners", ops, problems)
 		}
 	})
+
+	// A frozen operation (ADR-0029 §1) is skipped before the catalog is
+	// asked, so its x-resource may name a table no migration has created
+	// yet. The companion case is "unknown table" above: the same
+	// operation without the marker is a problem, which is what arms this
+	// test again when the handler lands.
+	t.Run("frozen operation", func(t *testing.T) {
+		t.Parallel()
+		s := spec(map[string]any{
+			"/example-owners": "example_owners",
+			"/companies/{id}": "companies", // no such table yet
+		})
+		s.Paths.Value("/companies/{id}").Get.Extensions[ExtensionNotImplemented] = "handler lands in a later PR"
+		ops, problems := ReadTest{Spec: s, Catalog: catalog(t), Fixtures: owners}.plan()
+		if len(problems) > 0 || len(ops) != 1 || len(ops["example_owners"]) != 1 {
+			t.Fatalf("ops = %v, problems = %q; want only the example_owners operation", ops, problems)
+		}
+	})
 }
 
 // handler answers every request with status and a body built from the

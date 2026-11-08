@@ -26,7 +26,27 @@ import (
 // scenarios must each be bound to a Go test or deferred with a reason. A
 // domain joins this list in the PR that starts its phase.
 func activeDomains() []string {
-	return []string{"auth"} // Faz 1
+	return []string{
+		"auth",                                 // Faz 1
+		"user", "identity", "company", "media", // Faz 2 (ADR-0029)
+	}
+}
+
+// frozenDomains maps a catalog domain to the contract tags that carry its
+// operations (ADR-0029 §1). TestFrozenDomainsDeferTheirScenarios holds the
+// contract and the catalog together through it: while a tag still has an
+// operation marked x-not-implemented the domain's P0 scenarios must be
+// deferred, and once no operation of the tag is marked they must be bound.
+// The granularity is the domain, not the scenario: a scenario is written
+// in API-independent language and names no operation (README.md), so a
+// per-scenario map would leak the contract into the catalog.
+func frozenDomains() map[string][]string {
+	return map[string][]string{
+		"user":     {"users", "admin-users"},
+		"identity": {"identity", "admin-identity"},
+		"company":  {"company", "admin-company"},
+		"media":    {"media", "address", "reference"},
+	}
 }
 
 // currentPhase is the plan phase (§6.1) the repository is in. A deferred

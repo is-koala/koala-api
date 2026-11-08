@@ -1,5 +1,10 @@
 package softdeletetest
 
+// The frozen-operation skip of ADR-0029 §1 lives in two files, readers()
+// here and plan() in readtest.go. readtest_internal_test.go binds the
+// second; TestReadersSkipFrozenOperations below binds this one, so the
+// same rule is not tested in one place only.
+
 import (
 	"context"
 	"net/http"
@@ -179,6 +184,29 @@ func TestJoinPlanAcceptsAnUnreadEdge(t *testing.T) {
 		Catalog: detachCatalog(t),
 		Cases: map[string]DetachCase{
 			"comments.author_id": {Unread: "no GET operation reads comments yet; the first one will declare an outcome"},
+		},
+	}.plan()
+	if len(problems) > 0 || len(cases) != 0 {
+		t.Fatalf("cases = %v, problems = %q; want neither", cases, problems)
+	}
+}
+
+// TestReadersSkipFrozenOperations: a frozen operation (ADR-0029 §1) is no
+// reader, so an edge whose only reader is frozen is still Unread and the
+// claim holds. Its companion is "unread but read" in
+// TestJoinPlanReportsProblems: the same operation without the marker makes
+// the Unread claim a problem, which is what arms this test again when the
+// handler lands.
+func TestReadersSkipFrozenOperations(t *testing.T) {
+	t.Parallel()
+
+	s := spec(map[string]any{"/comments": "comments"})
+	s.Paths.Value("/comments").Get.Extensions[ExtensionNotImplemented] = "handler lands in a later PR"
+	cases, problems := JoinTest{
+		Spec:    s,
+		Catalog: detachCatalog(t),
+		Cases: map[string]DetachCase{
+			"comments.author_id": {Unread: "the only GET that reads comments is still frozen"},
 		},
 	}.plan()
 	if len(problems) > 0 || len(cases) != 0 {

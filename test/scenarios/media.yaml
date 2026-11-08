@@ -1,0 +1,344 @@
+# Yükleme, depolama anahtarı, üstveri striplemesi, adres verisi ve referans verisi senaryoları.
+# Biçim: test/scenarios/README.md. Kaynak: Java origin/main (0cbbce69, okundu, koşturulmadı).
+# Yüklemenin presigned'a geçişi ADR-0019 §4'ün kararıdır, ADR-0029 Karar 6'da uygulanır: Java
+# multipart kullanıyor, bu yüzden akış senaryolarının `then`'i Java'yı, `target`'ı Go'yu anlatır.
+
+domain: media
+id_prefix: MED
+version: 0
+scenarios:
+
+  - id: MED-001
+    priority: P0
+    title: Dosya API'den geçmez; yükleme karantinaya presigned yazımla yapılır ve doğrulanarak tamamlanır
+    rule: >
+      İstemci dosyayı doğrudan nesne deposuna yükler; API yalnız yüklemeyi başlatan ve tamamlayan
+      işlemleri sunar. Başlatma karantina alanı için kısa ömürlü bir yazma adresi ve beklemede bir
+      medya kaydı verir. Tamamlama nesneyi doğrular, üstverisini stripler ve son yerine taşır; medya
+      kaydı o zaman hazır olur. Tamamlanmayan yükleme saklama süresi sonunda silinir.
+    given:
+      - "Kimlikli kullanıcı U bir görüntü yüklemek istiyor"
+    when:
+      - "U yüklemeyi başlatır ve nesneyi verilen adrese yazar"
+      - "U yüklemeyi tamamlar"
+      - "Başka bir yükleme başlatılır ama hiç tamamlanmaz"
+    then:
+      - "Başlatma beklemede bir medya kaydı ve karantina için kısa ömürlü yazma adresi döner"
+      - "Tamamlama nesneyi doğrular, üstverisini stripler ve son yerine taşır"
+      - "Medya kaydı tamamlamadan sonra hazır olur"
+      - "Tamamlanmayan yükleme saklama süresi sonunda silinir"
+    decision: "ADR-0019 §4"
+    target: >
+      Yükleme presigned yazımla karantinaya yapılır ve tamamlama adımında doğrulanıp striplenir
+      (ADR-0029 Karar 6). Java çok parçalı istekle API üzerinden yüklüyor; presigned yazım hiç yok.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/ImageManager.java#uploadImage"
+      - "src/main/java/com/exskylab/koala/webAPI/ImagesController.java#uploadImage"
+      - "src/main/java/com/exskylab/koala/core/utilities/storage/S3StorageService.java#uploadFile"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; medya handler'ları ve River dönüştürme işi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: MED-002
+    priority: P0
+    title: Depolama anahtarına kullanıcı girdisi girmez
+    rule: >
+      Depolama anahtarı türe göre bir önek, rastgele bir kimlik ve uzantıdan oluşur. Özgün dosya adı
+      anahtara hiç girmez. Uzantı dosya adından değil, içerikten saptanan tipten türetilir, bu yüzden
+      anahtarın alfabesi kapalıdır.
+    given:
+      - "Dosya adı Türkçe harfler, boşluk ve sahte uzantı taşıyan bir görüntü"
+    when:
+      - "Dosya yüklenir"
+    then:
+      - "Anahtar önek, rastgele kimlik ve uzantıdan oluşur"
+      - "Anahtar özgün dosya adının hiçbir parçasını taşımaz"
+      - "Uzantı içerikten saptanan tipten gelir"
+    decision: "Java hatası (uzantı dosya adından türetiliyor)"
+    target: >
+      Uzantı saptanan tipten gelir ve alfabe kapalıdır (ADR-0029 Karar 6). Java uzantıyı dosya
+      adından alıp alfanümerik ve en çok on karakterle sınırlıyor; güvenli ama gereksizce açık.
+    source:
+      - "src/main/java/com/exskylab/koala/core/utilities/storage/StorageKeys.java#newKey"
+      - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#theKeyKeepsTheExtensionButNotTheOriginalName"
+      - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#aDisguisedExtensionIsRejected"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; depolama anahtarı Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: MED-003
+    priority: P0
+    title: Önekinin dışına çıkan anahtar okunamaz
+    rule: >
+      Okuma yolunda anahtar bir izin listesiyle doğrulanır: bilinen bir önek, rastgele kimlik ve
+      bilinen bir uzantı. Önekinin dışına çıkmaya çalışan, boş parça taşıyan, ters eğik çizgi
+      içeren, sonu eğik çizgiyle biten ya da mutlak görünen anahtar okunamaz. Parçanın içindeki
+      noktalar anahtarı geçersiz yapmaz.
+    given:
+      - "Bilinen öneklerin altındaki geçerli anahtarlar ve önekinden çıkmaya çalışan varyantları"
+    when:
+      - "Varyantlar okuma yolundan istenir"
+    then:
+      - "Üst dizine çıkmaya çalışan anahtar var olmayan dosyanın yanıtını alır"
+      - "Boş parça, ters eğik çizgi, sondaki eğik çizgi ve mutlak yol reddedilir"
+      - "Bilinmeyen önek reddedilir"
+      - "Kabul edilen her anahtar kendi önekinin altında kalır"
+    source:
+      - "src/main/java/com/exskylab/koala/core/utilities/storage/StorageKeys.java#isWellFormed"
+      - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#aKeyThatClimbsOutOfItsPrefixIsNotServable"
+      - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#identityDocumentsLiveOutsideEveryServablePrefix"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; anahtar doğrulaması ve fuzz hedefi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: MED-004
+    priority: P0
+    title: Yüzde kodlaması bir kez çözülür; çözüldükten sonra yüzde taşıyan anahtar reddedilir
+    rule: >
+      Anahtar doğrulanmadan önce yüzde kodlaması tam bir kez çözülür, böylece kodlanmış nokta ve
+      eğik çizgi kontrolü atlatamaz. Bir kez çözüldükten sonra içinde hâlâ yüzde işareti kalan
+      anahtar reddedilir, böylece çift kodlama da kapanır.
+    given:
+      - "Kodlanmış nokta, kodlanmış eğik çizgi ve çift kodlanmış varyantlar taşıyan anahtarlar"
+    when:
+      - "Anahtarlar okuma yolundan istenir"
+    then:
+      - "Kodlanmış nokta ve eğik çizgi çözüldükten sonra yakalanır ve reddedilir"
+      - "Çift kodlanmış anahtar reddedilir"
+      - "Kabul edilen anahtarların hiçbirinde yüzde işareti kalmaz"
+    error: PATH_INVALID
+    source:
+      - "src/main/java/com/exskylab/koala/core/utilities/storage/StorageKeys.java#fromRequestPath"
+      - "src/main/java/com/exskylab/koala/webAPI/StorageDownloadController.java#keyOf"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; anahtar doğrulaması ve fuzz hedefi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: MED-005
+    priority: P0
+    title: Her görüntü türünün konum ve kamera üstverisi silinir
+    rule: >
+      Saklanan her görüntü yalnız piksel içeriğini taşır. Konum koordinatları, kamera markası ve
+      modeli, seri numaraları, benzersiz görüntü kimliği ve metin parçaları düşer. Kural kimlik
+      fotoğraflarına, profil görüntülerine, galeri görüntülerine ve uyuşmazlık kanıtlarına aynı
+      biçimde uygulanır.
+    given:
+      - "Konum, kamera ve seri numarası üstverisi taşıyan bir görüntü; metin parçası taşıyan bir görüntü"
+    when:
+      - "İki görüntü de saklanır"
+    then:
+      - "Saklanan baytlarda konum koordinatı bulunmaz"
+      - "Kamera markası, seri numaraları ve benzersiz görüntü kimliği bulunmaz"
+      - "Metin parçaları bulunmaz"
+      - "Görüntünün genişliği ve yüksekliği korunur"
+      - "Saydamlığı olan bir görüntü kayıpsız biçimde saklanamıyorsa boş değil, düzleştirilmiş saklanır"
+    decision: "[[job-location-rule]]"
+    source:
+      - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aJpegLosesItsLocationCameraAndSerialNumbersButKeepsItsPicture"
+      - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aPngLosesItsTextChunks"
+      - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aTransparentImageSavedAsJpegIsFlattenedInsteadOfStoredEmpty"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; üstveri striplemesi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: MED-006
+    priority: P0
+    title: Yüklenen nesne yazıldıktan sonra kayıt düşerse nesne silinir; sonuç belirsizse silinmez
+    rule: >
+      Nesne depoya yazıldıktan sonra kaydın yazımı geri alınırsa nesne silinir. İşlemin sonucu
+      belirsizse nesne silinmez; belirsizlikte veri atılmaz. Temizlik hatası özgün hatayı maskelemez,
+      yalnız kaydedilir. Bir dosyayı değiştiren yüklemenin geri alınması yalnız yeni nesneyi siler,
+      öncekine dokunmaz.
+    given:
+      - "Nesnesi yazılmış, kaydı yazılmakta olan bir yükleme"
+    when:
+      - "Kaydın yazımı geri alınır"
+      - "İşlemin sonucu belirsiz kalır"
+      - "Önceki bir dosyayı değiştiren yükleme geri alınır"
+      - "Temizlik sırasında silme başarısız olur"
+    then:
+      - "Geri alınan yüklemenin nesnesi silinir"
+      - "Sonucu belirsiz yüklemenin nesnesi korunur"
+      - "Değiştirme geri alındığında yalnız yeni nesne silinir; önceki korunur"
+      - "Temizlik hatası özgün hatayı maskelemez ve kaydedilir"
+      - "İşlenen bir yüklemenin nesnesi korunur"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/MediaUploadRollbackTest.java#anImageWrittenBeforeRollbackIsRemoved"
+      - "src/test/java/com/exskylab/koala/business/concretes/MediaUploadRollbackTest.java#anImageWithAnUnknownTransactionOutcomeKeepsItsObject"
+      - "src/test/java/com/exskylab/koala/business/concretes/MediaUploadRollbackTest.java#aCvWrittenBeforeRollbackIsRemovedWithoutDeletingThePreviousCv"
+      - "src/test/java/com/exskylab/koala/business/concretes/MediaUploadRollbackTest.java#anImageCleanupFailureDoesNotMaskThePersistenceFailureAndIsLogged"
+      - "src/test/java/com/exskylab/koala/business/concretes/MediaUploadRollbackIT.java#aDatabaseFailureAtCommitThroughTheSpringProxyRemovesTheNewObject"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; yükleme geri alma davranışı Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: MED-007
+    priority: P0
+    title: Özel dosyayı yalnız sahibi ve başvurusunu almış işveren indirir
+    rule: >
+      Özel alandaki bir dosyayı sahibi indirebilir; ondan başvuru almış bir işveren de indirebilir.
+      Başka bir çağıran, var olmayan dosyayla aynı yanıtı alır. Genel alandaki dosyalar kimlik
+      istemez.
+    given:
+      - "Kullanıcı U'nun özel bir dosyası; U'dan başvuru almış işveren E; yabancı X"
+    when:
+      - "U, E ve X sırayla dosyayı indirmeye çalışır"
+    then:
+      - "U ve E dosyayı indirir"
+      - "X için yanıt var olmayan dosyanın yanıtıdır"
+      - "Genel alandaki dosyalar kimliksiz de okunur"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/CvManager.java#assertCanDownload"
+      - "src/main/java/com/exskylab/koala/core/helpers/StorageUrlResolver.java#urlFor"
+    go_test: null
+    deferred:
+      phase: 3
+      reason: >-
+        Kuralın işveren dalı başvuruya dayanıyor ve başvuru Faz 3'tedir; özel dosya indirme
+        operasyonu da bu sözleşmede yok (ADR-0029 Karar 6, "Bu PR'da kalanlar").
+
+  - id: MED-008
+    priority: P0
+    title: Google'dan gelen adres metni ve ham yanıt saklanmaz
+    rule: >
+      Adres kaydı yalnız kendi normalleştirdiğimiz bileşenleri, posta kodunu, koordinatları ve
+      sağlayıcının yer kimliğini saklar. Sağlayıcının biçimlendirdiği adres metni ve ham yanıtı
+      kalıcı olarak saklanmaz; görünen adres metni kendi bileşenlerimizden üretilir.
+    given:
+      - "Sağlayıcıdan biçimlendirilmiş adres metni ve ham yanıt içeren bir sonuç"
+    when:
+      - "Sonuçtan bir adres kaydı oluşturulur"
+    then:
+      - "Bileşenler, posta kodu, koordinatlar ve yer kimliği saklanır"
+      - "Biçimlendirilmiş adres metni saklanmaz"
+      - "Ham sağlayıcı yanıtı saklanmaz"
+      - "Görünen adres metni kendi bileşenlerimizden üretilir"
+    decision: "ADR-0029 Karar 8"
+    target: >
+      Yalnız yer kimliği ve kendi bileşenlerimiz saklanır (Google Maps Platform Hizmet Şartları
+      §3.2.3(b): yer kimliği süresiz, diğer içerik en çok otuz gün önbelleklenebilir). Java'nın
+      adres akışı sağlayıcı metnini de taşıyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/AddressManager.java#createAddress"
+      - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#search"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; adres tabloları ve sağlayıcı istemcisi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: MED-009
+    priority: P0
+    title: Koordinat tam saklanır, yuvarlama yanıtta yapılır
+    rule: >
+      Koordinatlar tam hassasiyetle saklanır. Hangi çağıranın ne kadar hassasiyet göreceğine yanıtı
+      üreten projeksiyon karar verir: şirket adresi tam, bireysel ilan yaklaşık, harita her zaman
+      yaklaşık. Kural tek yerde durur; aynı kayıt farklı çağırana farklı hassasiyetle görünür.
+    given:
+      - "Tam koordinatı kayıtlı bir şirket adresi ve bir bireysel ilan adresi"
+    when:
+      - "Yetkili çağıran ve yetkisiz çağıran aynı adresleri okur"
+      - "Harita görünümü okunur"
+    then:
+      - "Şirket adresi yetkili çağırana tam görünür"
+      - "Bireysel ilan adresi yaklaşık görünür"
+      - "Harita görünümü her çağırana yaklaşık görünür"
+      - "Saklanan koordinat hiçbir durumda yuvarlanmaz"
+    decision: "[[job-location-rule]]"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/AddressManager.java#createAddress"
+      - "src/main/java/com/exskylab/koala/core/helpers/AddressFormatter.java:1-60"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; adres projeksiyonları Faz 2'nin uygulama PR'ında, ilan tarafı Faz 3'te bağlanır."
+
+  - id: MED-010
+    priority: P0
+    title: Adres arama oturumu sahibine bağlıdır
+    rule: >
+      Adres arama oturumu onu açan kullanıcıya bağlıdır ve kısa ömürlüdür. Oturum kimliğini ele
+      geçiren başka bir kullanıcı onu kullanamaz: yanıt var olmayan oturumla aynıdır. Süresi dolmuş
+      oturum da aynı yanıtı alır.
+    given:
+      - "Kullanıcı U1'in açık bir adres arama oturumu; kullanıcı U2 oturumun kimliğini biliyor"
+    when:
+      - "U2 oturumu kullanmaya çalışır"
+      - "U1 süresi dolmuş bir oturumu kullanmaya çalışır"
+    then:
+      - "İki yanıt da var olmayan oturumun yanıtı; gövdeleri bayt bayt aynı"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#search"
+      - "docs/faz0/authz-envanteri.csv:AZ-114"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; adres arama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: MED-011
+    priority: P1
+    title: Sahip ve tür başına görüntü sayısı sınırlıdır
+    rule: >
+      Bir şirketin galerisi ve bir ilanın galerisi en çok on görüntü taşır; sınır dolduğunda yeni
+      görüntü eklemek çakışma hatası alır. Bir kullanıcının en çok bir özgeçmişi olur ve yeni
+      yükleme öncekinin yerini alır.
+    given:
+      - "Galerisi on görüntüyle dolu şirket A; özgeçmişi olan kullanıcı U"
+    when:
+      - "A'ya on birinci görüntü eklenmek istenir"
+      - "U yeni bir özgeçmiş yükler"
+    then:
+      - "On birinci görüntü çakışma hatası alır"
+      - "U'nun özgeçmişi yenisiyle değişir"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#addCompanyImage"
+      - "src/main/java/com/exskylab/koala/business/concretes/CvManager.java#uploadCv"
+    go_test: null
+
+  - id: MED-012
+    priority: P1
+    title: Referans verisi salt okunurdur ve kimlik istemez
+    rule: >
+      Ülke, şehir, ilçe ile üniversite, fakülte ve bölüm listeleri salt okunur referans verisidir:
+      hiçbir yazma işlemi yoktur ve okumak kimlik istemez. Listeler kendi doğal sıralarına göre
+      döner.
+    given:
+      - "Referans verisi yüklenmiş bir sistem"
+    when:
+      - "Kimliksiz bir çağıran şehir ve üniversite listelerini okur"
+      - "Bir çağıran referans verisini değiştirmeye çalışır"
+    then:
+      - "Okumalar kimliksiz çalışır"
+      - "Değiştirme işlemi sözleşmede yoktur"
+      - "Şehir ülkeye, ilçe şehre bağlıdır: zincir ülke, şehir, ilçe sırasıyla okunur"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/AcademicReferenceManager.java:1-60"
+    go_test: null
+
+  - id: MED-013
+    priority: P1
+    title: Hizmet alanı dışındaki harita konumu adrese çevrilmez
+    rule: >
+      Haritadan seçilen bir konum adrese çevrilebilir. Konum hizmet alanının dışındaysa ya
+      da hiçbir adrese eşleşmiyorsa istek reddedilir; sağlayıcıya ulaşılamıyorsa üst sistem
+      hatası döner. Çözülen değer bir adres kaydı oluşturmaz.
+    given:
+      - "Hizmet alanı içinde bir konum ve hizmet alanı dışında bir konum"
+    when:
+      - "İçerideki konum adrese çevrilir"
+      - "Dışarıdaki konum adrese çevrilmek istenir"
+      - "Sağlayıcı erişilemezken çevirme denenir"
+    then:
+      - "İçerideki konum bileşenlere çözülür ve hiçbir kayıt yazılmaz"
+      - "Dışarıdaki konum reddedilir"
+      - "Sağlayıcı erişilemezse üst sistem hatası döner"
+    error: ADDRESS_OUTSIDE_SERVICE_AREA
+    source:
+      - "src/main/java/com/exskylab/koala/webAPI/AddressSearchController.java:91"
+      - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#reverse"
+    go_test: null

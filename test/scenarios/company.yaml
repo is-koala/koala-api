@@ -1,0 +1,638 @@
+# Şirket, üyelik, davet ve takip senaryoları.
+# Biçim: test/scenarios/README.md. Kaynak: Java origin/main (0cbbce69, okundu, koşturulmadı).
+# ADR-0029 Karar 7 Java'dan dört bilinçli ayrılık taşır: onaysız şirketin ilan yayınlaması, davetin
+# süresi, davetin iptali ve takibin silme sınıfı.
+
+domain: company
+id_prefix: CMP
+version: 0
+scenarios:
+
+  - id: CMP-001
+    priority: P0
+    title: Şirketi yalnız kimliği doğrulanmış kullanıcı kurar ve yöneticisi olur
+    rule: >
+      Şirket kurmak kimliğin doğrulanmış olmasını ister. Kurulan şirket onay bekler durumda başlar ve
+      kurucu şirketin yöneticisi olarak ilk üyelik kaydını alır.
+    given:
+      - "Kullanıcı U1'in kimliği doğrulanmış; U2'nin doğrulanmamış"
+    when:
+      - "U1 şirket kurar"
+      - "U2 şirket kurmaya çalışır"
+    then:
+      - "U1'in şirketi onay bekler durumda açılır"
+      - "U1 şirketin yöneticisi olur"
+      - "U2'nin isteği reddedilir ve hiçbir şirket oluşmaz"
+    error: USER_MUST_VERIFY_IDENTITY
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyManager.java#addCompany"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; şirket handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-002
+    priority: P0
+    title: Şirket onayı tek yönlüdür; reddedilmiş şirket sonra onaylanabilir
+    rule: >
+      Onay bekleyen şirket onaylanabilir ya da reddedilebilir. Reddedilmiş şirket sonradan
+      onaylanabilir ve kararın notu değişir. Onaylanmış şirket ne yeniden onaylanabilir ne
+      reddedilebilir; reddedilmiş şirket ikinci kez reddedilemez.
+    given:
+      - "Onay bekleyen şirket A; reddedilmiş şirket B; onaylanmış şirket C"
+    when:
+      - "B onaylanır"
+      - "C reddedilmek istenir"
+      - "C yeniden onaylanmak istenir"
+      - "B yeniden reddedilmek istenir"
+    then:
+      - "B onaylanır ve kararın notu yenisiyle değişir"
+      - "C'nin reddi çakışma hatası alır"
+      - "C'nin ikinci onayı çakışma hatası alır"
+      - "B'nin ikinci reddi çakışma hatası alır"
+      - "Reddedilen kararlarda hiçbir bildirim gönderilmez"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#aRejectedCompanyCanStillBeApprovedAndTheNoteIsReplaced"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anApprovedCompanyCannotBeRejected"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#aRejectedCompanyCannotBeRejectedTwice"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anAlreadyApprovedCompanyCannotBeApprovedAgain"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#aRefusedDecisionTellsNobody"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; onay handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-003
+    priority: P0
+    title: Ret gerekçesi zorunlu, onay notu isteğe bağlıdır
+    rule: >
+      Şirket reddetmek gerekçe ister; boş, yalnız boşluktan oluşan ya da hiç verilmeyen gerekçe
+      reddedilir ve şirketin durumu değişmez. Onaylamak not istemez; notsuz onay çalışır ve not
+      verilirse kırpılarak kaydedilir. Not en çok bin karakterdir.
+    given:
+      - "Onay bekleyen şirket A"
+    when:
+      - "A gerekçe verilmeden reddedilmek istenir"
+      - "A yalnız boşluktan oluşan gerekçeyle reddedilmek istenir"
+      - "A notsuz onaylanır"
+    then:
+      - "İki ret isteği de reddedilir; A onay bekler kalır"
+      - "Notsuz onay çalışır"
+      - "Verilen not kırpılır; yalnız boşluktan oluşan not boş kaydedilir"
+    source:
+      - "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#aRejectionWithoutAReasonIsRefused"
+      - "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#approvalStillWorksWithNoBodyAtAllAndAcceptsANoteWhenGiven"
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyManager.java#decide"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; onay handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-004
+    priority: P0
+    title: Ret gerekçesini yalnız şirketin kendi üyeleri okur
+    rule: >
+      Şirketin onay durumu her kimlikli çağırana görünür, ama kararın notu yalnız şirketin
+      üyelerine görünür. Üye olmayan çağıran için not alanı boştur.
+    given:
+      - "Reddedilmiş şirket A ve gerekçesi; A'nın üyesi M; üye olmayan kullanıcı X"
+    when:
+      - "M ve X sırayla A'yı okur"
+    then:
+      - "İkisi de A'nın reddedilmiş olduğunu görür"
+      - "Yalnız M gerekçeyi görür; X için not alanı boştur"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#onlyTheCompanysOwnPeopleReadWhyItWasRejected"
+      - "src/test/java/com/exskylab/koala/webAPI/CompanyApprovalIT.java#onlyTheCompanysOwnPeopleReadTheRejectionReason"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; şirket handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-005
+    priority: P0
+    title: Onaylanmamış şirket ilan yayınlayamaz
+    rule: >
+      Şirket onaylanmadan ilan yayınlayamaz. Onay durumu ilan açma kararında bir ön süzgeçtir;
+      üyelik tek başına yetmez.
+    given:
+      - "Onay bekleyen şirket A ve A'nın üyesi M"
+    when:
+      - "M, A adına ilan açmaya çalışır"
+      - "A onaylandıktan sonra M yeniden dener"
+    then:
+      - "İlk deneme reddedilir"
+      - "Onaydan sonraki deneme çalışır"
+    error: COMPANY_NOT_APPROVED
+    decision: "Java hatası (ilan açmada onay kontrolü hiç yok; kendi belgesi tersini söylüyor)"
+    target: >
+      Onaylanmamış şirket ilan yayınlayamaz (ADR-0029 Karar 7; sektör: Stripe Connect, Upwork).
+      Java'da bu kontrol hiç yok: ilan açma yalnız üyeliğe bakıyor, oysa aynı ucun kendi belgesi
+      "şirket onaylanana kadar ilan yayınlayamaz" diyor. **Açık soru 1:** ürün kararı Yusuf'a ait.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/JobManager.java#createCorporateJob"
+      - "src/main/java/com/exskylab/koala/webAPI/CompaniesController.java#addCompany"
+    go_test: null
+    deferred:
+      phase: 3
+      reason: "İlan ucu Faz 3'tedir; bu sözleşmede ilan operasyonu yok. Kural ADR-0029 Karar 7'de kayıtlı."
+
+  - id: CMP-006
+    priority: P0
+    title: Üye olmayan çağıran şirketi var olmayandan ayırt edemez
+    rule: >
+      Şirketi yönetme işlemleri yalnız şirketin yöneticisine açıktır. Yönetici olmayan çağıran, var
+      olmayan bir şirketle aynı yanıtı alır; yanıt şirketin varlığını söylemez. Yetki kontrolü
+      şirket yüklenmeden önce yapılır, böylece varlık sızmaz.
+    given:
+      - "Şirket A; A'nın yöneticisi olmayan kullanıcı X; hiç var olmamış şirket kimliği Z"
+    when:
+      - "X, A'yı güncellemeye çalışır"
+      - "X, Z'yi güncellemeye çalışır"
+    then:
+      - "İki yanıt da aynı; gövdeleri bayt bayt aynı"
+      - "Şirket kaydı hiç okunmaz ve kullanıcı aranmaz"
+    error: COMPANY_NOT_FOUND
+    decision: "Java hatası (aynı duruma üç ayrı yanıt: 404, 400 ve 403)"
+    target: >
+      Görme yetkisi olmayan çağıran kaynağın 404'ünü alır (ADR-0014, ADR-0029 Karar 10). Java aynı
+      "üyesi değil" durumuna üç ayrı yanıt veriyor.
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyInvitationSendingRulesTest.java#aNonAdminCannotTellTheCompanyFromAMissingOne"
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyManager.java#requireCompanyAdmin"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyJobListingRulesTest.java#aUserWhoIsNotAContactOfAnExistingCompanyIsForbidden"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; şirket handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-007
+    priority: P0
+    title: Son yönetici şirketten çıkarılamaz
+    rule: >
+      Şirketin tek yöneticisi çıkarılamaz; istek çakışma hatası alır ve üyelik yerinde kalır. Başka
+      bir yönetici varsa yönetici çıkarılabilir, kendisi dahil. Sıradan üye koşulsuz çıkarılabilir.
+    given:
+      - "Şirket A'nın tek yöneticisi M1 ve bir sıradan üyesi M2"
+    when:
+      - "M1 kendini çıkarmaya çalışır"
+      - "M2 çıkarılır"
+      - "İkinci bir yönetici M3 eklendikten sonra M1 kendini çıkarır"
+    then:
+      - "İlk istek çakışma hatası alır; M1'in üyeliği kalır"
+      - "M2 çıkarılır"
+      - "M3 varken M1 kendini çıkarabilir"
+      - "Soft-silinmiş üyelikler yönetici sayımına girmez"
+    error: COMPANY_LAST_ADMIN_CANNOT_BE_REMOVED
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#theLastAdminCannotBeRemoved"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anOrdinaryContactCanBeRemoved"
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyManager.java#removeContact"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; üyelik handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-008
+    priority: P0
+    title: Üyelik kaydı silinmez, soft-silinir; aynı kişi yeniden davet edilebilir
+    rule: >
+      Üyelik çıkarıldığında kayıt soft-silinir ve geçmişte kalır. Aynı kişi sonradan yeniden davet
+      edilip yeni bir üyelik kaydıyla eklenebilir. Soft-silinmiş üyelik hiçbir yetki vermez.
+    given:
+      - "Şirket A'dan çıkarılmış üye M"
+    when:
+      - "M yeniden davet edilir ve kabul eder"
+      - "M, çıkarılmışken A'nın üye görünümünü okumaya çalışır"
+    then:
+      - "M yeni bir üyelik kaydıyla eklenir; eski kayıt soft-silinmiş kalır"
+      - "Çıkarılmışken yapılan okuma, var olmayan şirketin yanıtını alır"
+      - "Üyeliğin eklenmesi ve çıkarılması ilgili olayları yayınlar"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyContactManager.java#removeContact"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyContactCrewEventsTest.java#removingAContactAnnouncesTheCompanyAndTheUserItLeft"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyContactCrewEventsTest.java#addingAContactAnnouncesItAfterTheRowIsSaved"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; üyelik handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-009
+    priority: P0
+    title: Davet yalnız kayıtlı ve kimliği doğrulanmış bir kullanıcıya gönderilir
+    rule: >
+      Davet, adresten çözülen var olan bir kullanıcıya bağlanır; kayıtsız adrese davet gönderilemez.
+      Davet edilen kullanıcının kimliği doğrulanmış olmak zorundadır. Davette rol davet anında
+      belirlenir ve geçerli bir rol olmak zorundadır.
+    given:
+      - "Şirket A'nın yöneticisi M; kayıtlı ve kimliği doğrulanmış U1; kayıtlı ama kimliği doğrulanmamış U2; kayıtsız adres b@örnek"
+    when:
+      - "M, U1'i davet eder"
+      - "M, U2'yi davet etmeye çalışır"
+      - "M, b@örnek adresini davet etmeye çalışır"
+      - "M geçersiz bir rolle davet etmeye çalışır"
+    then:
+      - "U1 için davet oluşur"
+      - "U2'nin daveti reddedilir"
+      - "b@örnek için davet oluşmaz"
+      - "Geçersiz rol reddedilir"
+    error: USER_MUST_VERIFY_IDENTITY
+    decision: "Java hatası (davette kimlik numarasının varlığı, şirket kurmada doğrulanmışlık bayrağı bakılıyor)"
+    target: >
+      İki yolda da kimlik doğrulanmışlık bayrağı kullanılır (ADR-0029 Karar 7). Java davette kimlik
+      numarasının boş olmamasına, şirket kurmada doğrulanmışlık bayrağına bakıyor; aynı kavrama iki
+      ölçüt.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyManager.java#inviteContactToCompany"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyInvitationSendingRulesTest.java#someoneWhoseIdentityIsNotVerifiedStillCannotBeMadeAContact"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; davet handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-010
+    priority: P0
+    title: Aynı kişi için aynı anda tek açık davet olur; cevaplanmış davet yenisini engellemez
+    rule: >
+      Bir şirketin aynı kişiye aynı anda en çok bir açık daveti olur; ikinci davet çakışma hatası
+      alır. Cevaplanmış bir davet yeni bir daveti engellemez. Şirketin zaten üyesi olan kişi davet
+      edilemez.
+    given:
+      - "Şirket A; A'nın açık daveti olan U1; A'nın üyesi U2; daveti reddetmiş U3"
+    when:
+      - "U1 yeniden davet edilmek istenir"
+      - "U2 davet edilmek istenir"
+      - "U3 yeniden davet edilir"
+    then:
+      - "U1'in ikinci daveti çakışma hatası alır"
+      - "U2'nin daveti çakışma hatası alır"
+      - "U3 için yeni davet oluşur"
+    error: COMPANY_INVITATION_ALREADY_PENDING
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyInvitationSendingRulesTest.java#aSecondInvitationWhileOneIsStillPendingIsAConflict"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyInvitationSendingRulesTest.java#invitingSomeoneWhoIsAlreadyAContactIsAConflict"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyInvitationSendingRulesTest.java#anAnsweredInvitationDoesNotBlockANewOne"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; davet handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-011
+    priority: P0
+    title: Daveti üç taraf okur, yalnız davet edilen cevaplar
+    rule: >
+      Bir daveti davet edilen, daveti gönderen ve şirketin bugünkü yöneticisi okuyabilir. Cevaplamak
+      yalnız davet edilene açıktır: şirket yöneticisi daveti okuyabilir ama cevaplayamaz.
+    given:
+      - "Şirket A'nın yöneticisi M, M'nin gönderdiği davet, davet edilen U ve yabancı X"
+    when:
+      - "U, M ve X sırayla daveti okur"
+      - "M daveti cevaplamaya çalışır"
+      - "U daveti cevaplar"
+    then:
+      - "U ve M daveti okur"
+      - "X için yanıt var olmayan davetin yanıtıdır"
+      - "M'nin cevaplama isteği var olmayan davetin yanıtını alır"
+      - "U'nun cevabı kabul edilir"
+    error: COMPANY_INVITATION_NOT_FOUND
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aCompanyAdminCanReadTheInvitation"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#theInviterCanReadTheInvitation"
+      - "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#theCompanyAdminMayReadTheInvitationButMayNotAnswerIt"
+      - "src/test/java/com/exskylab/koala/webAPI/CompanyContactInvitationAccessIT.java#answeringSomeoneElsesInvitationLooksExactlyLikeAMissingOne"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; davet handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-012
+    priority: P0
+    title: Davet kimliğini ele geçiren yabancı, durum sorulmadan reddedilir
+    rule: >
+      Davet kimliğini bilen ama tarafı olmayan bir çağıran, davetin durumu hiç sorulmadan var
+      olmayan davetin yanıtını alır. Davet bir taşıyıcı kimlik bilgisi değildir: kimliği bilmek
+      yetki vermez.
+    given:
+      - "Cevaplanmış bir davet ve kimliğini bilen yabancı X"
+    when:
+      - "X daveti okumaya çalışır"
+    then:
+      - "Yanıt var olmayan davetin yanıtıdır, çakışma hatası değil"
+      - "Davetin durumu hiç sorulmaz"
+    error: COMPANY_INVITATION_NOT_FOUND
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerHoldingTheIdCannotReadTheInvitation"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyContactInvitationRulesTest.java#aStrangerIsRefusedBeforeTheInvitationStatusIsConsulted"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; davet handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-013
+    priority: P0
+    title: Davetin kabulü üyelikle aynı transaction'da yazılır
+    rule: >
+      Davet kabul edildiğinde davetin durumu ile üyelik kaydı aynı transaction'da yazılır: ya ikisi
+      birlikte kalıcı olur ya da hiçbiri. Yarı kalmış bir kabul, kullanıcıyı kalıcı olarak dışarıda
+      bırakamaz.
+    given:
+      - "Açık bir davet ve davet edilen U"
+    when:
+      - "U daveti kabul eder ve üyelik yazımı düşer"
+      - "U daveti yeniden kabul etmeyi dener"
+    then:
+      - "Davetin durumu değişmez; açık kalır"
+      - "İkinci deneme çalışır ve üyelik oluşur"
+    decision: "Java hatası (kabul iki ayrı transaction; arada düşüş kullanıcıyı kalıcı dışarıda bırakıyor)"
+    target: >
+      Kabul atomiktir (ADR-0029 Karar 7). Java'da davet cevaplama transaction dışında koşuyor:
+      davet ACCEPTED yazılıp üyelik yazılamazsa ikinci deneme "zaten cevaplandı" hatası alıyor ve
+      kullanıcı şirkete hiç giremiyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyContactInvitationManager.java#answerToInvitation"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; davet handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-014
+    priority: P0
+    title: Cevaplanmış davet terminaldir
+    rule: >
+      Kabul edilmiş ya da reddedilmiş bir davet yeniden cevaplanamaz; istek çakışma hatası alır ve
+      hiçbir üyelik oluşmaz. Ret üyelik oluşturmaz ama sonraki bir daveti de engellemez.
+    given:
+      - "U'nun reddettiği bir davet"
+    when:
+      - "U aynı daveti kabul etmeye çalışır"
+    then:
+      - "İstek çakışma hatası alır"
+      - "Üyelik oluşmaz"
+      - "Davetin cevap zamanı ve durumu değişmez"
+    error: COMPANY_INVITATION_ALREADY_ANSWERED
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyContactInvitationManager.java#answerToInvitation"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; davet handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-015
+    priority: P0
+    title: Davet on dört gün sonra sona erer
+    rule: >
+      Açık bir davet on dört gün sonra sona erer ve artık cevaplanamaz. Sona ermiş davet, aynı kişi
+      için yeni bir daveti engellemez.
+    given:
+      - "On dört günden eski, hiç cevaplanmamış bir davet"
+    when:
+      - "Davet edilen daveti kabul etmeye çalışır"
+      - "Şirket yöneticisi aynı kişiyi yeniden davet eder"
+    then:
+      - "Kabul reddedilir; davet sona ermiştir"
+      - "Üyelik oluşmaz"
+      - "Yeni davet oluşturulabilir"
+    error: COMPANY_INVITATION_EXPIRED
+    decision: "Java hatası (davette süre hiç yok; açık davet sonsuza kadar cevaplanabiliyor)"
+    target: >
+      Davet on dört gün yaşar (ADR-0029 Karar 7; sektör: GitHub organizasyon daveti yedi gün).
+      Java'da süre kolonu ve süre kontrolü hiç yok. **Açık soru 3:** süre bir ürün tercihidir.
+    source:
+      - "src/main/java/com/exskylab/koala/entities/CompanyContactInvitation.java:1-60"
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyContactInvitationManager.java#answerToInvitation"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; davet handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-016
+    priority: P0
+    title: Şirket yöneticisi açık daveti geri alabilir
+    rule: >
+      Şirketin yöneticisi açık bir daveti geri alabilir; geri alınmış davet cevaplanamaz ve üyelik
+      oluşturmaz. Cevaplanmış bir davet geri alınamaz.
+    given:
+      - "Şirket A'nın açık daveti ve A'nın yöneticisi M"
+    when:
+      - "M daveti geri alır"
+      - "Davet edilen daveti kabul etmeye çalışır"
+      - "M cevaplanmış başka bir daveti geri almaya çalışır"
+    then:
+      - "Davet geri alınmış olur"
+      - "Kabul reddedilir ve üyelik oluşmaz"
+      - "Cevaplanmış davetin geri alınması çakışma hatası alır"
+    error: COMPANY_INVITATION_ALREADY_ANSWERED
+    decision: "Java hatası (daveti geri almanın hiçbir yolu yok)"
+    target: >
+      Yönetici daveti geri alabilir (ADR-0029 Karar 7). Java'da ne uç, ne servis metodu, ne durum
+      değeri var: gönderilen davet geri alınamıyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyContactInvitationManager.java#answerToInvitation"
+      - "src/main/java/com/exskylab/koala/dataAccess/CompanyContactInvitationDao.java:1-30"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; davet handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-017
+    priority: P0
+    title: Takibi bırakmak kaydı kalıcı olarak siler
+    rule: >
+      Takip bir aboneliktir; bırakmak kaydı kalıcı olarak siler, mezar taşı bırakmaz. Yeniden takip
+      yeni bir kayıt açar ve takip tarihi güncel aboneliğin başlangıcıdır.
+    given:
+      - "Kullanıcı U şirket A'yı takip ediyor"
+    when:
+      - "U takibi bırakır"
+      - "U A'yı yeniden takip eder"
+    then:
+      - "Bırakıldığında kayıt kalıcı olarak silinir"
+      - "Yeniden takipte yeni bir kayıt açılır"
+      - "Takip tarihi güncel aboneliğin başlangıcıdır"
+      - "Bırakılan takipler birikmez"
+    decision: "Java hatası (takip soft-siliniyor; her bırakma kalıcı bir mezar taşı bırakıyor)"
+    target: >
+      Takip kaydı M6 sınıfındadır, yani soft-delete'li değil (ADR-0029 Karar 7). Java soft-delete
+      ediyor ve hiç temizlemiyor; ayrıca kısmi tekil indeks gerektiriyor.
+    source:
+      - "src/main/java/com/exskylab/koala/entities/CompanyFollow.java:1-40"
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyFollowManager.java#unfollow"
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyFollowManager.java#getFollowedCompanies"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; takip tablosu ve sınıflandırması Faz 2'nin veri PR'ında gelir."
+
+  - id: CMP-018
+    priority: P0
+    title: Şirket kuyruğu ve onay kararı şirket onay iznini ister
+    rule: >
+      Şirket onay kuyruğunu okumak, bir şirketi incelemek, logosunu indirmek ve onay ya da ret
+      kararı vermek şirket onay iznini ister. İzni olmayan personel reddedilir ve ret denetim
+      kaydına yazılır.
+    given:
+      - "Şirket onay izni olan personel P1; izni olmayan P2"
+    when:
+      - "P1 onay kuyruğunu okur ve bir şirketi onaylar"
+      - "P2 aynı işlemleri dener"
+    then:
+      - "P1'in işlemleri çalışır"
+      - "P2 izin hatası alır"
+      - "P2'nin reddedilen denemesi denetim kaydına yazılır"
+    error: STAFF_PERMISSION_DENIED
+    source:
+      - "src/main/java/com/exskylab/koala/webAPI/AdminController.java#approveCompany"
+      - "src/main/java/com/exskylab/koala/entities/StaffPermission.java:1-60"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; admin şirket uçları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-019
+    priority: P1
+    title: Takip ve takibi bırakma yinelenebilir ve sessizdir
+    rule: >
+      Zaten takip edilen bir şirketi yeniden takip etmek yeni bir kayıt açmaz ve hata vermez. Takip
+      edilmeyen bir şirketi bırakmak da sessizce geçer. Onaylanmamış şirket ve çağıranın kendi
+      şirketi de takip edilebilir.
+    given:
+      - "Kullanıcı U, şirket A'yı takip ediyor; şirket B'yi takip etmiyor"
+    when:
+      - "U, A'yı yeniden takip eder"
+      - "U, B'yi bırakır"
+      - "U kendi şirketini ve onaylanmamış bir şirketi takip eder"
+    then:
+      - "A için yeni kayıt açılmaz ve hata dönmez"
+      - "B'nin bırakılması sessizce geçer"
+      - "Kendi şirketi ve onaylanmamış şirket takip edilebilir"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyFollowRulesTest.java#followingTwiceCreatesOneRecord"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyFollowRulesTest.java#unfollowingSomethingYouDoNotFollowIsSilent"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyFollowRulesTest.java#aFirstFollowIsRecorded"
+    go_test: null
+
+  - id: CMP-020
+    priority: P1
+    title: Takipçi bildirimi en iyi çabadır
+    rule: >
+      Şirket ilan açtığında takipçilerine bildirim gönderilir. Bir gönderim hatası kalanları
+      durdurmaz; ilanın sahibine kendi ilanı bildirilmez; bireysel ilan kimseye bildirilmez; özellik
+      tek bir anahtarla tümden susturulabilir.
+    given:
+      - "Şirket A'nın üç takipçisi var; biri ilanın sahibi"
+    when:
+      - "A ilan açar ve takipçilerden birine gönderim başarısız olur"
+      - "Bireysel bir ilan açılır"
+      - "Özellik kapatılıp A yeniden ilan açar"
+    then:
+      - "İlanın sahibine bildirim gitmez"
+      - "Başarısız gönderim kalan takipçileri durdurmaz"
+      - "Bireysel ilan kimseye bildirilmez"
+      - "Özellik kapalıyken hiç bildirim gitmez"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyFollowRulesTest.java#theJobCreatorIsNotNotifiedAboutTheirOwnJob"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyFollowRulesTest.java#oneFailedDeliveryDoesNotStopTheRest"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyFollowRulesTest.java#anIndividualJobNotifiesNobody"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyFollowRulesTest.java#theFeatureCanBeSilencedEntirely"
+    go_test: null
+
+  - id: CMP-021
+    priority: P1
+    title: Vergi numarası ve şirket türü kuruluştan sonra değişmez; tekillik aranmaz
+    rule: >
+      Şirketin vergi numarası ve türü kurulduktan sonra hiçbir yoldan değiştirilemez. Vergi
+      numarasında, adda ve adreste tekillik aranmaz ve vergi numarasında sağlama doğrulaması
+      yapılmaz; doğrulama onay incelemesinin işidir.
+    given:
+      - "Kurulmuş şirket A"
+    when:
+      - "A'nın vergi numarası değiştirilmek istenir"
+      - "A ile aynı vergi numarasıyla ikinci bir şirket kurulur"
+    then:
+      - "Vergi numarası ve tür değiştirilemez"
+      - "Aynı vergi numarasıyla ikinci şirket kurulabilir"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/CompanyManager.java#updateCompany"
+      - "src/main/java/com/exskylab/koala/core/dtos/company/request/UpdateCompanyRequestDto.java:1-30"
+    go_test: null
+
+  - id: CMP-022
+    priority: P1
+    title: Şirketin adresini güncellemek adresi yenisiyle değiştirir
+    rule: >
+      Şirket güncellemesinde adres verilirse eski adres kaydı yenisiyle değiştirilir ve geride
+      bırakılmaz. Adres verilmeyen bir güncelleme adrese hiç dokunmaz.
+    given:
+      - "Adresi olan şirket A"
+    when:
+      - "A adres içeren bir güncellemeyle güncellenir"
+      - "A adres içermeyen bir güncellemeyle güncellenir"
+    then:
+      - "İlk güncellemede yeni adres kaydı oluşur ve eskisi bırakılmaz"
+      - "İkinci güncellemede adres hiç okunmaz ve değişmez"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anAddressInThePatchReplacesTheCompanyAddressThroughTheAddressService"
+      - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#aPatchWithoutAnAddressNeverTouchesTheAddressService"
+    go_test: null
+
+  - id: CMP-023
+    priority: P1
+    title: Galerinin sırası kapağı belirler
+    rule: >
+      Galeri tümden değiştirilir ve sıra anlamlıdır: listedeki ilk görüntü kapaktır. Her
+      öğe isteğe bağlı bir açıklama taşır ve açıklama aynı işlemde güncellenir. Listede
+      olmayan görüntüler galeriden çıkar ama medya kayıtları silinmez. Boş liste galeriyi
+      boşaltır ve kapağı boşa çıkarır. Sınır on görüntü, açıklama sınırı iki yüz elli beş
+      karakterdir.
+    given:
+      - "Şirket A'nın galerisinde üç görüntü var ve kapağı birincisi"
+    when:
+      - "Galeri, ikinci görüntü başa alınacak biçimde yeniden sıralanır"
+      - "Galeri boş listeyle değiştirilir"
+      - "On birinci görüntüyle değiştirme denenir"
+    then:
+      - "Yeniden sıralamadan sonra kapak ikinci görüntü olur"
+      - "Listeden çıkan görüntülerin medya kayıtları silinmez"
+      - "Boş liste galeriyi boşaltır ve kapak boş kalır"
+      - "On birinci görüntüyle değiştirme reddedilir"
+      - "Her öğenin açıklaması isteğe bağlıdır; verilmeyen açıklama boş okunur"
+      - "Açıklama sıralamayla aynı işlemde güncellenir"
+      - "İki yüz elli beş karakteri aşan açıklama reddedilir"
+    error: COMPANY_GALLERY_LIMIT_REACHED
+    decision: "Java hatası (kapak kavramı belgede var, sözleşmede yok)"
+    target: >
+      Kapak galerinin ilk görüntüsüdür ve ayrı bir uç istemez (ADR-0029 Karar 7). Java'nın
+      belgesi "kapak silinirse sıradaki görsel kapak olur" diyor ama kapağı adlandıran bir
+      alan yok.
+    source:
+      - "src/main/java/com/exskylab/koala/webAPI/CompaniesController.java:344"
+      - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#addCompanyImage"
+    go_test: null
+
+  - id: CMP-024
+    priority: P0
+    title: Aynı görsel galeri listesinde iki kez geçemez
+    rule: >
+      Galeri değiştirilirken aynı medya listede iki kez geçerse istek reddedilir ve galeri
+      değişmez. Sıra anlamlı olduğu için bir görüntünün iki konumu olamaz; açıklamaları
+      farklı olsa da aynı medya tek kez listelenir.
+    given:
+      - "Şirket A'nın galerisinde iki görüntü var"
+    when:
+      - "Aynı medya kimliği listede iki kez geçecek şekilde galeri değiştirilmek istenir"
+      - "Aynı medya kimliği iki kez, ama açıklamaları farklı verilerek denenir"
+    then:
+      - "İki istek de reddedilir"
+      - "Galeri değişmez"
+    error: COMPANY_GALLERY_DUPLICATE_IMAGE
+    decision: "Java'nın ikinci galeri değişmezi"
+    target: >
+      Kural şema ile ifade edilemiyor: öğeler nesne olduğu için `uniqueItems` bütün nesneyi
+      karşılaştırır ve aynı medya + farklı açıklama iki ayrı öğe sayılır. Bu yüzden gövde
+      kuralı olarak dondurulur (ADR-0029 Karar 7).
+    source:
+      - "src/main/java/com/exskylab/koala/core/dtos/gallery/request/UpdateGalleryDto.java#isEveryImageListedOnce"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; galeri handler'ı Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
