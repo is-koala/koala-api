@@ -354,3 +354,224 @@ func TestLoadRejectsBadKeyRings(t *testing.T) {
 		})
 	}
 }
+
+// objectEnviron is a complete object store configuration, for the tests
+// that take away one variable at a time.
+func objectEnviron(env string) []string {
+	return []string{
+		"KOALA_ENV=" + env,
+		config.VarObjectEndpoint + "=https://objects.example.com",
+		config.VarObjectRegion + "=eu-central-1",
+		config.VarObjectBucket + "=koala-media",
+		config.VarObjectAccessKeyID + "=test-access-key-id",
+		config.VarObjectSecretKey + "=test-secret-access-key",
+		config.VarObjectPathStyle + "=true",
+		config.VarObjectPublicBaseURL + "=https://cdn.example.com",
+	}
+}
+
+func TestLoadReadsTheObjectStore(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(objectEnviron("production"))
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	want := config.ObjectStore{
+		Endpoint:      "https://objects.example.com",
+		Region:        "eu-central-1",
+		Bucket:        "koala-media",
+		AccessKeyID:   "test-access-key-id",
+		SecretKey:     "test-secret-access-key",
+		PathStyle:     true,
+		PublicBaseURL: "https://cdn.example.com",
+	}
+	if !reflect.DeepEqual(cfg.Object, want) {
+		t.Fatalf("Object = %+v, want %+v", cfg.Object, want)
+	}
+	if !cfg.Object.Configured() {
+		t.Error("Configured() = false for a complete configuration")
+	}
+	if err := cfg.ServeStorageErrors(); err != nil {
+		t.Errorf("ServeStorageErrors() = %v, want nil", err)
+	}
+}
+
+// TestObjectSecretNeverPrints is the log rule: the secret access key is
+// a Secret, so every way the configuration reaches a log prints a
+// placeholder instead of the value.
+func TestObjectSecretNeverPrints(t *testing.T) {
+	t.Parallel()
+
+	const secret = "test-secret-access-key"
+	cfg, err := config.Load(objectEnviron("production"))
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	for _, verb := range []string{"%v", "%+v", "%#v", "%s"} {
+		if rendered := fmt.Sprintf(verb, cfg); strings.Contains(rendered, secret) {
+			t.Errorf("a Config formatted with %s holds the secret access key", verb)
+		}
+	}
+	if got := cfg.Object.SecretKey.Reveal(); got != secret {
+		t.Errorf("Reveal() = %q, want the value", got)
+	}
+}
+
+func TestLoadRejectsBadObjectValues(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		environ []string
+		wantVar string
+	}{
+		{"bucket too short", []string{"KOALA_ENV=local", config.VarObjectBucket + "=ab"}, config.VarObjectBucket},
+		{"bucket upper case", []string{"KOALA_ENV=local", config.VarObjectBucket + "=Koala-Media"}, config.VarObjectBucket},
+		{"bucket with a slash", []string{"KOALA_ENV=local", config.VarObjectBucket + "=koala/media"}, config.VarObjectBucket},
+		{"bucket with a traversal", []string{"KOALA_ENV=local", config.VarObjectBucket + "=../koala"}, config.VarObjectBucket},
+		{"bucket leading dash", []string{"KOALA_ENV=local", config.VarObjectBucket + "=-koala"}, config.VarObjectBucket},
+		{"bucket trailing dot", []string{"KOALA_ENV=local", config.VarObjectBucket + "=koala."}, config.VarObjectBucket},
+		{"bucket too long", []string{"KOALA_ENV=local", config.VarObjectBucket + "=" + strings.Repeat("k", 64)}, config.VarObjectBucket},
+		{"endpoint is not a URL", []string{"KOALA_ENV=local", config.VarObjectEndpoint + "=objects.example.com"}, config.VarObjectEndpoint},
+		{"endpoint with credentials", []string{"KOALA_ENV=local", config.VarObjectEndpoint + "=https://k:s@objects.example.com"}, config.VarObjectEndpoint},
+		{"endpoint with a query", []string{"KOALA_ENV=local", config.VarObjectEndpoint + "=https://objects.example.com?x=1"}, config.VarObjectEndpoint},
+		{"endpoint plain text in production", []string{"KOALA_ENV=production", config.VarObjectEndpoint + "=http://objects.example.com"}, config.VarObjectEndpoint},
+		{"public base URL plain text in production", []string{"KOALA_ENV=production", config.VarObjectPublicBaseURL + "=http://cdn.example.com"}, config.VarObjectPublicBaseURL},
+		{"public base URL with a fragment", []string{"KOALA_ENV=local", config.VarObjectPublicBaseURL + "=https://cdn.example.com/#f"}, config.VarObjectPublicBaseURL},
+		{"path style is not a boolean", []string{"KOALA_ENV=local", config.VarObjectPathStyle + "=yes"}, config.VarObjectPathStyle},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(tt.environ)
+			if err == nil {
+				t.Fatalf("Load() = %+v, want error", cfg)
+			}
+			if !strings.Contains(err.Error(), tt.wantVar) {
+				t.Fatalf("Load() error = %q, want it to mention %s", err, tt.wantVar)
+			}
+			if !reflect.DeepEqual(cfg, config.Config{}) {
+				t.Fatalf("Load() returned a partial config on error: %+v", cfg)
+			}
+			if strings.Contains(err.Error(), "example.com") || strings.Contains(err.Error(), "koala-media") {
+				t.Errorf("Load() error echoes a value: %q", err)
+			}
+		})
+	}
+}
+
+// TestObjectPlainTextEndpointIsFineOutsideProduction keeps a local MinIO
+// workable: http is only refused in production.
+func TestObjectPlainTextEndpointIsFineOutsideProduction(t *testing.T) {
+	t.Parallel()
+
+	for _, env := range []string{"local", "test", "staging"} {
+		environ := []string{"KOALA_ENV=" + env, config.VarObjectEndpoint + "=http://127.0.0.1:9000"}
+		if _, err := config.Load(environ); err != nil {
+			t.Errorf("Load() in %s = %v, want nil", env, err)
+		}
+	}
+}
+
+// TestServeStorageErrors is the fail-closed rule of ADR-0030 Karar 7: a
+// partly configured store stops serve everywhere, a missing one stops it
+// where the upload endpoints are live, and the public base URL is
+// optional.
+func TestServeStorageErrors(t *testing.T) {
+	t.Parallel()
+
+	without := func(env, drop string) []string {
+		var out []string
+		for _, kv := range objectEnviron(env) {
+			if name, _, _ := strings.Cut(kv, "="); name == drop {
+				continue
+			}
+			out = append(out, kv)
+		}
+		return out
+	}
+
+	tests := []struct {
+		name    string
+		environ []string
+		want    []string
+	}{
+		{"complete in production", objectEnviron("production"), nil},
+		{"complete in local", objectEnviron("local"), nil},
+		{"nothing set in local", []string{"KOALA_ENV=local"}, nil},
+		{"nothing set in test", []string{"KOALA_ENV=test"}, nil},
+		{
+			"nothing set in staging",
+			[]string{"KOALA_ENV=staging"},
+			[]string{
+				config.VarObjectRegion + ": required by serve in staging",
+				config.VarObjectBucket + ": required by serve in staging",
+				config.VarObjectAccessKeyID + ": required by serve in staging",
+				config.VarObjectSecretKey + ": required by serve in staging",
+			},
+		},
+		{
+			"nothing set in production",
+			[]string{"KOALA_ENV=production"},
+			[]string{config.VarObjectBucket + ": required by serve in production"},
+		},
+		{
+			"bucket missing in local",
+			without("local", config.VarObjectBucket),
+			[]string{config.VarObjectBucket + ": required once any KOALA_OBJECT_* variable is set"},
+		},
+		{
+			"secret missing in production",
+			without("production", config.VarObjectSecretKey),
+			[]string{config.VarObjectSecretKey + ": required once any KOALA_OBJECT_* variable is set"},
+		},
+		{
+			"region missing in test",
+			without("test", config.VarObjectRegion),
+			[]string{config.VarObjectRegion + ": required once any KOALA_OBJECT_* variable is set"},
+		},
+		{
+			"access key missing in staging",
+			without("staging", config.VarObjectAccessKeyID),
+			[]string{config.VarObjectAccessKeyID + ": required once any KOALA_OBJECT_* variable is set"},
+		},
+		{"endpoint missing: AWS's own endpoint is used", without("production", config.VarObjectEndpoint), nil},
+		{"public base URL missing: no object gets a public address", without("production", config.VarObjectPublicBaseURL), nil},
+		{"path style missing: virtual hosted addressing", without("production", config.VarObjectPathStyle), nil},
+		{
+			"only the path style flag, in local",
+			[]string{"KOALA_ENV=local", config.VarObjectPathStyle + "=true"},
+			[]string{config.VarObjectBucket + ": required once any KOALA_OBJECT_* variable is set"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(tt.environ)
+			if err != nil {
+				t.Fatalf("Load() = %v", err)
+			}
+			err = cfg.ServeStorageErrors()
+			if len(tt.want) == 0 {
+				if err != nil {
+					t.Fatalf("ServeStorageErrors() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("ServeStorageErrors() = nil, want an error")
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("ServeStorageErrors() = %v, want it to mention %q", err, w)
+				}
+			}
+			if strings.Contains(err.Error(), "test-secret-access-key") {
+				t.Errorf("ServeStorageErrors() echoes the secret: %v", err)
+			}
+		})
+	}
+}
