@@ -129,13 +129,19 @@ func (k Kind) Prefix() (storage.Prefix, bool) {
 }
 
 // AllowedTypes are the types this kind accepts, detected from the
-// content. Images are JPEG and PNG; a CV is a PDF and nothing else.
+// content. Images are JPEG and PNG; a CV is a PDF, a DOC or a DOCX.
+//
+// The CV takes all three because that is what the industry takes and
+// what Java takes today: LinkedIn, Indeed, Greenhouse, Lever and
+// Kariyer.net all accept the three, and several of them parse .docx
+// best. An earlier decision narrowed the Go rewrite to PDF alone;
+// ADR-0031 Karar 2 reverses it.
 func (k Kind) AllowedTypes() []imaging.Type {
 	switch k {
 	case KindProfilePicture, KindCompanyLogo, KindCompanyImage, KindIdentityDocument:
 		return []imaging.Type{imaging.TypeJPEG, imaging.TypePNG}
 	case KindCV:
-		return []imaging.Type{imaging.TypePDF}
+		return []imaging.Type{imaging.TypePDF, imaging.TypeDOC, imaging.TypeDOCX}
 	default:
 		return nil
 	}
@@ -163,7 +169,9 @@ func (Kind) Limits() imaging.Limits {
 // are: a document that a browser renders is a document a browser can be
 // talked into executing, and neither is ever meant to be displayed
 // inline (Java's rule for identity documents, widened to the CV because
-// a PDF cannot be re-encoded; ADR-0030 Karar 4).
+// none of its types can be re-encoded; ADR-0030 Karar 4, ADR-0031
+// Karar 2). For a CV this is load bearing and not hygiene: it is one of
+// the mitigations the accepted limit rests on.
 func (k Kind) Attachment() bool {
 	return k == KindIdentityDocument || k == KindCV
 }
@@ -196,6 +204,10 @@ func ExtOf(typ imaging.Type) (storage.Ext, bool) {
 		return storage.ExtPNG, true
 	case imaging.TypePDF:
 		return storage.ExtPDF, true
+	case imaging.TypeDOC:
+		return storage.ExtDOC, true
+	case imaging.TypeDOCX:
+		return storage.ExtDOCX, true
 	default:
 		return "", false
 	}

@@ -102,13 +102,14 @@ type Completion struct {
 	// the client uploaded: the re-encode changes it.
 	Size int64
 	// Width and Height are the dimensions after the orientation was
-	// applied; zero for a PDF.
+	// applied; zero for a type that is moved instead of re-encoded.
 	Width, Height int
 	// PublicURL is the object's public address, empty when the kind has
 	// none.
 	PublicURL string
 	// Orientation is the EXIF tag that was found and baked in, 1 when
-	// there was nothing to apply; zero for a PDF.
+	// there was nothing to apply; zero for a type that is moved instead
+	// of re-encoded.
 	Orientation int
 }
 
@@ -158,9 +159,11 @@ func (c Completion) Rejected() bool { return c.Rejection != RejectionNone }
 // whose object is correct and sitting under a prefix no sweep covers,
 // losing it for good.
 //
-// A PDF is not re-encoded: it is copied as it is, with the detected type
-// and an attachment disposition replacing whatever metadata it carried
-// (ADR-0030 Karar 4).
+// A PDF, a DOC and a DOCX are not re-encoded: each is copied as it is,
+// with the detected type and an attachment disposition instead of the
+// strip. Their document metadata therefore survives, which is an
+// accepted limit and not an oversight (ADR-0030 Karar 4, ADR-0031
+// Karar 2).
 func (p *Pipeline) Complete(ctx context.Context, kind Kind, quarantined storage.Key) (Completion, error) {
 	prefix, ok := kind.Prefix()
 	if !ok {
@@ -243,8 +246,9 @@ func (p *Pipeline) Complete(ctx context.Context, kind Kind, quarantined storage.
 		done.Width, done.Height = stripped.Width, stripped.Height
 		done.Orientation = stripped.Orientation
 	} else {
-		// A PDF moves as it is. ErrSourceKept means the copy landed and
-		// the delete did not, which is the same leftover as above.
+		// A type that cannot be re-encoded moves as it is. ErrSourceKept
+		// means the copy landed and the delete did not, which is the same
+		// leftover as above.
 		err := p.store.Move(ctx, quarantined, final, put)
 		switch {
 		case errors.Is(err, storage.ErrSourceKept):

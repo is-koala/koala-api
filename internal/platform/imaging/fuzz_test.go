@@ -154,6 +154,13 @@ func addSeeds(f *testing.F) {
 	binary.BigEndian.PutUint32(bomb[20:24], 40_000)
 	binary.BigEndian.PutUint32(bomb[29:33], pngIHDRChecksum(bomb))
 	f.Add(bomb)
+	// The two container types, so the fuzzer mutates a real archive and
+	// a real compound file instead of only random bytes: the ZIP reader
+	// runs over attacker shaped input on this corpus and nowhere else.
+	f.Add(wordDOCX(f))
+	f.Add(wordDOCX(f, "[Content_Types].xml", "xl/workbook.xml"))
+	f.Add(wordDOC(true))
+	f.Add(wordDOC(false))
 }
 
 // orientationTypes are the types Orientation is asked about: the three
@@ -188,8 +195,10 @@ func FuzzOrientation(f *testing.F) {
 	})
 }
 
-// FuzzDetect checks that the signature table answers only with a type
-// from the allowlist, and never panics on a short or empty head.
+// FuzzDetect checks that the detection answers only with a type from the
+// allowlist, never panics on a short, empty or malformed input, and
+// never promotes an input to a different accepted type when bytes are
+// appended to it.
 func FuzzDetect(f *testing.F) {
 	addSeeds(f)
 
@@ -204,12 +213,24 @@ func FuzzDetect(f *testing.F) {
 		if !slices.Contains(imaging.Types(), typ) {
 			t.Fatalf("Detect() = %q, which is not in the allowlist", typ)
 		}
-		// Detect reads a prefix only, so appending to a valid header
-		// cannot change the type: a payload hidden after the header is
-		// still the format the header says.
+		// For a type decided by its prefix, appending cannot change the
+		// answer: a payload hidden after the header is still the format
+		// the header says.
+		//
+		// For a container type it can, and that is correct rather than a
+		// regression: a DOCX's table of contents is at the **end** of the
+		// file, so a DOCX with three bytes stuck on the end is no longer
+		// a readable archive and "not an accepted type" is the honest
+		// answer. The property that holds for every type is the one that
+		// matters for an allowlist -- appending never turns one accepted
+		// type into a **different** accepted type, so no file can be
+		// smuggled in under another type's extension (ADR-0031 Karar 2).
 		longer, longerOK := imaging.Detect(append(slices.Clone(data), 0x00, 0x01, 0x02))
-		if !longerOK || longer != typ {
+		switch {
+		case longerOK && longer != typ:
 			t.Fatalf("Detect() = %q, but %q with three bytes appended", typ, longer)
+		case !longerOK && !typ.Container():
+			t.Fatalf("Detect() = %q, but nothing with three bytes appended; only a container type may change", typ)
 		}
 	})
 }

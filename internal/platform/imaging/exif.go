@@ -28,8 +28,9 @@ func Orientation(data []byte, typ Type) int {
 	if typ == TypePNG {
 		return tiffOrientation(pngExifChunk(data))
 	}
-	// A PDF carries no orientation tag, and a type outside the allowlist
-	// is never turned: failing closed here means leaving the pixels alone.
+	// A type that is not a raster image carries no orientation tag, and a
+	// type outside the allowlist is never turned: failing closed here
+	// means leaving the pixels alone.
 	return OrientationNone
 }
 

@@ -26,7 +26,7 @@ func TestKindRules(t *testing.T) {
 		{media.KindCompanyLogo, storage.PrefixImages, []imaging.Type{imaging.TypeJPEG, imaging.TypePNG}, false, true},
 		{media.KindCompanyImage, storage.PrefixImages, []imaging.Type{imaging.TypeJPEG, imaging.TypePNG}, false, true},
 		{media.KindIdentityDocument, storage.PrefixIdentityDocument, []imaging.Type{imaging.TypeJPEG, imaging.TypePNG}, true, false},
-		{media.KindCV, storage.PrefixFiles, []imaging.Type{imaging.TypePDF}, true, false},
+		{media.KindCV, storage.PrefixFiles, []imaging.Type{imaging.TypePDF, imaging.TypeDOC, imaging.TypeDOCX}, true, false},
 	}
 	if len(tests) != len(media.Kinds()) {
 		t.Fatalf("the table covers %d kinds, Kinds() lists %d; a kind added to the contract needs a row here",
@@ -111,6 +111,8 @@ func TestExtOf(t *testing.T) {
 		{imaging.TypeJPEG, storage.ExtJPEG, true},
 		{imaging.TypePNG, storage.ExtPNG, true},
 		{imaging.TypePDF, storage.ExtPDF, true},
+		{imaging.TypeDOC, storage.ExtDOC, true},
+		{imaging.TypeDOCX, storage.ExtDOCX, true},
 		{imaging.Type("image/svg+xml"), "", false},
 		{imaging.Type("image/webp"), "", false},
 		{imaging.Type(""), "", false},

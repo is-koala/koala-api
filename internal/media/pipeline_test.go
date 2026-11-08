@@ -1,6 +1,7 @@
 package media_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -310,48 +311,148 @@ func TestCompleteIdentityDocument(t *testing.T) {
 	}
 }
 
-// TestCompleteCVMovesThePDFAsItIs covers the one type that is not
-// re-encoded (ADR-0030 Karar 4): the bytes are carried over unchanged,
-// the stored type is the detected one and the disposition is attachment.
-func TestCompleteCVMovesThePDFAsItIs(t *testing.T) {
+// TestCompleteCVMovesTheDocumentAsItIs covers the three types that are
+// not re-encoded (ADR-0030 Karar 4, widened to DOC and DOCX by ADR-0031
+// Karar 2): the bytes are carried over unchanged, the stored type is the
+// detected one, the key takes the detected type's extension and the
+// disposition is attachment.
+//
+// Each fixture carries an author name in its bytes, which is what makes
+// the accepted limit visible instead of merely written down: the
+// document metadata of a CV survives, and the mitigation is how the
+// object is served (MED-014).
+func TestCompleteCVMovesTheDocumentAsItIs(t *testing.T) {
 	t.Parallel()
 
-	h := newHarness(t)
-	body := []byte("%PDF-1.7\n1 0 obj\n<< /Author (Yusuf) >>\nendobj\n%%EOF\n")
-	up := h.upload(t, media.KindCV, imaging.TypePDF, body)
+	tests := []struct {
+		name string
+		typ  imaging.Type
+		ext  storage.Ext
+		body []byte
+	}{
+		{"pdf", imaging.TypePDF, storage.ExtPDF, []byte("%PDF-1.7\n1 0 obj\n<< /Author (Yusuf) >>\nendobj\n%%EOF\n")},
+		{"doc", imaging.TypeDOC, storage.ExtDOC, wordBinaryDoc("Yusuf")},
+		{"docx", imaging.TypeDOCX, storage.ExtDOCX, wordOOXMLDoc(t, "Yusuf")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	done, err := h.pipeline.Complete(context.Background(), media.KindCV, up.Key)
-	if err != nil {
-		t.Fatalf("Complete() = %v", err)
+			h := newHarness(t)
+			up := h.upload(t, media.KindCV, tt.typ, tt.body)
+
+			done, err := h.pipeline.Complete(context.Background(), media.KindCV, up.Key)
+			if err != nil {
+				t.Fatalf("Complete() = %v", err)
+			}
+			if done.Rejected() {
+				t.Fatalf("Complete() rejected with %q", done.Rejection)
+			}
+			if done.Key.Prefix() != storage.PrefixFiles || done.Key.Ext() != tt.ext {
+				t.Errorf("Key = %q, want a files/ %s", done.Key.String(), tt.ext)
+			}
+			if done.Type != tt.typ {
+				t.Errorf("Type = %q, want %q", done.Type, tt.typ)
+			}
+			if done.Width != 0 || done.Height != 0 || done.Orientation != 0 {
+				t.Errorf("a document reported dimensions: %+v", done)
+			}
+			stored, ok := h.fake.Object(done.Key.String())
+			if !ok {
+				t.Fatal("the final object is not in the store")
+			}
+			if !bytes.Equal(stored.Body, tt.body) {
+				t.Error("the bytes changed; a document is moved, not re-encoded")
+			}
+			// The document's own metadata is still in there. That is the
+			// known limitation ADR-0030 Karar 4 and ADR-0031 Karar 2
+			// record, and it is why a CV is served only as an attachment
+			// through a short lived address.
+			if !bytes.Contains(stored.Body, []byte("Yusuf")) {
+				t.Error("the fixture no longer proves the limitation it was written for")
+			}
+			if stored.ContentType != string(tt.typ) {
+				t.Errorf("stored Content-Type = %q, want %q", stored.ContentType, tt.typ)
+			}
+			if stored.ContentDisposition != "attachment" || stored.CacheControl != "no-store" {
+				t.Errorf("stored as %+v, want an uncached attachment", stored)
+			}
+			if got := h.fake.Keys(); len(got) != 1 {
+				t.Errorf("the store holds %v, want only the final key", got)
+			}
+		})
 	}
-	if done.Rejected() {
-		t.Fatalf("Complete() rejected with %q", done.Rejection)
+}
+
+// oleHeader is the 512 byte header of an OLE compound file, which an
+// xls, a ppt and an msi share with a doc.
+func oleHeader() []byte {
+	out := make([]byte, 0, 512)
+	out = append(out, 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1)
+	return append(out, make([]byte, 504)...)
+}
+
+// wordBinaryDoc is a Word 97-2003 document: the OLE header, the name of
+// the main stream as a directory entry spells it (UTF-16, little endian)
+// and an author name standing in for the document metadata.
+func wordBinaryDoc(author string) []byte {
+	out := oleHeader()
+	for _, c := range []byte("WordDocument") {
+		out = append(out, c, 0x00)
 	}
-	if done.Key.Prefix() != storage.PrefixFiles || done.Key.Ext() != storage.ExtPDF {
-		t.Errorf("Key = %q, want a files/ PDF", done.Key.String())
+	return append(out, []byte("\x00Author: "+author)...)
+}
+
+// zipOf builds a ZIP archive holding the named parts. The parts are
+// stored and not deflated, so a string written into one is literally
+// present in the object's bytes: that is what lets the test above see
+// that nothing strips it.
+func zipOf(tb testing.TB, parts ...string) []byte {
+	tb.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, name := range parts {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+		if err != nil {
+			tb.Fatal(err)
+		}
+		if _, err := w.Write([]byte("<x/>")); err != nil {
+			tb.Fatal(err)
+		}
 	}
-	if done.Width != 0 || done.Height != 0 || done.Orientation != 0 {
-		t.Errorf("a PDF reported dimensions: %+v", done)
+	if err := zw.Close(); err != nil {
+		tb.Fatal(err)
 	}
-	stored, ok := h.fake.Object(done.Key.String())
-	if !ok {
-		t.Fatal("the final object is not in the store")
+	return buf.Bytes()
+}
+
+// wordOOXMLDoc is a WordprocessingML document: a ZIP archive with the
+// main document part and a core properties part carrying an author name,
+// stored uncompressed so the name is visible in the bytes.
+func wordOOXMLDoc(tb testing.TB, author string) []byte {
+	tb.Helper()
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	parts := map[string]string{
+		"[Content_Types].xml": "<Types/>",
+		"word/document.xml":   "<document><body/></document>",
+		"docProps/core.xml":   "<coreProperties><creator>" + author + "</creator></coreProperties>",
 	}
-	if !bytes.Equal(stored.Body, body) {
-		t.Error("the PDF bytes changed; a PDF is moved, not re-encoded")
+	for _, name := range []string{"[Content_Types].xml", "word/document.xml", "docProps/core.xml"} {
+		w, err := zw.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
+		if err != nil {
+			tb.Fatal(err)
+		}
+		if _, err := w.Write([]byte(parts[name])); err != nil {
+			tb.Fatal(err)
+		}
 	}
-	// The document's own metadata is still in there. That is the known
-	// limitation ADR-0030 Karar 4 records, and it is why a CV is served
-	// only as an attachment through a short lived address.
-	if !bytes.Contains(stored.Body, []byte("Yusuf")) {
-		t.Error("the fixture no longer proves the limitation it was written for")
+	if err := zw.Close(); err != nil {
+		tb.Fatal(err)
 	}
-	if stored.ContentDisposition != "attachment" || stored.CacheControl != "no-store" {
-		t.Errorf("stored as %+v, want an uncached attachment", stored)
-	}
-	if got := h.fake.Keys(); len(got) != 1 {
-		t.Errorf("the store holds %v, want only the final key", got)
-	}
+	return buf.Bytes()
 }
 
 // TestCompleteNamesTheKeyFromTheDetectedType is the departure from Java
@@ -404,6 +505,17 @@ func TestCompleteRejections(t *testing.T) {
 		{"an SVG", media.KindProfilePicture, imaging.TypeJPEG, []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>`), media.RejectionTypeUnsupported},
 		{"empty object", media.KindProfilePicture, imaging.TypeJPEG, []byte{}, media.RejectionTypeUnsupported},
 		{"JPEG magic, no image", media.KindProfilePicture, imaging.TypeJPEG, jpegMagicOnly, media.RejectionCorrupt},
+		// The signature of a DOCX and that of a DOC are shared with a
+		// whole family of formats, so the CV slot would become a general
+		// file host if the signature alone decided (ADR-0031 Karar 2).
+		{"a zip with no Word part: a spreadsheet, a jar, an apk", media.KindCV, imaging.TypeDOCX,
+			zipOf(t, "[Content_Types].xml", "xl/workbook.xml"), media.RejectionTypeUnsupported},
+		{"an OLE file with no Word stream: an xls, an msi", media.KindCV, imaging.TypeDOC,
+			oleHeader(), media.RejectionTypeUnsupported},
+		{"a zip signature with no archive behind it", media.KindCV, imaging.TypeDOCX,
+			[]byte("PK\x03\x04"), media.RejectionTypeUnsupported},
+		{"a Word document where an image belongs", media.KindProfilePicture, imaging.TypeJPEG,
+			wordBinaryDoc("Yusuf"), media.RejectionTypeUnsupported},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
