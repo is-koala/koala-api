@@ -2113,22 +2113,31 @@ paths:
     put:
       operationId: replaceCompanyGallery
       x-error-codes:
-        [COMPANY_NOT_FOUND, MEDIA_NOT_FOUND, MEDIA_NOT_READY, COMPANY_GALLERY_LIMIT_REACHED]
+        [COMPANY_NOT_FOUND, MEDIA_NOT_FOUND, MEDIA_NOT_READY, COMPANY_GALLERY_LIMIT_REACHED,
+        COMPANY_GALLERY_DUPLICATE_IMAGE]
       tags: [company]
       summary: Şirketin galerisini verilen sırayla değiştirir.
       description: |
         Galerinin tamamı gönderilen listeyle yer değiştirir ve **sıra anlamlıdır**:
         listedeki ilk görüntü kapaktır. Böylece kapağı değiştirmek, görüntüleri yeniden
         sıralamak ve açıklamalarını güncellemek tek işlemdir; kapak ayrı bir uç istemez
-        (ADR-0029 Karar 7). Listede
-        olmayan görüntüler galeriden çıkar, medya kayıtları silinmez. Boş liste galeriyi
-        boşaltır ve kapağı `null` yapar. En çok on görüntü (MED-011); her görüntü hazır
-        durumda olmak zorundadır.
+        (ADR-0029 Karar 7). Listede olmayan görüntüler galeriden çıkar, medya kayıtları
+        silinmez. Boş liste galeriyi boşaltır ve kapağı `null` yapar. En çok on görüntü
+        (MED-011); her görüntü hazır durumda olmak zorundadır.
+
+        **Aynı medya listede iki kez geçemez** (`COMPANY_GALLERY_DUPLICATE_IMAGE`): sıra
+        anlamlı olduğu için bir görüntünün iki konumu olamaz. Kural şema ile ifade
+        edilemiyor, çünkü öğeler nesne ve `uniqueItems` bütün nesneyi karşılaştırır: aynı
+        `mediaId`, farklı `caption` iki ayrı öğe sayılır (CMP-024).
       x-authz:
         action: can_manage
         object: company
       x-rate-limit: upload
-      x-body-limit: 4096
+      # Şemanın kabul ettiği en büyük gövde: 10 öğe x 255 karakter caption.
+      # ASCII'de ~3,2 KB, Türkçe'de ~5,7 KB, `\u` kaçışlı istemcide ~16 KB. Sınır
+      # en genişini almak zorunda, yoksa `maxLength`'i geçmeyen meşru bir istek
+      # gövde okunmadan 413 alır (ADR-0029 Karar 7).
+      x-body-limit: 16384
       x-not-implemented: |
         Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
         Bugün 501 NOT_IMPLEMENTED döner.
@@ -4630,7 +4639,7 @@ components:
         interests:
           type: [string, "null"]
           description: İlgi alanları.
-          examples: [Lojistik, depo yönetimi]
+          examples: ["Lojistik, depo yönetimi"]
         employer:
           type: boolean
           description: Hesap işveren hesabı mı; kayıttan sonra değişmez.
@@ -5465,7 +5474,7 @@ components:
           type: string
           maxLength: 255
           description: Görüntünün açıklaması.
-          examples: [Kadıköy deposu, yükleme rampası]
+          examples: ["Kadıköy deposu, yükleme rampası"]
       examples:
         - mediaId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
           caption: Kadıköy deposu, yükleme rampası
@@ -5525,7 +5534,7 @@ components:
         caption:
           type: [string, "null"]
           description: Görüntünün açıklaması; verilmediyse `null`.
-          examples: [Kadıköy deposu, yükleme rampası]
+          examples: ["Kadıköy deposu, yükleme rampası"]
 
     # --- Faz 2: medya (ADR-0029 Karar 6)
 
@@ -5807,7 +5816,7 @@ components:
         displayLine:
           type: string
           description: Kendi bileşenlerimizden üretilen görünen adres metni.
-          examples: [Moda Caddesi 12/7, Caferağa, Kadıköy, İstanbul]
+          examples: ["Moda Caddesi 12/7, Caferağa, Kadıköy, İstanbul"]
         coordinates:
           oneOf:
             - $ref: "#/components/schemas/Coordinates"
@@ -5923,7 +5932,7 @@ components:
         secondaryText:
           type: string
           description: Önerinin ikinci satırı.
-          examples: [Caferağa, Kadıköy, İstanbul]
+          examples: ["Caferağa, Kadıköy, İstanbul"]
 
     AddressSuggestionList:
       type: object
@@ -5998,7 +6007,7 @@ components:
           type: string
           maxLength: 255
           description: Görüntünün açıklaması.
-          examples: [Kadıköy deposu, yükleme rampası]
+          examples: ["Kadıköy deposu, yükleme rampası"]
 
     EducationDegree:
       type: string

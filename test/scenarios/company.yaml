@@ -579,9 +579,11 @@ scenarios:
     priority: P1
     title: Galerinin sırası kapağı belirler
     rule: >
-      Galeri tümden değiştirilir ve sıra anlamlıdır: listedeki ilk görüntü kapaktır.
-      Listede olmayan görüntüler galeriden çıkar ama medya kayıtları silinmez. Boş liste
-      galeriyi boşaltır ve kapağı boşa çıkarır. Sınır on görüntüdür.
+      Galeri tümden değiştirilir ve sıra anlamlıdır: listedeki ilk görüntü kapaktır. Her
+      öğe isteğe bağlı bir açıklama taşır ve açıklama aynı işlemde güncellenir. Listede
+      olmayan görüntüler galeriden çıkar ama medya kayıtları silinmez. Boş liste galeriyi
+      boşaltır ve kapağı boşa çıkarır. Sınır on görüntü, açıklama sınırı iki yüz elli beş
+      karakterdir.
     given:
       - "Şirket A'nın galerisinde üç görüntü var ve kapağı birincisi"
     when:
@@ -593,6 +595,9 @@ scenarios:
       - "Listeden çıkan görüntülerin medya kayıtları silinmez"
       - "Boş liste galeriyi boşaltır ve kapak boş kalır"
       - "On birinci görüntüyle değiştirme reddedilir"
+      - "Her öğenin açıklaması isteğe bağlıdır; verilmeyen açıklama boş okunur"
+      - "Açıklama sıralamayla aynı işlemde güncellenir"
+      - "İki yüz elli beş karakteri aşan açıklama reddedilir"
     error: COMPANY_GALLERY_LIMIT_REACHED
     decision: "Java hatası (kapak kavramı belgede var, sözleşmede yok)"
     target: >
@@ -603,3 +608,31 @@ scenarios:
       - "src/main/java/com/exskylab/koala/webAPI/CompaniesController.java:344"
       - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#addCompanyImage"
     go_test: null
+
+  - id: CMP-024
+    priority: P0
+    title: Aynı görsel galeri listesinde iki kez geçemez
+    rule: >
+      Galeri değiştirilirken aynı medya listede iki kez geçerse istek reddedilir ve galeri
+      değişmez. Sıra anlamlı olduğu için bir görüntünün iki konumu olamaz; açıklamaları
+      farklı olsa da aynı medya tek kez listelenir.
+    given:
+      - "Şirket A'nın galerisinde iki görüntü var"
+    when:
+      - "Aynı medya kimliği listede iki kez geçecek şekilde galeri değiştirilmek istenir"
+      - "Aynı medya kimliği iki kez, ama açıklamaları farklı verilerek denenir"
+    then:
+      - "İki istek de reddedilir"
+      - "Galeri değişmez"
+    error: COMPANY_GALLERY_DUPLICATE_IMAGE
+    decision: "Java'nın ikinci galeri değişmezi"
+    target: >
+      Kural şema ile ifade edilemiyor: öğeler nesne olduğu için `uniqueItems` bütün nesneyi
+      karşılaştırır ve aynı medya + farklı açıklama iki ayrı öğe sayılır. Bu yüzden gövde
+      kuralı olarak dondurulur (ADR-0029 Karar 7).
+    source:
+      - "src/main/java/com/exskylab/koala/core/dtos/gallery/request/UpdateGalleryDto.java#isEveryImageListedOnce"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; galeri handler'ı Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."

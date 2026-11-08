@@ -39,7 +39,7 @@ func methodNames(t reflect.Type) []string {
 
 // TestPendingServerServesExactlyItsOperations binds pending.Operations(),
 // the list the contract is held against, to the methods pending.Server
-// actually has. Without it the list is 64 strings nothing checks: a stub
+// actually has. Without it the list is 71 strings nothing checks: a stub
 // deleted while its line stayed, or a method added without a line, would
 // both pass (ADR-0029 §1).
 func TestPendingServerServesExactlyItsOperations(t *testing.T) {

@@ -259,6 +259,8 @@ components:
           yeniden cevaplanamaz (CMP-014).
         - `COMPANY_INVITATION_EXPIRED` (409): davetin on dört günü doldu (CMP-015).
         - `COMPANY_GALLERY_LIMIT_REACHED` (409): galeri en çok on görüntü taşır (MED-011).
+        - `COMPANY_GALLERY_DUPLICATE_IMAGE` (409): aynı medya galeri listesinde iki kez geçiyor;
+          sıra anlamlı olduğu için bir görüntünün iki konumu olamaz (CMP-024).
 
         Medya, adres ve referans kodları (ADR-0029 Karar 6, Karar 8):
         - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
@@ -374,6 +376,7 @@ components:
         - COMPANY_INVITATION_ALREADY_ANSWERED
         - COMPANY_INVITATION_EXPIRED
         - COMPANY_GALLERY_LIMIT_REACHED
+        - COMPANY_GALLERY_DUPLICATE_IMAGE
         - MEDIA_NOT_FOUND
         - MEDIA_NOT_READY
         - MEDIA_UPLOAD_INCOMPLETE

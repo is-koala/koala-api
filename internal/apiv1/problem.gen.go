@@ -26,6 +26,7 @@ const (
 	ErrorCodeCOMPANYAPPROVEDNOTREJECTABLE        ErrorCode = "COMPANY_APPROVED_NOT_REJECTABLE"
 	ErrorCodeCOMPANYCONTACTALREADYMEMBER         ErrorCode = "COMPANY_CONTACT_ALREADY_MEMBER"
 	ErrorCodeCOMPANYCONTACTNOTFOUND              ErrorCode = "COMPANY_CONTACT_NOT_FOUND"
+	ErrorCodeCOMPANYGALLERYDUPLICATEIMAGE        ErrorCode = "COMPANY_GALLERY_DUPLICATE_IMAGE"
 	ErrorCodeCOMPANYGALLERYLIMITREACHED          ErrorCode = "COMPANY_GALLERY_LIMIT_REACHED"
 	ErrorCodeCOMPANYINVITATIONALREADYANSWERED    ErrorCode = "COMPANY_INVITATION_ALREADY_ANSWERED"
 	ErrorCodeCOMPANYINVITATIONALREADYPENDING     ErrorCode = "COMPANY_INVITATION_ALREADY_PENDING"
@@ -156,6 +157,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeCOMPANYCONTACTALREADYMEMBER:
 		return true
 	case ErrorCodeCOMPANYCONTACTNOTFOUND:
+		return true
+	case ErrorCodeCOMPANYGALLERYDUPLICATEIMAGE:
 		return true
 	case ErrorCodeCOMPANYGALLERYLIMITREACHED:
 		return true
@@ -503,6 +506,8 @@ func (e ProblemFieldIn) Valid() bool {
 //     yeniden cevaplanamaz (CMP-014).
 //   - `COMPANY_INVITATION_EXPIRED` (409): davetin on dört günü doldu (CMP-015).
 //   - `COMPANY_GALLERY_LIMIT_REACHED` (409): galeri en çok on görüntü taşır (MED-011).
+//   - `COMPANY_GALLERY_DUPLICATE_IMAGE` (409): aynı medya galeri listesinde iki kez geçiyor;
+//     sıra anlamlı olduğu için bir görüntünün iki konumu olamaz (CMP-024).
 //
 // Medya, adres ve referans kodları (ADR-0029 Karar 6, Karar 8):
 //   - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
@@ -688,6 +693,8 @@ type Problem struct {
 	//   yeniden cevaplanamaz (CMP-014).
 	// - `COMPANY_INVITATION_EXPIRED` (409): davetin on dört günü doldu (CMP-015).
 	// - `COMPANY_GALLERY_LIMIT_REACHED` (409): galeri en çok on görüntü taşır (MED-011).
+	// - `COMPANY_GALLERY_DUPLICATE_IMAGE` (409): aynı medya galeri listesinde iki kez geçiyor;
+	//   sıra anlamlı olduğu için bir görüntünün iki konumu olamaz (CMP-024).
 	//
 	// Medya, adres ve referans kodları (ADR-0029 Karar 6, Karar 8):
 	// - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
@@ -904,6 +911,8 @@ type ProblemField struct {
 	//   yeniden cevaplanamaz (CMP-014).
 	// - `COMPANY_INVITATION_EXPIRED` (409): davetin on dört günü doldu (CMP-015).
 	// - `COMPANY_GALLERY_LIMIT_REACHED` (409): galeri en çok on görüntü taşır (MED-011).
+	// - `COMPANY_GALLERY_DUPLICATE_IMAGE` (409): aynı medya galeri listesinde iki kez geçiyor;
+	//   sıra anlamlı olduğu için bir görüntünün iki konumu olamaz (CMP-024).
 	//
 	// Medya, adres ve referans kodları (ADR-0029 Karar 6, Karar 8):
 	// - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
