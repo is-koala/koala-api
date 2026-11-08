@@ -249,6 +249,8 @@ Bu bölümün planda ya da bir ADR'de dayanağı yoktur.
   - kök spec (`api/ruleset.yaml`: Spectral'ın önerilen seti + Koala kuralları),
   - her bileşen dosyası (`api/ruleset-schemas.yaml`).
 
+  Her kuralın dosya başına bir süre bütçesi var (`VACUUM_TIMEOUT`, 60 sn): vacuum bütçesi dolan kuralı **atlar**, yani yavaş bir kural geçmiş gibi görünür. Varsayılan 5 saniyeydi ve sözleşme 88 operasyona çıkınca operasyon düzeyindeki kurallar onu aştı (ADR-0029). Bir kural bir dosyada bir dakikayı aşıyorsa patolojiktir ve görülmesi gerekir, gizlenmesi değil.
+
   Ardından `scripts/api-lint-probe.sh` iki şeyi kanıtlar. `api/testdata/lint-probe.yaml`'daki bağımsız vakaların Koala sonuçları, (kural, JSON yolu) çiftleriyle `lint-probe.expect`'e birebir eşittir; eksik ya da fazla sonuç kapıyı kırmızı yapar. `lint-pass.yaml`'daki doğru biçimler ise hiçbir Koala sonucu üretmez. Bir kural değişince iki dosya ve beklenti listesi birlikte güncellenir. Lint hatası kapıyı kırmızı yapar; uyarılar yalnız raporlanır.
 - `make generate` `internal/apiv1`'i ve `internal/codegentest`'i oapi-codegen ile üretir. Üretilen kod commit edilir. `make gen-check` eski dosyaları silip yeniden üretir ve fark varsa kırmızı olur. İkisi de `make verify`'ın parçasıdır (ADR-0019).
 - Yeni bir bileşen dosyası `api/components/`'a eklenirse iki satır eklenir:
