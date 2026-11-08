@@ -33,6 +33,14 @@ koala_results() {
 		echo "api lint probe: vacuum exited $code on $1"
 		exit 1
 	fi
+	# A rule vacuum skipped reports nothing, so the probe would read it as
+	# a rule with no case and blame the fixture instead of the budget
+	# (scripts/api-lint.sh says why this is an error, not a warning).
+	if grep -qaE 'Rule timed out, skipping|timed out after' "$dir/raw"; then
+		cat "$dir/raw"
+		echo "api lint probe: vacuum did not finish every rule on $1; raise VACUUM_TIMEOUT"
+		exit 1
+	fi
 	awk '/^\$/ {path = $0} /^rule: koala-/ {print $2 "\t" path}' "$dir/raw" | sort -u >"$2"
 }
 

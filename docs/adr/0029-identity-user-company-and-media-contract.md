@@ -270,6 +270,21 @@ Kaynak: `koala-backend` `origin/main` (0cbbce69), `webAPI/*Controller.java`'nın
 
 Defterin dışındaki 37 controller Faz 3–9'a aittir ve o fazların ADR'lerinde aynı biçimde defterlenir.
 
+### 11. Atlanan lint kuralı kapıyı kırar
+
+Sözleşme 88 operasyona çıkınca `make api-lint` düştü, ama bir kural ihlalinden değil: vacuum her kurala dosya başına 5 saniyelik bir bütçe veriyor ve bütçesi dolan kuralı **atlıyor**. Beş operasyon düzeyi kural (`koala-operation-authz`, `koala-operation-id-camel-case`, `koala-body-limit`, `koala-error-responses-are-problems`, `koala-deprecation-has-sunset`) sınırı aştı.
+
+Önemli olan bulgunun biçimi: **atlanan kural hiçbir şey bildirmez, ve hiçbir şey bildirmeyen kural geçen kuraldan ayırt edilemez.** Yani koruma yerinde, çalışmıyor ve kapı yeşil görünüyor — bu deponun baskın kusur sınıfının ([[silent-invalidation-defect-class]]) kapının kendisindeki hâli.
+
+Karar iki parçalı:
+
+1. **Bütçe 60 saniye** (`VACUUM_TIMEOUT`). Bugünkü sözleşmenin on katına yeter.
+2. **Atlama kapıyı kırar.** `scripts/api-lint.sh` vacuum'u sarar, çıktısını okur ve atlama imzasını (`Rule timed out, skipping`, `timed out after`) bulursa adımı düşürür. `scripts/api-lint-probe.sh` aynı korumayı kendi koşusuna uygular, çünkü atlanan kural orada "vakası olmayan kural" gibi görünür ve probe bütçeyi değil fikstürü suçlar.
+
+Yalnız bütçeyi büyütmek yetmezdi: plan §1.2'ye göre sözleşme 266 uca doğru büyüyecek, yani 60 saniye de bir gün dolacak. Fark şu: dolduğu gün **kırmızı** olacak, kör kalmayacak.
+
+Neden çıkış koduna güvenilmiyor: vacuum v0.36.2 zaten zaman aşımından sonra dosyayı reddediyor ve 2 ile çıkıyor (kapı bu yüzden düştü, biz de böyle gördük). Ama "skipping" sözcüğü aracın tercihinin değişebileceğini söylüyor, ve bütçenin bir gün yine dolacağı kesin. Koruma aracın çıkış kodu politikasından bağımsız olmalı.
+
 ## Yerine geçtiği
 
 1. **ADR-0020 §11 ve ADR-0026'nın `x-resource` kuralı** → bu ADR Karar 1'in son paragrafı: kural duruyor, ama `x-not-implemented` taşıyan operasyonda **denetimi erteleniyor**. İşaret kalkınca kural tam hâliyle geri gelir.
