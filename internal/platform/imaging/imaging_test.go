@@ -438,9 +438,9 @@ func TestTypesAndImage(t *testing.T) {
 	}
 }
 
-// corners are four opaque, distinguishable colours for the four corners
+// corners are four opaque, distinguishable colors for the four corners
 // of a test image. The PNG path is lossless, so a decoded corner is
-// byte-for-byte the colour that was written.
+// byte-for-byte the color that was written.
 func corners() [4]color.RGBA {
 	return [4]color.RGBA{
 		{R: 0xFF, G: 0x00, B: 0x00, A: 0xFF}, // top left
@@ -460,7 +460,7 @@ const (
 
 // cornered returns a w by h image whose four corners carry corners() and
 // whose middle is grey, so a transform that mirrors or rotates the wrong
-// way moves a known colour to a place the table does not expect.
+// way moves a known color to a place the table does not expect.
 func cornered(w, h int) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := range h {

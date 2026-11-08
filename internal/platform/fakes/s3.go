@@ -78,7 +78,7 @@ func NewS3(tb testing.TB, bucket string) *S3 {
 	tb.Helper()
 	f := &S3{bucket: bucket, objects: map[string]S3Object{}}
 	f.Server = newServer(tb, "s3", f.check, f.fallback)
-	f.Server.maxBody = S3MaxBody
+	f.maxBody = S3MaxBody
 	return f
 }
 
