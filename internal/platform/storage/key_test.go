@@ -38,6 +38,8 @@ func TestNewKeyBuildsThePattern(t *testing.T) {
 		{"images jpeg", storage.PrefixImages, storage.ExtJPEG, "images/" + v7 + ".jpg"},
 		{"public png", storage.PrefixPublic, storage.ExtPNG, "public/" + v7 + ".png"},
 		{"files pdf", storage.PrefixFiles, storage.ExtPDF, "files/" + v7 + ".pdf"},
+		{"files doc", storage.PrefixFiles, storage.ExtDOC, "files/" + v7 + ".doc"},
+		{"files docx", storage.PrefixFiles, storage.ExtDOCX, "files/" + v7 + ".docx"},
 		{"dispute evidence", storage.PrefixDisputeEvidence, storage.ExtPNG, "files/dispute-evidence/" + v7 + ".png"},
 		{"identity document", storage.PrefixIdentityDocument, storage.ExtJPEG, "identity-documents/" + v7 + ".jpg"},
 		{"quarantine", storage.PrefixIncoming, storage.ExtJPEG, "incoming/" + v7 + ".jpg"},

@@ -1,6 +1,7 @@
 package media_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,7 +27,7 @@ func TestKindRules(t *testing.T) {
 		{media.KindCompanyLogo, storage.PrefixImages, []imaging.Type{imaging.TypeJPEG, imaging.TypePNG}, false, true},
 		{media.KindCompanyImage, storage.PrefixImages, []imaging.Type{imaging.TypeJPEG, imaging.TypePNG}, false, true},
 		{media.KindIdentityDocument, storage.PrefixIdentityDocument, []imaging.Type{imaging.TypeJPEG, imaging.TypePNG}, true, false},
-		{media.KindCV, storage.PrefixFiles, []imaging.Type{imaging.TypePDF}, true, false},
+		{media.KindCV, storage.PrefixFiles, []imaging.Type{imaging.TypePDF, imaging.TypeDOC, imaging.TypeDOCX}, true, false},
 	}
 	if len(tests) != len(media.Kinds()) {
 		t.Fatalf("the table covers %d kinds, Kinds() lists %d; a kind added to the contract needs a row here",
@@ -50,6 +51,16 @@ func TestKindRules(t *testing.T) {
 				if got := tt.kind.Accepts(typ); got != want {
 					t.Errorf("Accepts(%q) = %v, want %v", typ, got, want)
 				}
+			}
+			// The order is asserted and not only the membership. It
+			// became load bearing with ADR-0031 Karar 3: the handler
+			// hands Pipeline.Start the kind's AllowedTypes()[0], so a
+			// reordering -- alphabetizing the slice, say -- would change
+			// which type a quarantine key is named after without any
+			// other test noticing. For the CV the first element is the
+			// PDF, which is both the decision and the common case.
+			if got := tt.kind.AllowedTypes(); !slices.Equal(got, tt.types) {
+				t.Errorf("AllowedTypes() = %v, want %v in this order", got, tt.types)
 			}
 			if got := tt.kind.Attachment(); got != tt.attachment {
 				t.Errorf("Attachment() = %v, want %v", got, tt.attachment)
@@ -111,6 +122,8 @@ func TestExtOf(t *testing.T) {
 		{imaging.TypeJPEG, storage.ExtJPEG, true},
 		{imaging.TypePNG, storage.ExtPNG, true},
 		{imaging.TypePDF, storage.ExtPDF, true},
+		{imaging.TypeDOC, storage.ExtDOC, true},
+		{imaging.TypeDOCX, storage.ExtDOCX, true},
 		{imaging.Type("image/svg+xml"), "", false},
 		{imaging.Type("image/webp"), "", false},
 		{imaging.Type(""), "", false},

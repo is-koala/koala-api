@@ -1,6 +1,7 @@
 package imaging_test
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/binary"
@@ -129,7 +130,13 @@ func TestDetectReadsTheContent(t *testing.T) {
 		{"svg", []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>`), "", false},
 		{"gif", []byte("GIF89a\x01\x00"), "", false},
 		{"webp", []byte("RIFF\x00\x00\x00\x00WEBPVP8 "), "", false},
-		{"zip", []byte("PK\x03\x04"), "", false},
+		{"docx", wordDOCX(t), imaging.TypeDOCX, true},
+		{"doc", wordDOC(true), imaging.TypeDOC, true},
+		{"zip with no Word part (a spreadsheet, a jar, an apk)", wordDOCX(t, "[Content_Types].xml", "xl/workbook.xml"), "", false},
+		{"zip signature with no archive behind it", []byte("PK\x03\x04"), "", false},
+		{"zip whose directory does not parse", append(wordDOCX(t)[:12], "bozuk"...), "", false},
+		{"docx head only: the directory is at the end of the file", wordDOCX(t)[:64], "", false},
+		{"OLE compound file with no Word stream (an xls, an msi)", wordDOC(false), "", false},
 		{"elf", []byte("\x7fELF\x02\x01\x01\x00"), "", false},
 		{"short jpeg", []byte{0xFF, 0xD8}, "", false},
 		{"pdf not at offset zero", append([]byte("GIF89a"), "%PDF-1.7"...), "", false},
@@ -422,8 +429,8 @@ func TestLimitsFallBackToTheDefaults(t *testing.T) {
 func TestTypesAndImage(t *testing.T) {
 	t.Parallel()
 
-	if got := len(imaging.Types()); got != 3 {
-		t.Errorf("len(Types()) = %d, want 3", got)
+	if got := len(imaging.Types()); got != 5 {
+		t.Errorf("len(Types()) = %d, want 5", got)
 	}
 	for _, typ := range imaging.Types() {
 		if !strings.Contains(string(typ), "/") {
@@ -433,9 +440,100 @@ func TestTypesAndImage(t *testing.T) {
 	if !imaging.TypeJPEG.Image() || !imaging.TypePNG.Image() {
 		t.Error("JPEG and PNG must count as images")
 	}
-	if imaging.TypePDF.Image() {
-		t.Error("PDF must not count as an image: it cannot be re-encoded")
+	for _, typ := range []imaging.Type{imaging.TypePDF, imaging.TypeDOC, imaging.TypeDOCX} {
+		if typ.Image() {
+			t.Errorf("%q must not count as an image: it cannot be re-encoded", typ)
+		}
 	}
+	// Container is answered from the signature table, so this also pins
+	// which types have a second stage: exactly the two whose leading
+	// bytes other formats share (ADR-0031 Karar 2).
+	for _, typ := range imaging.Types() {
+		want := typ == imaging.TypeDOC || typ == imaging.TypeDOCX
+		if got := typ.Container(); got != want {
+			t.Errorf("Container() of %q = %v, want %v", typ, got, want)
+		}
+	}
+	if imaging.Type("image/webp").Container() {
+		t.Error("a type outside the allowlist is not a container")
+	}
+}
+
+// TestEveryAcceptedTypeIsDetectedFromASample binds the allowlist to the
+// signature table from outside the package: a type added to Types()
+// without a signature (or with one that does not match a real file of
+// that type) is red here. Without it the two lists could drift and every
+// upload of the new type would be refused as TYPE_UNSUPPORTED with
+// nothing failing.
+func TestEveryAcceptedTypeIsDetectedFromASample(t *testing.T) {
+	t.Parallel()
+
+	samples := map[imaging.Type][]byte{
+		imaging.TypeJPEG: encodeJPEG(t, gradient(8, 8)),
+		imaging.TypePNG:  encodePNG(t, gradient(8, 8)),
+		imaging.TypePDF:  []byte("%PDF-1.7\n1 0 obj\n"),
+		imaging.TypeDOC:  wordDOC(true),
+		imaging.TypeDOCX: wordDOCX(t),
+	}
+	if len(samples) != len(imaging.Types()) {
+		t.Fatalf("%d samples for %d accepted types: every type needs one", len(samples), len(imaging.Types()))
+	}
+	for _, typ := range imaging.Types() {
+		sample, ok := samples[typ]
+		if !ok {
+			t.Errorf("%q has no sample", typ)
+			continue
+		}
+		if got, ok := imaging.Detect(sample); !ok || got != typ {
+			t.Errorf("Detect(a %q) = %q, %v", typ, got, ok)
+		}
+	}
+}
+
+// wordDOCX is a WordprocessingML container: a ZIP archive whose central
+// directory names the main document part. The parts' contents are never
+// read -- the detection looks at the archive's table of contents only --
+// so a stub body is enough. Given explicit part names it builds the
+// archive of something else, which is how the negative cases are made.
+func wordDOCX(tb testing.TB, parts ...string) []byte {
+	tb.Helper()
+
+	if len(parts) == 0 {
+		parts = []string{"[Content_Types].xml", "word/document.xml", "word/styles.xml"}
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, name := range parts {
+		w, err := zw.Create(name)
+		if err != nil {
+			tb.Fatal(err)
+		}
+		if _, err := w.Write([]byte("<x/>")); err != nil {
+			tb.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		tb.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// wordDOC is an OLE compound file: the 512 byte header, then the name of
+// the stream a Word 97-2003 document carries, spelled as a directory
+// entry spells it (UTF-16, little endian). withStream false builds the
+// other members of the family -- an xls, a ppt, an msi -- which share
+// the header and carry no Word stream.
+func wordDOC(withStream bool) []byte {
+	out := make([]byte, 0, 1024)
+	out = append(out, 0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1)
+	out = append(out, make([]byte, 504)...)
+	if withStream {
+		for _, c := range []byte("WordDocument") {
+			out = append(out, c, 0x00)
+		}
+		out = append(out, make([]byte, 64)...)
+	}
+	return out
 }
 
 // corners are four opaque, distinguishable colors for the four corners

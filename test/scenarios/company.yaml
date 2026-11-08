@@ -577,36 +577,38 @@ scenarios:
 
   - id: CMP-023
     priority: P1
-    title: Galerinin sırası kapağı belirler
+    title: Galerinin sırası ve açıklamaları tek işlemde değişir
     rule: >
-      Galeri tümden değiştirilir ve sıra anlamlıdır: listedeki ilk görüntü kapaktır. Her
-      öğe isteğe bağlı bir açıklama taşır ve açıklama aynı işlemde güncellenir. Listede
-      olmayan görüntüler galeriden çıkar ama medya kayıtları silinmez. Boş liste galeriyi
-      boşaltır ve kapağı boşa çıkarır. Sınır on görüntü, açıklama sınırı iki yüz elli beş
-      karakterdir.
+      Galeri tümden değiştirilir ve sıra anlamlıdır: görüntüler verilen sırayla görünür.
+      Her öğe isteğe bağlı bir açıklama taşır ve açıklama sıralamayla aynı işlemde
+      güncellenir. Listede olmayan görüntüler galeriden çıkar ama medya kayıtları
+      silinmez. Boş liste galeriyi boşaltır. Sınır on görüntü, açıklama sınırı iki yüz
+      elli beş karakterdir. Yeni görüntü listenin sonuna eklenir.
     given:
-      - "Şirket A'nın galerisinde üç görüntü var ve kapağı birincisi"
+      - "Şirket A'nın galerisinde üç görüntü var"
     when:
       - "Galeri, ikinci görüntü başa alınacak biçimde yeniden sıralanır"
       - "Galeri boş listeyle değiştirilir"
       - "On birinci görüntüyle değiştirme denenir"
+      - "Galeriye yeni bir görüntü eklenir"
     then:
-      - "Yeniden sıralamadan sonra kapak ikinci görüntü olur"
+      - "Görüntüler yeniden sıralamadan sonra verilen sırayla okunur"
       - "Listeden çıkan görüntülerin medya kayıtları silinmez"
-      - "Boş liste galeriyi boşaltır ve kapak boş kalır"
+      - "Boş liste galeriyi boşaltır"
       - "On birinci görüntüyle değiştirme reddedilir"
       - "Her öğenin açıklaması isteğe bağlıdır; verilmeyen açıklama boş okunur"
       - "Açıklama sıralamayla aynı işlemde güncellenir"
       - "İki yüz elli beş karakteri aşan açıklama reddedilir"
+      - "Eklenen görüntü listenin sonunda görünür"
     error: COMPANY_GALLERY_LIMIT_REACHED
-    decision: "Java hatası (kapak kavramı belgede var, sözleşmede yok)"
+    decision: "Java'nın davranışı korunuyor"
     target: >
-      Kapak galerinin ilk görüntüsüdür ve ayrı bir uç istemez (ADR-0029 Karar 7). Java'nın
-      belgesi "kapak silinirse sıradaki görsel kapak olur" diyor ama kapağı adlandıran bir
-      alan yok.
+      Sıra numarası dizideki konuma katlanır ve ayrı alan taşımaz. Kapak sıradan ayrıldı:
+      kendi kuralı CMP-025'tedir (ADR-0031 Karar 1).
     source:
       - "src/main/java/com/exskylab/koala/webAPI/CompaniesController.java:344"
       - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#addCompanyImage"
+      - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#replaceCompanyGallery"
     go_test: null
 
   - id: CMP-024
@@ -632,6 +634,54 @@ scenarios:
       kuralı olarak dondurulur (ADR-0029 Karar 7).
     source:
       - "src/main/java/com/exskylab/koala/core/dtos/gallery/request/UpdateGalleryDto.java#isEveryImageListedOnce"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; galeri handler'ı Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: CMP-025
+    priority: P0
+    title: Kapak işaretle seçilir; en çok bir kapak olur ve işaretsiz galeride ilk öğe kapaktır
+    rule: >
+      Galerinin kapağı öğenin kendi işaretiyle seçilir, sırasıyla değil: kapak, sırası
+      kaçıncı olursa olsun herhangi bir öğe olabilir. Listede en çok bir öğe kapak
+      işaretlenebilir; ikisi işaretlenirse istek reddedilir ve galeri değişmez. Hiçbir öğe
+      işaretlenmemişse listenin ilk öğesi kapak olur, yani işareti hiç göndermeyen istemci
+      kapaksız kalmaz. Galeriye görüntü eklemek kapağı değiştirmez; yalnız galeri boşken
+      eklenen görüntü kapak olur. Kapak galeriden çıkarılırsa kalanların ilki kapak olur.
+      Galeri boşalınca kapak boşa çıkar.
+    given:
+      - "Şirket A'nın galerisinde üç görüntü var ve kapağı birincisi"
+    when:
+      - "İkinci öğe kapak işaretlenerek galeri değiştirilir"
+      - "İki öğe birlikte kapak işaretlenerek galeri değiştirilmek istenir"
+      - "Hiçbir öğe işaretlenmeden galeri değiştirilir"
+      - "Galeriye yeni bir görüntü eklenir"
+      - "Kapak olan görüntü galeriden çıkarılır"
+      - "Galeri boş listeyle değiştirilir"
+    then:
+      - "Kapak ikinci öğe olur ve sırası birinci olmak zorunda değildir"
+      - "İki kapak taşıyan istek reddedilir ve galeri değişmez"
+      - "İşaretsiz listede kapak listenin ilk öğesi olur"
+      - "Ekleme kapağı değiştirmez; galeri boşken eklenen görüntü kapak olur"
+      - "Kapak çıkarılırsa kalanların ilki kapak olur"
+      - "Galeri boşalınca kapak boşa çıkar"
+    decision: "Yusuf, 08.11.2026 (ADR-0029'un türetilmiş kapak daralmasını geri alır)"
+    target: >
+      Kapak `cover` boolean'ıyla seçilir, ADR-0029'un "kapak dizinin ilk öğesidir"
+      daralması geri alındı: arayüzde "bu fotoğrafı kapak yap" düğmesi var ve türetilmiş
+      kapak onu temsil edemiyordu (ADR-0031 Karar 1). İşaret **isteğe bağlıdır**, böylece
+      alanı göndermeyen istemci eski davranışı aynen görür. "En çok bir kapak" değişmezi
+      şemada yazılıdır (`contains` + `maxContains: 1`) ve kendi hata kodunu istemez; iki
+      kapak taşıyan gövde `400 REQUEST_INVALID` ile `/items` işaretçisinde
+      `FIELD_OUT_OF_RANGE` alır. CMP-024'ün yinelenen medya kuralı, aksine, şemayla ifade
+      edilemediği için gövde kuralı olarak duruyor.
+    source:
+      - "src/main/java/com/exskylab/koala/core/dtos/gallery/request/GalleryImageEntryDto.java#cover"
+      - "src/main/java/com/exskylab/koala/core/dtos/gallery/request/UpdateGalleryDto.java#isAtMostOneCoverSelected"
+      - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#applyDefaultCover"
+      - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#addCompanyImage"
+      - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#removeCompanyImage"
     go_test: null
     deferred:
       phase: 2

@@ -3,14 +3,17 @@ package app
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/is-koala/koala-api/api"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/media"
+	"github.com/is-koala/koala-api/internal/platform/imaging"
 )
 
-// The media kind and the media status exist in three places: the
+// The media kind, the media status and the detected content type exist
+// in three places: the
 // contract's enum (api/openapi.yaml), the generated constants
 // (internal/apiv1) and the domain type that decides a prefix, a type
 // allowlist and a cache rule from them (internal/media). Nothing bound
@@ -27,6 +30,14 @@ import (
 //
 // These tests bind both directions, the way
 // TestPlatformCodesAreInTheContract binds the error codes.
+//
+// The content type was the pair this file first missed. Its drift costs
+// the same in both directions and one of them is visible to clients: a
+// type internal/platform/imaging accepts and the contract's enum does
+// not means Complete records -- and a response carries -- a
+// MediaContentType the contract never declared, which nothing catches
+// because responses are not validated. The other direction is a dead
+// enum member the server can never produce (ADR-0031 Karar 2).
 
 func TestMediaKindsMatchTheContract(t *testing.T) {
 	t.Parallel()
@@ -69,6 +80,54 @@ func TestMediaStatusesMatchTheContract(t *testing.T) {
 			t.Errorf("the contract's MediaStatus has %q, which internal/media does not carry", value)
 		}
 	}
+}
+
+// TestMediaContentTypesMatchTheContract binds the detected type to the
+// contract's enum through the naming rule itself, in both directions.
+func TestMediaContentTypesMatchTheContract(t *testing.T) {
+	t.Parallel()
+
+	types := imaging.Types()
+	if len(types) == 0 {
+		t.Fatal("imaging.Types() is empty; the test would pass vacuously")
+	}
+	values := enumOf(t, "MediaContentType")
+	if len(values) != len(types) {
+		t.Errorf("the contract's MediaContentType has %d members, imaging.Types() has %d", len(values), len(types))
+	}
+
+	spelled := make(map[string]imaging.Type, len(types))
+	for _, typ := range types {
+		value := contentTypeEnumValue(typ)
+		spelled[value] = typ
+		if !apiv1.MediaContentType(value).Valid() {
+			t.Errorf("imaging.Type %q spells %q, which is not a member of the contract's MediaContentType enum; "+
+				"a completed upload would record a type the contract does not declare", typ, value)
+		}
+	}
+	for _, value := range values {
+		if _, ok := spelled[value]; !ok {
+			t.Errorf("the contract's MediaContentType has %q, which no imaging.Type spells; "+
+				"the server can never produce it", value)
+		}
+	}
+}
+
+// contentTypeEnumValue is the contract's spelling of a media type: upper
+// case, with every separator turned into an underscore (stil rehberi §1,
+// "enum değerleri UPPER_SNAKE'tir").
+//
+// Writing the rule as code is the point. ADR-0031 Karar 2 refused to
+// hand shorten the long WordprocessingML value precisely because the
+// mapping has to stay mechanical in both directions; an enum value that
+// no rule produces would make this function -- and therefore the binding
+// above -- impossible to write.
+func contentTypeEnumValue(typ imaging.Type) string {
+	value := strings.ToUpper(string(typ))
+	for _, separator := range []string{"/", ".", "-", "+"} {
+		value = strings.ReplaceAll(value, separator, "_")
+	}
+	return value
 }
 
 // enumOf returns the string members of a named schema's enum in the
