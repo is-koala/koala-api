@@ -76,8 +76,22 @@ func CanTransition(from, to Status) bool {
 // response (ADR-0030 Karar 7).
 //
 // The mapping from a Rejection to the contract's stable error code is
-// the handler's, in the PR that implements the endpoints: those codes
-// are frozen in ADR-0029's PR and are not in this branch's contract yet.
+// the handler's, in the PR that implements the endpoints. ADR-0029 is
+// merged, so those codes are in the contract now, and the mapping is not
+// one to one: MEDIA_UPLOAD_INCOMPLETE, MEDIA_TYPE_UNSUPPORTED and
+// MEDIA_TOO_LARGE line up with three of the four rejections, and
+// RejectionCorrupt has no code of its own.
+//
+// That gap is real, not an oversight to be papered over at the call
+// site: Media.rejectionCode is an ErrorCode, so a row that is REJECTED
+// because the bytes did not decode cannot be rendered today. The handler
+// PR has to close it one of two ways -- fold CORRUPT into
+// MEDIA_TYPE_UNSUPPORTED, which is defensible because bytes that do not
+// decode are not a valid image of the type they claim, or add a code,
+// which is a compatible change to the enum. ADR-0030 carries that as an
+// obligation; this package keeps the distinction because the pipeline
+// genuinely tells the two apart and throwing it away here would lose
+// information the row could have recorded.
 type Rejection string
 
 // The rejections.

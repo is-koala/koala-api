@@ -132,6 +132,24 @@ Tohumlar (`F.Add`) yürüyücülerin aritmetiğinin ortasına nişan alır: sonu
 
 `FuzzSanitize`'ın üstveri denetimi **yapısaldır** (etiketi geri okur), `"Exif"`/`"eXIf"` gibi alt dizge araması değil: sabit fikstürde o arama kesindir ve `TestSanitizeDropsEveryMetadataSegment` onu orada yapar, ama fuzz çıktısının sıkıştırılmış görüntü verisi rastgele bayttır ve dört baytlık bir dizi orada tesadüfen çıkıp kapıyı sebepsiz kırmızı yapabilir. Kararsız bir kapı testi, bir eksik iddiadan kötüdür.
 
+#### Tamamlama tekrar edilebilir, ama akış tekrar koşmaz
+
+Başarılı bir `Complete` karantina nesnesini siler, dolayısıyla ikinci bir çağrı orada hiçbir şey bulamaz. **"Karantinada nesne yok"un iki anlamı var** ve hattın içinden ikisi aynı görünür: istemci hiç yazmadı, ya da önceki bir çağrı işi bitirdi. İkisini ayırt etmenin yolu nesneyi **son anahtarında** aramaktır.
+
+Bu bir incelik değil, veri kaybı sınırı: satırı yazan **çağırandır** ve `Complete` döndükten sonra yazar. O yazım düşerse ve istemci tekrar denerse, "yüklenmedi" cevabı nesnesi doğru, striplenmiş ve yerinde olan bir kaynağı reddeder — ve o nesne `incoming/` dışında bir önekte olduğu için yaşam döngüsü kuralının da kapsamı dışındadır, yani kalıcı olarak yetim kalır.
+
+- `finishedEarlier` son anahtarı `Head`'ler. Son uzantı ilk koşuda saptanan tipten geldiği ve o bilgi artık elde olmadığı için türün kabul ettiği **her uzantı** denenir: görüntü türünde iki `Head`, CV'de bir, ve yalnız bu yolda.
+- Bulursa `Completion.AlreadyComplete` döner. `Width`, `Height` ve `Orientation` bu yolda sıfırdır: o çağrının yapmadığı işi anlatıyorlar ve nesneyi indirmeden geri getirilemezler — sözleşme de onları taşımıyor.
+- Bulamazsa red `NOT_UPLOADED`'dır, yani gerçek vaka korunur.
+
+**Söylenmemiş ön koşul, artık söyleniyor:** `Complete` çağıranın satırı **`PENDING` değilse çağrılmamalıdır.** `Complete` satırı okumaz ve bunu denetleyemez. `READY` bir satırda çağrılması bir yetim üretir: yükleme adresi `UploadTTL` boyunca yaşar ve imza **anahtarı** kapsar, içeriği değil; aynı adrese farklı tipte ikinci bir nesne yazıp `Complete`'i yeniden çağıran istemci tam akışı koşturur (karantina dolu olduğu için yukarıdaki kurtarma hiç çalışmaz) ve ikinci bir son nesne, ikinci bir uzantıyla yazılır. Satır birinciyi gösterdiği ve durum makinesi geçişi reddettiği için ikinci nesneyi **hiçbir satır göstermez**, hiçbir süpürme kapsamaz ve genel okunabilir bir türde **herkese servis edilir**. Bu kusur bu PR'la gelmedi, hat kurulduğundan beri vardı; gerçek koruma handler'da, satır kilidi altında bir durum kapısıdır ve Sonuçlar'da yükümlülük olarak duruyor.
+
+#### Karantina okunamaz
+
+`PresignGet` `incoming/` önekini reddeder. Karantinadaki nesne **ham yüklemedir**: EXIF'i, GPS'i, kamera seri numarası yerindedir, çünkü stripleme karantinadan **çıkışta** olur. Sözleşmede `GET /v1/me/media/{mediaId}` var ve `PENDING` geçerli bir durum, yani bir handler farkında olmadan o nesne için imzalı adres isteyebilirdi ve hattın tam olarak servis etmemek için var olduğu baytları servis ederdi. Red, `PublicURL`'ün `identity-documents/`'ı reddetmesiyle aynı gerekçeyle burada duruyor: bir çağıranın dikkatine bırakılmıyor.
+
+Red **`checkSigned`'da değil**, `PresignGet`'te. `checkSigned`'ı `PresignPut` da çağırıyor ve yükleme adresi karantinaya **yazmak için** verilen adrestir; ortak denetime konsa tek işini reddederdi. Personel bir gün karantinadaki nesneye bakmak zorunda kalırsa bu metot genişletilmez, adı konmuş ayrı bir metot yazılır — çünkü "karantina okunabilir" kararı sessizce verilmemeli.
+
 ### 5. Sınırlar ve varsayılanlar
 
 | Sınır | Varsayılan | Nereden |
@@ -142,6 +160,10 @@ Tohumlar (`F.Add`) yürüyücülerin aritmetiğinin ortasına nişan alır: sonu
 | Yükleme adresi ömrü | 15 dakika | bu ADR |
 | İmzalı adres üst sınırı | 1 saat | bu ADR |
 | Karantina saklama süresi | 24 saat | ADR-0029 Karar 6 (M2) |
+
+**Sınır girdiye **ve** çıktıya uygulanır.** `Sanitize` yalnız aldığı baytları değil, ürettiği baytları da ölçer. Gerekçe: yeniden kodlama küçültmeyi **garanti etmez** — düşük kalitede kaydedilmiş bir JPEG kalite 85'te büyür, ve yön etiketi 1 olmayan paletli bir PNG `applyOrientation`'da RGBA rasterine dönüp paletini kaybeder. Çıkış kapısı olmadan üç şey birden bozulurdu: ilan edilen 10 MiB politikası sunucunun **sakladığı** şey için tutmazdı, `media.size` kendi sınırının üstünde bir değer kaydederdi, ve o nesneyi sonradan aynı sınırla okuyan kod (`Store.Get(ctx, key, MaxBytes)`) **sunucunun kendi yazdığı** meşru bir nesnede `ErrTooLarge` alırdı — doğru kodun, yanına eklenen bir mekanizma tarafından sessizce geçersiz kılınmasının tam şekli.
+
+**Kabul edilen takas:** bu, sınırın **altındaki** bir yüklemenin reddedilebileceği anlamına gelir. 9 MiB'lık, düşük kalitede kaydedilmiş bir fotoğraf yeniden kodlanınca 10 MiB'ı aşabilir ve kullanıcı "boyut sınırını aşıyor" diyen bir red alır, oysa gönderdiği dosya sınırın içindeydi. Kabul ediyoruz, çünkü alternatifi sunucunun kendi okuyamadığı bir nesne yazmasıdır; ve kullanıcının gördüğü mesaj yanlış değil, yalnız hangi boyutun ölçüldüğü konusunda eksiktir. Kullanıcıya dönen metni netleştirmek handler PR'ının işi (`MEDIA_TOO_LARGE`'ın düzyazısı). Ölçülmüş bir şikâyet gelirse çözüm kaliteyi çıktı sınırına göre düşürmek olur, sınırı gevşetmek değil.
 
 `imaging.Limits`'in sıfır alanı **varsayılan** anlamına gelir, "sınırsız" anlamına **gelmez**; isteğe bağlı sınırlar taşıyan bir struct'ın tipik hatası budur ve bir test onu kapatır. Sınırlar türe göre yapılandırılabilir (`media.Kind.Limits()`); bugün her tür varsayılanı kullanır, ama kendi sınırı gereken tür onu orada alır, çağrı yerinde almaz.
 
@@ -222,6 +244,8 @@ ADR-0019 §9, ADR-0023, ADR-0026 ve ADR-0029'un geri kalan kararları değişmiy
   - Gerçek MinIO'ya karşı `//go:build integration` testi. Kapıya servis container eklemek gerektiği için yazılmadı (Karar 6); eklenmesi kapı değişikliği olarak kendi PR'ında tartışılmalı.
   - `incoming/` süpürme işinin **River tarafı** (`media` satırlarını `PENDING`'den çıkarmak). `media` tablosunu istediği için handler PR'ında; nesnelerin temizliği onu beklemez, "Zorunlu ops adımı" bölümündeki yaşam döngüsü kuralı onu dağıtımın koşulu yapar.
   - Yükleme uçlarının oran sınırı grubu (`x-rate-limit: upload`) `internal/app/edge.go`'nun tablosuna girecek; sözleşme PR #17'de, tablo handler PR'ında.
+  - **`RejectionCorrupt`'ın sözleşmede karşılığı yok.** `media.Rejection` dört değer taşıyor; sözleşmenin `ErrorCode`'unda `MEDIA_UPLOAD_INCOMPLETE`, `MEDIA_TYPE_UNSUPPORTED` ve `MEDIA_TOO_LARGE` üçüne karşılık geliyor, `CORRUPT`'a hiçbir kod gelmiyor. `Media.rejectionCode` bir `ErrorCode` olduğu için **bayt çözülemediği için `REJECTED` olan bir satır bugün render edilemiyor.** Handler PR'ı bunu iki yoldan biriyle kapatır: `CORRUPT`'ı `MEDIA_TYPE_UNSUPPORTED`'a katlar (savunulabilir — çözülemeyen baytlar iddia ettiği tipin geçerli bir görüntüsü değildir) ya da enum'a uyumlu bir kod ekler. Hat ikisini gerçekten ayırt ettiği için `internal/media` ayrımı koruyor; kaybedilecek olan satırın kaydedebileceği bilgidir.
+  - **`Complete` için durum kapısı ve `images/` önekinde yetim süpürmesi.** Karar 5'in "Tamamlama tekrar edilebilir" bölümündeki ön koşul: `Complete` yalnız satır `PENDING` iken çağrılır, ve bu kapı satır kilidi altında handler'da kurulur. Kapı olmadan aynı yükleme adresine ikinci bir nesne yazılıp hiçbir satırın göstermediği, genel okunabilir bir yetim üretilebiliyor. Kapı o deliği kapatır; **kapatılmış olanı temizlemek** ise ayrı bir iştir, çünkü yaşam döngüsü kuralı yalnız `incoming/` önekindedir. Handler PR'ı ya son öneklerde de bir yetim taraması tanımlar (nesne var, satır yok) ya da bunun neden gerekmediğini yazar.
   - Özgün dosya adının taşınması (yukarıdaki daralma 2): `StartMediaUploadRequest`'e isteğe bağlı bir alan, `media` satırına bir kolon ve `Content-Disposition`'da RFC 5987 biçimi.
   - Galerinin sözleşmesi ADR-0029'un son turlarında değişti (`mediaIds: [uuid]` → `items: [{mediaId, caption}]`, ve `PUT`'un `x-body-limit`'i 16384). **Bu katmanı etkilemiyor:** galeri görseli yine `COMPANY_IMAGE`'dır, yine `images/` önekine iner, ve değişen şey isteğin JSON gövdesi — nesnenin kendisi değil. `MediaKind` beş değerinde kaldığı için `media.Kind`'ın elle aynaladığı enum da değişmedi.
   - **İki liste, bir kural.** Bir türün genel okunabilir olup olmadığı iki yerde yazılı: `Kind.PublicReadable()` (önek `images/` mi) ve `Store.PublicURL` (önek `images/` ya da `public/` mi). Bugün aynı cevabı veriyorlar ve `Complete` ikisini birlikte soruyor, ama kural iki yerde durduğu için ayrışabilirler. Handler PR'ında tek yere indirilmeli.

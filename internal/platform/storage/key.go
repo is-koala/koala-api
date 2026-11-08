@@ -266,7 +266,10 @@ func validPrefix(p Prefix) bool { return slices.Contains(Prefixes(), p) }
 
 func validExt(e Ext) bool { return slices.Contains(Exts(), e) }
 
-// prefixOf returns the longest known prefix of decoded.
+// prefixOf returns the prefix of decoded: the first match in the order
+// Prefixes() declares, which is why a nested prefix is listed ahead of
+// the one it nests under. It is not a longest-match search, and reading
+// it as one would make the order look incidental.
 func prefixOf(decoded string) (Prefix, bool) {
 	for _, p := range Prefixes() {
 		if strings.HasPrefix(decoded, string(p)) {

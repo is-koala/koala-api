@@ -133,6 +133,20 @@ func (c Completion) Rejected() bool { return c.Rejection != RejectionNone }
 // object is deleted on the way out. An error means the store or the
 // process failed and the caller may retry.
 //
+// Precondition: the caller's row must still be PENDING. Complete does
+// not read the row and cannot check this, and calling it on a READY row
+// is how an orphan is made: the upload address lives for UploadTTL and
+// its signature covers the key, not the content, so a client that writes
+// a second object of a different type to the same address and calls
+// Complete again gets the full flow -- the quarantine is occupied, so
+// the recovery below never runs -- and a second final object is written
+// under a second extension. The row already points at the first one and
+// the state machine refuses the transition, so the second object is
+// referenced by nothing, covered by no sweep (the lifecycle rule is on
+// incoming/ only) and, for a publicly readable kind, publicly served.
+// The status gate belongs to the handler, with the row locked; ADR-0030
+// carries it as an obligation.
+//
 // A retry after a successful run is safe, but not because the flow runs
 // again: a successful run deletes the quarantine object, so running it
 // again would find nothing. "Nothing in the quarantine" has two causes

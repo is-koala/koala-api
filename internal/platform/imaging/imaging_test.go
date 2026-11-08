@@ -604,8 +604,14 @@ func TestSanitizeBoundsItsOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Sanitize() = %v", err)
 	}
+	// Not a Skip. If the encoders ever stop producing the property this
+	// fixture needs -- input inside the bound, output outside it -- a
+	// skip would take the output gate's only proof with it and the gate
+	// would go untested in a green run. That is the failure mode this
+	// whole PR has been chasing, so a broken fixture is red.
 	if len(grown.Data) <= len(in) {
-		t.Skipf("the fixture does not set up the case: %d bytes in, %d out", len(in), len(grown.Data))
+		t.Fatalf("the fixture no longer sets up the case it was written for: %d bytes in, %d out; "+
+			"re-encoding has to grow this input or the output gate has no test", len(in), len(grown.Data))
 	}
 
 	// A bound that admits the input and refuses the output.

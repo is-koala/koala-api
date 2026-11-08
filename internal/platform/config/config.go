@@ -680,8 +680,13 @@ func validateObjectURL(raw string, requireTLS bool) error {
 //     endpoints are live. local and test may run without one, so a
 //     developer who is not working on uploads needs no bucket.
 //
-// The public base URL is optional: without it no object gets a public
-// address, which is a narrower service and not a broken one.
+// The public base URL is in the required set too, and the reason is the
+// second kind of failure above rather than the first: without it
+// PublicURL answers nothing for every key, so Media.url is null on every
+// ready profile picture, logo and gallery image -- a field the contract
+// says is filled for a publicly readable kind in a ready state. Nothing
+// returns 500; the service starts, answers 200 and quietly breaks a
+// promise the contract made, which is why it is not optional.
 func (c Config) ServeStorageErrors() error {
 	required := map[string]string{
 		VarObjectRegion:      c.Object.Region,
