@@ -335,16 +335,17 @@ func TestSanitizeRefusesWhatItMustNot(t *testing.T) {
 	}
 }
 
-// TestSanitizeRefusesAPolyglot covers the case the re-encode cannot
-// handle by itself: a file whose magic number says one format and whose
-// body decodes as another. The format check refuses it rather than
-// quietly rewriting it into the second format with the first format's
-// extension.
+// TestSanitizeRefusesAPolyglot covers the polyglot the re-encode cannot
+// handle by itself: a file whose header claims one format and whose body
+// is another. Nothing is written, so there is no object with a JPEG
+// extension holding a PNG -- or anything else.
 func TestSanitizeRefusesAPolyglot(t *testing.T) {
 	t.Parallel()
 
-	// JPEG SOI followed by a whole PNG. Detect says JPEG; the decoder
-	// registry sniffs further down and says PNG.
+	// JPEG SOI followed by a whole PNG. Detect says JPEG, because that is
+	// what the first three bytes say; the JPEG decoder then refuses the
+	// body. checkFormat would catch the other shape of this, where the
+	// registry picks a different decoder than Detect named.
 	pngBytes := encodePNG(t, gradient(8, 8))
 	polyglot := append([]byte{0xFF, 0xD8, 0xFF}, pngBytes...)
 

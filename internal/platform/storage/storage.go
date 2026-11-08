@@ -295,7 +295,7 @@ func (s *Store) Head(ctx context.Context, key Key) (ObjectInfo, error) {
 		Key:    aws.String(key.String()),
 	})
 	if err != nil {
-		return ObjectInfo{}, s.classify("head", key, err)
+		return ObjectInfo{}, classify("head", key, err)
 	}
 	info := ObjectInfo{}
 	if out.ContentLength != nil {
@@ -329,7 +329,7 @@ func (s *Store) Get(ctx context.Context, key Key, limit int64) ([]byte, error) {
 		Key:    aws.String(key.String()),
 	})
 	if err != nil {
-		return nil, s.classify("get", key, err)
+		return nil, classify("get", key, err)
 	}
 	defer func() { _ = out.Body.Close() }()
 
@@ -419,7 +419,7 @@ func (s *Store) Copy(ctx context.Context, from, to Key, o PutOptions) error {
 		in.CacheControl = aws.String(o.CacheControl)
 	}
 	if _, err := s.api.CopyObject(ctx, in); err != nil {
-		return s.classify("copy", from, err)
+		return classify("copy", from, err)
 	}
 	return nil
 }
@@ -457,7 +457,7 @@ func (s *Store) Delete(ctx context.Context, key Key) error {
 		Bucket: aws.String(s.bucket),
 		Key:    aws.String(key.String()),
 	}); err != nil {
-		if errors.Is(s.classify("delete", key, err), ErrNotFound) {
+		if errors.Is(classify("delete", key, err), ErrNotFound) {
 			return nil
 		}
 		return fmt.Errorf("storage: delete %s: %w", key.Prefix(), err)
@@ -505,7 +505,7 @@ func checkKey(key Key) error {
 // object is not there, and wraps it otherwise. HeadObject answers 404
 // with types.NotFound and GetObject with types.NoSuchKey; a plain 404
 // from a store that models neither is caught by the status check.
-func (s *Store) classify(op string, key Key, err error) error {
+func classify(op string, key Key, err error) error {
 	var notFound *s3types.NotFound
 	var noSuchKey *s3types.NoSuchKey
 	if errors.As(err, &notFound) || errors.As(err, &noSuchKey) || httpStatus(err) == http.StatusNotFound {

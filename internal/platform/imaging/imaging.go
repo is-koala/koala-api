@@ -254,11 +254,18 @@ func Sanitize(ctx context.Context, data []byte, limits Limits) (Result, error) {
 	}, nil
 }
 
-// checkFormat refuses an image whose magic number and decoder disagree.
-// image.DecodeConfig picks the decoder by its own sniffing, so a file
-// that Detect called a JPEG and the registry decoded as something else
-// is a polyglot and is refused instead of silently re-encoded into the
-// other format.
+// checkFormat refuses an image whose magic number and the decoder that
+// claimed it disagree: a file Detect called a JPEG and the image
+// registry decoded as something else would otherwise be re-encoded into
+// the second format under the first format's extension.
+//
+// With today's two tables this cannot happen, and saying so is part of
+// the check: Detect's JPEG prefix (FF D8 FF) is stricter than the two
+// bytes image/jpeg registers, and the PNG signatures are identical, so
+// every file Detect accepts sniffs as the same format. It is a guard
+// against the tables drifting apart, not a live path. The polyglot that
+// is a live case -- a header claiming a format the body is not -- is
+// refused by the decode itself, as ErrCorrupt.
 func checkFormat(typ Type, format string) error {
 	var want string
 	if typ == TypeJPEG {
