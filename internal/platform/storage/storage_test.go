@@ -24,7 +24,7 @@ func (c fixedClock) Now() time.Time { return c.at }
 
 const testBucket = "koala-test"
 
-var testNow = fixedClock{at: time.Date(2026, time.November, 8, 10, 0, 0, 0, time.UTC)} //nolint:gochecknoglobals // a fixed instant, read only
+var testNow = fixedClock{at: time.Date(2026, time.November, 8, 10, 0, 0, 0, time.UTC)}
 
 // newStore starts a fake object store and a real client pointed at it.
 func newStore(t *testing.T) (*storage.Store, *fakes.S3) {
@@ -317,7 +317,7 @@ func TestPresignGetCarriesTheResponseRules(t *testing.T) {
 		}
 	}
 
-	getReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, nil)
+	getReq, err := http.NewRequestWithContext(ctx, req.Method, req.URL, http.NoBody)
 	if err != nil {
 		t.Fatalf("NewRequestWithContext() = %v", err)
 	}
@@ -436,8 +436,8 @@ func TestPublicURL(t *testing.T) {
 		storage.PrefixDisputeEvidence,
 		storage.PrefixIncoming,
 	} {
-		if url, ok := store.PublicURL(key(t, prefix, storage.ExtJPEG)); ok {
-			t.Errorf("PublicURL() of a %s key = %q, want none", prefix, url)
+		if address, ok := store.PublicURL(key(t, prefix, storage.ExtJPEG)); ok {
+			t.Errorf("PublicURL() of a %s key = %q, want none", prefix, address)
 		}
 	}
 	var zero storage.Key

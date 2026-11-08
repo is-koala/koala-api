@@ -89,7 +89,7 @@ func Exts() []Ext { return []Ext{ExtJPEG, ExtPNG, ExtPDF} }
 // leading slash and an absolute path by construction, so no list of
 // traversal spellings has to be kept complete. The hex is lower case, so
 // a key differing only in case is a different key and is refused.
-var keyPattern = regexp.MustCompile( //nolint:gochecknoglobals // compiled once; the pattern is a constant
+var keyPattern = regexp.MustCompile(
 	`^(?:images|public|files/dispute-evidence|files|identity-documents|incoming)/` +
 		`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}` +
 		`\.(?:jpg|png|pdf)$`)

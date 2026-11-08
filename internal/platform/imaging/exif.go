@@ -22,14 +22,15 @@ import (
 // read the tag from JPEG only, so a PNG with an eXIf chunk lost its
 // orientation when the chunk was dropped.
 func Orientation(data []byte, typ Type) int {
-	switch {
-	case typ == TypeJPEG:
+	if typ == TypeJPEG {
 		return tiffOrientation(jpegExifPayload(data))
-	case typ == TypePNG:
-		return tiffOrientation(pngExifChunk(data))
-	default:
-		return OrientationNone
 	}
+	if typ == TypePNG {
+		return tiffOrientation(pngExifChunk(data))
+	}
+	// A PDF carries no orientation tag, and a type outside the allowlist
+	// is never turned: failing closed here means leaving the pixels alone.
+	return OrientationNone
 }
 
 // OrientationNone is the orientation of an image that needs no turning:

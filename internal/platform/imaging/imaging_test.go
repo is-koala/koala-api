@@ -403,7 +403,7 @@ func TestLimitsFallBackToTheDefaults(t *testing.T) {
 	// 10 MiB plus one byte of a valid JPEG would need a real 10 MiB
 	// image; a run of bytes with the JPEG magic is enough, because the
 	// byte bound is checked before anything is parsed.
-	oversize := append([]byte{0xFF, 0xD8, 0xFF}, bytes.Repeat([]byte{0}, int(imaging.DefaultMaxBytes))...)
+	oversize := append([]byte{0xFF, 0xD8, 0xFF}, make([]byte, imaging.DefaultMaxBytes)...)
 	if _, err := imaging.Sanitize(context.Background(), oversize, imaging.Limits{}); !errors.Is(err, imaging.ErrTooLarge) {
 		t.Errorf("Sanitize() with zero limits error = %v, want ErrTooLarge", err)
 	}

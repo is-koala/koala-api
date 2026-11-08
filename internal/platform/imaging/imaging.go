@@ -267,16 +267,23 @@ func Sanitize(ctx context.Context, data []byte, limits Limits) (Result, error) {
 // is a live case -- a header claiming a format the body is not -- is
 // refused by the decode itself, as ErrCorrupt.
 func checkFormat(typ Type, format string) error {
-	var want string
-	if typ == TypeJPEG {
-		want = "jpeg"
-	} else if typ == TypePNG {
-		want = "png"
-	}
+	want := typ.decoderName()
 	if want == "" || format != want {
 		return fmt.Errorf("%w: magic says %s, decoder says %q", ErrUnsupportedType, typ, format)
 	}
 	return nil
+}
+
+// decoderName is the name image.DecodeConfig reports for the type, or ""
+// for a type the image registry has no decoder for.
+func (t Type) decoderName() string {
+	if t == TypeJPEG {
+		return "jpeg"
+	}
+	if t == TypePNG {
+		return "png"
+	}
+	return ""
 }
 
 // encode writes the image back out. The encoders are the standard
@@ -284,23 +291,23 @@ func checkFormat(typ Type, format string) error {
 // by which EXIF, XMP, IPTC and PNG text chunks disappear.
 func encode(typ Type, img image.Image, quality int) ([]byte, error) {
 	var buf bytes.Buffer
-	switch {
-	case typ == TypeJPEG:
+	if typ == TypeJPEG {
 		// JPEG has no alpha channel. Go's encoder would turn a
 		// transparent pixel black; compositing onto white keeps what a
 		// viewer saw, which is Java's behavior and is kept.
 		if err := jpeg.Encode(&buf, overWhite(img), &jpeg.Options{Quality: quality}); err != nil {
 			return nil, fmt.Errorf("imaging: encode jpeg: %w", err)
 		}
-	case typ == TypePNG:
+		return buf.Bytes(), nil
+	}
+	if typ == TypePNG {
 		enc := png.Encoder{CompressionLevel: png.DefaultCompression}
 		if err := enc.Encode(&buf, img); err != nil {
 			return nil, fmt.Errorf("imaging: encode png: %w", err)
 		}
-	default:
-		return nil, fmt.Errorf("%w: %s cannot be re-encoded", ErrUnsupportedType, typ)
+		return buf.Bytes(), nil
 	}
-	return buf.Bytes(), nil
+	return nil, fmt.Errorf("%w: %s cannot be re-encoded", ErrUnsupportedType, typ)
 }
 
 // overWhite flattens an image with an alpha channel onto white. An image

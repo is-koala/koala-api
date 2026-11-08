@@ -387,7 +387,7 @@ func TestCompleteNamesTheKeyFromTheDetectedType(t *testing.T) {
 func TestCompleteRejections(t *testing.T) {
 	t.Parallel()
 
-	jpegMagicOnly := append([]byte{0xFF, 0xD8, 0xFF}, bytes.Repeat([]byte{0x00}, 64)...)
+	jpegMagicOnly := append([]byte{0xFF, 0xD8, 0xFF}, make([]byte, 64)...)
 
 	tests := []struct {
 		name     string
