@@ -145,7 +145,6 @@ func TestParseKeyRejects(t *testing.T) {
 		{"trailing slash", "images/" + v7 + ".jpg/"},
 		{"encoded dot dot", "images/%2e%2e/" + v7 + ".jpg"},
 		{"encoded dot dot upper", "images/%2E%2E%2F" + v7 + ".jpg"},
-		{"encoded slash in prefix", "images%2f" + v7 + ".jpg"},
 		{"double encoded dot dot", "images/%252e%252e/" + v7 + ".jpg"},
 		{"double encoded slash", "images/%252f" + v7 + ".jpg"},
 		{"truncated escape", "images/%2" + v7 + ".jpg"},
@@ -197,25 +196,52 @@ func TestParseKeyRejects(t *testing.T) {
 
 // TestParseKeyDecodesExactlyOnce pins the rule of ADR-0029 Karar 6: one
 // percent-decoding round, and a result that still holds a percent sign is
-// refused. A singly encoded well formed key is therefore accepted and a
-// doubly encoded one is not.
+// refused.
+//
+// One consequence is worth stating, because it reads like a hole and is
+// not: the singly encoded form of a well formed key is accepted,
+// including one whose separator was encoded ("images%2f<uuid>.jpg"). That
+// is safe for the reason the allowlist exists -- after the one decoding
+// round the result has to match the pattern exactly, so it resolves to
+// "images/<uuid>.jpg", inside its own prefix, which is what
+// FuzzStorageKey checks for every accepted key. The rule closes the
+// second round instead: "%252f" decodes to "%2f", still holds a percent
+// sign, and is refused before any pattern match, so no caller is handed a
+// string that a later decoder would turn into a different key.
 func TestParseKeyDecodesExactlyOnce(t *testing.T) {
 	t.Parallel()
 
 	want := "images/" + v7 + ".jpg"
-	// "%69" is "i": one decoding round turns this into the key above.
-	once := "%69mages/" + v7 + ".jpg"
-	key, err := storage.ParseKey(once)
-	if err != nil {
-		t.Fatalf("ParseKey(%q) = %v", once, err)
-	}
-	if got := key.String(); got != want {
-		t.Errorf("ParseKey(%q) = %q, want %q", once, got, want)
+	// "%69" is "i" and "%2f" is "/": one decoding round turns each of
+	// these into the key above.
+	for _, once := range []string{
+		"%69mages/" + v7 + ".jpg",
+		"images%2f" + v7 + ".jpg",
+		"images%2F" + v7 + ".jpg",
+		"%69mages%2f" + v7 + ".jpg",
+	} {
+		key, err := storage.ParseKey(once)
+		if err != nil {
+			t.Fatalf("ParseKey(%q) = %v", once, err)
+		}
+		if got := key.String(); got != want {
+			t.Errorf("ParseKey(%q) = %q, want %q", once, got, want)
+		}
+		if key.EscapesPrefix() {
+			t.Errorf("ParseKey(%q) = %q, which escapes its prefix", once, key.String())
+		}
 	}
 
-	twice := "%2569mages/" + v7 + ".jpg"
-	if _, err := storage.ParseKey(twice); !errors.Is(err, storage.ErrKeyInvalid) {
-		t.Errorf("ParseKey(%q) error = %v, want ErrKeyInvalid", twice, err)
+	// A second encoding round is where the line is: the result still
+	// holds a percent sign, so it never reaches the pattern.
+	for _, twice := range []string{
+		"%2569mages/" + v7 + ".jpg",
+		"images%252f" + v7 + ".jpg",
+		"images/%252e%252e/" + v7 + ".jpg",
+	} {
+		if _, err := storage.ParseKey(twice); !errors.Is(err, storage.ErrKeyInvalid) {
+			t.Errorf("ParseKey(%q) error = %v, want ErrKeyInvalid", twice, err)
+		}
 	}
 }
 

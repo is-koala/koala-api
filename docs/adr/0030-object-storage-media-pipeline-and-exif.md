@@ -51,6 +51,8 @@ Anahtar dili ADR-0029 Karar 6'nın dilidir ve burada tekrar edilmez. Uygulama ay
 - `Key` bir **struct**'tır, string değil. Sıfır `Key` hiçbir nesneyi adlandırmaz ve her depo metodu onu reddeder. Dolaşımdaki her `Key` ya `NewKey`'den ya `ParseKey`'den geldiği için, anahtarı tutan kodun ikinci bir denetim yazması gerekmez; "stringden anahtar üreten" ikinci bir yol depoda yoktur.
 - `WithPrefix` ve `WithExt` karantinadan son yere taşımanın tek yoludur: kimlik ve uzantı taşınır, önek değişir, dolayısıyla taşıma önek kümesinin dışına çıkamaz.
 
+**Tek çözme turunun bir sonucu yazıya geçiyor**, çünkü boşluk gibi görünüyor ve değil: iyi biçimli bir anahtarın **tek kat kodlanmış** hâli kabul edilir, ayırıcısı kodlanmış olanı dahil (`images%2f<uuid>.jpg`). Bu güvenlidir, ve gerekçesi izin listesinin kendisidir: tek çözme turundan sonra sonuç desene **birebir** uymak zorundadır, dolayısıyla `images/<uuid>.jpg`'e çözülür, kendi önekinin içinde kalır, ve `FuzzStorageKey` bunu kabul edilen her anahtar için denetler. Kuralın kapattığı şey ikinci turdur: `%252f` bir tur sonra `%2f` olur, içinde hâlâ yüzde işareti vardır ve desene hiç ulaşmadan reddedilir — yani hiçbir çağırana, sonraki bir çözücünün başka bir anahtara çevirebileceği bir string verilmez. Testte bu iki yön ayrı ayrı sabitlendi (`TestParseKeyDecodesExactlyOnce`).
+
 **Yer, ADR-0029'un yazdığından farklı.** ADR-0029 `FuzzStorageKey`'i `internal/media`'ya koymuştu. Anahtar sözdizimi depolama kaygısıdır: istemci onu imzalı adresi kurarken ve okuma yolunu doğrularken kullanır, ve `internal/platform/storage` onu bilmeden kendi API'sini tip güvenli kuramaz. Hedef bu yüzden `internal/platform/storage`'ta. Önek **adları** (`identity-documents/` gibi) bir alan bilgisi gibi görünebilir; bunlar depo yerleşimidir, iş kuralı değildir, ve kural (hangi türün hangi öneke gittiği) `internal/media/domain.go`'da durur — platform paketi alan paketini import etmez (depguard `platform`).
 
 **`FuzzStorageKey` iki değişmezi sınar** (ADR-0029 Karar 6'nın istediği):
@@ -160,6 +162,7 @@ ADR-0019 §9, ADR-0023, ADR-0026 ve ADR-0029'un geri kalan kararları değişmiy
   - Gerçek MinIO'ya karşı `//go:build integration` testi. Kapıya servis container eklemek gerektiği için yazılmadı (Karar 6); eklenmesi kapı değişikliği olarak kendi PR'ında tartışılmalı.
   - `incoming/` süpürme işi (24 saat, M2). River işidir ve `media` tablosunu ister.
   - PDF belge üstverisinin temizlenmesi (Karar 4, Açık soru 2).
+  - `internal/platform/imaging`'in elle yazılmış bayt yürüyücüleri (`jpegExifPayload`, `pngExifChunk`, `tiffOrientation`) için fuzz hedefleri. Sınır denetimleri yazılı ve tablo testleriyle sınanıyor, ama o üç fonksiyon saldırganın verdiği uzunlukları ve offset'leri **indeks olarak** kullanıyor; bir `FuzzOrientation`/`FuzzSanitize` çifti "panik etmiyor ve 1–8 aralığının dışına çıkmıyor" değişmezlerini kanıtlardı. Bu PR'ın kapı turu bütçesi dolduğu için ayrı bir PR'a bırakıldı; çıkış kriterinin istediği yol geçişi fuzz'ı (`FuzzStorageKey`) yeşil ve bu kalem onun yerine geçmiyor, yanına ekleniyor.
   - Yükleme uçlarının oran sınırı grubu (`x-rate-limit: upload`) `internal/app/edge.go`'nun tablosuna girecek; sözleşme PR #17'de, tablo handler PR'ında.
 
 ## Açık sorular
