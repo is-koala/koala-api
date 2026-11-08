@@ -55,7 +55,7 @@ func TestKindRules(t *testing.T) {
 			// The order is asserted and not only the membership. It
 			// became load bearing with ADR-0031 Karar 3: the handler
 			// hands Pipeline.Start the kind's AllowedTypes()[0], so a
-			// reordering -- alphabetising the slice, say -- would change
+			// reordering -- alphabetizing the slice, say -- would change
 			// which type a quarantine key is named after without any
 			// other test noticing. For the CV the first element is the
 			// PDF, which is both the decision and the common case.

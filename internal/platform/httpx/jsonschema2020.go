@@ -49,7 +49,7 @@ func compileBody2020(name string, item *openapi3.PathItem, op *openapi3.Operatio
 		}
 		anywhere, underNotOrOneOf := uses2020(mt.Schema.Value)
 		// The refusal is checked before the decision to compile, so a
-		// schema this package cannot honour never reaches the compiler.
+		// schema this package cannot honor never reaches the compiler.
 		if underNotOrOneOf {
 			return nil, fmt.Errorf("request body %s: a JSON Schema 2020-only keyword under not or oneOf is not supported", media)
 		}
