@@ -437,3 +437,187 @@ func TestTypesAndImage(t *testing.T) {
 		t.Error("PDF must not count as an image: it cannot be re-encoded")
 	}
 }
+
+// corners are four opaque, distinguishable colours for the four corners
+// of a test image. The PNG path is lossless, so a decoded corner is
+// byte-for-byte the colour that was written.
+func corners() [4]color.RGBA {
+	return [4]color.RGBA{
+		{R: 0xFF, G: 0x00, B: 0x00, A: 0xFF}, // top left
+		{R: 0x00, G: 0xFF, B: 0x00, A: 0xFF}, // top right
+		{R: 0x00, G: 0x00, B: 0xFF, A: 0xFF}, // bottom left
+		{R: 0xFF, G: 0xFF, B: 0x00, A: 0xFF}, // bottom right
+	}
+}
+
+// Indices into corners(), used as names in the expectation table.
+const (
+	tl = 0
+	tr = 1
+	bl = 2
+	br = 3
+)
+
+// cornered returns a w by h image whose four corners carry corners() and
+// whose middle is grey, so a transform that mirrors or rotates the wrong
+// way moves a known colour to a place the table does not expect.
+func cornered(w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := range h {
+		for x := range w {
+			img.Set(x, y, color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xFF})
+		}
+	}
+	c := corners()
+	img.Set(0, 0, c[tl])
+	img.Set(w-1, 0, c[tr])
+	img.Set(0, h-1, c[bl])
+	img.Set(w-1, h-1, c[br])
+	return img
+}
+
+func sameColor(a, b color.Color) bool {
+	ar, ag, ab, aa := a.RGBA()
+	br2, bg, bb, ba := b.RGBA()
+	return ar == br2 && ag == bg && ab == bb && aa == ba
+}
+
+// TestSanitizeMovesThePixelsOfEveryOrientation is the pixel level check
+// the dimension check cannot make: breaking one case of orientedPoint,
+// say swapping the mirror of 2 for the rotation of 3, leaves every
+// dimension assertion green because both keep the same width and height.
+//
+// The expectation table says which source corner has to end up at each
+// of the four destination corners. The top-left column is the standard
+// EXIF table ("which corner of the stored raster is the top left of the
+// displayed image"): 1 and 5 top left, 2 and 8 top right, 4 and 6 bottom
+// left, 3 and 7 bottom right. The other three columns follow from the
+// same mapping.
+//
+// It runs on the PNG path on purpose: PNG is lossless, so the comparison
+// is exact. The JPEG path shares applyOrientation, so the mapping is the
+// same code; only the comparison would be approximate there.
+func TestSanitizeMovesThePixelsOfEveryOrientation(t *testing.T) {
+	t.Parallel()
+
+	const (
+		w = 9
+		h = 5
+	)
+	tests := []struct {
+		orientation int
+		// want is the source corner expected at destination
+		// (0,0), (W-1,0), (0,H-1) and (W-1,H-1).
+		want [4]int
+	}{
+		{1, [4]int{tl, tr, bl, br}},
+		{2, [4]int{tr, tl, br, bl}},
+		{3, [4]int{br, bl, tr, tl}},
+		{4, [4]int{bl, br, tl, tr}},
+		{5, [4]int{tl, bl, tr, br}},
+		{6, [4]int{bl, tl, br, tr}},
+		{7, [4]int{br, tr, bl, tl}},
+		{8, [4]int{tr, br, tl, bl}},
+	}
+	for _, tt := range tests {
+		t.Run(string(rune('0'+tt.orientation)), func(t *testing.T) {
+			t.Parallel()
+
+			exif := tiffBlock(map[uint16]uint16{0x0112: uint16(tt.orientation)})
+			in := withPNGeXIf(t, encodePNG(t, cornered(w, h)), exif)
+
+			got, err := imaging.Sanitize(context.Background(), in, imaging.Limits{})
+			if err != nil {
+				t.Fatalf("Sanitize() = %v", err)
+			}
+			out, _, err := image.Decode(bytes.NewReader(got.Data))
+			if err != nil {
+				t.Fatalf("the output does not decode: %v", err)
+			}
+			b := out.Bounds()
+			if b.Dx() != got.Width || b.Dy() != got.Height {
+				t.Fatalf("Result says %dx%d, the image is %dx%d", got.Width, got.Height, b.Dx(), b.Dy())
+			}
+
+			c := corners()
+			at := [4]image.Point{
+				{X: b.Min.X, Y: b.Min.Y},
+				{X: b.Max.X - 1, Y: b.Min.Y},
+				{X: b.Min.X, Y: b.Max.Y - 1},
+				{X: b.Max.X - 1, Y: b.Max.Y - 1},
+			}
+			names := [4]string{"top left", "top right", "bottom left", "bottom right"}
+			for i, p := range at {
+				if !sameColor(out.At(p.X, p.Y), c[tt.want[i]]) {
+					r, g, bb, _ := out.At(p.X, p.Y).RGBA()
+					wr, wg, wb, _ := c[tt.want[i]].RGBA()
+					t.Errorf("orientation %d: the %s pixel is (%d,%d,%d), want source corner %s (%d,%d,%d)",
+						tt.orientation, names[i], r>>8, g>>8, bb>>8, names[tt.want[i]], wr>>8, wg>>8, wb>>8)
+				}
+			}
+		})
+	}
+}
+
+// noisy builds an image whose pixels do not compress: a JPEG of it at a
+// low quality is small and the same image at a high quality is several
+// times larger, which is what makes the output bound reachable.
+func noisy(w, h int) *image.RGBA {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	// A fixed linear congruential sequence, so the fixture is the same
+	// on every run and in every order.
+	state := uint32(1)
+	next := func() uint8 {
+		state = state*1664525 + 1013904223
+		return uint8(state >> 24)
+	}
+	for y := range h {
+		for x := range w {
+			img.Set(x, y, color.RGBA{R: next(), G: next(), B: next(), A: 0xFF})
+		}
+	}
+	return img
+}
+
+// TestSanitizeBoundsItsOutput covers the gate on the re-encode's result
+// and not only on the input. Without it the declared limit would hold
+// for what a client sends and not for what the server stores, so the
+// server could write an object that the same limit later refuses to
+// read.
+//
+// The case is built the way it happens in practice: a photograph saved
+// at a low JPEG quality is small, and re-encoding it at the quality this
+// package uses makes it bigger. The input fits the bound, the output
+// does not.
+func TestSanitizeBoundsItsOutput(t *testing.T) {
+	t.Parallel()
+
+	var low bytes.Buffer
+	if err := jpeg.Encode(&low, noisy(160, 160), &jpeg.Options{Quality: 1}); err != nil {
+		t.Fatalf("jpeg.Encode() = %v", err)
+	}
+	in := low.Bytes()
+
+	// Generous limits: the re-encode succeeds and grows.
+	wide := imaging.Limits{MaxBytes: imaging.DefaultMaxBytes, MaxPixels: imaging.DefaultMaxPixels, JPEGQuality: 95}
+	grown, err := imaging.Sanitize(context.Background(), in, wide)
+	if err != nil {
+		t.Fatalf("Sanitize() = %v", err)
+	}
+	if len(grown.Data) <= len(in) {
+		t.Skipf("the fixture does not set up the case: %d bytes in, %d out", len(in), len(grown.Data))
+	}
+
+	// A bound that admits the input and refuses the output.
+	narrow := imaging.Limits{MaxBytes: int64(len(in)) + 1, MaxPixels: imaging.DefaultMaxPixels, JPEGQuality: 95}
+	if _, err := imaging.Sanitize(context.Background(), in, narrow); !errors.Is(err, imaging.ErrTooLarge) {
+		t.Fatalf("Sanitize() = %v, want ErrTooLarge: %d bytes in, %d out, bound %d",
+			err, len(in), len(grown.Data), narrow.MaxBytes)
+	}
+
+	// The bound is on the output as well, so anything Sanitize returns
+	// fits it. FuzzSanitize checks the same invariant generatively.
+	if int64(len(grown.Data)) > wide.MaxBytes {
+		t.Errorf("the output is %d bytes, over the bound %d", len(grown.Data), wide.MaxBytes)
+	}
+}

@@ -191,6 +191,13 @@ type Result struct {
 // The CPU work is bounded by MaxBytes and MaxPixels rather than by a
 // timer, because a decode cannot be interrupted part way. ctx is checked
 // between the steps, so a canceled job stops at the next boundary.
+//
+// Memory is bounded by MaxPixels, not by MaxBytes, and the bound is per
+// call: the decoded raster is up to MaxPixels times four bytes, and an
+// orientation other than 1 allocates a second raster of the same size.
+// At the default 50 MP that is about 400 MB at peak for one upload, and
+// nothing here limits how many run at once -- that is the caller's job
+// (ADR-0030 Karar 5).
 func Sanitize(ctx context.Context, data []byte, limits Limits) (Result, error) {
 	limits = limits.withDefaults()
 
@@ -243,6 +250,18 @@ func Sanitize(ctx context.Context, data []byte, limits Limits) (Result, error) {
 	out, err := encode(typ, upright, limits.JPEGQuality)
 	if err != nil {
 		return Result{}, err
+	}
+	// The output is bounded too, not only the input. A re-encode is not
+	// guaranteed to shrink: a JPEG written at a low quality comes back
+	// larger at quality 85, and a paletted PNG whose orientation tag is
+	// not 1 is turned into an RGBA raster, which loses the palette and
+	// grows. Without this gate the declared 10 MiB policy would not
+	// hold, the size recorded for the media would be over its own
+	// limit, and later code reading that object with the same bound
+	// would get ErrTooLarge on an object the server itself wrote --
+	// correct code invalidated by a mechanism added next to it.
+	if int64(len(out)) > limits.MaxBytes {
+		return Result{}, fmt.Errorf("%w: re-encoded to %d bytes, limit is %d", ErrTooLarge, len(out), limits.MaxBytes)
 	}
 	bounds := upright.Bounds()
 	return Result{

@@ -86,6 +86,13 @@ type Completion struct {
 	// When it is set the other fields are zero and the quarantine object
 	// has been deleted.
 	Rejection Rejection
+	// AlreadyComplete means an earlier call had already validated,
+	// stripped and moved the object, and this call found it at its final
+	// key instead of doing the work again. Width, Height and Orientation
+	// are zero on this path: they describe work this call did not do and
+	// cannot recover without downloading the object, and the contract
+	// does not carry them.
+	AlreadyComplete bool
 	// Key is the final key, under the kind's prefix.
 	Key storage.Key
 	// Type is the type detected in the bytes, which is also the type the
@@ -124,9 +131,18 @@ func (c Completion) Rejected() bool { return c.Rejection != RejectionNone }
 // A failure of 1 to 5 is a Rejection and not an error: it is the
 // client's object that is wrong, the row records why, and the quarantine
 // object is deleted on the way out. An error means the store or the
-// process failed and the caller may retry; Complete is idempotent for a
-// retry, because the final key is derived from the quarantine key and
-// re-running the whole flow produces the same object at the same key.
+// process failed and the caller may retry.
+//
+// A retry after a successful run is safe, but not because the flow runs
+// again: a successful run deletes the quarantine object, so running it
+// again would find nothing. "Nothing in the quarantine" has two causes
+// that look identical from here -- the client never wrote, and an
+// earlier call finished the work -- and they are told apart by looking
+// for the object at its final key. That matters because the row is
+// written by the caller, after this returns: if that write fails and the
+// client retries, answering RejectionNotUploaded would reject a resource
+// whose object is correct and sitting under a prefix no sweep covers,
+// losing it for good.
 //
 // A PDF is not re-encoded: it is copied as it is, with the detected type
 // and an attachment disposition replacing whatever metadata it carried
@@ -144,7 +160,7 @@ func (p *Pipeline) Complete(ctx context.Context, kind Kind, quarantined storage.
 	info, err := p.store.Head(ctx, quarantined)
 	switch {
 	case errors.Is(err, storage.ErrNotFound):
-		return Completion{Rejection: RejectionNotUploaded}, nil
+		return p.finishedEarlier(ctx, kind, quarantined, prefix)
 	case err != nil:
 		return Completion{}, fmt.Errorf("media: complete upload: %w", err)
 	}
@@ -157,8 +173,9 @@ func (p *Pipeline) Complete(ctx context.Context, kind Kind, quarantined storage.
 	case errors.Is(err, storage.ErrTooLarge):
 		return p.reject(ctx, quarantined, RejectionTooLarge), nil
 	case errors.Is(err, storage.ErrNotFound):
-		// The sweep or a concurrent delete got there first.
-		return Completion{Rejection: RejectionNotUploaded}, nil
+		// The sweep, a concurrent delete or a concurrent completion got
+		// there between the head and the read.
+		return p.finishedEarlier(ctx, kind, quarantined, prefix)
 	case err != nil:
 		return Completion{}, fmt.Errorf("media: complete upload: %w", err)
 	}
@@ -228,6 +245,46 @@ func (p *Pipeline) Complete(ctx context.Context, kind Kind, quarantined storage.
 		done.PublicURL = url
 	}
 	return done, nil
+}
+
+// finishedEarlier answers the case where the quarantine object is gone.
+// It looks for the object at its final key and reports the upload as
+// complete when it is there; only when it is not is the upload one the
+// client never wrote.
+//
+// The final extension follows the type detected on the first run, which
+// is not knowable here any more, so every extension the kind accepts is
+// tried: two heads for an image kind, one for a CV, and only on this
+// path. The object itself is the durable record this layer has, because
+// the row may be exactly what failed.
+func (p *Pipeline) finishedEarlier(ctx context.Context, kind Kind, quarantined storage.Key, prefix storage.Prefix) (Completion, error) {
+	for _, typ := range kind.AllowedTypes() {
+		ext, ok := ExtOf(typ)
+		if !ok {
+			continue
+		}
+		final, err := quarantined.WithPrefix(prefix)
+		if err != nil {
+			return Completion{}, fmt.Errorf("media: complete upload: %w", err)
+		}
+		final, err = final.WithExt(ext)
+		if err != nil {
+			return Completion{}, fmt.Errorf("media: complete upload: %w", err)
+		}
+		info, err := p.store.Head(ctx, final)
+		switch {
+		case errors.Is(err, storage.ErrNotFound):
+			continue
+		case err != nil:
+			return Completion{}, fmt.Errorf("media: complete upload: %w", err)
+		}
+		done := Completion{AlreadyComplete: true, Key: final, Type: typ, Size: info.Size}
+		if url, ok := p.store.PublicURL(final); ok && kind.PublicReadable() {
+			done.PublicURL = url
+		}
+		return done, nil
+	}
+	return Completion{Rejection: RejectionNotUploaded}, nil
 }
 
 // reject deletes the quarantine object and returns the rejection. The

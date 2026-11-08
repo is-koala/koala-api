@@ -64,6 +64,16 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarObjectAccessKeyID, VarObjectSecretKey, VarObjectPathStyle, VarObjectPublicBaseURL,
 }
 
+// Variables returns every KOALA_* variable Load understands, in the
+// order the known list declares them.
+//
+// It exists so that the documentation can be bound to the code: a
+// variable this service reads and the runbook does not mention is a
+// deployment that fails at startup with no hint where to look, which is
+// what happened when the object store variables were added
+// (TestEveryVariableIsDocumented, ADR-0030).
+func Variables() []string { return slices.Clone(known) }
+
 // Env is the deployment environment.
 type Env string
 
@@ -598,7 +608,7 @@ func loadObjectStore(vars map[string]string, cfg *Config) []error {
 		if raw == "" {
 			continue
 		}
-		if err := validateObjectURL(raw, cfg.Env == EnvProduction); err != nil {
+		if err := validateObjectURL(raw, cfg.Env != EnvLocal && cfg.Env != EnvTest); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", name, err))
 		}
 	}
@@ -631,11 +641,15 @@ func validBucket(name string) bool {
 	return true
 }
 
-// validateObjectURL accepts an http or https origin. Production requires
-// https: the endpoint carries the signature of every presigned address
-// and the public base URL is handed to every client, so neither may be
-// reachable over plain text. The value is never echoed.
-func validateObjectURL(raw string, production bool) error {
+// validateObjectURL accepts an http or https origin. Every environment
+// where the upload endpoints are live requires https -- staging as well
+// as production, because ServeStorageErrors counts staging as live: the
+// endpoint carries the signature of every presigned address and the
+// public base URL is handed to every client, so neither may be reachable
+// over plain text in either. Plain http stays allowed in local and test,
+// where a MinIO on loopback is the normal setup. The value is never
+// echoed.
+func validateObjectURL(raw string, requireTLS bool) error {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return fmt.Errorf("%w: not a URL", errInvalidValue)
@@ -649,8 +663,8 @@ func validateObjectURL(raw string, production bool) error {
 		return fmt.Errorf("%w: must not carry credentials", errInvalidValue)
 	case u.RawQuery != "" || u.Fragment != "":
 		return fmt.Errorf("%w: must not carry a query or fragment", errInvalidValue)
-	case production && u.Scheme != "https":
-		return fmt.Errorf("%w: production requires https", errInvalidValue)
+	case requireTLS && u.Scheme != "https":
+		return fmt.Errorf("%w: this environment requires https", errInvalidValue)
 	}
 	return nil
 }
@@ -674,6 +688,16 @@ func (c Config) ServeStorageErrors() error {
 		VarObjectBucket:      c.Object.Bucket,
 		VarObjectAccessKeyID: c.Object.AccessKeyID,
 		VarObjectSecretKey:   c.Object.SecretKey.Reveal(),
+		// The public base URL is required too, which it was not at
+		// first. Without it PublicURL answers nothing for every key, so
+		// Media.url comes out null on every ready profile picture, logo
+		// and gallery image -- and the contract says that field is
+		// filled for a publicly readable kind in a ready state. That
+		// failure is worse than the 500 the rest of this rule is about,
+		// because it is silent: the service starts, answers 200 and
+		// serves a response that quietly breaks a promise the contract
+		// made (ADR-0030 Karar 7).
+		VarObjectPublicBaseURL: c.Object.PublicBaseURL,
 	}
 	live := c.Env == EnvStaging || c.Env == EnvProduction
 	if !c.Object.Configured() {

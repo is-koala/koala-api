@@ -53,8 +53,11 @@ const (
 	PrefixIncoming Prefix = "incoming/"
 )
 
-// Prefixes lists every prefix, longest first, so that the prefix of a
-// nested key is reported as "files/dispute-evidence/" and not "files/".
+// Prefixes lists every prefix, with a nested prefix ahead of the one it
+// nests under, so that the prefix of a nested key is reported as
+// "files/dispute-evidence/" and not "files/". The order is not by
+// length; only that one pair has to be ordered, and a new nested prefix
+// has to be placed the same way.
 func Prefixes() []Prefix {
 	return []Prefix{
 		PrefixDisputeEvidence,
@@ -184,7 +187,17 @@ func ParseKey(raw string) (Key, error) {
 	if err != nil {
 		return Key{}, fmt.Errorf("%w: identifier", ErrKeyInvalid)
 	}
-	return Key{prefix: prefix, id: id, ext: Ext(rest[dot+1:])}, nil
+	// The extension is checked against the list as well, the way the
+	// prefix is. keyPattern already allows only these three, so this is
+	// the same redundancy as the prefix check above and exists for the
+	// same reason: the pattern and the two lists are three descriptions
+	// of one language, and a Key must not be constructible from a
+	// disagreement between them.
+	ext := Ext(rest[dot+1:])
+	if !validExt(ext) {
+		return Key{}, fmt.Errorf("%w: extension", ErrKeyInvalid)
+	}
+	return Key{prefix: prefix, id: id, ext: ext}, nil
 }
 
 // String returns the key as the object store sees it.

@@ -234,6 +234,12 @@ func FuzzSanitize(f *testing.F) {
 		if len(got.Data) == 0 {
 			t.Fatal("Sanitize() succeeded with no output")
 		}
+		// The byte bound holds for the output and not only the input:
+		// the re-encode is not guaranteed to shrink, and an object over
+		// the limit would be one the same limit later refuses to read.
+		if int64(len(got.Data)) > limits.MaxBytes {
+			t.Fatalf("the output is %d bytes, over the bound %d", len(got.Data), limits.MaxBytes)
+		}
 		if !got.Type.Image() {
 			t.Fatalf("Type = %q, which Sanitize cannot produce", got.Type)
 		}

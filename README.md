@@ -108,8 +108,17 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_JWT_STAFF_KEYS` | staging ve production'da `serve` için | süreç başına geçici anahtar | Personel token'larının halkası; biçim aynı, marketplace halkasıyla anahtar paylaşamaz. Halka başına en çok 4 anahtar; rastgele görünmeyen tohum reddedilir. Değeri `koala keygen jwt <kid>` üretir. Sırdır |
 | `KOALA_LOGIN_PEPPER` | staging ve production'da `serve` için | süreç başına geçici değer | Giriş hedeflerini (normalize e-posta) `login_attempts`'e ve oran sınırına yazmadan önce HMAC'leyen sır: en az 32 rastgele bayt, unpadded base64url (ADR-0025 §5). Değeri `koala keygen pepper` üretir. Değişirse eski denemeler yeni hedeflerle eşleşmez, marketplace kilit sayaçları sıfırlanır. Sırdır |
 | `KOALA_REALTIME_ORIGINS` | hayır | — | WebSocket'e tarayıcıdan bağlanabilen origin'ler, virgülle (`https://host[:port]`; ADR-0018 §4) |
+| `KOALA_OBJECT_ENDPOINT` | hayır | AWS'nin `KOALA_OBJECT_REGION` uç noktası | S3 uyumlu API'nin temel adresi (MinIO, R2). Mutlak `http(s)://` origin; kimlik bilgisi, sorgu ya da parça taşıyamaz. `local` ve `test` dışında `https` zorunludur: adres her imzalı adresin imzasını taşır (ADR-0030) |
+| `KOALA_OBJECT_REGION` | staging ve production'da `serve` için | — | İmza bölgesi. Bölgesiz S3 uyumlu depolar da imza için bir değer ister; R2'de `auto` |
+| `KOALA_OBJECT_BUCKET` | staging ve production'da `serve` için | — | Bütün nesnelerin bucket'ı; erişim sınıfını önek taşır (ADR-0029 Karar 6). Ad S3 kuralındadır: 3–63 karakter, `a-z`, `0-9`, `.` ve `-`, başı ve sonu alfanümerik |
+| `KOALA_OBJECT_ACCESS_KEY_ID` | staging ve production'da `serve` için | — | Statik kimliğin anahtar kimliği |
+| `KOALA_OBJECT_SECRET_ACCESS_KEY` | staging ve production'da `serve` için | — | Statik kimliğin sırrı. **Sırdır**: log'a ve hata mesajına yazılmaz |
+| `KOALA_OBJECT_PATH_STYLE` | hayır | `false` | `true` ise bucket yola konur (`<endpoint>/<bucket>/<key>`); MinIO ve yerel uç nokta bunu ister |
+| `KOALA_OBJECT_PUBLIC_BASE_URL` | staging ve production'da `serve` için | — | Genel okunabilen nesnelerin servis edildiği origin (bucket'ın önündeki CDN). Yoksa hiçbir nesneye genel adres üretilmez ve sözleşmenin dolu olmasını vaat ettiği `Media.url` her hazır profil fotoğrafı, logo ve galeri görselinde `null` kalır — bu yüzden zorunludur (ADR-0030 Karar 7). `local` ve `test` dışında `https` |
 
-Üç DB URL'si de sırdır; değerleri log'a ve hata mesajına yazılmaz. Production'da `sslmode=require`, `verify-ca` ya da `verify-full` zorunludur. Bir bağlantı parametresi URL'de iki kez geçemez. Havuz ayarları (`pool_max_conns`, `statement_timeout` ve diğerleri) URL'de verilirse varsayılanların yerine geçer (ADR-0017 §6).
+`KOALA_OBJECT_*` değişkenleri **yarım verilemez**: biri verildiyse `KOALA_OBJECT_REGION`, `_BUCKET`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` ve `_PUBLIC_BASE_URL` de verilmek zorundadır, her ortamda. `staging` ve `production`'da yükleme uçları canlı olduğu için bu beşi hiç verilmemişse de `serve` açılmaz; `local` ve `test` nesne deposu yapılandırılmadan koşar (ADR-0030 Karar 7).
+
+Üç DB URL'si ve `KOALA_OBJECT_SECRET_ACCESS_KEY` sırdır; değerleri log'a ve hata mesajına yazılmaz. Production'da `sslmode=require`, `verify-ca` ya da `verify-full` zorunludur. Bir bağlantı parametresi URL'de iki kez geçemez. Havuz ayarları (`pool_max_conns`, `statement_timeout` ve diğerleri) URL'de verilirse varsayılanların yerine geçer (ADR-0017 §6).
 
 Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace_period`) şu toplamdan uzun olmalı: `KOALA_SHUTDOWN_DRAIN_DELAY + KOALA_SHUTDOWN_TIMEOUT + 5 sn`. WebSocket'lerin zorla kapatılması da bu toplamın içindedir: stream'ler `KOALA_SHUTDOWN_TIMEOUT`'un son 5 sn'sini (`httpx.StreamForceCloseMargin`) yanıt vermeyen bağlantıları kesmeye ayırır (ADR-0022). Son 5 sn arka plan işlerinin durmasına ayrılır (ADR-0025 §7). Varsayılanlarla bu toplam 5 + 35 + 5 = 45 sn'dir; `stop_grace_period` en az 50 sn verilmeli. Docker'ın varsayılanı 10 sn; bu süre aşılırsa süreç SIGKILL ile kesilir.
 
@@ -163,6 +172,7 @@ Konteynerin durdurma süresi (`stop_grace_period`) `KOALA_SHUTDOWN_DRAIN_DELAY +
 - [ ] Dokploy `stop_grace_period` ≥ 50 sn.
 - [ ] Production'da `KOALA_MIN_APP_VERSION`, staging ve production'da `KOALA_TRUSTED_PROXIES` (yoksa `serve` açılmaz) ve Prometheus'un `KOALA_METRICS_ADDR`'i iç ağdan kazıması.
 - [ ] Staging ve production'da `KOALA_JWT_MARKETPLACE_KEYS`, `KOALA_JWT_STAFF_KEYS` ve `KOALA_LOGIN_PEPPER` (biri yoksa `serve` açılmaz; `koala keygen` ile üretim ve rotasyon runbook'ta).
+- [ ] Staging ve production'da nesne deposu: `KOALA_OBJECT_REGION`, `KOALA_OBJECT_BUCKET`, `KOALA_OBJECT_ACCESS_KEY_ID`, `KOALA_OBJECT_SECRET_ACCESS_KEY` ve `KOALA_OBJECT_PUBLIC_BASE_URL` (biri yoksa `serve` açılmaz), **ve bucket'ta `incoming/` öneki için 1 günlük nesne yaşam döngüsü kuralı** (ADR-0030; tamamlanmayan yüklemeyi temizleyen şey o kuraldır, uygulama değil).
 - [ ] Faz 9'da `DOKPLOY_DEPLOY_WEBHOOK` sırrı (HTTPS alan adı) ve `DOKPLOY_DEPLOY_ENABLED` değişkeni.
 
 Elle build gerekirse (CI ya da sunucu ortamında):

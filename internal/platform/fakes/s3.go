@@ -66,11 +66,19 @@ type S3Signature struct {
 	SignedHeaders []string
 }
 
+// S3MaxBody is the largest object the fake accepts in one write. It
+// matches the largest upload the service accepts (imaging's 10 MiB
+// default) plus a margin, so a test can exercise the real bound. A fake
+// whose limit is below the real one turns a correct upload into a 413
+// that has nothing to do with what is being tested.
+const S3MaxBody = 12 << 20
+
 // NewS3 starts a fake object store serving bucket; it stops at cleanup.
 func NewS3(tb testing.TB, bucket string) *S3 {
 	tb.Helper()
 	f := &S3{bucket: bucket, objects: map[string]S3Object{}}
 	f.Server = newServer(tb, "s3", f.check, f.fallback)
+	f.Server.maxBody = S3MaxBody
 	return f
 }
 

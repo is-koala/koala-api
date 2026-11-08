@@ -515,3 +515,87 @@ func TestSecretsNeverFormat(t *testing.T) {
 		t.Errorf("Bucket() = %q, want %q", got, testBucket)
 	}
 }
+
+// TestPresignGetRefusesTheQuarantine is the read side of the quarantine
+// rule. An object under incoming/ is the raw upload -- EXIF, GPS and
+// camera serial still in it, because stripping happens on the way out --
+// so a signed read address for one would serve exactly the bytes the
+// pipeline exists not to serve. PENDING is a valid state on a media
+// resource, so a handler could reach for such an address without meaning
+// to; the refusal is here rather than left to its author's attention.
+func TestPresignGetRefusesTheQuarantine(t *testing.T) {
+	t.Parallel()
+
+	store, _ := newStore(t)
+	ctx := context.Background()
+	quarantined := key(t, storage.PrefixIncoming, storage.ExtJPEG)
+
+	if _, err := store.PresignGet(ctx, quarantined, time.Minute, storage.Download{}); !errors.Is(err, storage.ErrKeyInvalid) {
+		t.Errorf("PresignGet() of a quarantine key = %v, want ErrKeyInvalid", err)
+	}
+	if _, ok := store.PublicURL(quarantined); ok {
+		t.Error("PublicURL() of a quarantine key returned an address")
+	}
+
+	// The write address for the same key still works: the upload
+	// address is a write address *for* the quarantine, which is why the
+	// refusal is in PresignGet and not in the shared check.
+	if _, err := store.PresignPut(ctx, quarantined, time.Minute); err != nil {
+		t.Errorf("PresignPut() of a quarantine key = %v, want it to work", err)
+	}
+
+	// Every other prefix still reads.
+	for _, prefix := range []storage.Prefix{
+		storage.PrefixImages,
+		storage.PrefixPublic,
+		storage.PrefixFiles,
+		storage.PrefixDisputeEvidence,
+		storage.PrefixIdentityDocument,
+	} {
+		if _, err := store.PresignGet(ctx, key(t, prefix, storage.ExtJPEG), time.Minute, storage.Download{}); err != nil {
+			t.Errorf("PresignGet() of a %s key = %v", prefix, err)
+		}
+	}
+}
+
+// TestPutSendsNoChecksumHeaders pins the one compatibility switch this
+// package sets: RequestChecksumCalculationWhenRequired. The SDK's
+// default adds a CRC32 header to every write and can switch the request
+// to aws-chunked encoding, which is the part of the protocol S3
+// compatible stores implement differently. An SDK upgrade or a
+// reshuffle of the option closure could drop that line silently, so the
+// decision is bound to a test instead of only to a comment.
+func TestPutSendsNoChecksumHeaders(t *testing.T) {
+	t.Parallel()
+
+	store, fake := newStore(t)
+	ctx := context.Background()
+	k := key(t, storage.PrefixImages, storage.ExtPNG)
+	body := []byte("pixels, as far as the store is concerned")
+
+	if err := store.Put(ctx, k, body, storage.PutOptions{ContentType: "image/png"}); err != nil {
+		t.Fatalf("Put() = %v", err)
+	}
+	writes := fake.RequestsTo(http.MethodPut, "/"+testBucket+"/"+k.String())
+	if len(writes) != 1 {
+		t.Fatalf("the fake saw %d writes, want one", len(writes))
+	}
+	for _, header := range []string{
+		"X-Amz-Sdk-Checksum-Algorithm",
+		"X-Amz-Checksum-Crc32",
+		"X-Amz-Checksum-Crc32c",
+		"X-Amz-Checksum-Sha256",
+		"X-Amz-Trailer",
+	} {
+		if got := writes[0].Header.Get(header); got != "" {
+			t.Errorf("the write carries %s: %q; the checksum switch has come undone", header, got)
+		}
+	}
+	if got := writes[0].Header.Get("Content-Encoding"); strings.Contains(got, "aws-chunked") {
+		t.Errorf("Content-Encoding = %q; the request switched to aws-chunked", got)
+	}
+	// The body arrived as the plain bytes, not as a chunked framing.
+	if stored, ok := fake.Object(k.String()); !ok || !bytes.Equal(stored.Body, body) {
+		t.Errorf("the stored body is not the bytes that were written")
+	}
+}

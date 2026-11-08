@@ -645,3 +645,120 @@ func TestNewPipelineNeedsItsDependencies(t *testing.T) {
 		t.Error("NewPipeline() without a logger succeeded")
 	}
 }
+
+// TestCompleteFindsAnUploadAnEarlierCallFinished is the retry after a
+// successful run whose row write failed. A successful Complete deletes
+// the quarantine object, so a second call finds nothing there -- and
+// "nothing in the quarantine" has two causes that look identical from
+// inside the pipeline. Answering NOT_UPLOADED for both would reject a
+// resource whose object is correct and sitting under a prefix no sweep
+// covers, losing it for good.
+func TestCompleteFindsAnUploadAnEarlierCallFinished(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	body, _ := jpegWithGPS(t, 1)
+	up := h.upload(t, media.KindProfilePicture, imaging.TypeJPEG, body)
+
+	first, err := h.pipeline.Complete(context.Background(), media.KindProfilePicture, up.Key)
+	if err != nil {
+		t.Fatalf("Complete() = %v", err)
+	}
+	if first.Rejected() || first.AlreadyComplete {
+		t.Fatalf("the first call reported %+v", first)
+	}
+
+	// The caller's row write failed; the client retries the same media.
+	second, err := h.pipeline.Complete(context.Background(), media.KindProfilePicture, up.Key)
+	if err != nil {
+		t.Fatalf("Complete() on retry = %v", err)
+	}
+	if second.Rejected() {
+		t.Fatalf("the retry rejected a finished upload with %q", second.Rejection)
+	}
+	if !second.AlreadyComplete {
+		t.Error("AlreadyComplete = false; the retry did not report that the work was already done")
+	}
+	if second.Key != first.Key {
+		t.Errorf("the retry named %q, the first call named %q", second.Key.String(), first.Key.String())
+	}
+	if second.Type != first.Type {
+		t.Errorf("Type = %q, want %q", second.Type, first.Type)
+	}
+	if second.Size != first.Size {
+		t.Errorf("Size = %d, want the stored size %d", second.Size, first.Size)
+	}
+	if second.PublicURL != first.PublicURL {
+		t.Errorf("PublicURL = %q, want %q", second.PublicURL, first.PublicURL)
+	}
+	// Nothing was written twice and nothing was deleted.
+	if got := h.fake.Keys(); len(got) != 1 || got[0] != first.Key.String() {
+		t.Errorf("the store holds %v, want only the final key", got)
+	}
+}
+
+// TestCompleteStillRejectsAnUploadThatNeverHappened keeps the recovery
+// above from swallowing the real case: no quarantine object and no final
+// object means the client never wrote, whatever extension it would have
+// had.
+func TestCompleteStillRejectsAnUploadThatNeverHappened(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range []media.Kind{media.KindProfilePicture, media.KindIdentityDocument, media.KindCV} {
+		t.Run(string(kind), func(t *testing.T) {
+			t.Parallel()
+
+			h := newHarness(t)
+			declared := kind.AllowedTypes()[0]
+			up, err := h.pipeline.Start(context.Background(), kind, declared)
+			if err != nil {
+				t.Fatalf("Start() = %v", err)
+			}
+			done, err := h.pipeline.Complete(context.Background(), kind, up.Key)
+			if err != nil {
+				t.Fatalf("Complete() = %v", err)
+			}
+			if done.Rejection != media.RejectionNotUploaded {
+				t.Errorf("Rejection = %q, want NOT_UPLOADED", done.Rejection)
+			}
+			if done.AlreadyComplete {
+				t.Error("AlreadyComplete = true for an upload that never happened")
+			}
+			if got := h.fake.Keys(); len(got) != 0 {
+				t.Errorf("the store holds %v", got)
+			}
+		})
+	}
+}
+
+// TestCompleteFindsTheOtherExtension covers the part of the recovery
+// that cannot be guessed: the final extension follows the type detected
+// on the first run, which is gone by the time a retry arrives. A client
+// that declared PNG and uploaded a JPEG gets a final key named jpg, and
+// the retry has to look for that one too.
+func TestCompleteFindsTheOtherExtension(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	body, _ := jpegWithGPS(t, 1)
+	up := h.upload(t, media.KindProfilePicture, imaging.TypePNG, body)
+	if up.Key.Ext() != storage.ExtPNG {
+		t.Fatalf("the fixture does not set up the case: quarantine ext is %q", up.Key.Ext())
+	}
+
+	first, err := h.pipeline.Complete(context.Background(), media.KindProfilePicture, up.Key)
+	if err != nil {
+		t.Fatalf("Complete() = %v", err)
+	}
+	if first.Key.Ext() != storage.ExtJPEG {
+		t.Fatalf("the final key is %q, want a jpg", first.Key.String())
+	}
+
+	second, err := h.pipeline.Complete(context.Background(), media.KindProfilePicture, up.Key)
+	if err != nil {
+		t.Fatalf("Complete() on retry = %v", err)
+	}
+	if !second.AlreadyComplete || second.Key != first.Key {
+		t.Errorf("the retry reported %+v, want the jpg key as already complete", second)
+	}
+}

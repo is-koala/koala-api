@@ -228,6 +228,21 @@ type Download struct {
 
 // PresignGet returns a short lived read address for key.
 //
+// The quarantine prefix is refused. An object under incoming/ is the raw
+// upload: its EXIF, its GPS coordinates and its camera serial are all
+// still in it, because stripping happens on the way out of the
+// quarantine. A read address for one would serve exactly the bytes the
+// pipeline exists to not serve, and PENDING is a valid state on a media
+// resource, so a handler could reach for one without meaning to. The
+// refusal is here and not left to the caller's attention, for the same
+// reason PublicURL refuses it.
+//
+// The check is not in checkSigned, which PresignPut also calls: the
+// upload address is a write address *for* the quarantine, so refusing
+// the prefix there would refuse the one thing it is for. Staff access to
+// a quarantined object, if it is ever needed, gets its own named method
+// rather than widening this one.
+//
 // X-Content-Type-Options cannot be set through a presigned GET: S3's
 // response overrides are a closed list and that header is not on it. The
 // API's own 302 carries it, and the object is written with its content
@@ -236,6 +251,9 @@ type Download struct {
 func (s *Store) PresignGet(ctx context.Context, key Key, ttl time.Duration, d Download) (SignedRequest, error) {
 	if err := checkSigned(key, ttl); err != nil {
 		return SignedRequest{}, err
+	}
+	if key.Prefix() == PrefixIncoming {
+		return SignedRequest{}, fmt.Errorf("%w: the quarantine is not readable through a signed URL", ErrKeyInvalid)
 	}
 	in := &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket),

@@ -23,9 +23,12 @@ import (
 	"testing"
 )
 
-// maxBody bounds a request body; the services take small JSON. A larger
-// body is refused with 413 and fails the test at cleanup.
-const maxBody = 1 << 20
+// defaultMaxBody bounds a request body for a fake that did not ask for
+// more; the JSON services take small bodies. A larger body is refused
+// with 413 and fails the test at cleanup. A fake whose real service
+// accepts more sets its own bound (fakes.S3), because a fake that
+// refuses what the real one accepts produces a false red.
+const defaultMaxBody = 1 << 20
 
 // Request is a request a fake received.
 type Request struct {
@@ -83,6 +86,10 @@ type Server struct {
 	check    responder
 	fallback responder
 
+	// maxBody is this fake's request body bound; defaultMaxBody unless
+	// the fake raised it.
+	maxBody int
+
 	mu       sync.Mutex
 	requests []Request
 	queues   map[string][]Response
@@ -97,6 +104,7 @@ func newServer(tb testing.TB, name string, check, fallback responder) *Server {
 		done:     make(chan struct{}),
 		check:    check,
 		fallback: fallback,
+		maxBody:  defaultMaxBody,
 		queues:   map[string][]Response{},
 	}
 	s.srv = httptest.NewServer(http.HandlerFunc(s.serveHTTP))
@@ -142,14 +150,14 @@ func (s *Server) RequestsTo(method, path string) []Request {
 func key(method, path string) string { return method + " " + path }
 
 func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
+	body, err := io.ReadAll(io.LimitReader(r.Body, int64(s.maxBody)+1))
 	if err != nil {
 		s.report(fmt.Sprintf("%s fake: read body of %s %s: %v", s.name, r.Method, r.URL.Path, err))
 		http.Error(w, "fakes: read body", http.StatusBadRequest)
 		return
 	}
-	if len(body) > maxBody {
-		s.report(fmt.Sprintf("%s fake: %s %s body is over %d bytes", s.name, r.Method, r.URL.Path, maxBody))
+	if len(body) > s.maxBody {
+		s.report(fmt.Sprintf("%s fake: %s %s body is over %d bytes", s.name, r.Method, r.URL.Path, s.maxBody))
 		http.Error(w, "fakes: body too large", http.StatusRequestEntityTooLarge)
 		return
 	}

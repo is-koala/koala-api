@@ -462,15 +462,31 @@ func TestLoadRejectsBadObjectValues(t *testing.T) {
 	}
 }
 
-// TestObjectPlainTextEndpointIsFineOutsideProduction keeps a local MinIO
-// workable: http is only refused in production.
-func TestObjectPlainTextEndpointIsFineOutsideProduction(t *testing.T) {
+// TestObjectPlainTextEndpointIsFineOnlyWhereNothingIsLive keeps a local
+// MinIO workable and refuses plain http everywhere the upload endpoints
+// are live. Staging counts as live -- ServeStorageErrors requires the
+// store there -- so a staging endpoint over http would carry the
+// signature of every presigned address in clear text.
+func TestObjectPlainTextEndpointIsFineOnlyWhereNothingIsLive(t *testing.T) {
 	t.Parallel()
 
-	for _, env := range []string{"local", "test", "staging"} {
+	for _, env := range []string{"local", "test"} {
 		environ := []string{"KOALA_ENV=" + env, config.VarObjectEndpoint + "=http://127.0.0.1:9000"}
 		if _, err := config.Load(environ); err != nil {
 			t.Errorf("Load() in %s = %v, want nil", env, err)
+		}
+	}
+	for _, env := range []string{"staging", "production"} {
+		for _, name := range []string{config.VarObjectEndpoint, config.VarObjectPublicBaseURL} {
+			environ := []string{"KOALA_ENV=" + env, name + "=http://objects.example.com"}
+			_, err := config.Load(environ)
+			if err == nil {
+				t.Errorf("Load() with %s over http in %s = nil, want an error", name, env)
+				continue
+			}
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("Load() error = %q, want it to mention %s", err, name)
+			}
 		}
 	}
 }
@@ -510,6 +526,7 @@ func TestServeStorageErrors(t *testing.T) {
 				config.VarObjectBucket + ": required by serve in staging",
 				config.VarObjectAccessKeyID + ": required by serve in staging",
 				config.VarObjectSecretKey + ": required by serve in staging",
+				config.VarObjectPublicBaseURL + ": required by serve in staging",
 			},
 		},
 		{
@@ -538,7 +555,14 @@ func TestServeStorageErrors(t *testing.T) {
 			[]string{config.VarObjectAccessKeyID + ": required once any KOALA_OBJECT_* variable is set"},
 		},
 		{"endpoint missing: AWS's own endpoint is used", without("production", config.VarObjectEndpoint), nil},
-		{"public base URL missing: no object gets a public address", without("production", config.VarObjectPublicBaseURL), nil},
+		{
+			"public base URL missing",
+			without("production", config.VarObjectPublicBaseURL),
+			// Required: without it Media.url is null on every ready
+			// public object, and the contract says that field is
+			// filled. A silent wrong answer, not a 500.
+			[]string{config.VarObjectPublicBaseURL + ": required once any KOALA_OBJECT_* variable is set"},
+		},
 		{"path style missing: virtual hosted addressing", without("production", config.VarObjectPathStyle), nil},
 		{
 			"only the path style flag, in local",
