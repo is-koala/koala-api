@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -15,8 +16,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/is-koala/koala-api/api"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/pending"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
@@ -230,9 +233,59 @@ func TestBindErrorIsALoggedServerError(t *testing.T) {
 func TestPlatformCodesAreInTheContract(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range slices.Concat(httpx.PlatformCodes(), softdelete.Codes(), realtime.Codes(), authn.Codes(), staff.Codes()) {
+	for _, c := range slices.Concat(httpx.PlatformCodes(), softdelete.Codes(), realtime.Codes(), authn.Codes(), staff.Codes(), pending.Codes()) {
 		if !apiv1.ErrorCode(c).Valid() {
 			t.Errorf("code %s is not in api/components/problem.yaml ErrorCode", c)
 		}
 	}
+}
+
+// extNotImplemented marks an operation whose contract is frozen but whose
+// handler has not landed (ADR-0029 §1).
+const extNotImplemented = "x-not-implemented"
+
+// TestNotImplementedOperationsAreDeclared binds the contract and the code
+// in both directions: the operations the contract marks with
+// x-not-implemented are exactly the ones pending.Server serves. A handler
+// that landed while the marker stayed, and a marker that went while the
+// stub stayed, are each red — so implementing an operation cannot forget
+// either side. Every marker also carries a reason.
+func TestNotImplementedOperationsAreDeclared(t *testing.T) {
+	t.Parallel()
+
+	spec, err := api.Load(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var marked []string
+	for _, path := range slices.Sorted(maps.Keys(spec.Paths.Map())) {
+		for method, op := range spec.Paths.Value(path).Operations() {
+			raw, ok := op.Extensions[extNotImplemented]
+			if !ok {
+				continue
+			}
+			reason, isString := raw.(string)
+			if !isString || len(strings.TrimSpace(reason)) < 20 {
+				t.Errorf("%s %s: %s needs a reason of at least 20 characters, got %v",
+					method, path, extNotImplemented, raw)
+			}
+			marked = append(marked, method+" "+path)
+		}
+	}
+	slices.Sort(marked)
+	if served := pending.Operations(); !slices.Equal(marked, served) {
+		t.Errorf("the contract and pending.Operations() disagree:\nonly in the contract: %v\nonly in the code:    %v",
+			missing(marked, served), missing(served, marked))
+	}
+}
+
+// missing returns the elements of a that b does not have.
+func missing(a, b []string) []string {
+	var out []string
+	for _, v := range a {
+		if !slices.Contains(b, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }

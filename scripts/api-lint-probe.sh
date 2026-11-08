@@ -8,10 +8,15 @@
 #   - api/testdata/lint-pass.yaml holds the correct forms; it must report no
 #     koala-* result.
 #   - every koala-* rule has at least one expected pair.
-# Usage: scripts/api-lint-probe.sh <vacuum binary>
+# Usage: scripts/api-lint-probe.sh <vacuum binary> [per-rule timeout in seconds]
 set -euo pipefail
 
 vacuum="$1"
+# vacuum skips a rule that runs out of its per-rule budget, which would
+# turn a slow rule into a silently passing one; the Makefile passes the
+# same budget it uses for the contract (ADR-0029).
+timeout="${2:-60}"
+. "$(dirname "$0")/lib/vacuum.sh"
 dir="$(mktemp -d)"
 trap 'rm -rf "$dir"' EXIT
 
@@ -21,12 +26,21 @@ trap 'rm -rf "$dir"' EXIT
 koala_results() {
 	set +e
 	"$vacuum" lint --no-update-check --no-banner --no-style --details --all-results --no-clip \
-		--ruleset api/ruleset.yaml "$1" >"$dir/raw" 2>&1
+		--timeout "$timeout" --ruleset api/ruleset.yaml "$1" >"$dir/raw" 2>&1
 	local code=$?
 	set -e
 	if [ "$code" -gt 1 ]; then
 		cat "$dir/raw"
 		echo "api lint probe: vacuum exited $code on $1"
+		exit 1
+	fi
+	# A rule vacuum skipped reports nothing, so the probe would read it as
+	# a rule with no case and blame the fixture instead of the budget
+	# (scripts/api-lint.sh says why this is an error, not a warning). The
+	# signature comes from scripts/lib/vacuum.sh, the one place it is written.
+	if grep -qaE "$VACUUM_UNFINISHED" "$dir/raw"; then
+		cat "$dir/raw"
+		echo "api lint probe: vacuum did not finish every rule on $1; raise VACUUM_TIMEOUT"
 		exit 1
 	fi
 	awk '/^\$/ {path = $0} /^rule: koala-/ {print $2 "\t" path}' "$dir/raw" | sort -u >"$2"

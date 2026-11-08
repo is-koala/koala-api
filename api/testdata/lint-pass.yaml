@@ -15,6 +15,7 @@ paths:
       operationId: issueToken
       x-authz-exempt: Çağıranın kendi oturumu için; yetkilendirilecek nesne yok.
       x-no-idempotency-key: Her çağrı yeni ve kısa ömürlü bir değer üretir.
+      x-no-location: Kısa ömürlü bir değer döner; adreslenebilir bir kaynak oluşmaz.
       responses:
         "201":
           description: ok
@@ -114,6 +115,10 @@ paths:
       responses:
         "201":
           description: created
+          headers:
+            Location:
+              description: Oluşan kaynak.
+              schema: {type: string}
           content:
             application/json:
               schema: {$ref: "#/components/schemas/Thing"}

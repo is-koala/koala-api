@@ -1,0 +1,725 @@
+# Kayıt, OTP, parola sıfırlama, profil ve profil senkronu senaryoları.
+# Biçim: test/scenarios/README.md. Kaynak: Java origin/main (0cbbce69, okundu, koşturulmadı).
+# ADR-0029 Karar 2-4 Java'dan bilinçli ayrılıkları taşır; o satırlarda `then` Java'nın bugünkü
+# davranışı, `target` Go'nun hedefidir.
+
+domain: user
+id_prefix: USR
+version: 0
+scenarios:
+
+  - id: USR-001
+    priority: P0
+    title: Kayıt başlatma adresin kayıtlı olup olmadığını söylemez
+    rule: >
+      Kayıt başlatma, adres kayıtlı olsun olmasın aynı yanıt gövdesini döndürür. Kayıtlı adres için
+      hiçbir posta gönderilmez ve hiçbir bekleyen kayıt yazılmaz; kayıtsız adres için bekleyen kayıt
+      yazılır ve doğrulama postası kuyruğa girer.
+    given:
+      - "a@örnek kayıtlı; b@örnek kayıtlı değil"
+    when:
+      - "a@örnek için kayıt başlatılır"
+      - "b@örnek için kayıt başlatılır"
+    then:
+      - "İki yanıt da başarı; gövdeleri bayt bayt aynı"
+      - "a@örnek için ne bekleyen kayıt ne posta oluşur"
+      - "b@örnek için bekleyen kayıt yazılır ve doğrulama postası kuyruğa girer"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#anAlreadyRegisteredAddressDoesNotProduceADistinguishableError"
+      - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java#startRegistration"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kayıt handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-002
+    priority: P0
+    title: Kayıt başlatma aynı zamanda yeniden göndermedir ve adres başına tek bekleyen kayıt tutar
+    rule: >
+      Aynı adres için ikinci kez kayıt başlatılırsa önceki bekleyen kayıt iptal edilir ve yenisi
+      yazılır; ikinci deneme hata değildir. Bir adresin aynı anda en çok bir açık bekleyen kaydı olur.
+    given:
+      - "b@örnek için bir bekleyen kayıt var ve token'ı T1"
+    when:
+      - "b@örnek için kayıt yeniden başlatılır"
+    then:
+      - "T1 iptal edilir ve artık doğrulamada kabul edilmez"
+      - "Yeni token T2 ile yeni bekleyen kayıt yazılır"
+      - "Adres için açık bekleyen kayıt sayısı birdir"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aSecondAttemptResendsInsteadOfFailing"
+      - "src/main/java/com/exskylab/koala/business/concretes/PendingRegistrationManager.java#createPendingRegistration"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kayıt handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-003
+    priority: P0
+    title: Kayıt bağlantısının token'ı opaktır, özetlenerek saklanır ve bir saat yaşar
+    rule: >
+      E-postadaki doğrulama token'ı rastgele ve opaktır; sunucuda yalnız özeti saklanır. Ömrü bir
+      saattir. Süresi dolmuş token'la doğrulama reddedilir ve bekleyen kayıt o anda iptal edilir.
+    given:
+      - "b@örnek için bir saat önce bekleyen kayıt yazılmış"
+    when:
+      - "Token'la kayıt doğrulanmak istenir"
+    then:
+      - "Doğrulama reddedilir"
+      - "Bekleyen kayıt iptal edilir; aynı token ikinci kez de kabul edilmez"
+      - "Token'ın kendisi hiçbir kayıtta açık metin olarak durmaz"
+    error: REGISTRATION_TOKEN_INVALID
+    decision: "Java hatası (bekleyen kayıt token'ı açık metin saklanıyor; temizlik işi hiç yok)"
+    target: >
+      Token 32 rastgele bayttır, SHA-256 özeti saklanır (ADR-0029 Karar 2). Java token'ı düz UUID
+      olarak açık metin saklıyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java#verifyRegistrationToken"
+      - "src/main/java/com/exskylab/koala/business/concretes/PendingRegistrationManager.java#createPendingRegistration"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kayıt handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-004
+    priority: P0
+    title: Doğrulamanın verdiği kayıt token'ı tek kullanımlıktır ve on beş dakika yaşar
+    rule: >
+      Kayıt doğrulaması, parolanın geleceği adım için kısa ömürlü ve opak bir kayıt token'ı verir. Bu
+      token bekleyen kayda bağlıdır, tek kullanımlıktır ve on beş dakika yaşar. Parola yalnız bu
+      token'la gönderilebilir; e-postadaki bir saatlik token parola taşımaz.
+    given:
+      - "b@örnek bekleyen kaydını doğrulamış ve kayıt token'ı R almış"
+    when:
+      - "R ile kayıt tamamlanır"
+      - "Aynı R ile kayıt yeniden tamamlanmak istenir"
+    then:
+      - "İlk istek kaydı tamamlar"
+      - "İkinci istek reddedilir; R tüketilmiştir"
+      - "On beş dakika sonra kullanılan R de reddedilir"
+    error: REGISTRATION_TOKEN_INVALID
+    decision: "Java hatası (kayıt token'ı imzalı JWT; iptal edilemiyor)"
+    target: >
+      Token opak ve sunucuda özetli tutulur, böylece iptal edilebilir (ADR-0029 Karar 2). Java HS256
+      bir JWT veriyor ve ömrü on dakika.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java#verifyRegistrationToken"
+      - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java#completeRegistration"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kayıt handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-005
+    priority: P0
+    title: Zorunlu rızalar token okunmadan önce denetlenir
+    rule: >
+      Kayıt tamamlanırken zorunlu rızalar verilmemişse istek, kayıt token'ı hiç okunmadan reddedilir.
+      Rıza eksikliği token'ın geçerliliği hakkında bilgi vermez ve token'ı tüketmez.
+    given:
+      - "b@örnek geçerli bir kayıt token'ı R taşıyor"
+    when:
+      - "Zorunlu rızalardan biri verilmeden kayıt tamamlanmak istenir"
+    then:
+      - "İstek reddedilir"
+      - "R tüketilmez ve sonra hâlâ kullanılabilir"
+      - "Kullanıcı kaydı oluşmaz, rıza kaydı yazılmaz"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java#completeRegistration"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kayıt handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-006
+    priority: P0
+    title: Kayıt tamamlanınca kullanıcı oluşur, e-postası doğrulanmış sayılır ve oturum açılır
+    rule: >
+      Kayıt tamamlandığında kullanıcı kaydı adı, soyadı, adresi ve işveren bayrağıyla bekleyen
+      kayıttan kopyalanır; parola özetlenerek yazılır; e-posta doğrulanmış, telefon ve kimlik
+      doğrulanmamış olur. Rızalar kaydedilir, bekleyen kayıt tüketilir ve çağıran için oturum açılır.
+    given:
+      - "b@örnek geçerli bir kayıt token'ı taşıyor ve zorunlu rızaları veriyor"
+    when:
+      - "Kayıt tamamlanır"
+    then:
+      - "Kullanıcı kaydı oluşur; e-posta doğrulanmış, telefon ve kimlik doğrulanmamış"
+      - "Parola yalnız özet olarak saklanır"
+      - "Rıza kayıtları yazılır"
+      - "Bekleyen kayıt tüketilir"
+      - "Cihaza bağlı bir oturum açılır ve çağıran giriş yapmış olur"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java#completeRegistration"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kayıt handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-007
+    priority: P0
+    title: Yarı kalmış kayıt temizlenir ve adres yeniden kullanılabilir kalır
+    rule: >
+      Tamamlanmayan bir kayıt adresi kilitlemez: adres için her zaman yeni bir kayıt başlatılabilir.
+      Süresi dolmuş bekleyen kayıtlar saklama süresi sonunda kalıcı olarak silinir ve süresiz birikmez.
+    given:
+      - "b@örnek için otuz günden eski, tamamlanmamış bir bekleyen kayıt var"
+    when:
+      - "Saklama temizliği koşar"
+      - "b@örnek için kayıt yeniden başlatılır"
+    then:
+      - "Eski bekleyen kayıt kalıcı olarak silinir"
+      - "Yeni kayıt başlatılabilir; adres kullanılabilir durumdadır"
+    decision: "Java hatası (bekleyen kayıtlar için hiç temizlik işi yok)"
+    target: >
+      Bekleyen kayıt tablosu M2'dir ve otuz gün sonra hard delete edilir (ADR-0029 Karar 2). Java'da
+      hiçbir zamanlayıcı bu tabloya dokunmuyor; satırlar süresiz birikiyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/PendingRegistrationManager.java#createPendingRegistration"
+      - "src/main/java/com/exskylab/koala/entities/PendingRegistration.java:1-40"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; bekleyen kayıt tablosu ve temizlik işi Faz 2'nin veri PR'ında gelir."
+
+  - id: USR-008
+    priority: P0
+    title: Doğrulama kodu altı basamaktır, özetlenerek saklanır ve on dakika yaşar
+    rule: >
+      E-posta ya da telefon değişikliğinin doğrulama kodu altı ondalık basamaktır ve bütün aralığı
+      kullanır. Sunucuda yalnız özeti saklanır; doğrulandıktan sonra özet silinir. Ömrü on dakikadır.
+    given:
+      - "Kullanıcı U telefonunu değiştirmek için doğrulama başlatmış"
+    when:
+      - "On dakika geçtikten sonra doğru kod gönderilir"
+    then:
+      - "Doğrulama reddedilir"
+      - "Kod hiçbir kayıtta açık metin olarak durmaz"
+      - "Kodun uzayı altı basamağın tamamıdır; baştaki sıfır dışlanmaz"
+    error: VERIFICATION_CODE_EXPIRED
+    decision: "Java hatası (kod düz metin saklanıyor; uzay baştaki sıfırı dışlıyor; ömür on beş dakika)"
+    target: >
+      Kod SHA-256 özeti olarak saklanır, uzay 000000-999999'dur ve ömür on dakikadır
+      (NIST SP 800-63B; ADR-0029 Karar 3). Java kodu düz metin saklıyor ve 100000-999999 üretiyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/EmailVerificationManager.java#startEmailVerification"
+      - "src/main/java/com/exskylab/koala/business/concretes/PhoneVerificationManager.java#startPhoneVerification"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-009
+    priority: P0
+    title: Doğrulamanın beş denemesi vardır; dolunca doğrulama yakılır
+    rule: >
+      Bir doğrulama en çok beş yanlış kod denemesi kabul eder. Beşinci yanlıştan sonra doğrulama
+      yakılır: doğru kodla bile artık onaylanamaz, kullanıcı yeni bir doğrulama başlatmak zorundadır.
+    given:
+      - "Kullanıcı U için açık bir doğrulama var ve kodu C"
+    when:
+      - "Beş kez yanlış kod gönderilir"
+      - "Sonra doğru kod C gönderilir"
+    then:
+      - "İlk beş deneme reddedilir"
+      - "Altıncı istek, kod doğru olsa da reddedilir; doğrulama yakılmıştır"
+      - "Yeni bir doğrulama başlatılabilir"
+    error: VERIFICATION_ATTEMPTS_EXHAUSTED
+    decision: "Java hatası (deneme sayacı ve sınırı hiç yok)"
+    target: >
+      Deneme sınırı beştir (NIST SP 800-63B §5.2.2; ADR-0029 Karar 3). Java'da sayaç kolonu bile yok:
+      kod ömrü boyunca sınırsız tahmin edilebiliyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/UserVerificationManager.java#verify"
+      - "src/main/java/com/exskylab/koala/entities/UserVerification.java:1-60"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-010
+    priority: P0
+    title: Kanal ve hedef başına tek açık doğrulama vardır; yenisi öncekini iptal eder
+    rule: >
+      Bir kullanıcının aynı kanal ve aynı hedef için aynı anda en çok bir açık doğrulaması olur. Yeni
+      bir doğrulama başlatmak öncekini iptal eder ve önceki kod geçersizleşir. Yeniden göndermenin
+      bekleme süresi vardır ve hedef başına saatlik bir gönderim bütçesi uygulanır.
+    given:
+      - "Kullanıcı U yeni telefon numarası N için doğrulama başlatmış, kodu C1"
+    when:
+      - "U aynı numara için doğrulamayı yeniden başlatır ve kod C2 alır"
+      - "C1 ile onay denenir"
+    then:
+      - "C1 reddedilir; yalnız C2 geçerlidir"
+      - "Bekleme süresi geçmeden yapılan yeniden gönderme reddedilir"
+      - "Hedef başına saatlik gönderim bütçesi dolunca yeni gönderim reddedilir"
+    decision: "Java hatası (telefon tarafında hiç tekilleme yok; bütün kodlar geçerli kalıyor)"
+    target: >
+      Kanal ve hedef başına tek açık doğrulama (ADR-0029 Karar 3). Java yalnız e-posta tarafında
+      hedefe göre tekilliyor; telefonda her istek yeni bir satır açıyor ve hepsi süre bitene kadar
+      geçerli kalıyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/PhoneVerificationManager.java#startPhoneVerification"
+      - "src/main/java/com/exskylab/koala/business/concretes/EmailVerificationManager.java#startEmailVerification"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-011
+    priority: P0
+    title: Başkasının doğrulaması var olmayandan ayırt edilemez
+    rule: >
+      Başka bir kullanıcıya ait bir doğrulamayı onaylamaya çalışmak, hiç var olmamış bir doğrulamayla
+      aynı yanıtı alır. Yanıt, doğrulamanın var olduğunu söylemez.
+    given:
+      - "Kullanıcı U1'in açık bir doğrulaması var"
+      - "Kullanıcı U2 o doğrulamanın kimliğini biliyor"
+    when:
+      - "U2 o doğrulamayı onaylamaya çalışır"
+      - "U2 hiç var olmamış bir doğrulama kimliğiyle onay dener"
+    then:
+      - "İki yanıt da aynı; gövdeleri bayt bayt aynı"
+      - "U1'in doğrulaması etkilenmez ve denemesi harcanmaz"
+    error: VERIFICATION_NOT_FOUND
+    decision: "Java hatası (başkasının doğrulaması için ayırt edilebilir izin hatası dönüyor)"
+    target: >
+      Sahiplik ihlali kaynağın 404'üdür (ADR-0014, ADR-0029 Karar 3). Java ayırt edilebilir bir izin
+      hatası döndürüyor ve böylece başkasının doğrulama kimliğinin varlığını açığa veriyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/UserVerificationManager.java#verify"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-012
+    priority: P0
+    title: Doğrulamada süre kontrolü kodun önüne geçer
+    rule: >
+      Süresi dolmuş bir doğrulamada, gönderilen kod doğru da olsa yanlış da olsa aynı süre hatası
+      döner. Yanıt, gönderilen kodun doğru olup olmadığını sızdırmaz.
+    given:
+      - "Kullanıcı U'nun süresi dolmuş bir doğrulaması var ve kodu C"
+    when:
+      - "C ile onay denenir"
+      - "Yanlış bir kodla onay denenir"
+    then:
+      - "İki yanıt da süre hatası; gövdeleri bayt bayt aynı"
+    error: VERIFICATION_CODE_EXPIRED
+    decision: "Java hatası (kod karşılaştırması süre kontrolünden önce)"
+    target: >
+      Denetim sırası sahiplik, süre, deneme, kod şeklindedir (ADR-0029 Karar 3). Java kodu süreden
+      önce karşılaştırıyor, bu yüzden süresi dolmuş bir doğrulamada doğru kod ile yanlış kod farklı
+      hata alıyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/UserVerificationManager.java#verify"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-013
+    priority: P0
+    title: Onay kodu tüketir; ikinci onay çakışmadır
+    rule: >
+      Başarılı onay doğrulamayı tüketir: kod özeti silinir ve doğrulama onaylanmış olarak işaretlenir.
+      Aynı doğrulamayı ikinci kez onaylamak, gönderilen kod ne olursa olsun çakışma hatası döner.
+    given:
+      - "Kullanıcı U doğrulamasını doğru kodla onaylamış"
+    when:
+      - "Aynı doğrulama doğru kodla yeniden onaylanmak istenir"
+      - "Aynı doğrulama yanlış kodla yeniden onaylanmak istenir"
+    then:
+      - "İki istek de çakışma hatası alır"
+      - "Doğrulamanın durumu değişmez, yan etki tekrarlanmaz"
+    error: VERIFICATION_ALREADY_CONFIRMED
+    decision: "Java hatası (onaylanmış doğrulama kodu hiç bakmadan başarı dönüyor)"
+    target: >
+      İkinci onay çakışmadır (ADR-0029 Karar 3). Java zaten onaylanmış doğrulamada erken dönüyor ve
+      yanlış kodu da başarıyla karşılıyor.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/UserVerificationManager.java#verify"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-014
+    priority: P0
+    title: Yeni e-posta ya da telefon onaylanana kadar profile yazılmaz
+    rule: >
+      Profilde e-posta ya da telefon değiştirmek değeri hemen yazmaz, bir doğrulama başlatır. Kod
+      onaylanana kadar eski değer ve ilgili doğrulanmışlık bayrağı yerinde kalır. Aynı değerin
+      yeniden gönderilmesi hiçbir doğrulama başlatmaz.
+    given:
+      - "Kullanıcı U'nun telefonu N1 ve telefonu doğrulanmış değil"
+    when:
+      - "U telefonunu N2 olarak değiştirmek ister"
+      - "U telefonunu yeniden N1 olarak gönderir"
+    then:
+      - "U'nun telefonu N1 kalır; doğrulanmışlık bayrağı değişmez"
+      - "N2 için bekleyen bir doğrulama oluşur"
+      - "N1'in yeniden gönderilmesi hiçbir doğrulama başlatmaz"
+      - "Kod onaylandığında telefon N2 olur ve doğrulanmış işaretlenir"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/UserPatchRulesTest.java#aNewPhoneNumberStartsAVerificationInsteadOfBeingSwallowed"
+      - "src/test/java/com/exskylab/koala/business/concretes/UserPatchRulesTest.java#theNumberIsNotAppliedUntilTheCodeIsConfirmed"
+      - "src/test/java/com/exskylab/koala/business/concretes/UserPatchRulesTest.java#resendingTheSameNumberStartsNothing"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; profil handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-015
+    priority: P0
+    title: Parola sıfırlama token'ı tek kullanımlıktır ve parolayla aynı transaction'da tüketilir
+    rule: >
+      Sıfırlama token'ı tüketilmemiş, iptal edilmemiş ve süresi dolmamışken tek bir koşullu güncelleme
+      ile tüketilir; parola yazımı aynı transaction'dadır. Etkilenen satır sayısı bir değilse istek
+      reddedilir ve parola değişmez.
+    given:
+      - "Kullanıcı U için açık bir sıfırlama token'ı T var"
+    when:
+      - "T ile parola sıfırlanır"
+      - "Aynı T ile parola yeniden sıfırlanmak istenir"
+    then:
+      - "İlk istek parolayı değiştirir ve T'yi tüketir"
+      - "İkinci istek reddedilir; parola değişmez"
+      - "Token'ın tüketilmesi ile parolanın yazılması aynı transaction'dadır"
+    error: PASSWORD_RESET_TOKEN_INVALID
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/PasswordResetTokenManager.java#consume"
+      - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#resettingReplacesTheHashAndClosesEverySession"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; parola sıfırlama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-016
+    priority: P0
+    title: Geçersiz sıfırlama token'ının dört hâli tek kodda birleşir
+    rule: >
+      Bilinmeyen, süresi dolmuş, iptal edilmiş ve zaten kullanılmış sıfırlama token'ı aynı hata kodunu
+      ve aynı gövdeyi alır; dördü ayırt edilemez.
+    given:
+      - "T1 hiç var olmamış; T2 süresi dolmuş; T3 iptal edilmiş; T4 zaten kullanılmış"
+    when:
+      - "Dört token ile ayrı ayrı parola sıfırlanmak istenir"
+    then:
+      - "Dört yanıt da aynı hata kodu; gövdeleri bayt bayt aynı"
+    error: PASSWORD_RESET_TOKEN_INVALID
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/PasswordResetTokenManager.java#consume"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; parola sıfırlama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-017
+    priority: P0
+    title: Kullanıcı başına tek açık sıfırlama token'ı vardır
+    rule: >
+      Yeni bir sıfırlama token'ı üretilmeden önce kullanıcının açık token'ları iptal edilir. Bir
+      kullanıcının aynı anda en çok bir açık sıfırlama token'ı olur; bu kural veritabanında da
+      zorlanır. Parola değiştirmek de açık token'ları iptal eder.
+    given:
+      - "Kullanıcı U için açık token T1 var"
+    when:
+      - "U yeniden sıfırlama ister ve T2 üretilir"
+      - "T1 ile parola sıfırlanmak istenir"
+    then:
+      - "T1 iptal edilmiştir ve reddedilir"
+      - "Yalnız T2 geçerlidir"
+      - "Uygulama içinden parola değiştirmek de açık token'ları iptal eder"
+    error: PASSWORD_RESET_TOKEN_INVALID
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/PasswordResetTokenManager.java#issue"
+      - "src/main/java/com/exskylab/koala/business/concretes/UserManager.java#updateCurrentUserPassword"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; parola sıfırlama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-018
+    priority: P0
+    title: Sıfırlama isteğinde kayıtsız adres kayıtlıdan ayırt edilemez ve aynı maliyeti öder
+    rule: >
+      Parola sıfırlama isteği, adres kayıtlı olsun olmasın aynı yanıt gövdesini döndürür. Kayıtsız
+      dalda da token üretme ve posta hazırlama maliyeti ödenir; üretilen token atılır ve posta
+      gönderilmez.
+    given:
+      - "a@örnek kayıtlı; b@örnek kayıtlı değil"
+    when:
+      - "İki adres için de parola sıfırlama istenir"
+    then:
+      - "İki yanıt da başarı; gövdeleri bayt bayt aynı"
+      - "Yalnız a@örnek'e posta gider"
+      - "Kayıtsız dalda da token üretilir ve atılır; zamanlama eşitlenir"
+    decision: "Java hatası (kayıtsız dal token üretmiyor; zamanlama farkı kalıyor)"
+    target: >
+      İki dal aynı işi yapar (AUTH-001'in kalıbı; ADR-0029 Karar 4). Java'nın kayıtsız dalı erken
+      dönüyor ve zamanlama farkı açık bir boşluk olarak kayıtlı.
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#anUnknownAddressGetsTheSameResponseAndNoMailIsSent"
+      - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java#requestPasswordReset"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; parola sıfırlama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-019
+    priority: P0
+    title: Başarılı sıfırlama çağıran dahil bütün oturumları kapatır ve token döndürmez
+    rule: >
+      Parola sıfırlandığında kullanıcının bütün oturumları, isteği yapan dahil, kapanır. Yanıt hiçbir
+      erişim ya da yenileme token'ı taşımaz; kullanıcı yeniden giriş yapar. Kullanıcıya parolasının
+      değiştiğini bildiren bir posta gönderilir.
+    given:
+      - "Kullanıcı U'nun iki cihazda açık oturumu var"
+    when:
+      - "U parolasını sıfırlar"
+    then:
+      - "İki oturum da kapanır"
+      - "Yanıt token çifti içermez"
+      - "Parola özeti değişir"
+      - "Parolanın değiştiğini bildiren posta kuyruğa girer"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#resettingReplacesTheHashAndClosesEverySession"
+      - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetNotificationManagerTest.java#completionEmailUsesItsOwnSecurityTemplateAndTransaction"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; parola sıfırlama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-020
+    priority: P0
+    title: Uygulama içi parola değişimi çağıranın oturumunu açık bırakır, diğerlerini kapatır
+    rule: >
+      Kullanıcı mevcut parolasını bilerek parola değiştirdiğinde yalnız diğer oturumları kapanır,
+      isteği yapan oturum açık kalır. Mevcut parola yanlışsa parola değişmez. Yeni parola mevcut
+      parolayla aynı olamaz ve onayla eşleşmek zorundadır.
+    given:
+      - "Kullanıcı U'nun üç cihazda açık oturumu var; istek bunlardan biriyle gelir"
+    when:
+      - "U mevcut parolasını doğru vererek parolasını değiştirir"
+    then:
+      - "İsteği yapan oturum açık kalır"
+      - "Diğer iki oturum kapanır"
+      - "Mevcut parola yanlışsa hiçbir oturum kapanmaz ve parola değişmez"
+      - "Yeni parola mevcut parolayla aynıysa istek reddedilir"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/UserManager.java#updateCurrentUserPassword"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; profil handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-021
+    priority: P0
+    title: Kullanıcı parolası personel parolasıyla aynı kurala uyar
+    rule: >
+      Parola belirleyen her yol aynı kuralı uygular: en az on beş, en çok yüz yirmi sekiz karakter.
+      Karakter sınıfı kuralı yoktur. Var olan bir parolayı doğrulayan alanlar bu kurala tabi değildir.
+    given:
+      - "Kayıt tamamlama, parola sıfırlama ve parola değiştirme yolları"
+    when:
+      - "On beş karakterden kısa bir parola belirlenmek istenir"
+      - "Yüz yirmi sekiz karakterden uzun bir parola belirlenmek istenir"
+    then:
+      - "İki istek de aynı parola kuralı hatasıyla reddedilir"
+      - "Mevcut parolayı doğrulayan alanlar kurala bakılmadan olduğu gibi denenir"
+    error: PASSWORD_POLICY_VIOLATION
+    decision: "K12"
+    target: >
+      ADR-0025'in personel için kurduğu kural kullanıcıya da uygulanır (ADR-0029 Karar 4). Java'nın
+      kuralı on iki kod noktası ve yetmiş iki bayttı; bayt sınırı bcrypt'ten geliyordu ve Go'da yok.
+    source:
+      - "src/main/java/com/exskylab/koala/core/constants/PasswordPolicy.java:1-20"
+      - "src/test/java/com/exskylab/koala/core/dtos/PasswordPolicyRulesTest.java#everyFieldThatSetsAPasswordCarriesTheOneSharedRule"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; kullanıcı parola yolları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+
+  - id: USR-022
+    priority: P0
+    title: Profil senkronu profil değişikliğiyle aynı transaction'da kuyruğa girer
+    rule: >
+      Profil değişikliği ödeme sağlayıcısına bildirilmek üzere bir giden kayıt (outbox) satırı yazar.
+      Satır çağıranın transaction'ına katılır: ya profil değişikliği ve tam bir yayın niyeti birlikte
+      işlenir ya da hiçbiri. Aynı kullanıcı için işlenmemiş bir niyet varsa yükü yerinde değiştirilir.
+    given:
+      - "Kullanıcı U'nun profili değişiyor"
+    when:
+      - "Çağıranın transaction'ı geri alınır"
+      - "Ayrı bir akışta çağıranın transaction'ı işlenir"
+      - "İşlenmemiş bir niyet varken profil yeniden değişir"
+    then:
+      - "Geri alınan akışta ne profil değişikliği ne yayın niyeti kalır"
+      - "İşlenen akışta profil değişikliği ve tam olarak bir yayın niyeti birlikte kalıcı olur"
+      - "İşlenmemiş niyetin yükü yerinde güncellenir; ikinci niyet açılmaz"
+      - "Niyet, isteğin kaynağını (istek, kullanıcı, oturum, cihaz) taşır"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncOutboxAtomicityIT.java#rollingBackTheCallerTransactionLeavesNeitherProfileChangeNorPublishIntent"
+      - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncOutboxAtomicityIT.java#callerSuccessMeansTheProfileChangeAndExactPublishIntentWereDurablyAcceptedTogether"
+      - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncOutboxAtomicityIT.java#theOriginatingRequestContextIsPersistedWithTheOutboxIntent"
+      - "src/main/java/com/exskylab/koala/business/concretes/UserProfileSyncManager.java#enqueue"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; profil senkronu Faz 2'nin uygulama PR'ında gelir; yayın tarafı Faz 6'nın Iyzico istemcisine bağlanır."
+
+  - id: USR-023
+    priority: P0
+    title: İki işçi aynı yayın niyetini iki kez yayımlayamaz
+    rule: >
+      Bir yayın niyeti yalnız bir işçi tarafından sahiplenilir ve en çok bir kez yayımlanır. Onaylanmış
+      bir yayının tamamlanması kalıcılaştırılamazsa niyet, deneme bütçesi harcanmadan yeniden
+      denenebilir kalır. Başarısızlık gerekçeleri sabit metinlerdir; hata metni yazılmaz.
+    given:
+      - "Bekleyen bir yayın niyeti ve iki işçi var"
+    when:
+      - "İki işçi aynı niyeti aynı anda işlemeye çalışır"
+      - "Onaylanmış bir yayının tamamlanması kalıcılaştırılamaz"
+    then:
+      - "Niyet en çok bir kez yayımlanır"
+      - "Tamamlanamayan yayın deneme bütçesi harcanmadan yeniden denenebilir"
+      - "Kaydedilen gerekçe sabit bir metindir, istisna metni değildir"
+    source:
+      - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncDispatchIT.java#twoWorkersCannotPublishTheSameIntent"
+      - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncDispatchIT.java#aConfirmedPublishWhoseCompletionCannotBePersistedRemainsReplayableWithoutSpendingFailureBudget"
+      - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncDispatchIT.java#aBrokerFailureIsRetriedThenTerminalizedWithASanitizedReason"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; gönderim döngüsü River işine taşınır ve Faz 2'nin uygulama PR'ında gelir."
+
+  - id: USR-024
+    priority: P1
+    title: Kimliği doğrulanmış kullanıcının ad, soyad ve doğum tarihi değişmez
+    rule: >
+      Kimlik doğrulandıktan sonra ad, soyad ve doğum tarihi profil üzerinden değiştirilemez; bu
+      alanlar kimlik belgesinden gelir. Boş ad ya da soyad hiçbir durumda kabul edilmez.
+    given:
+      - "Kullanıcı U'nun kimliği doğrulanmış"
+    when:
+      - "U adını değiştirmek ister"
+      - "U doğum tarihini değiştirmek ister"
+    then:
+      - "İki istek de reddedilir; alanlar değişmez"
+      - "Kimliği doğrulanmamış kullanıcı bu alanları değiştirebilir"
+      - "Boş ad ya da soyad her durumda reddedilir"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/UserManager.java#patchCurrentUser"
+      - "src/test/java/com/exskylab/koala/business/concretes/UserPatchRulesTest.java#aJobTitleIsStoredOnTheProfile"
+    go_test: null
+
+  - id: USR-025
+    priority: P1
+    title: Herkese açık profil kişisel veriyi göstermez; adres şehir ve ilçeye iner
+    rule: >
+      Başka bir kullanıcının profili ad, soyad, unvan, tanıtım, şehir, ilçe, tamamlanan iş sayısı,
+      puan ortalaması ve rozetleri gösterir. E-posta, telefon, doğum tarihi, cinsiyet, kimlik
+      numarası, IBAN ve doğrulanmışlık bayrakları görünmez; sokak düzeyi adres hiç üretilmez.
+    given:
+      - "Kullanıcı U'nun tam adresi ve kişisel verileri kayıtlı"
+    when:
+      - "Başka bir kimlikli kullanıcı U'nun profilini okur"
+    then:
+      - "Yalnız şehir ve ilçe adları görünür"
+      - "E-posta, telefon, doğum tarihi, cinsiyet, kimlik numarası ve IBAN görünmez"
+      - "Doğrulanmışlık bayrakları görünmez"
+      - "Silinmiş kullanıcının profili var olmayandan ayırt edilemez"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/PublicProfileManager.java#getPublicProfile"
+      - "src/main/java/com/exskylab/koala/core/dtos/user/response/PublicProfileDto.java:1-40"
+    go_test: null
+
+  - id: USR-026
+    priority: P1
+    title: Özgeçmiş bağlantısını yalnız sahibi ve başvuru almış işveren görür
+    rule: >
+      Bir kullanıcının özgeçmiş bağlantısı profilinde yalnız iki çağırana görünür: kendisi ve ondan
+      başvuru almış bir işveren. Diğer herkes için alan boştur.
+    given:
+      - "Kullanıcı U'nun yüklü bir özgeçmişi var"
+      - "İşveren E, U'dan bir başvuru almış; işveren F almamış"
+    when:
+      - "U, E ve F sırayla U'nun profilini okur"
+    then:
+      - "U ve E özgeçmiş bağlantısını görür"
+      - "F için alan boştur"
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/PublicProfileManager.java#visibleCvUrl"
+    go_test: null
+
+  - id: USR-027
+    priority: P1
+    title: Kullanıcı kendi kaydını okurken kimlik numarası tümden maskelenir
+    rule: >
+      Kullanıcı kendi kaydını okuduğunda kimlik numarası kısmen değil tümden maskelenir; hiçbir
+      hanesi görünmez. IBAN ve telefon kısmen maskelenir. Parola özeti ve belge numarası hiç
+      görünmez.
+    given:
+      - "Kullanıcı U'nun kimlik numarası, IBAN'ı ve telefonu kayıtlı"
+    when:
+      - "U kendi kaydını okur"
+    then:
+      - "Kimlik numarasının hiçbir hanesi görünmez"
+      - "IBAN'ın yalnız ilk ve son dört hanesi görünür"
+      - "Telefonun yalnız son dört hanesi görünür"
+      - "Parola özeti ve kimlik belgesi numarası yanıtta hiç bulunmaz"
+    source:
+      - "src/main/java/com/exskylab/koala/core/helpers/LogMasks.java:1-60"
+      - "src/main/java/com/exskylab/koala/core/mappers/UserMapper.java:1-60"
+    go_test: null
+
+  - id: USR-028
+    priority: P1
+    title: Eğitim kaydı referans verisine bağlanır ve dönemi tutarlı olmak zorundadır
+    rule: >
+      Eğitim kaydı üniversite, fakülte ve bölüm referans verisinden gelir; bilinmeyen
+      referans reddedilir. Bitiş yılı başlangıç yılından küçük olamaz; süren eğitimde
+      bitiş yılı boştur. Kayıt sahibine bağlıdır: başkasının kaydı var olmayandan ayırt
+      edilemez.
+    given:
+      - "Kullanıcı U'nun bir eğitim kaydı; kullanıcı V'nin başka bir kaydı"
+    when:
+      - "U bilinmeyen bir üniversite kimliğiyle kayıt eklemeye çalışır"
+      - "U bitiş yılı başlangıçtan küçük bir kayıt eklemeye çalışır"
+      - "U, V'nin kaydını değiştirmeye çalışır"
+      - "U bitiş yılı boş bir kayıt ekler"
+    then:
+      - "Bilinmeyen referans reddedilir"
+      - "Tutarsız dönem reddedilir"
+      - "V'nin kaydına erişim var olmayan kaydın yanıtını alır"
+      - "Bitiş yılı boş kayıt kabul edilir ve süren eğitim sayılır"
+    error: EDUCATION_PERIOD_INVALID
+    source:
+      - "src/main/java/com/exskylab/koala/webAPI/UserProfileController.java:1-120"
+      - "docs/faz0/authz-envanteri.csv:AZ-098"
+    go_test: null
+
+  - id: USR-029
+    priority: P2
+    title: Cinsiyet kimlik doğrulandıktan sonra da değiştirilebilir
+    rule: >
+      Kimlik doğrulanması ad, soyad ve doğum tarihini dondurur ama cinsiyeti dondurmaz:
+      bugünkü belge akışı cinsiyeti okumadığı için dondurulacak bir kaynak değeri yoktur.
+      Kimlik belgesinden cinsiyet okunmaya başlarsa karar yeniden verilir.
+    given:
+      - "Kimliği doğrulanmış kullanıcı U"
+    when:
+      - "U cinsiyetini değiştirir"
+      - "U adını değiştirmeye çalışır"
+    then:
+      - "Cinsiyet değişikliği kabul edilir"
+      - "Ad değişikliği reddedilir"
+    decision: "Java hatası (cinsiyet dondurma kontrolü yorum satırına alınmış)"
+    target: >
+      Go cinsiyeti bilinçli olarak serbest bırakır (ADR-0029 Karar 5). Java'da kontrol
+      yorum satırına alınmış, mesaj anahtarı ve çevirisi duruyor ama hiç atılmıyor; yani
+      gözlenebilir davranış aynı, fark kararın yazılı olmasıdır.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/UserManager.java:210"
+    go_test: null

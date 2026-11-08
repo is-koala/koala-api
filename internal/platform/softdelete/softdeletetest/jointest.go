@@ -234,7 +234,8 @@ func (jt JoinTest) plan() ([]edgeCase, []string) {
 
 // readers maps every table a GET operation names with x-resource to those
 // operations. An x-resource that is not a string, or none, is ReadTest's
-// business; readers skips it.
+// business; readers skips it, and so is an operation marked
+// x-not-implemented (ADR-0029 §1).
 func (jt JoinTest) readers() (map[string][]operation, []string) {
 	out := map[string][]operation{}
 	var problems []string
@@ -249,6 +250,11 @@ func (jt JoinTest) readers() (map[string][]operation, []string) {
 		}
 		table, ok := extensionString(raw)
 		if !ok || table == "" || table == None {
+			continue
+		}
+		// A frozen operation has no handler to call (ADR-0029 §1); it
+		// joins this test when its marker goes, like in ReadTest.
+		if _, frozen := op.Extensions[ExtensionNotImplemented]; frozen {
 			continue
 		}
 		params := len(pathParam.FindAllString(path, -1))

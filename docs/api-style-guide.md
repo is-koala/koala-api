@@ -58,7 +58,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 | Metot | Kullanım | Başarı |
 |---|---|---|
 | `GET` | Okuma; yan etkisi yok, gövdesi yok. | 200 |
-| `POST /koleksiyon` | Oluşturma. | 201 + `Location` + oluşan kaynak |
+| `POST /koleksiyon` | Oluşturma. | 201 + `Location` + oluşan kaynak **[lint: koala-location-on-201]** |
 | `POST /kaynak/{id}/<eylem>` | Durum geçişi ve CRUD'a sığmayan eylem: `…/complete`, `…/cancel` (ADR-0005 madde 2, plan §4.1-2; Stripe `…/confirm` kalıbı). Google'ın `:verb` biçimi yerine alt yol kullanılır. | 200 + güncel kaynak; gövde yoksa 204 |
 | `PATCH` | Kısmi güncelleme, **JSON Merge Patch** (RFC 7396, `application/merge-patch+json`; ADR-0019): gönderilmeyen alan değişmez, `null` alanı temizler. | 200 + güncel kaynak |
 | `PUT` | Yalnız istemcinin tamamını bildiği alt kaynakta tam yer değiştirme (ör. tercihler). | 200 |
@@ -102,7 +102,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 | Kod | Ne zaman |
 |---|---|
 | 200 | Okuma, güncelleme, gövdeli eylem |
-| 201 | Oluşturma; `Location` başlığı yeni kaynağı gösterir |
+| 201 | Oluşturma; `Location` başlığı yeni kaynağı gösterir. Adreslenebilir bir kaynak oluşmuyorsa (kısa ömürlü bilet) operasyon `x-no-location: <gerekçe>` yazar **[lint: koala-location-on-201]** |
 | 202 | Kabul edildi, iş arka planda (River) |
 | 204 | Gövdesiz başarı (`DELETE`, gövdesiz eylem) |
 | 400 | Sözleşmeye uymayan istek: `REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`, `SORT_FIELD_NOT_ALLOWED`, `CURSOR_INVALID`, `IDEMPOTENCY_KEY_REQUIRED`. Alan kuralı ihlali alanın kendi kodunu taşır. Desteklenmeyen istemci sürümü `APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` döner (426 değil: RFC 9110 426'da `Upgrade` başlığını zorunlu tutar; ADR-0019) |
@@ -154,6 +154,8 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - Önek alan adıdır (`PAYMENT_`, `JOB_`); platform kodları öneksizdir.
   - HTTP durum adı tekrar edilmez (`CONFLICT_…` yok).
   - Biçim hatalarının kodları `FIELD_*`'dır (`FIELD_REQUIRED`, `FIELD_UNKNOWN`, `FIELD_TYPE_INVALID`, `FIELD_FORMAT_INVALID`, `FIELD_VALUE_INVALID`, `FIELD_OUT_OF_RANGE`). Alan kuralının ihlali kendi kodunu taşır (`IBAN_INVALID`).
+- **Operasyon kendi hata kodlarını sayar:** `x-error-codes` operasyonun ürettiği alan kodlarını listeler (boş liste de yazılır). Listelenen her kodun `ErrorCode` açıklamasındaki HTTP durumu operasyonun yanıt kümesinde bulunmak zorundadır **[test: api TestOperationStatusesCoverTheirErrorCodes]**. Platform, oturum ve Idempotency-Key kodları evrenseldir, ortak yanıtlardan gelir ve listelenmez. Sınır: ters yön (karşılığı hiçbir kod olmayan bir durum) ve evrensel kodlar denetlenmez (ADR-0029).
+- **Her `ErrorCode` üyesi HTTP durumunu açıklamasında yazar.** Yazmayan üye gerekçeli istisna listesindedir (`FIELD_*` kodları `ProblemField.code`'da, realtime olay kodları soket üzerinde taşınır) **[test: api TestOperationStatusesCoverTheirErrorCodes]**.
 - **Alan hataları** `errors[]`'tadır (ADR-0019; JSON:API `source`, Microsoft `target`):
   - Gövdedeki üye: `{pointer, code}`. `pointer` RFC 6901'dir: `/amount/currency`; gövdenin tamamı için `""`.
   - İki biçim birbirini dışlar; şema bunu zorlar (`dependentRequired`, `not`, `if`/`then`) **[test: api TestProblemFieldIsPointerXorParameter]**.
@@ -221,6 +223,17 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 
 - **Oran sınırı grubu:** Operasyon varsayılan grubundan (GET/HEAD/OPTIONS → `read`, diğerleri → `write`) başka bir gruba `x-rate-limit: <grup>` ile girer (`auth`, `upload`, `message`, `sitemap`, `boarding`). Grup tablosu `internal/app/edge.go`'dadır; bilinmeyen grup açılışı durdurur (ADR-0021) **[test]**. `auth_account` grubunun route'u yoktur: giriş, hedef başına (adres fark etmeksizin) kovayı buradan alır (ADR-0025 §8).
 
+## 11.1 Dondurulmuş ama uygulanmamış operasyon (ADR-0029 §1)
+
+Bir alanın sözleşmesi bir kerede dondurulur ki istemci işi (plan §4.2) uygulamayı beklemeden başlasın. Handler'ı henüz gelmemiş operasyon şunu taşır:
+
+- `x-not-implemented: <gerekçe>` (en az 20 karakter). Operasyon `501 NOT_IMPLEMENTED` döner ve bu kod **operasyonun `default` yanıtının altındadır**; `501` ayrı bir yanıt olarak yazılmaz. Gerekçe: `501`'i yazıp handler gelince silmek operasyonun durum kümesini değiştirir, §2 bunu uyumsuz değişiklik sayar.
+- İşaret üç kapıyı birden gevşetir ve üçü de işaret kalkınca kendiliğinden silahlanır:
+  - `internal/app.TestNotImplementedOperationsAreDeclared` işaretli operasyonların kümesini `pending.Operations()`'a **iki yönlü** bağlar: unutulan handler da unutulan işaret de kırmızıdır **[test]**.
+  - `softdeletetest.ReadTest` ve `softdeletetest.JoinTest` işaretli GET'i kataloğa bakmadan atlar, böylece `x-resource` henüz var olmayan bir tabloyu dürüstçe adlandırabilir **[test]**.
+  - `test/scenarios.TestFrozenDomainsDeferTheirScenarios` alanın P0 senaryolarının `deferred` olmasını ister; işaretli operasyon kalmayınca bağlanmış olmalarını ister **[test]**.
+- `501` `404 ROUTE_NOT_FOUND` ile karıştırılmaz: yol **vardır** ve sözleşmesi bağlayıcıdır, yalnız uygulaması yoktur.
+
 ## 12. Kullanımdan kaldırma (öneri)
 
 Bu bölümün planda ya da bir ADR'de dayanağı yoktur.
@@ -235,6 +248,8 @@ Bu bölümün planda ya da bir ADR'de dayanağı yoktur.
 - `make api-lint` vacuum'la iki şey denetler:
   - kök spec (`api/ruleset.yaml`: Spectral'ın önerilen seti + Koala kuralları),
   - her bileşen dosyası (`api/ruleset-schemas.yaml`).
+
+  Her kuralın dosya başına bir süre bütçesi var (`VACUUM_TIMEOUT`, 60 sn). Vacuum bütçesi dolan kuralı **atlar** ve atlanan kural hiçbir şey bildirmediği için geçen kuraldan ayırt edilemez: koruma var, çalışmıyor, kapı yeşil. Bu yüzden atlama **kapıyı kırar**: `scripts/api-lint.sh` vacuum'un çıktısında atlama imzasını arar ve bulursa adımı düşürür, vacuum'un çıkış kodu ne derse desin **[make verify: api-lint]**. Varsayılan bütçe 5 saniyeydi ve sözleşme 88 operasyona çıkınca operasyon düzeyindeki beş kural onu aştı (ADR-0029). Bütçe sözleşme büyüdükçe yine dolacak; dolduğu gün kırmızı görünecek, kör kalmayacak.
 
   Ardından `scripts/api-lint-probe.sh` iki şeyi kanıtlar. `api/testdata/lint-probe.yaml`'daki bağımsız vakaların Koala sonuçları, (kural, JSON yolu) çiftleriyle `lint-probe.expect`'e birebir eşittir; eksik ya da fazla sonuç kapıyı kırmızı yapar. `lint-pass.yaml`'daki doğru biçimler ise hiçbir Koala sonucu üretmez. Bir kural değişince iki dosya ve beklenti listesi birlikte güncellenir. Lint hatası kapıyı kırmızı yapar; uyarılar yalnız raporlanır.
 - `make generate` `internal/apiv1`'i ve `internal/codegentest`'i oapi-codegen ile üretir. Üretilen kod commit edilir. `make gen-check` eski dosyaları silip yeniden üretir ve fark varsa kırmızı olur. İkisi de `make verify`'ın parçasıdır (ADR-0019).

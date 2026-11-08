@@ -227,6 +227,36 @@ rules:
                       required:
                         const: true
 
+  koala-location-on-201:
+    description: "201 yanıtı `Location` başlığıyla oluşan kaynağı gösterir; adreslenebilir bir kaynak oluşmuyorsa (kısa ömürlü bir bilet gibi) operasyon `x-no-location: <gerekçe>` yazar (stil rehberi §3, §5; öneri)."
+    severity: error
+    given: "$.paths[*][post,put,patch]"
+    then:
+      function: schema
+      functionOptions:
+        schema:
+          if:
+            required: [responses]
+            properties:
+              responses:
+                required: ["201"]
+          then:
+            anyOf:
+              - properties:
+                  responses:
+                    properties:
+                      "201":
+                        required: [headers]
+                        properties:
+                          headers:
+                            required: [Location]
+                required: [responses]
+              - required: [x-no-location]
+                properties:
+                  x-no-location:
+                    type: string
+                    minLength: 10
+
   koala-default-problem-response:
     description: Her operasyon `default` yanıtını tanımlar (stil rehberi §5).
     severity: error

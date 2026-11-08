@@ -14,6 +14,7 @@ import (
 	"github.com/is-koala/koala-api/api"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/pending"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/staff"
@@ -131,10 +132,13 @@ func bindError(logger *slog.Logger) func(http.ResponseWriter, *http.Request, err
 }
 
 // strictServer composes the modules' handlers into the generated strict
-// server interface: authentication (authn, embedded) and the staff
-// surface (forwarded; both handler types are named HTTP).
+// server interface: authentication (authn, embedded), the staff surface
+// (forwarded; both handler types are named HTTP) and the operations whose
+// contract is frozen but whose handler has not landed (pending, embedded;
+// they answer 501, ADR-0029 §1).
 type strictServer struct {
 	*authn.HTTP
+	pending.Server
 	admin *staff.HTTP
 }
 

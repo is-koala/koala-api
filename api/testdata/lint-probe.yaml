@@ -211,6 +211,15 @@ paths:
       security: []
       responses:
         "204": {description: ok}
+  /v1/location-on-201:
+    post: # koala-location-on-201: a 201 with neither Location nor x-no-location
+      operationId: postLocationOn201
+      security: []
+      x-no-idempotency-key: probe only, no side effect at all
+      responses:
+        "201":
+          description: created
+        default: {$ref: "#/components/responses/Problem"}
   /v1/body-limit:
     post: # koala-body-limit
       operationId: postBodyLimit

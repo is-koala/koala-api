@@ -18,7 +18,9 @@
 // `x-resource: none` marks a GET that reads no table (ADR-0026).
 //
 // A new operation or table joins the test by itself; a soft-deleted table
-// without a fixture fails it.
+// without a fixture fails it. The one exception is an operation marked
+// `x-not-implemented`: its contract is frozen but its handler has not
+// landed, so it is skipped until the marker goes (ADR-0029 §1).
 package softdeletetest
 
 import (
@@ -51,6 +53,13 @@ const ExtensionSelf = "x-resource-self"
 
 // None is the Extension value of a GET that reads no table.
 const None = "none"
+
+// ExtensionNotImplemented marks an operation whose contract is frozen but
+// whose handler has not landed (ADR-0029 §1). plan skips it: the table its
+// x-resource names may not exist yet, so neither the catalog nor a fixture
+// can be asked for. Removing the marker arms this test again, which then
+// demands the table, its classification and its fixture.
+const ExtensionNotImplemented = "x-not-implemented"
 
 // requestID is sent with every request, so two problem bodies compare
 // byte for byte.
@@ -135,6 +144,11 @@ func (rt ReadTest) plan() (map[string][]operation, []string) {
 			continue
 		}
 		if table == None {
+			continue
+		}
+		// A frozen operation has no handler to call and may name a table
+		// that no migration has created yet (ADR-0029 §1).
+		if _, frozen := op.Extensions[ExtensionNotImplemented]; frozen {
 			continue
 		}
 		tb, ok := rt.Catalog.Table(table)
