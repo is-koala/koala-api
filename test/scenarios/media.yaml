@@ -138,9 +138,9 @@ scenarios:
       - "Saydamlığı olan bir görüntü kayıpsız biçimde saklanamıyorsa boş değil, düzleştirilmiş saklanır"
     decision: "[[job-location-rule]]"
     source:
-      - "src/test/java/com/exskylab/koala/core/utilities/image/ImageMetadataStripperTest.java#aJpegLosesItsLocationCameraAndSerialNumbersButKeepsItsPicture"
-      - "src/test/java/com/exskylab/koala/core/utilities/image/ImageMetadataStripperTest.java#aPngLosesItsTextChunks"
-      - "src/test/java/com/exskylab/koala/core/utilities/image/ImageMetadataStripperTest.java#aTransparentImageSavedAsJpegIsFlattenedInsteadOfStoredEmpty"
+      - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aJpegLosesItsLocationCameraAndSerialNumbersButKeepsItsPicture"
+      - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aPngLosesItsTextChunks"
+      - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aTransparentImageSavedAsJpegIsFlattenedInsteadOfStoredEmpty"
     go_test: null
     deferred:
       phase: 2
@@ -195,11 +195,13 @@ scenarios:
       - "Genel alandaki dosyalar kimliksiz de okunur"
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/CvManager.java#assertCanDownload"
-      - "src/main/java/com/exskylab/koala/core/utilities/storage/StorageUrlResolver.java#urlFor"
+      - "src/main/java/com/exskylab/koala/core/helpers/StorageUrlResolver.java#urlFor"
     go_test: null
     deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; indirme handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+      phase: 3
+      reason: >-
+        Kuralın işveren dalı başvuruya dayanıyor ve başvuru Faz 3'tedir; özel dosya indirme
+        operasyonu da bu sözleşmede yok (ADR-0029 Karar 6, "Bu PR'da kalanlar").
 
   - id: MED-008
     priority: P0
@@ -313,6 +315,30 @@ scenarios:
     then:
       - "Okumalar kimliksiz çalışır"
       - "Değiştirme işlemi sözleşmede yoktur"
+      - "Şehir ülkeye, ilçe şehre bağlıdır: zincir ülke, şehir, ilçe sırasıyla okunur"
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/AcademicReferenceManager.java:1-60"
+    go_test: null
+
+  - id: MED-013
+    priority: P1
+    title: Hizmet alanı dışındaki harita konumu adrese çevrilmez
+    rule: >
+      Haritadan seçilen bir konum adrese çevrilebilir. Konum hizmet alanının dışındaysa ya
+      da hiçbir adrese eşleşmiyorsa istek reddedilir; sağlayıcıya ulaşılamıyorsa üst sistem
+      hatası döner. Çözülen değer bir adres kaydı oluşturmaz.
+    given:
+      - "Hizmet alanı içinde bir konum ve hizmet alanı dışında bir konum"
+    when:
+      - "İçerideki konum adrese çevrilir"
+      - "Dışarıdaki konum adrese çevrilmek istenir"
+      - "Sağlayıcı erişilemezken çevirme denenir"
+    then:
+      - "İçerideki konum bileşenlere çözülür ve hiçbir kayıt yazılmaz"
+      - "Dışarıdaki konum reddedilir"
+      - "Sağlayıcı erişilemezse üst sistem hatası döner"
+    error: ADDRESS_OUTSIDE_SERVICE_AREA
+    source:
+      - "src/main/java/com/exskylab/koala/webAPI/AddressSearchController.java:91"
+      - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#reverse"
     go_test: null

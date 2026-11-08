@@ -25,7 +25,7 @@ scenarios:
       - "a@örnek için ne bekleyen kayıt ne posta oluşur"
       - "b@örnek için bekleyen kayıt yazılır ve doğrulama postası kuyruğa girer"
     source:
-      - "src/test/java/com/exskylab/koala/webAPI/RegistrationEnumerationTest.java#anAlreadyRegisteredAddressDoesNotProduceADistinguishableError"
+      - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#anAlreadyRegisteredAddressDoesNotProduceADistinguishableError"
       - "src/main/java/com/exskylab/koala/business/concretes/AuthManager.java#startRegistration"
     go_test: null
     deferred:
@@ -47,7 +47,7 @@ scenarios:
       - "Yeni token T2 ile yeni bekleyen kayıt yazılır"
       - "Adres için açık bekleyen kayıt sayısı birdir"
     source:
-      - "src/test/java/com/exskylab/koala/webAPI/RegistrationEnumerationTest.java#aSecondAttemptResendsInsteadOfFailing"
+      - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aSecondAttemptResendsInsteadOfFailing"
       - "src/main/java/com/exskylab/koala/business/concretes/PendingRegistrationManager.java#createPendingRegistration"
     go_test: null
     deferred:
@@ -534,8 +534,8 @@ scenarios:
       ADR-0025'in personel için kurduğu kural kullanıcıya da uygulanır (ADR-0029 Karar 4). Java'nın
       kuralı on iki kod noktası ve yetmiş iki bayttı; bayt sınırı bcrypt'ten geliyordu ve Go'da yok.
     source:
-      - "src/main/java/com/exskylab/koala/core/validation/PasswordPolicy.java:1-20"
-      - "src/test/java/com/exskylab/koala/core/validation/PasswordPolicyRulesTest.java#everyFieldThatSetsAPasswordCarriesTheOneSharedRule"
+      - "src/main/java/com/exskylab/koala/core/constants/PasswordPolicy.java:1-20"
+      - "src/test/java/com/exskylab/koala/core/dtos/PasswordPolicyRulesTest.java#everyFieldThatSetsAPasswordCarriesTheOneSharedRule"
     go_test: null
     deferred:
       phase: 2
@@ -672,4 +672,54 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/core/helpers/LogMasks.java:1-60"
       - "src/main/java/com/exskylab/koala/core/mappers/UserMapper.java:1-60"
+    go_test: null
+
+  - id: USR-028
+    priority: P1
+    title: Eğitim kaydı referans verisine bağlanır ve dönemi tutarlı olmak zorundadır
+    rule: >
+      Eğitim kaydı üniversite, fakülte ve bölüm referans verisinden gelir; bilinmeyen
+      referans reddedilir. Bitiş yılı başlangıç yılından küçük olamaz; süren eğitimde
+      bitiş yılı boştur. Kayıt sahibine bağlıdır: başkasının kaydı var olmayandan ayırt
+      edilemez.
+    given:
+      - "Kullanıcı U'nun bir eğitim kaydı; kullanıcı V'nin başka bir kaydı"
+    when:
+      - "U bilinmeyen bir üniversite kimliğiyle kayıt eklemeye çalışır"
+      - "U bitiş yılı başlangıçtan küçük bir kayıt eklemeye çalışır"
+      - "U, V'nin kaydını değiştirmeye çalışır"
+      - "U bitiş yılı boş bir kayıt ekler"
+    then:
+      - "Bilinmeyen referans reddedilir"
+      - "Tutarsız dönem reddedilir"
+      - "V'nin kaydına erişim var olmayan kaydın yanıtını alır"
+      - "Bitiş yılı boş kayıt kabul edilir ve süren eğitim sayılır"
+    error: EDUCATION_PERIOD_INVALID
+    source:
+      - "src/main/java/com/exskylab/koala/webAPI/UserProfileController.java:1-120"
+      - "docs/faz0/authz-envanteri.csv:AZ-098"
+    go_test: null
+
+  - id: USR-029
+    priority: P2
+    title: Cinsiyet kimlik doğrulandıktan sonra da değiştirilebilir
+    rule: >
+      Kimlik doğrulanması ad, soyad ve doğum tarihini dondurur ama cinsiyeti dondurmaz:
+      bugünkü belge akışı cinsiyeti okumadığı için dondurulacak bir kaynak değeri yoktur.
+      Kimlik belgesinden cinsiyet okunmaya başlarsa karar yeniden verilir.
+    given:
+      - "Kimliği doğrulanmış kullanıcı U"
+    when:
+      - "U cinsiyetini değiştirir"
+      - "U adını değiştirmeye çalışır"
+    then:
+      - "Cinsiyet değişikliği kabul edilir"
+      - "Ad değişikliği reddedilir"
+    decision: "Java hatası (cinsiyet dondurma kontrolü yorum satırına alınmış)"
+    target: >
+      Go cinsiyeti bilinçli olarak serbest bırakır (ADR-0029 Karar 5). Java'da kontrol
+      yorum satırına alınmış, mesaj anahtarı ve çevirisi duruyor ama hiç atılmıyor; yani
+      gözlenebilir davranış aynı, fark kararın yazılı olmasıdır.
+    source:
+      - "src/main/java/com/exskylab/koala/business/concretes/UserManager.java:210"
     go_test: null

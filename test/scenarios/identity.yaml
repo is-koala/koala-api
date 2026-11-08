@@ -151,7 +151,7 @@ scenarios:
       - "Zaten dik olan fotoğrafın boyutları değişmez"
     source:
       - "src/test/java/com/exskylab/koala/business/concretes/IdentityDocumentReviewRulesTest.java#aSidewaysIdentityPhotoIsStoredUprightSoItsWidthAndHeightSwap"
-      - "src/main/java/com/exskylab/koala/core/utilities/image/ExifOrientation.java#applyToPixels"
+      - "src/main/java/com/exskylab/koala/core/helpers/ExifOrientation.java#applyToPixels"
     go_test: null
     deferred:
       phase: 2

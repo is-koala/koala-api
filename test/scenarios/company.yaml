@@ -574,3 +574,32 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#anAddressInThePatchReplacesTheCompanyAddressThroughTheAddressService"
       - "src/test/java/com/exskylab/koala/business/concretes/CompanyAdministrationRulesTest.java#aPatchWithoutAnAddressNeverTouchesTheAddressService"
     go_test: null
+
+  - id: CMP-023
+    priority: P1
+    title: Galerinin sırası kapağı belirler
+    rule: >
+      Galeri tümden değiştirilir ve sıra anlamlıdır: listedeki ilk görüntü kapaktır.
+      Listede olmayan görüntüler galeriden çıkar ama medya kayıtları silinmez. Boş liste
+      galeriyi boşaltır ve kapağı boşa çıkarır. Sınır on görüntüdür.
+    given:
+      - "Şirket A'nın galerisinde üç görüntü var ve kapağı birincisi"
+    when:
+      - "Galeri, ikinci görüntü başa alınacak biçimde yeniden sıralanır"
+      - "Galeri boş listeyle değiştirilir"
+      - "On birinci görüntüyle değiştirme denenir"
+    then:
+      - "Yeniden sıralamadan sonra kapak ikinci görüntü olur"
+      - "Listeden çıkan görüntülerin medya kayıtları silinmez"
+      - "Boş liste galeriyi boşaltır ve kapak boş kalır"
+      - "On birinci görüntüyle değiştirme reddedilir"
+    error: COMPANY_GALLERY_LIMIT_REACHED
+    decision: "Java hatası (kapak kavramı belgede var, sözleşmede yok)"
+    target: >
+      Kapak galerinin ilk görüntüsüdür ve ayrı bir uç istemez (ADR-0029 Karar 7). Java'nın
+      belgesi "kapak silinirse sıradaki görsel kapak olur" diyor ama kapağı adlandıran bir
+      alan yok.
+    source:
+      - "src/main/java/com/exskylab/koala/webAPI/CompaniesController.java:344"
+      - "src/main/java/com/exskylab/koala/business/concretes/GalleryManager.java#addCompanyImage"
+    go_test: null
