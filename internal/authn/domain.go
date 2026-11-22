@@ -300,6 +300,11 @@ func maskTarget(channel, target string) string {
 	return string(first) + "***" + target[at:]
 }
 
+// MaskPhone is what a user sees of a phone number on file, their own
+// included (USR-027): the verification's mask, the country prefix and the
+// last four digits (+90******4567).
+func MaskPhone(e164 string) string { return maskTarget(ChannelPhone, e164) }
+
 // Account flows (ADR-0029 Karar 2 and 4, ADR-0032).
 const (
 	// RegistrationLinkTTL is the life of the link mailed at the first

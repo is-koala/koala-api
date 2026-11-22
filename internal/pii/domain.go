@@ -42,11 +42,16 @@ const (
 	FieldAddress      Field = "address"
 	FieldCoordinates  Field = "coordinates"
 	FieldWorkLocation Field = "work_location"
+	// FieldBirthDate is the date of birth a staff projection of a user
+	// shows (ADR-0029 Karar 9, ADR-0036).
+	FieldBirthDate Field = "birth_date"
 )
 
 // knownFields are the fields a grant may open.
 func knownFields() []Field {
-	return []Field{FieldEmail, FieldPhone, FieldTCKN, FieldIBAN, FieldAddress, FieldCoordinates, FieldWorkLocation}
+	return []Field{
+		FieldEmail, FieldPhone, FieldTCKN, FieldIBAN, FieldAddress, FieldCoordinates, FieldWorkLocation, FieldBirthDate,
+	}
 }
 
 var purposePattern = regexp.MustCompile(`^[a-z][a-z_]{0,62}$`)
