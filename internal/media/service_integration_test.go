@@ -977,7 +977,7 @@ func TestSweepPagesPastMediaItCannotRetire(t *testing.T) {
 	a := newAppWith(t, catalog)
 	owner := a.user(t)
 	q := mediadb.New(a.db.Pool())
-	insert := func(withLedger bool) uuid.UUID {
+	insert := func() uuid.UUID {
 		id := uuid.Must(uuid.NewV7())
 		if _, err := q.InsertMedia(t.Context(), mediadb.InsertMediaParams{
 			ID: id, OwnerID: owner, Kind: string(media.KindProfilePicture),
@@ -985,26 +985,25 @@ func TestSweepPagesPastMediaItCannotRetire(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if withLedger {
-			if err := q.InsertUploadStart(t.Context(), mediadb.InsertUploadStartParams{
-				ID: id, UserID: owner, CreatedAt: a.clock.Now(),
-			}); err != nil {
-				t.Fatal(err)
-			}
-		}
 		a.clock.Advance(time.Millisecond)
 		return id
 	}
 	const stuck = 100 // one full sweep batch
+	var restricted []uuid.UUID
 	for range stuck {
-		insert(true)
+		restricted = append(restricted, insert())
 	}
-	behind := insert(false)
-	// The budget window ends first so the ledger rows are not purged by
-	// the same sweep; the media are past their retention.
+	behind := insert()
+	// The media are past their retention; their ledger rows are written
+	// now, inside the budget window, so the sweep's purge keeps them and
+	// they hold the restrict edge.
 	a.clock.Advance(media.UploadRetention + time.Minute)
-	if _, err := a.db.Pool().Exec(t.Context(), "UPDATE media_upload_starts SET created_at = $1", a.clock.Now()); err != nil {
-		t.Fatal(err)
+	for _, id := range restricted {
+		if err := q.InsertUploadStart(t.Context(), mediadb.InsertUploadStartParams{
+			ID: id, UserID: owner, CreatedAt: a.clock.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	swept, err := a.svc.Sweep(t.Context())
 	if err != nil {
