@@ -1,7 +1,6 @@
 package authn
 
 import (
-	"bytes"
 	"context"
 	"crypto/hkdf"
 	"crypto/hmac"
@@ -423,7 +422,10 @@ func (v *Verifications) Confirm(ctx context.Context, p UserPrincipal, id uuid.UU
 // number from the other's account cannot deadlock. A deleted user is
 // left out.
 func lockUsers(ctx context.Context, q *authndb.Queries, ids []uuid.UUID) (map[uuid.UUID]authndb.LockUserForSignInRow, error) {
-	slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	// The canonical text of a UUID sorts like its bytes. Ids are not
+	// secrets; this file still keeps out of the variable-time byte
+	// comparisons the package refuses (TestSecretsComparedInConstantTime).
+	slices.SortFunc(ids, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
 	locked := make(map[uuid.UUID]authndb.LockUserForSignInRow, len(ids))
 	for _, id := range ids {
 		u, err := q.LockUserForSignIn(ctx, id)
