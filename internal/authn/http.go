@@ -13,15 +13,18 @@ import (
 )
 
 // HTTP implements the authentication operations of the generated strict
-// server (api/openapi.yaml, tags auth and admin-auth).
+// server (api/openapi.yaml, tags auth and admin-auth) and the account
+// operations of marketplace users (registration, password reset and
+// change; ADR-0029 Karar 2 and 4).
 type HTTP struct {
-	users *Service
-	staff *StaffService
+	users    *Service
+	staff    *StaffService
+	accounts *Accounts
 }
 
 // NewHTTP returns the handlers.
-func NewHTTP(users *Service, staff *StaffService) *HTTP {
-	return &HTTP{users: users, staff: staff}
+func NewHTTP(users *Service, staff *StaffService, accounts *Accounts) *HTTP {
+	return &HTTP{users: users, staff: staff, accounts: accounts}
 }
 
 // errNoPrincipal means a protected handler ran without the middleware's
@@ -172,6 +175,84 @@ func (h *HTTP) ChangeStaffPassword(ctx context.Context, req apiv1.ChangeStaffPas
 	return apiv1.ChangeStaffPassword204Response{}, nil
 }
 
+// StartRegistration queues the first step of a registration; the answer
+// does not say whether the address has an account (USR-001).
+func (h *HTTP) StartRegistration(ctx context.Context, req apiv1.StartRegistrationRequestObject) (apiv1.StartRegistrationResponseObject, error) {
+	err := h.accounts.StartRegistration(ctx, RegistrationRequest{
+		Email: req.Body.Email, FirstName: req.Body.FirstName, LastName: req.Body.LastName, Employer: req.Body.Employer,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.StartRegistration202Response{}, nil
+}
+
+// VerifyRegistration turns a registration link into a registration token.
+func (h *HTTP) VerifyRegistration(ctx context.Context, req apiv1.VerifyRegistrationRequestObject) (apiv1.VerifyRegistrationResponseObject, error) {
+	g, err := h.accounts.VerifyRegistration(ctx, req.Body.VerificationToken)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.VerifyRegistration200JSONResponse{
+		RegistrationToken: g.Token, ExpiresAt: jsontime.From(g.ExpiresAt), Employer: g.Employer,
+	}, nil
+}
+
+// CompleteRegistration creates the user and signs it in on the request's
+// device.
+func (h *HTTP) CompleteRegistration(ctx context.Context, req apiv1.CompleteRegistrationRequestObject) (apiv1.CompleteRegistrationResponseObject, error) {
+	consents := make([]ConsentDecision, 0, len(req.Body.Consents))
+	for _, c := range req.Body.Consents {
+		consents = append(consents, ConsentDecision{DocumentCode: c.DocumentCode, Version: c.Version, Granted: c.Granted})
+	}
+	pair, err := h.accounts.CompleteRegistration(ctx, RegistrationCompletion{
+		Token: req.Body.RegistrationToken, Password: req.Body.Password, Consents: consents,
+		DeviceKey: httpx.DeviceIDFrom(ctx), Platform: string(httpx.ClientPlatformFrom(ctx)),
+	})
+	if err != nil {
+		return nil, err
+	}
+	location := "/v1/me"
+	return apiv1.CompleteRegistration201JSONResponse{
+		Body:    tokenPair(pair),
+		Headers: apiv1.CompleteRegistration201ResponseHeaders{Location: &location},
+	}, nil
+}
+
+// RequestPasswordReset queues a reset request; the answer does not say
+// whether the address has an account (USR-018).
+func (h *HTTP) RequestPasswordReset(ctx context.Context, req apiv1.RequestPasswordResetRequestObject) (apiv1.RequestPasswordResetResponseObject, error) {
+	if err := h.accounts.RequestPasswordReset(ctx, req.Body.Email); err != nil {
+		return nil, err
+	}
+	return apiv1.RequestPasswordReset202Response{}, nil
+}
+
+// CompletePasswordReset sets a new password with a reset token and ends
+// every session.
+func (h *HTTP) CompletePasswordReset(ctx context.Context, req apiv1.CompletePasswordResetRequestObject) (apiv1.CompletePasswordResetResponseObject, error) {
+	if err := h.accounts.CompletePasswordReset(ctx, req.Body.ResetToken, req.Body.NewPassword); err != nil {
+		return nil, err
+	}
+	return apiv1.CompletePasswordReset204Response{}, nil
+}
+
+// ChangeMyPassword changes the caller's password; the caller's session
+// stays.
+func (h *HTTP) ChangeMyPassword(ctx context.Context, req apiv1.ChangeMyPasswordRequestObject) (apiv1.ChangeMyPasswordResponseObject, error) {
+	p, ok := UserFrom(ctx)
+	if !ok {
+		return nil, errNoPrincipal
+	}
+	err := h.accounts.ChangePassword(ctx, p, PasswordChange{
+		Current: req.Body.CurrentPassword, New: req.Body.NewPassword, Confirmation: req.Body.NewPasswordConfirmation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.ChangeMyPassword204Response{}, nil
+}
+
 func tokenPair(p TokenPair) apiv1.TokenPair {
 	return apiv1.TokenPair{
 		AccessToken: p.AccessToken, AccessTokenExpiresAt: jsontime.From(p.AccessTokenExpiresAt),
@@ -219,6 +300,14 @@ type TargetLimiter interface {
 //     it; its own (target, address) bucket still applies.
 //   - A refresh takes one from the bucket of its hashed token, a staff
 //     password change from the member's, both in pairGroup.
+//   - A registration start and a password reset request take a token from
+//     the two buckets of their target address, like a sign-in but without
+//     the known-source escape: the e-mail bomb defense of ADR-0032 (the
+//     mail budget of the job is the second line).
+//   - The steps that present a mailed or issued token (registration
+//     verify and complete, reset complete) take one from the bucket of the
+//     hashed token, an in-app password change from the user's; all in
+//     pairGroup.
 //   - Token responses are not cached (RFC 6749 §5.1).
 //
 // The address bucket of the root chain applies on top.
@@ -288,6 +377,20 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 	case apiv1.ChangeStaffPasswordRequestObject:
 		if p, ok := StaffFrom(ctx); ok {
 			return []limitKey{{key: "password:staff:" + p.StaffID.String()}}, false
+		}
+	case apiv1.StartRegistrationRequestObject:
+		return signIn("registration:", h.users.Target(req.Body.Email), nil), true
+	case apiv1.RequestPasswordResetRequestObject:
+		return signIn("password-reset:", h.users.Target(req.Body.Email), nil), true
+	case apiv1.VerifyRegistrationRequestObject:
+		return []limitKey{{key: "registration-link:" + hex.EncodeToString(hashOpaque(req.Body.VerificationToken))}}, true
+	case apiv1.CompleteRegistrationRequestObject:
+		return []limitKey{{key: "registration-token:" + hex.EncodeToString(hashOpaque(req.Body.RegistrationToken))}}, true
+	case apiv1.CompletePasswordResetRequestObject:
+		return []limitKey{{key: "reset-token:" + hex.EncodeToString(hashOpaque(req.Body.ResetToken))}}, true
+	case apiv1.ChangeMyPasswordRequestObject:
+		if p, ok := UserFrom(ctx); ok {
+			return []limitKey{{key: "password:user:" + p.UserID.String()}}, false
 		}
 	}
 	return nil, false

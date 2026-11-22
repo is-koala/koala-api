@@ -1,0 +1,10 @@
+{{define "registration_link.subject"}}Koala kaydını tamamla{{end}}
+{{define "registration_link.text"}}
+Merhaba {{.FirstName}},
+
+Koala kaydını tamamlamak için aşağıdaki bağlantıyı aç. Bağlantı bir saat geçerlidir.
+
+{{.Link}}
+
+Bu isteği sen yapmadıysan bu postayı yok sayabilirsin; hesap oluşturulmaz.
+{{end}}

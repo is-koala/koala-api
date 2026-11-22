@@ -177,10 +177,10 @@ scenarios:
       - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#anExpiredLinkCannotResetThePassword"
       - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#changingThePasswordWhileLoggedInInvalidatesAnExistingResetLink"
       - "src/test/java/com/exskylab/koala/webAPI/PasswordResetIT.java#successfulResetQueuesTheSecurityNoticeOnlyAfterCommit"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: Parola sıfırlama akışı kimlik modülüyle gelir (plan §6.1 Faz 2).
+    go_test:
+      - internal/authn.TestResetTokenIsSingleUse
+      - internal/authn.TestOneOpenResetToken
+      - internal/authn.TestInvalidResetTokensAreOneError
 
   - id: AUTH-007
     priority: P0
@@ -204,10 +204,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#aKnownAddressReceivesAResetLink"
       - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#resettingReplacesTheHashAndClosesEverySession"
       - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#anInvalidTokenIsRejectedBeforeAnythingChanges"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: Parola sıfırlama akışı kimlik modülüyle gelir (plan §6.1 Faz 2).
+    go_test:
+      - internal/authn.TestResetRequestDoesNotTellAddressesApart
+      - internal/authn.TestResetEndsEverySession
 
   - id: AUTH-008
     priority: P0
@@ -228,10 +227,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#anAlreadyRegisteredAddressDoesNotProduceADistinguishableError"
       - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aNewAddressStartsRegistration"
       - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aSecondAttemptResendsInsteadOfFailing"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: 3 adımlı kayıt kimlik modülüyle gelir (plan §6.1 Faz 2).
+    go_test:
+      - internal/authn.TestRegistrationStartDoesNotTellAddressesApart
+      - internal/authn.TestRegistrationStartResends
 
   - id: AUTH-009
     priority: P0
@@ -267,11 +265,7 @@ scenarios:
       - internal/authn.TestPasswordRule
       - internal/authn.TestStaffLogoutAndPasswordChange
       - internal/authn.TestLoginAcceptsAnExistingShortPassword
-    partial:
-      phase: 2
-      reason: >-
-        Kural tek yerde (authn.CheckPassword); Faz 1'de onu çağıran yüzey personel parola
-        değişimi. Kayıt, sıfırlama ve oturumda değiştirme Faz 2'de aynı fonksiyonu çağırır.
+      - internal/authn.TestAccountPasswordRule
 
   - id: AUTH-010
     priority: P0

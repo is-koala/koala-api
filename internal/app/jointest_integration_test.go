@@ -200,6 +200,12 @@ func TestJoinTestOnTheContract(t *testing.T) {
 		"staff_login_sources.staff_id": {
 			Unread: "no GET operation reads staff_login_sources: it is the sign-in failure counter of one client address, read only by the sign-in path (ADR-0025 §5)",
 		},
+		"password_reset_tokens.user_id": {
+			Unread: "no GET operation reads password_reset_tokens: a reset token is only presented, once, by the reset itself (ADR-0029 Karar 4)",
+		},
+		"consent_records.user_id": {
+			Unread: "no GET operation reads consent_records: consent evidence is written at registration and no endpoint reads it back (ADR-0032)",
+		},
 		"example_comments.author_id": {
 			Unread: "an example table of the test databases (dbtest/testdata); the real contract has no operation on it, softdeletetest's own test covers the edge",
 		},

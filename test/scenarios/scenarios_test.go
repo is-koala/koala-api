@@ -37,9 +37,11 @@ func activeDomains() []string {
 // contract and the catalog together through it: while a tag still has an
 // operation marked x-not-implemented the domain's P0 scenarios must be
 // deferred, and once no operation of the tag is marked they must be bound.
-// The granularity is the domain, not the scenario: a scenario is written
-// in API-independent language and names no operation (README.md), so a
-// per-scenario map would leak the contract into the catalog.
+// The granularity is the domain: a scenario is written in API-independent
+// language and names no operation (README.md), so the catalog holds no
+// per-scenario map. A scenario bound before its domain's last operation
+// lands names its operations in contract_test.go's boundAhead instead,
+// which is test code (ADR-0032 Karar 5).
 func frozenDomains() map[string][]string {
 	return map[string][]string{
 		"user":     {"users", "admin-users"},

@@ -82,11 +82,6 @@ func Operations() []string {
 		"POST /v1/admin/companies/{companyId}/reject",
 		"POST /v1/admin/identity-verifications/{reviewId}/approve",
 		"POST /v1/admin/identity-verifications/{reviewId}/reject",
-		"POST /v1/auth/password-reset",
-		"POST /v1/auth/password-reset/complete",
-		"POST /v1/auth/registrations",
-		"POST /v1/auth/registrations/complete",
-		"POST /v1/auth/registrations/verify",
 		"POST /v1/companies",
 		"POST /v1/companies/{companyId}/contact-invitations",
 		"POST /v1/companies/{companyId}/images",
@@ -108,7 +103,6 @@ func Operations() []string {
 		"PUT /v1/companies/{companyId}/logo",
 		"PUT /v1/me/addresses/{addressId}",
 		"PUT /v1/me/educations/{educationId}",
-		"PUT /v1/me/password",
 	}
 }
 
@@ -145,23 +139,8 @@ func (Server) CancelMyVerification(context.Context, apiv1.CancelMyVerificationRe
 	return nil, notImplemented()
 }
 
-// ChangeMyPassword answers PUT /v1/me/password with 501 until its handler lands.
-func (Server) ChangeMyPassword(context.Context, apiv1.ChangeMyPasswordRequestObject) (apiv1.ChangeMyPasswordResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // CompleteMediaUpload answers POST /v1/me/media/{mediaId}/complete with 501 until its handler lands.
 func (Server) CompleteMediaUpload(context.Context, apiv1.CompleteMediaUploadRequestObject) (apiv1.CompleteMediaUploadResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// CompletePasswordReset answers POST /v1/auth/password-reset/complete with 501 until its handler lands.
-func (Server) CompletePasswordReset(context.Context, apiv1.CompletePasswordResetRequestObject) (apiv1.CompletePasswordResetResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// CompleteRegistration answers POST /v1/auth/registrations/complete with 501 until its handler lands.
-func (Server) CompleteRegistration(context.Context, apiv1.CompleteRegistrationRequestObject) (apiv1.CompleteRegistrationResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -405,11 +384,6 @@ func (Server) ReplaceMyEducation(context.Context, apiv1.ReplaceMyEducationReques
 	return nil, notImplemented()
 }
 
-// RequestPasswordReset answers POST /v1/auth/password-reset with 501 until its handler lands.
-func (Server) RequestPasswordReset(context.Context, apiv1.RequestPasswordResetRequestObject) (apiv1.RequestPasswordResetResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // ResolveAddressCandidate answers POST /v1/me/address-search-sessions/{sessionId}/candidates/{candidateId}/resolve with 501 until its handler lands.
 func (Server) ResolveAddressCandidate(context.Context, apiv1.ResolveAddressCandidateRequestObject) (apiv1.ResolveAddressCandidateResponseObject, error) {
 	return nil, notImplemented()
@@ -445,11 +419,6 @@ func (Server) StartMyVerification(context.Context, apiv1.StartMyVerificationRequ
 	return nil, notImplemented()
 }
 
-// StartRegistration answers POST /v1/auth/registrations with 501 until its handler lands.
-func (Server) StartRegistration(context.Context, apiv1.StartRegistrationRequestObject) (apiv1.StartRegistrationResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // SubmitMyIdentityDocuments answers POST /v1/me/identity-documents with 501 until its handler lands.
 func (Server) SubmitMyIdentityDocuments(context.Context, apiv1.SubmitMyIdentityDocumentsRequestObject) (apiv1.SubmitMyIdentityDocumentsResponseObject, error) {
 	return nil, notImplemented()
@@ -467,10 +436,5 @@ func (Server) UpdateCompany(context.Context, apiv1.UpdateCompanyRequestObject) (
 
 // UpdateMyProfile answers PATCH /v1/me/profile with 501 until its handler lands.
 func (Server) UpdateMyProfile(context.Context, apiv1.UpdateMyProfileRequestObject) (apiv1.UpdateMyProfileResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// VerifyRegistration answers POST /v1/auth/registrations/verify with 501 until its handler lands.
-func (Server) VerifyRegistration(context.Context, apiv1.VerifyRegistrationRequestObject) (apiv1.VerifyRegistrationResponseObject, error) {
 	return nil, notImplemented()
 }

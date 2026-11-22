@@ -254,6 +254,14 @@ func TestRoleGrants(t *testing.T) {
 			"admin_audit_entries":       {"INSERT"},
 			"admin_audit_entry_details": {"INSERT"},
 			"pii_access_log":            {"INSERT"},
+			// Account flows (0042, ADR-0032): pending registrations and
+			// reset tokens are M2, written and purged by the application;
+			// the agreement catalog is read-only; consent evidence is
+			// appended and never read back.
+			"pending_registrations": dml,
+			"password_reset_tokens": dml,
+			"agreement_versions":    {"SELECT"},
+			"consent_records":       {"INSERT"},
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below

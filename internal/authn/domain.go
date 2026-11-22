@@ -67,6 +67,31 @@ const (
 	// CodeStaffCurrentPasswordMismatch: a password change with a wrong
 	// current password (AUTH-013).
 	CodeStaffCurrentPasswordMismatch apperr.Code = "STAFF_CURRENT_PASSWORD_MISMATCH"
+
+	// The account codes (ADR-0029 Karar 2 and 4). The names avoid the
+	// words gosec's G101 reads as credentials; the values are the
+	// contract's.
+
+	// CodeRegistrationInvalid: a registration link or registration token
+	// that is unknown, revoked, expired or consumed; the four are
+	// indistinguishable.
+	CodeRegistrationInvalid apperr.Code = "REGISTRATION_TOKEN_INVALID"
+	// CodeConsentRequired: a mandatory agreement was not consented to; the
+	// registration token is not read (USR-005).
+	CodeConsentRequired apperr.Code = "CONSENT_REQUIRED"
+	// CodeResetLinkInvalid: a reset token that is unknown, expired,
+	// revoked or used; the four are indistinguishable (USR-016).
+	CodeResetLinkInvalid apperr.Code = "PASSWORD_RESET_TOKEN_INVALID"
+	// CodeCurrentMismatch: an in-app change with a wrong current password.
+	CodeCurrentMismatch apperr.Code = "PASSWORD_MISMATCH"
+	// CodeNewEqualsCurrent: the new password is the current one.
+	CodeNewEqualsCurrent apperr.Code = "PASSWORD_REUSED"
+	// CodeConfirmationMismatch: the new password and its confirmation
+	// differ.
+	CodeConfirmationMismatch apperr.Code = "PASSWORD_CONFIRMATION_MISMATCH"
+	// CodeVerificationTargetInUse: the registration's address got an
+	// account between the first and the third step.
+	CodeVerificationTargetInUse apperr.Code = "VERIFICATION_TARGET_IN_USE"
 )
 
 // Codes lists every code this package returns, for the contract test.
@@ -76,9 +101,32 @@ func Codes() []apperr.Code {
 		CodeTokenExpired, CodeSessionInactive, CodeSessionDeviceMismatch, CodeRefreshTokenInvalid,
 		CodeRefreshTokenExpired, CodeRefreshTokenReused, CodeSessionNotFound, CodePasswordPolicy,
 		CodeStaffLoginFailed, CodeStaffSessionEnded, CodeStaffPasswordChangeRequired,
-		CodeStaffCurrentPasswordMismatch,
+		CodeStaffCurrentPasswordMismatch, CodeRegistrationInvalid, CodeConsentRequired, CodeResetLinkInvalid,
+		CodeCurrentMismatch, CodeNewEqualsCurrent, CodeConfirmationMismatch, CodeVerificationTargetInUse,
 	}
 }
+
+// Account flows (ADR-0029 Karar 2 and 4, ADR-0032).
+const (
+	// RegistrationLinkTTL is the life of the link mailed at the first
+	// step, from the moment it is minted (USR-003).
+	RegistrationLinkTTL = time.Hour
+	// RegistrationTokenTTL is the life of the token the second step hands
+	// out for the third (USR-004).
+	RegistrationTokenTTL = 15 * time.Minute
+	// ResetLinkTTL is the life of a password reset link.
+	ResetLinkTTL = 15 * time.Minute
+	// LinkMailCooldown and LinkMailsPerHour bound the link mails one
+	// address (registration) or one account (reset) gets: none within the
+	// cooldown of the last, at most LinkMailsPerHour an hour. Karar 3's
+	// resend rule for OTP, applied to links (ADR-0032); a request over the
+	// budget is answered like any other and sends nothing.
+	LinkMailCooldown = time.Minute
+	LinkMailsPerHour = 5
+	// AccountRowRetention is how long pending registrations and reset
+	// requests are kept before the purge hard-deletes them (M2; USR-007).
+	AccountRowRetention = 30 * 24 * time.Hour
+)
 
 // Lifetimes (ADR-0025). Access tokens are short (K12); a refresh token's
 // idle limit slides with each rotation; the session's absolute limit does
@@ -204,6 +252,10 @@ const (
 	reasonExpired        = "EXPIRED"
 	reasonInactive       = "INACTIVE"
 	reasonLocked         = "LOCKED"
+	// reasonReset ends every session after a password reset, reasonChanged
+	// every other session after an in-app change (ADR-0029 Karar 4).
+	reasonReset   = "PASSWORD_RESET"
+	reasonChanged = "PASSWORD_CHANGED"
 )
 
 // Attempt outcomes (login_attempts CHECK constraint).

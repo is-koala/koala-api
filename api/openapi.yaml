@@ -469,7 +469,8 @@ paths:
   /v1/admin/auth/refresh:
     post:
       operationId: refreshStaffSession
-      x-error-codes: [STAFF_LOGIN_FAILED]
+      x-error-codes:
+        [AUTH_REFRESH_TOKEN_INVALID, AUTH_REFRESH_TOKEN_EXPIRED, AUTH_REFRESH_TOKEN_REUSED]
       tags: [admin-auth]
       summary: Personel refresh token'ını döndürür.
       description: |
@@ -683,9 +684,6 @@ paths:
       security: []
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Tekrar eden istek yalnız bekleyen kaydı yeniler ve yeni bir posta gönderir; kullanıcı oluşmaz.
       requestBody:
         description: Kaydı başlatan bilgiler.
@@ -725,9 +723,6 @@ paths:
       security: []
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Bağlantı token'ı tüketilmez; tekrar eden istek yalnız yeni bir kayıt token'ı verir.
       requestBody:
         description: Bağlantının token'ı.
@@ -771,9 +766,6 @@ paths:
       security: []
       x-rate-limit: auth
       x-body-limit: 8192
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
       requestBody:
@@ -825,9 +817,6 @@ paths:
       security: []
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Tekrar eden istek yalnız yeni bir token üretir ve öncekini iptal eder; yan etkisi birikmez.
       requestBody:
         description: Sıfırlama istenen adres.
@@ -866,9 +855,6 @@ paths:
       security: []
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Token tek kullanımlıktır; aynı gövdenin tekrarı geçersiz token yanıtı alır.
       requestBody:
         description: Sıfırlama token'ı ve yeni parola.
@@ -989,9 +975,6 @@ paths:
         Çağıran yalnız kendi parolasını değiştirir; kimlik oturumdan gelir, seçilecek nesne yoktur.
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       requestBody:
         description: Mevcut parola, yeni parola ve onayı.
         required: true
