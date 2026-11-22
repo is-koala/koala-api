@@ -62,11 +62,20 @@ func completionBody(token, password string) string {
 // postKeyed sends a POST with an Idempotency-Key from a current iOS build.
 func (a *authApp) postKeyed(t *testing.T, path, key, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return a.postKeyedAs(t, path, key, body, "")
+}
+
+// postKeyedAs is postKeyed signed in with bearer, when it is not empty.
+func (a *authApp) postKeyedAs(t *testing.T, path, key, body, bearer string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(body))
 	req.RemoteAddr = "192.0.2.1:40000"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(httpx.HeaderIdempotencyKey, key)
 	setClient(req.Header)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
 	rec := httptest.NewRecorder()
 	a.router.ServeHTTP(rec, req)
 	return rec
@@ -105,6 +114,9 @@ func isReplay(rec *httptest.ResponseRecorder) bool {
 // app, and how to read the xmin of a business row its success writes.
 type idempotentFixture struct {
 	path, body string
+	// bearer signs the request in; empty for an operation without a
+	// caller.
+	bearer string
 	// businessXmin returns the xmin of a row the operation's transaction
 	// wrote, once the operation succeeded.
 	businessXmin func(t *testing.T) string
@@ -126,6 +138,20 @@ func idempotentFixtures() map[string]func(t *testing.T, a *authApp) idempotentFi
 				businessXmin: func(t *testing.T) string {
 					t.Helper()
 					return a.text(t, "SELECT s.xmin::text FROM user_sessions s JOIN active_users u ON u.id = s.user_id WHERE u.email = $1", email)
+				},
+			}
+		},
+		// The start writes the media row and the budget ledger's row in
+		// one transaction with the stored answer (ADR-0035).
+		"startMediaUpload": func(t *testing.T, a *authApp) idempotentFixture {
+			t.Helper()
+			const email = "yukleyen@example.com"
+			bearer := a.addSignedIn(t, email)
+			return idempotentFixture{
+				path: "/v1/me/media", body: `{"kind":"PROFILE_PICTURE","sizeBytes":524288}`, bearer: bearer,
+				businessXmin: func(t *testing.T) string {
+					t.Helper()
+					return a.text(t, "SELECT m.xmin::text FROM active_media m JOIN active_users u ON u.id = m.owner_id WHERE u.email = $1", email)
 				},
 			}
 		},
@@ -186,7 +212,7 @@ func TestIdempotentOperationsReplay(t *testing.T) {
 			a := newAuthApp(t, unlimitedGroups())
 			fx := fixtures[op](t, a)
 			path, body, key := fx.path, fx.body, "fixture-"+op
-			first := a.postKeyed(t, path, key, body)
+			first := a.postKeyedAs(t, path, key, body, fx.bearer)
 			if first.Code < 200 || first.Code > 299 || isReplay(first) {
 				t.Fatalf("first answer %d (replay %v): %s", first.Code, isReplay(first), first.Body)
 			}
@@ -200,7 +226,7 @@ func TestIdempotentOperationsReplay(t *testing.T) {
 				t.Fatalf("%s's success was not committed in its transaction (committed %v, unbound %v)", op,
 					a.counted(t, op, idempotency.ResultCommitted), a.counted(t, op, idempotency.ResultUnbound))
 			}
-			again := a.postKeyed(t, path, key, body)
+			again := a.postKeyedAs(t, path, key, body, fx.bearer)
 			if !isReplay(again) || again.Code != first.Code || !bytes.Equal(again.Body.Bytes(), first.Body.Bytes()) ||
 				again.Header().Get("Location") != first.Header().Get("Location") {
 				t.Fatalf("second answer %d %s (replay %v), want the first, %d %s",

@@ -133,6 +133,7 @@ func unseenCodes() map[string]map[string]string {
 func unresolvedCalls() map[string]string {
 	return map[string]string{
 		"internal/authn.jobQueue": "River's client implements it (outside the module): it inserts a job and returns River's own errors, never an apperr code",
+		"internal/media.jobQueue": "River's client implements it (outside the module): it inserts a job and returns River's own errors, never an apperr code",
 	}
 }
 

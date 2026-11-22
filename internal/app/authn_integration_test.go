@@ -26,6 +26,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
+	"github.com/is-koala/koala-api/internal/platform/fakes"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/log"
 	"github.com/is-koala/koala-api/internal/realtime"
@@ -37,6 +38,9 @@ const (
 	userPw     = "ayşe'nin uzun parolası"
 	staffEmail = "ops@iskoala.com"
 	staffPw    = "personelin uzun parolası"
+	// The fake object store's bucket and the public origin of its images.
+	testBucket        = "koala-app-test"
+	testPublicBaseURL = "https://cdn.example.com"
 )
 
 // authApp is the wired router on a real database and a fake clock.
@@ -50,6 +54,8 @@ type authApp struct {
 	mods      modules
 	dbt       dbtest.DB
 	reg       *prometheus.Registry
+	// s3 is the object store the media module writes to (ADR-0035).
+	s3 *fakes.S3
 }
 
 func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
@@ -58,9 +64,15 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	database := d.Open(t, db.RoleApp)
 	clk := clock.NewFake(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC))
 	logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
-	mods := testModulesOn(t, database, clk)
+	s3 := fakes.NewS3(t, testBucket)
+	cfg := config.Config{Env: config.EnvTest, Object: config.ObjectStore{
+		Endpoint: s3.Endpoint(), Region: "eu-central-1", Bucket: testBucket,
+		AccessKeyID: "app-test-access-key", SecretKey: "app-test-secret", PathStyle: true,
+		PublicBaseURL: testPublicBaseURL,
+	}}
+	mods := testModulesWith(t, cfg, database, clk)
 	reg := prometheus.NewRegistry()
-	router, err := newRouter(context.Background(), config.Config{Env: config.EnvTest}, logger,
+	router, err := newRouter(context.Background(), cfg, logger,
 		httpx.NewHealth(logger), reg, groups, mods)
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +83,7 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	}
 	return &authApp{
 		router: router, clock: clk, db: database, maint: d.Open(t, db.RoleMaint),
-		q: authndb.New(database.Pool()), passwords: passwords, mods: mods, dbt: d, reg: reg,
+		q: authndb.New(database.Pool()), passwords: passwords, mods: mods, dbt: d, reg: reg, s3: s3,
 	}
 }
 

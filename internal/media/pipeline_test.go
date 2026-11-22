@@ -793,7 +793,7 @@ func TestDiscardDoesNotMaskTheOriginalError(t *testing.T) {
 
 	h.pipeline.Discard(context.Background(), done.Key, media.WriteFailed)
 	if !strings.Contains(h.logs.String(), "object left in the store after a failed cleanup") {
-		t.Errorf("the failed cleanup was not logged: %s", h.logs.String())
+		t.Errorf("MED-006: the failed cleanup was not logged: %s", h.logs.String())
 	}
 }
 

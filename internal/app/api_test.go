@@ -19,6 +19,7 @@ import (
 	"github.com/is-koala/koala-api/api"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/media"
 	"github.com/is-koala/koala-api/internal/pending"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
@@ -77,8 +78,14 @@ func lazyDB(tb testing.TB) *db.DB {
 
 func testModulesOn(tb testing.TB, database *db.DB, clk clock.Clock) modules {
 	tb.Helper()
+	return testModulesWith(tb, config.Config{Env: config.EnvTest}, database, clk)
+}
+
+// testModulesWith wires the modules with cfg (an object store, say).
+func testModulesWith(tb testing.TB, cfg config.Config, database *db.DB, clk clock.Clock) modules {
+	tb.Helper()
 	logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
-	mods, err := wireModules(context.Background(), config.Config{Env: config.EnvTest}, database, clk, logger, prometheus.NewRegistry())
+	mods, err := wireModules(context.Background(), cfg, database, clk, logger, prometheus.NewRegistry())
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -234,7 +241,7 @@ func TestBindErrorIsALoggedServerError(t *testing.T) {
 func TestPlatformCodesAreInTheContract(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range slices.Concat(httpx.PlatformCodes(), idempotency.Codes(), softdelete.Codes(), realtime.Codes(), authn.Codes(), staff.Codes(), pending.Codes()) {
+	for _, c := range slices.Concat(httpx.PlatformCodes(), idempotency.Codes(), softdelete.Codes(), realtime.Codes(), authn.Codes(), staff.Codes(), pending.Codes(), media.Codes()) {
 		if !apiv1.ErrorCode(c).Valid() {
 			t.Errorf("code %s is not in api/components/problem.yaml ErrorCode", c)
 		}

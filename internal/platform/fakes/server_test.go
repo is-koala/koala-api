@@ -163,3 +163,27 @@ func TestServerRefusesAnOversizedBody(t *testing.T) {
 		t.Fatalf("reported at cleanup: %q", errs)
 	}
 }
+
+// Before runs its hook once, ahead of the answer of the next matching
+// request, and not for a request to another path.
+func TestServerBeforeRunsOnceAheadOfTheAnswer(t *testing.T) {
+	t.Parallel()
+	f := fakes.NewFCM(t, "koala-test")
+	f.Enqueue(http.MethodGet, "/hooked", fakes.JSON(http.StatusOK, nil), fakes.JSON(http.StatusOK, nil))
+	f.Enqueue(http.MethodGet, "/other", fakes.JSON(http.StatusOK, nil))
+	ran := make(chan int, 3)
+	f.Before(http.MethodGet, "/hooked", func() { ran <- len(f.RequestsTo(http.MethodGet, "/hooked")) })
+
+	call(t, f.Client(), http.MethodGet, f.URL()+"/other", nil, "")
+	call(t, f.Client(), http.MethodGet, f.URL()+"/hooked", nil, "")
+	call(t, f.Client(), http.MethodGet, f.URL()+"/hooked", nil, "")
+	close(ran)
+	var runs []int
+	for n := range ran {
+		runs = append(runs, n)
+	}
+	// One run, during the first matching request (already recorded).
+	if len(runs) != 1 || runs[0] != 1 {
+		t.Fatalf("hook runs %v, want one, during the first /hooked request", runs)
+	}
+}

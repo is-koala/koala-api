@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/is-koala/koala-api/internal/media"
+	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/imaging"
 	"github.com/is-koala/koala-api/internal/platform/storage"
 )
@@ -189,5 +190,36 @@ func TestRejectionIsAValueNotAnError(t *testing.T) {
 			t.Errorf("rejection %q is declared twice", r)
 		}
 		seen[r] = true
+	}
+}
+
+// TestRejectionCodes is ADR-0035 Karar 3: every rejection renders one of
+// the contract's codes, CORRUPT folds into MEDIA_TYPE_UNSUPPORTED, and
+// RejectionNone renders none. A rejection without a code would be a
+// REJECTED media whose rejectionCode is null -- a row the contract cannot
+// describe, which is the gap ADR-0030 left open.
+func TestRejectionCodes(t *testing.T) {
+	t.Parallel()
+
+	want := map[media.Rejection]apperr.Code{
+		media.RejectionNotUploaded:     media.CodeUploadIncomplete,
+		media.RejectionTypeUnsupported: media.CodeTypeUnsupported,
+		media.RejectionCorrupt:         media.CodeTypeUnsupported,
+		media.RejectionTooLarge:        media.CodeTooLarge,
+	}
+	if len(media.Rejections()) != len(want) {
+		t.Fatalf("media.Rejections() has %d members, this table %d", len(media.Rejections()), len(want))
+	}
+	for _, r := range media.Rejections() {
+		code, ok := r.Code()
+		if !ok || code != want[r] {
+			t.Errorf("%s.Code() = %q, %v, want %q", r, code, ok, want[r])
+		}
+		if !slices.Contains(media.Codes(), code) {
+			t.Errorf("%s renders %q, which media.Codes() does not list", r, code)
+		}
+	}
+	if code, ok := media.RejectionNone.Code(); ok {
+		t.Errorf("RejectionNone renders %q", code)
 	}
 }
