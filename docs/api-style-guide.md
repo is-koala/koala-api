@@ -105,7 +105,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 | 201 | Oluşturma; `Location` başlığı yeni kaynağı gösterir. Adreslenebilir bir kaynak oluşmuyorsa (kısa ömürlü bilet) operasyon `x-no-location: <gerekçe>` yazar **[lint: koala-location-on-201]** |
 | 202 | Kabul edildi, iş arka planda (River) |
 | 204 | Gövdesiz başarı (`DELETE`, gövdesiz eylem) |
-| 400 | Sözleşmeye uymayan istek: `REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`, `SORT_FIELD_NOT_ALLOWED`, `CURSOR_INVALID`, `IDEMPOTENCY_KEY_REQUIRED`. Alan kuralı ihlali alanın kendi kodunu taşır. Desteklenmeyen istemci sürümü `APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` döner (426 değil: RFC 9110 426'da `Upgrade` başlığını zorunlu tutar; ADR-0019) |
+| 400 | Sözleşmeye uymayan istek: `REQUEST_INVALID`, `REQUEST_BODY_MALFORMED`, `SORT_FIELD_NOT_ALLOWED`, `CURSOR_INVALID`. Eksik ya da bozuk `Idempotency-Key` de `REQUEST_INVALID` + `FIELD_REQUIRED`/`FIELD_VALUE_INVALID` alır (ayrı kod yok, ADR-0034). Alan kuralı ihlali alanın kendi kodunu taşır. Desteklenmeyen istemci sürümü `APP_VERSION_UNSUPPORTED` + `X-Minimum-App-Version` döner (426 değil: RFC 9110 426'da `Upgrade` başlığını zorunlu tutar; ADR-0019) |
 | 401 | Kimlik yok ya da geçersiz |
 | 403 | Kimlik var, eylem yasak. **Okuma reddi 403 değil, kaynağın 404'üdür**; gövde bayt bayt aynıdır (ADR-0014) |
 | 404 | Kaynak yok ya da görme yetkisi yok; `ROUTE_NOT_FOUND` yalnız bilinmeyen yolda döner |
@@ -113,7 +113,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 | 409 | Kaynağın durumu isteğe izin vermiyor ya da aynı Idempotency-Key'li istek sürüyor |
 | 413 | Gövde sınırı aşıldı |
 | 415 | Gövdenin `Content-Type`'ı desteklenmiyor |
-| 422 | **Yalnız** aynı Idempotency-Key farklı gövdeyle geldiğinde (ADR-0005 madde 6). Alan doğrulaması 422 değil, 400'dür |
+| 422 | **Yalnız** aynı Idempotency-Key farklı bir istekle geldiğinde (ADR-0005 madde 6, ADR-0034; parmak izi: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`). Alan doğrulaması 422 değil, 400'dür. Anahtar almayan operasyon 422 tanımlamaz **[test: app TestIdempotentOperationsDeclareTheirRefusals]** |
 | 429 | Oran sınırı aşıldı; `Retry-After` döner |
 | 500 | Beklenmeyen hata (`INTERNAL`); sebep yalnız log'da. Doğrulayıcının sınıflayamadığı hata da 500'dür (ADR-0019) |
 | 502 | Üst sistem (Iyzico, FCM…) hatası |
@@ -142,8 +142,8 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
 - **Anahtarın biçimi** (öneri):
   - 8–255 karakterdir ve `[A-Za-z0-9_.:-]` kümesinden oluşur. İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede aynısını gönderir.
   - Çıplak değer (Stripe) ve taslaktaki tırnaklı structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur ve ikisi aynı anahtardır (ADR-0019) **[test: httpx TestIdempotencyKey]**.
-- Aynı anahtar farklı gövdeyle gelirse 422 `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE` döner (ADR-0005 madde 6; kod adları öneri).
-- Anahtar aktör ve operasyonla 24 saat saklanır (`idempotency_keys`, plan §4.1-6, ADR-0034). İsteğin parmak izi doğrulanmış değerin kanonik JSON'undan (§4), yol ve sorgu parametrelerinden ve istemci başlıklarından alınır. Aynı istek saklanan yanıtı bayt bayt aynen alır (`Idempotent-Replayed: true`). Başarı ve kalıcı 4xx saklanır; 5xx, 408, 425 ve 429 anahtarı serbest bırakır.
+- Aynı anahtar farklı bir istekle gelirse 422 `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE` döner (ADR-0005 madde 6; kod adları öneri). İsteğin parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform` (taslak §2.4'ün belgeleme önerisi).
+- Anahtar aktör ve operasyonla 24 saat saklanır (`idempotency_keys`, plan §4.1-6, ADR-0034). İsteğin parmak izi doğrulanmış değerin kanonik JSON'undan (§4), yol ve sorgu parametrelerinden, `X-Device-Id` ve `X-Client-Platform`'dan alınır. Aynı istek saklanan yanıtı bayt bayt aynen alır (`Idempotent-Replayed: true`, `headers.yaml#/components/headers/IdempotentReplayed`; bağlı operasyonun başarı yanıtı onu tanımlar **[test]**). Başarı saklanır; çağıranı olan operasyonda yürütmeye başlamış isteğin kalıcı 4xx'i de saklanır (Stripe). Çağıranı olmayan operasyonda 4xx, her operasyonda 5xx, 408, 425 ve 429 anahtarı serbest bırakır. Elinde token çifti olan istemci tekrar yanıtındaki çifti kullanmaz (ADR-0034 Karar 3).
 - Depo platform katmanındadır (`internal/platform/idempotency`) ve sözleşmeden bağlanır: parametreyi alan ve `x-not-implemented` taşımayan her operasyon kendiliğinden bağlıdır. Çağıranı olmayan operasyonun aktörü isteğin sunduğu yetkidir (`completeRegistration`'da kayıt token'ı); aktörü yazılmamış böyle bir operasyonla sunucu açılmaz **[test]**. Handler başarı yanıtını kendi tx'inde `idempotency.Commit` ile saklar **[test: archtest TestIdempotentHandlersCommitTheirKey, app TestIdempotentOperationsReplay]**.
 - Parametreyi alan her operasyon 409 ve 422 yanıtlarını tanımlar **[test: app TestIdempotentOperationsDeclareTheirRefusals]**.
 
@@ -156,7 +156,7 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - Önek alan adıdır (`PAYMENT_`, `JOB_`); platform kodları öneksizdir.
   - HTTP durum adı tekrar edilmez (`CONFLICT_…` yok).
   - Biçim hatalarının kodları `FIELD_*`'dır (`FIELD_REQUIRED`, `FIELD_UNKNOWN`, `FIELD_TYPE_INVALID`, `FIELD_FORMAT_INVALID`, `FIELD_VALUE_INVALID`, `FIELD_OUT_OF_RANGE`). Alan kuralının ihlali kendi kodunu taşır (`IBAN_INVALID`).
-- **Operasyon kendi hata kodlarını sayar:** `x-error-codes` operasyonun ürettiği alan kodlarını listeler (boş liste de yazılır). Listelenen her kodun `ErrorCode` açıklamasındaki HTTP durumu operasyonun yanıt kümesinde bulunmak zorundadır **[test: api TestOperationStatusesCoverTheirErrorCodes]**. Platform, oturum ve Idempotency-Key kodları evrenseldir, ortak yanıtlardan gelir ve listelenmez. Sınır: ters yön (karşılığı hiçbir kod olmayan bir durum) ve evrensel kodlar denetlenmez (ADR-0029).
+- **Operasyon kendi hata kodlarını sayar:** `x-error-codes` operasyonun ürettiği alan kodlarını listeler (boş liste de yazılır). Listelenen her kodun `ErrorCode` açıklamasındaki HTTP durumu operasyonun yanıt kümesinde bulunmak zorundadır **[test: api TestOperationStatusesCoverTheirErrorCodes]**. Platform ve oturum kodları evrenseldir, ortak yanıtlardan gelir ve listelenmez. `IDEMPOTENCY_KEY_*` kodları yalnız `Idempotency-Key` alan operasyonlarda evrenseldir; alan paketi onları döndürmez, anahtarsız operasyon onları listelemez **[test: archtest TestIdempotencyCodesStayInTheStore, app TestIdempotentOperationsDeclareTheirRefusals]**. Sınır: ters yön (karşılığı hiçbir kod olmayan bir durum) ve evrensel kodlar denetlenmez (ADR-0029).
 - **Her `ErrorCode` üyesi HTTP durumunu açıklamasında yazar.** Yazmayan üye gerekçeli istisna listesindedir (`FIELD_*` kodları `ProblemField.code`'da, realtime olay kodları soket üzerinde taşınır) **[test: api TestOperationStatusesCoverTheirErrorCodes]**.
 - **Alan hataları** `errors[]`'tadır (ADR-0019; JSON:API `source`, Microsoft `target`):
   - Gövdedeki üye: `{pointer, code}`. `pointer` RFC 6901'dir: `/amount/currency`; gövdenin tamamı için `""`.

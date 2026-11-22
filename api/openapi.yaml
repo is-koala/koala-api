@@ -798,6 +798,8 @@ paths:
               schema:
                 type: string
                 examples: ["/v1/me"]
+            Idempotent-Replayed:
+              $ref: "./components/headers.yaml#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
@@ -6514,7 +6516,9 @@ components:
           schema:
             $ref: "./components/problem.yaml#/components/schemas/Problem"
     UnprocessableContent:
-      description: Aynı Idempotency-Key farklı gövdeyle kullanıldı (`IDEMPOTENCY_KEY_REUSED`).
+      description: |
+        Aynı Idempotency-Key farklı bir istekle kullanıldı (`IDEMPOTENCY_KEY_REUSED`). İsteğin
+        parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform` (ADR-0034).
       content:
         application/problem+json:
           schema:
