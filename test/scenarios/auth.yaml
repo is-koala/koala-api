@@ -207,6 +207,7 @@ scenarios:
     go_test:
       - internal/authn.TestResetRequestDoesNotTellAddressesApart
       - internal/authn.TestResetEndsEverySession
+      - internal/authn.TestInvalidResetTokensAreOneError
 
   - id: AUTH-008
     priority: P0
@@ -223,6 +224,10 @@ scenarios:
       - "a@örnek: başarılı yanıt, bekleyen kayıt yok, e-posta yok"
       - "c@örnek: eski bekleyen kayıt silinir, yenisi oluşur, e-posta gider"
       - "d@örnek: bekleyen kayıt oluşur, e-posta gider"
+    target: >
+      Go eski bekleyen kaydı silmez, iptal eder: satır saklama süresi (30 gün) boyunca posta bütçesi
+      için kalır, adresi ve adı iptal anında silinir (ADR-0032 Karar 6, KVKK veri en aza indirme).
+      İptal edilmiş kaydın bağlantısı reddedilir; gözlenebilir sonuç Java'nınkiyle aynıdır.
     source:
       - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#anAlreadyRegisteredAddressDoesNotProduceADistinguishableError"
       - "src/test/java/com/exskylab/koala/business/concretes/RegistrationEnumerationTest.java#aNewAddressStartsRegistration"

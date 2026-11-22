@@ -371,7 +371,9 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/PasswordResetTokenManager.java#consume"
       - "src/test/java/com/exskylab/koala/business/concretes/PasswordResetTest.java#resettingReplacesTheHashAndClosesEverySession"
-    go_test: internal/authn.TestResetTokenIsSingleUse
+    go_test:
+      - internal/authn.TestResetTokenIsSingleUse
+      - internal/authn.TestResetIsOneTransaction
 
   - id: USR-016
     priority: P0
@@ -416,9 +418,9 @@ scenarios:
     priority: P0
     title: Sıfırlama isteğinde kayıtsız adres kayıtlıdan ayırt edilemez ve aynı maliyeti öder
     rule: >
-      Parola sıfırlama isteği, adres kayıtlı olsun olmasın aynı yanıt gövdesini döndürür. Kayıtsız
-      dalda da token üretme ve posta hazırlama maliyeti ödenir; üretilen token atılır ve posta
-      gönderilmez.
+      Parola sıfırlama isteği, adres kayıtlı olsun olmasın aynı yanıt gövdesini döndürür ve istek
+      yolu iki dalda da aynı işi yapar. Kayıtsız adres için token üretilmez, hiçbir kayıt yazılmaz
+      ve posta gönderilmez.
     given:
       - "a@örnek kayıtlı; b@örnek kayıtlı değil"
     when:
@@ -426,7 +428,7 @@ scenarios:
     then:
       - "İki yanıt da başarı; gövdeleri bayt bayt aynı"
       - "Yalnız a@örnek'e posta gider"
-      - "Kayıtsız dalda da token üretilir ve atılır; zamanlama eşitlenir"
+      - "İki istek de aynı işi yapar; kayıtsız dalda token üretilmez ve sıfırlama kaydı yazılmaz"
     decision: "Java hatası (kayıtsız dal token üretmiyor; zamanlama farkı kalıyor)"
     target: >
       İki dal aynı işi yapar (AUTH-001'in kalıbı; ADR-0029 Karar 4). Java'nın kayıtsız dalı erken
@@ -504,7 +506,9 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/core/constants/PasswordPolicy.java:1-20"
       - "src/test/java/com/exskylab/koala/core/dtos/PasswordPolicyRulesTest.java#everyFieldThatSetsAPasswordCarriesTheOneSharedRule"
-    go_test: internal/authn.TestAccountPasswordRule
+    go_test:
+      - internal/authn.TestAccountPasswordRule
+      - internal/authn.TestCurrentPasswordIsNotHeldToTheRule
 
   - id: USR-022
     priority: P0
