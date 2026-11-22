@@ -29,7 +29,8 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
-// mailTemplates are the account mails (ADR-0032).
+// mailTemplates are the account mails (ADR-0032) and the verification
+// mails (ADR-0033).
 //
 //go:embed mail/*.txt mail/*.html
 var mailTemplates embed.FS
@@ -92,7 +93,7 @@ func NewAccounts(users *Service, queue jobQueue, sender mailSender, webBaseURL s
 	if err != nil || (web.Scheme != "https" && web.Scheme != "http") || web.Host == "" {
 		return nil, errors.New("authn: the web base URL must be an absolute http or https URL")
 	}
-	mails, err := parseMailTemplates()
+	mails, err := parseMailTemplates(mailRegistrationLink, mailResetLink, mailChanged, mailWelcome)
 	if err != nil {
 		return nil, err
 	}
@@ -103,9 +104,9 @@ func NewAccounts(users *Service, queue jobQueue, sender mailSender, webBaseURL s
 	return &Accounts{users: users, queue: queue, sender: sender, mails: mails, web: web, registrationsPerHour: limit}, nil
 }
 
-// parseMailTemplates reads the account mails and checks that each has its
-// subject, text and HTML.
-func parseMailTemplates() (*mailer.Templates, error) {
+// parseMailTemplates reads the module's mails and checks that each of
+// names has its subject, text and HTML.
+func parseMailTemplates(names ...string) (*mailer.Templates, error) {
 	sub, err := fs.Sub(mailTemplates, "mail")
 	if err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
@@ -114,7 +115,7 @@ func parseMailTemplates() (*mailer.Templates, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
 	}
-	if err := mails.Check(mailRegistrationLink, mailResetLink, mailChanged, mailWelcome); err != nil {
+	if err := mails.Check(names...); err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
 	}
 	return mails, nil

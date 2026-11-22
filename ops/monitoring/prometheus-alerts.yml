@@ -32,6 +32,20 @@ groups:
         for: 1m
         labels: { severity: warning, owner: backend }
         annotations: { summary: "Saatlik küresel kayıt postası tavanı doldu; yeni kayıt postaları tutuluyor (ADR-0032)" }
+      # The global hourly cap of verification texts (ADR-0033): while it
+      # holds, legitimate phone verifications get no code either.
+      - alert: KoalaVerificationTextCapReached
+        expr: increase(koala_verification_codes_total{channel="PHONE",outcome="held"}[15m]) > 0
+        for: 1m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Saatlik küresel doğrulama SMS'i tavanı doldu; yeni kodlar tutuluyor (ADR-0033)" }
+      # SMS pumping shows as volume before the cap: half the default cap in
+      # an hour is far above what the user base sends (ADR-0033).
+      - alert: KoalaVerificationTextVolumeHigh
+        expr: sum(increase(koala_verification_codes_total{channel="PHONE",outcome="sent"}[1h])) > 100
+        for: 5m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Son bir saatte 100'den fazla doğrulama SMS'i gitti; SMS pompalama olabilir (ADR-0033)" }
       - alert: KoalaBackupStale
         expr: time() - koala_backup_last_success_timestamp_seconds > 93600
         for: 15m

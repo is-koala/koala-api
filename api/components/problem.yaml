@@ -216,9 +216,11 @@ components:
         - `VERIFICATION_ALREADY_CONFIRMED` (409): doğrulama zaten onaylanmış; ikinci onay kodu
           hiç bakılmadan reddedilir (USR-013).
         - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres ya da numara başka bir
-          hesapta.
-        - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi ya da hedef
-          başına saatlik bütçe doldu (USR-010); `Retry-After` döner.
+          hesapta. Doğrulamada yalnız doğru kodu girene, kayıtta yalnız bağlantıyı açana döner
+          (ADR-0033).
+        - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi, hedef
+          başına saatlik bütçe (USR-010) ya da kullanıcının kanal başına günlük tavanı doldu;
+          `Retry-After` döner.
         - `USER_NOT_FOUND` (404): kullanıcı yok ya da görme yetkisi yok; ikisi ayırt edilemez.
         - `USER_FIELD_IMMUTABLE` (409): kimlik doğrulandıktan sonra ad, soyad ya da doğum tarihi
           değiştirilemez (USR-024).

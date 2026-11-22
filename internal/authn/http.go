@@ -13,18 +13,20 @@ import (
 )
 
 // HTTP implements the authentication operations of the generated strict
-// server (api/openapi.yaml, tags auth and admin-auth) and the account
+// server (api/openapi.yaml, tags auth and admin-auth), the account
 // operations of marketplace users (registration, password reset and
-// change; ADR-0029 Karar 2 and 4).
+// change; ADR-0029 Karar 2 and 4) and their e-mail and phone
+// verification (ADR-0029 Karar 3, ADR-0033).
 type HTTP struct {
-	users    *Service
-	staff    *StaffService
-	accounts *Accounts
+	users         *Service
+	staff         *StaffService
+	accounts      *Accounts
+	verifications *Verifications
 }
 
 // NewHTTP returns the handlers.
-func NewHTTP(users *Service, staff *StaffService, accounts *Accounts) *HTTP {
-	return &HTTP{users: users, staff: staff, accounts: accounts}
+func NewHTTP(users *Service, staff *StaffService, accounts *Accounts, verifications *Verifications) *HTTP {
+	return &HTTP{users: users, staff: staff, accounts: accounts, verifications: verifications}
 }
 
 // errNoPrincipal means a protected handler ran without the middleware's
@@ -258,6 +260,102 @@ func (h *HTTP) ChangeMyPassword(ctx context.Context, req apiv1.ChangeMyPasswordR
 	return apiv1.ChangeMyPassword204Response{}, nil
 }
 
+// defaultPageSize is the contract's default limit (components/pagination).
+const defaultPageSize = 20
+
+// ListMyVerifications lists the caller's open verifications.
+func (h *HTTP) ListMyVerifications(ctx context.Context, req apiv1.ListMyVerificationsRequestObject) (apiv1.ListMyVerificationsResponseObject, error) {
+	p, ok := UserFrom(ctx)
+	if !ok {
+		return nil, errNoPrincipal
+	}
+	limit, cursor := int32(defaultPageSize), ""
+	if req.Params.Limit != nil {
+		limit = *req.Params.Limit
+	}
+	if req.Params.Cursor != nil {
+		cursor = *req.Params.Cursor
+	}
+	page, err := h.verifications.List(ctx, p, limit, cursor)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]apiv1.Verification, 0, len(page.Items))
+	for i := range page.Items {
+		items = append(items, verification(page.Items[i]))
+	}
+	return apiv1.ListMyVerifications200JSONResponse{Items: items, NextCursor: page.NextCursor, PrevCursor: page.PrevCursor}, nil
+}
+
+// StartMyVerification opens a verification of a new address or number
+// and queues its code.
+func (h *HTTP) StartMyVerification(ctx context.Context, req apiv1.StartMyVerificationRequestObject) (apiv1.StartMyVerificationResponseObject, error) {
+	p, ok := UserFrom(ctx)
+	if !ok {
+		return nil, errNoPrincipal
+	}
+	v, err := h.verifications.Start(ctx, p, string(req.Body.Channel), req.Body.Target)
+	if err != nil {
+		return nil, err
+	}
+	location := "/v1/me/verifications/" + v.ID.String()
+	return apiv1.StartMyVerification201JSONResponse{
+		Body:    verification(v),
+		Headers: apiv1.StartMyVerification201ResponseHeaders{Location: &location},
+	}, nil
+}
+
+// GetMyVerification returns one of the caller's verifications.
+func (h *HTTP) GetMyVerification(ctx context.Context, req apiv1.GetMyVerificationRequestObject) (apiv1.GetMyVerificationResponseObject, error) {
+	p, ok := UserFrom(ctx)
+	if !ok {
+		return nil, errNoPrincipal
+	}
+	v, err := h.verifications.Get(ctx, p, req.VerificationID)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.GetMyVerification200JSONResponse(verification(v)), nil
+}
+
+// CancelMyVerification cancels one of the caller's verifications.
+func (h *HTTP) CancelMyVerification(ctx context.Context, req apiv1.CancelMyVerificationRequestObject) (apiv1.CancelMyVerificationResponseObject, error) {
+	p, ok := UserFrom(ctx)
+	if !ok {
+		return nil, errNoPrincipal
+	}
+	if err := h.verifications.Cancel(ctx, p, req.VerificationID); err != nil {
+		return nil, err
+	}
+	return apiv1.CancelMyVerification204Response{}, nil
+}
+
+// ConfirmMyVerification checks a code and writes the verified value.
+func (h *HTTP) ConfirmMyVerification(ctx context.Context, req apiv1.ConfirmMyVerificationRequestObject) (apiv1.ConfirmMyVerificationResponseObject, error) {
+	p, ok := UserFrom(ctx)
+	if !ok {
+		return nil, errNoPrincipal
+	}
+	v, err := h.verifications.Confirm(ctx, p, req.VerificationID, req.Body.Code)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.ConfirmMyVerification200JSONResponse(verification(v)), nil
+}
+
+func verification(v Verification) apiv1.Verification {
+	out := apiv1.Verification{
+		ID: v.ID, Channel: apiv1.VerificationChannel(v.Channel), Status: apiv1.VerificationStatus(v.Status),
+		MaskedTarget: v.MaskedTarget, RemainingAttempts: v.RemainingAttempts,
+		CreatedAt: jsontime.From(v.CreatedAt), ExpiresAt: jsontime.From(v.ExpiresAt),
+	}
+	if v.ConfirmedAt != nil {
+		t := jsontime.From(*v.ConfirmedAt)
+		out.ConfirmedAt = &t
+	}
+	return out
+}
+
 func tokenPair(p TokenPair) apiv1.TokenPair {
 	return apiv1.TokenPair{
 		AccessToken: p.AccessToken, AccessTokenExpiresAt: jsontime.From(p.AccessTokenExpiresAt),
@@ -317,6 +415,11 @@ type TargetLimiter interface {
 //     verify and complete, reset complete) take one from the bucket of the
 //     hashed token, an in-app password change from the user's; all in
 //     the pair group.
+//   - A verification start takes a token from the two buckets of its
+//     keyed target (every spelling of one mailbox or number is one
+//     target), like a registration start; a confirmation from the bucket
+//     of its verification, in the pair group (ADR-0033). A refusal of the
+//     verification's own resend budget carries Retry-After.
 //   - Token responses are not cached (RFC 6749 §5.1).
 //
 // The address bucket of the root chain applies on top.
@@ -347,7 +450,11 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, groups LimitGroups) apiv1
 				}
 				return nil, httpx.RateLimitedError(w, wait)
 			}
-			return f(ctx, w, r, request)
+			resp, err := f(ctx, w, r, request)
+			if wait, ok := RetryAfter(err); ok {
+				httpx.SetRetryAfter(w, wait)
+			}
+			return resp, err
 		}
 	}
 }
@@ -447,6 +554,10 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 		if p, ok := UserFrom(ctx); ok {
 			return []limitKey{{key: "password:user:" + p.UserID.String()}}, false
 		}
+	case apiv1.StartMyVerificationRequestObject:
+		return signIn("verification:", h.verifications.TargetKey(string(req.Body.Channel), req.Body.Target), nil), false
+	case apiv1.ConfirmMyVerificationRequestObject:
+		return []limitKey{{key: "verification-confirm:" + req.VerificationID.String()}}, false
 	}
 	return nil, false
 }

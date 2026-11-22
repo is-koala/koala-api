@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/integrations/iletimerkezi"
 	"github.com/is-koala/koala-api/internal/integrations/smtp"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/jobs"
 	"github.com/is-koala/koala-api/internal/platform/mailer"
+	"github.com/is-koala/koala-api/internal/platform/sms"
 	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
@@ -27,14 +29,15 @@ import (
 // authHTTP and admin.http together implement the generated strict server
 // interface (strictServer).
 type modules struct {
-	users    *authn.Service
-	staff    *authn.StaffService
-	accounts *authn.Accounts
-	authHTTP *authn.HTTP
-	admin    staffModule
-	hub      *realtime.Hub
-	realtime *realtime.Handler
-	purge    *authPurgeWorker
+	users         *authn.Service
+	staff         *authn.StaffService
+	accounts      *authn.Accounts
+	verifications *authn.Verifications
+	authHTTP      *authn.HTTP
+	admin         staffModule
+	hub           *realtime.Hub
+	realtime      *realtime.Handler
+	purge         *authPurgeWorker
 }
 
 // wireModules builds the modules on database, their metrics on reg.
@@ -58,7 +61,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
-	accounts, err := wireAccounts(cfg, database, users, logger)
+	accounts, verifications, err := wireAccounts(cfg, database, users, logger)
 	if err != nil {
 		return modules{}, err
 	}
@@ -80,9 +83,13 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 		return modules{}, err
 	}
 	return modules{
-		users: users, staff: staff, accounts: accounts, authHTTP: authn.NewHTTP(users, staff, accounts),
-		admin: admin, hub: hub, realtime: handler,
-		purge: &authPurgeWorker{users: users, staff: staff, accounts: accounts, tickets: ticketStore, clock: clk, logger: logger},
+		users: users, staff: staff, accounts: accounts, verifications: verifications,
+		authHTTP: authn.NewHTTP(users, staff, accounts, verifications),
+		admin:    admin, hub: hub, realtime: handler,
+		purge: &authPurgeWorker{
+			users: users, staff: staff, accounts: accounts, verifications: verifications,
+			tickets: ticketStore, clock: clk, logger: logger,
+		},
 	}, nil
 }
 
@@ -132,13 +139,16 @@ func wireAuthn(ctx context.Context, cfg config.Config, database *db.DB, clk cloc
 // (config.ServeMailErrors requires one elsewhere).
 const localWebBaseURL = "http://localhost:3000"
 
-// wireAccounts builds the account flows (ADR-0032): an insert-only River
-// client for the jobs they queue in their transactions, and the SMTP
-// relay, or where none is configured a sender that drops the mail.
-func wireAccounts(cfg config.Config, database *db.DB, users *authn.Service, logger *slog.Logger) (*authn.Accounts, error) {
+// wireAccounts builds the account flows (ADR-0032) and the verification
+// flows (ADR-0033): an insert-only River client for the jobs they queue
+// in their transactions, the SMTP relay, or where none is configured a
+// sender that drops the mail, and the İleti Merkezi account, or where
+// none is configured a sender that drops the text.
+func wireAccounts(cfg config.Config, database *db.DB, users *authn.Service, logger *slog.Logger,
+) (*authn.Accounts, *authn.Verifications, error) {
 	queue, err := jobs.NewClient(database.Pool(), jobs.Config{Logger: logger})
 	if err != nil {
-		return nil, fmt.Errorf("wire accounts: %w", err)
+		return nil, nil, fmt.Errorf("wire accounts: %w", err)
 	}
 	var sender interface {
 		Send(ctx context.Context, m mailer.Message) error
@@ -152,15 +162,33 @@ func wireAccounts(cfg config.Config, database *db.DB, users *authn.Service, logg
 	} else {
 		s, err := smtp.New(smtpConfig(cfg))
 		if err != nil {
-			return nil, fmt.Errorf("wire accounts: %w", err)
+			return nil, nil, fmt.Errorf("wire accounts: %w", err)
 		}
 		sender = s
 	}
 	accounts, err := authn.NewAccounts(users, queue, sender, web, cfg.Mail.RegistrationsPerHour)
 	if err != nil {
-		return nil, fmt.Errorf("wire accounts: %w", err)
+		return nil, nil, fmt.Errorf("wire accounts: %w", err)
 	}
-	return accounts, nil
+	var texts interface {
+		Send(ctx context.Context, m sms.Message) error
+	}
+	if cfg.SMS.Configured() {
+		c, err := iletimerkezi.New(iletimerkezi.Config{
+			Key: cfg.SMS.APIKey.Reveal(), Hash: cfg.SMS.APIHash.Reveal(), Sender: cfg.SMS.Sender,
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("wire verifications: %w", err)
+		}
+		texts = c
+	} else {
+		texts = droppedText{logger: logger}
+	}
+	verifications, err := authn.NewVerifications(users, queue, sender, texts, cfg.SMS.PerHour)
+	if err != nil {
+		return nil, nil, fmt.Errorf("wire verifications: %w", err)
+	}
+	return accounts, verifications, nil
 }
 
 // smtpConfig is the relay configuration of cfg. Encryption is required
@@ -182,6 +210,18 @@ type droppedMail struct {
 
 func (d droppedMail) Send(ctx context.Context, m mailer.Message) error {
 	d.logger.WarnContext(ctx, "no SMTP relay configured; mail dropped", slog.String("subject", m.Subject))
+	return nil
+}
+
+// droppedText stands in for the SMS provider in local and test without
+// one. It logs that a text was dropped, never the number or the text: the
+// text holds a live code and the number is personal data.
+type droppedText struct {
+	logger *slog.Logger
+}
+
+func (d droppedText) Send(ctx context.Context, _ sms.Message) error {
+	d.logger.WarnContext(ctx, "no SMS provider configured; text message dropped")
 	return nil
 }
 

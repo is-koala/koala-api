@@ -91,8 +91,34 @@ const (
 	// differ.
 	CodeConfirmationMismatch apperr.Code = "PASSWORD_CONFIRMATION_MISMATCH"
 	// CodeVerificationTargetInUse: the registration's address got an
-	// account between the first and the third step.
+	// account between the first and the third step, or a verified address
+	// or number is another active account's. A verification tells only the
+	// caller who entered the right code (ADR-0033).
 	CodeVerificationTargetInUse apperr.Code = "VERIFICATION_TARGET_IN_USE"
+
+	// The verification codes (ADR-0029 Karar 3, ADR-0033).
+
+	// CodeVerificationNotFound: the caller has no such verification;
+	// another user's, a burned and a canceled one look the same (USR-011).
+	CodeVerificationNotFound apperr.Code = "VERIFICATION_NOT_FOUND"
+	// CodeVerificationWrong: a wrong code; one attempt is spent.
+	CodeVerificationWrong apperr.Code = "VERIFICATION_CODE_INVALID"
+	// CodeVerificationExpired: the ten minutes are over; checked before the
+	// code, so a right and a wrong code get the same answer (USR-012).
+	CodeVerificationExpired apperr.Code = "VERIFICATION_CODE_EXPIRED"
+	// CodeVerificationExhausted: the verification burned after five wrong
+	// codes; even the right one is refused (USR-009).
+	CodeVerificationExhausted apperr.Code = "VERIFICATION_ATTEMPTS_EXHAUSTED"
+	// CodeVerificationConfirmed: a second confirmation, refused whatever
+	// the code (USR-013).
+	CodeVerificationConfirmed apperr.Code = "VERIFICATION_ALREADY_CONFIRMED"
+	// CodeVerificationResendTooSoon: the resend cooldown, the target's
+	// hourly budget or the caller's daily cap holds (USR-010); the answer
+	// carries Retry-After.
+	CodeVerificationResendTooSoon apperr.Code = "VERIFICATION_RESEND_TOO_SOON"
+	// CodeCursorInvalid: a list cursor that is malformed or belongs to
+	// another query.
+	CodeCursorInvalid apperr.Code = "CURSOR_INVALID"
 )
 
 // Codes lists every code this package returns, for the contract test.
@@ -104,7 +130,163 @@ func Codes() []apperr.Code {
 		CodeStaffLoginFailed, CodeStaffSessionEnded, CodeStaffPasswordChangeRequired,
 		CodeStaffCurrentPasswordMismatch, CodeRegistrationInvalid, CodeConsentRequired, CodeResetLinkInvalid,
 		CodeCurrentMismatch, CodeNewEqualsCurrent, CodeConfirmationMismatch, CodeVerificationTargetInUse,
+		CodeVerificationNotFound, CodeVerificationWrong, CodeVerificationExpired, CodeVerificationExhausted,
+		CodeVerificationConfirmed, CodeVerificationResendTooSoon, CodeCursorInvalid,
 	}
+}
+
+// Verification policy (ADR-0029 Karar 3, ADR-0033).
+const (
+	// VerificationTTL is a code's life, from the start of the
+	// verification (NIST SP 800-63B Rev. 3 §5.1.3.2).
+	VerificationTTL = 10 * time.Minute
+	// VerificationAttempts is how many wrong codes a verification takes;
+	// the last one burns it (USR-009).
+	VerificationAttempts = 5
+	// VerificationCooldown and VerificationsPerTargetHour bound the codes
+	// one target gets, from every user together: none within the cooldown
+	// of the last, at most VerificationsPerTargetHour an hour (USR-010).
+	VerificationCooldown       = time.Minute
+	VerificationsPerTargetHour = 5
+	// TextsPerUserDay and MailCodesPerUserDay are a user's daily cap of
+	// verifications per channel, over every target: the toll fraud bound
+	// of one account (ADR-0033).
+	TextsPerUserDay     = 10
+	MailCodesPerUserDay = 20
+	// DefaultTextsPerHour is the global hourly cap of codes sent by text
+	// message (KOALA_SMS_PER_HOUR overrides it): what a spread-out abuse
+	// can cost in an hour. A held code is counted and alerted on.
+	DefaultTextsPerHour = 200
+	// VerificationRetention is how long a verification is kept before the
+	// purge hard-deletes it (M2): the longest budget window and a margin.
+	VerificationRetention = 48 * time.Hour
+)
+
+// Verification channels (user_verifications CHECK) and the statuses a
+// caller sees (the contract's VerificationStatus). BURNED and CANCELLED
+// are in the contract, but a burned or canceled verification reads as
+// missing (USR-011), so no answer carries them (ADR-0033).
+const (
+	ChannelEmail = "EMAIL"
+	ChannelPhone = "PHONE"
+
+	StatusPending   = "PENDING"
+	StatusConfirmed = "CONFIRMED"
+	StatusExpired   = "EXPIRED"
+)
+
+// Verification is one of the caller's verifications as the caller sees
+// it: never the code, and the target only masked.
+type Verification struct {
+	ID                uuid.UUID
+	Channel           string
+	Status            string
+	MaskedTarget      string
+	RemainingAttempts int32
+	CreatedAt         time.Time
+	ExpiresAt         time.Time
+	ConfirmedAt       *time.Time
+}
+
+// verificationStatus is the status at now of a verification its owner
+// can see: neither burned nor canceled, which read as missing (USR-011).
+// An open one past its end is expired.
+func verificationStatus(confirmed *time.Time, expires, now time.Time) string {
+	switch {
+	case confirmed != nil:
+		return StatusConfirmed
+	case !now.Before(expires):
+		return StatusExpired
+	default:
+		return StatusPending
+	}
+}
+
+// NormalizePhone turns a phone number as people type it into E.164: the
+// separators (space, '-', '.', '(', ')') go, an international "00"
+// becomes '+', and a Turkish number without its country code (05XX… or
+// 5XX…, ten digits after the 0) gets +90. ok is false for anything that
+// is not then a well-formed E.164 number. Whether the number may get a
+// code is TextableNumber's decision.
+func NormalizePhone(raw string) (string, bool) {
+	var b strings.Builder
+	for i, r := range strings.TrimSpace(raw) {
+		switch {
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '+' && i == 0:
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '.' || r == '(' || r == ')' || r == '\u00a0':
+		default:
+			return "", false
+		}
+	}
+	n := b.String()
+	switch {
+	case strings.HasPrefix(n, "+"):
+	case strings.HasPrefix(n, "00"):
+		n = "+" + n[2:]
+	case len(n) == 11 && strings.HasPrefix(n, "0"):
+		n = "+90" + n[1:]
+	case len(n) == 10 && strings.HasPrefix(n, "5"):
+		n = "+90" + n
+	case len(n) == 12 && strings.HasPrefix(n, "90"):
+		n = "+" + n
+	default:
+		return "", false
+	}
+	if !e164Pattern.MatchString(n) {
+		return "", false
+	}
+	return n, true
+}
+
+// e164Pattern is an E.164 number (users_phone_check).
+var e164Pattern = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
+
+// textableCountries are the country codes a code may be texted to, with
+// the national number's length and the first digit of a mobile number
+// there. Today only Türkiye's mobile numbers (+90 5XX XXX XX XX): every
+// user is in Türkiye, and an allowlist of mobile ranges is the standard
+// defense against SMS pumping (toll fraud), which lives on premium and
+// international numbers (ADR-0033). A new country is a new entry.
+func textableCountries() map[string]struct {
+	digits int
+	mobile byte
+} {
+	return map[string]struct {
+		digits int
+		mobile byte
+	}{"+90": {digits: 10, mobile: '5'}}
+}
+
+// TextableNumber reports whether an E.164 number may get a code by text
+// message: a mobile number of an allowed country.
+func TextableNumber(e164 string) bool {
+	for cc, rule := range textableCountries() {
+		if n, ok := strings.CutPrefix(e164, cc); ok && len(n) == rule.digits && n[0] == rule.mobile {
+			return true
+		}
+	}
+	return false
+}
+
+// maskTarget is what the caller sees of a target: the first character of
+// an address's local part and its domain (a***@example.com), a number's
+// country prefix and last four digits (+90******4567).
+func maskTarget(channel, target string) string {
+	if channel == ChannelPhone {
+		if len(target) <= 7 {
+			return strings.Repeat("*", len(target))
+		}
+		return target[:3] + strings.Repeat("*", len(target)-7) + target[len(target)-4:]
+	}
+	at := strings.LastIndexByte(target, '@')
+	if at <= 0 {
+		return "***"
+	}
+	first, _ := utf8.DecodeRuneInString(target)
+	return string(first) + "***" + target[at:]
 }
 
 // Account flows (ADR-0029 Karar 2 and 4, ADR-0032).

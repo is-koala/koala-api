@@ -45,7 +45,6 @@ func Operations() []string {
 		"DELETE /v1/me/addresses/{addressId}",
 		"DELETE /v1/me/educations/{educationId}",
 		"DELETE /v1/me/media/{mediaId}",
-		"DELETE /v1/me/verifications/{verificationId}",
 		"GET /v1/admin/companies",
 		"GET /v1/admin/companies/{companyId}",
 		"GET /v1/admin/identity-verifications",
@@ -67,8 +66,6 @@ func Operations() []string {
 		"GET /v1/me/identity-documents",
 		"GET /v1/me/media/{mediaId}",
 		"GET /v1/me/profile",
-		"GET /v1/me/verifications",
-		"GET /v1/me/verifications/{verificationId}",
 		"GET /v1/reference/cities/{cityId}/districts",
 		"GET /v1/reference/countries",
 		"GET /v1/reference/countries/{countryId}/cities",
@@ -96,8 +93,6 @@ func Operations() []string {
 		"POST /v1/me/identity-documents",
 		"POST /v1/me/media",
 		"POST /v1/me/media/{mediaId}/complete",
-		"POST /v1/me/verifications",
-		"POST /v1/me/verifications/{verificationId}/confirm",
 		"PUT /v1/companies/{companyId}/follow",
 		"PUT /v1/companies/{companyId}/images",
 		"PUT /v1/companies/{companyId}/logo",
@@ -134,18 +129,8 @@ func (Server) ApproveIdentityReview(context.Context, apiv1.ApproveIdentityReview
 	return nil, notImplemented()
 }
 
-// CancelMyVerification answers DELETE /v1/me/verifications/{verificationId} with 501 until its handler lands.
-func (Server) CancelMyVerification(context.Context, apiv1.CancelMyVerificationRequestObject) (apiv1.CancelMyVerificationResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // CompleteMediaUpload answers POST /v1/me/media/{mediaId}/complete with 501 until its handler lands.
 func (Server) CompleteMediaUpload(context.Context, apiv1.CompleteMediaUploadRequestObject) (apiv1.CompleteMediaUploadResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ConfirmMyVerification answers POST /v1/me/verifications/{verificationId}/confirm with 501 until its handler lands.
-func (Server) ConfirmMyVerification(context.Context, apiv1.ConfirmMyVerificationRequestObject) (apiv1.ConfirmMyVerificationResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -231,11 +216,6 @@ func (Server) GetMyIdentityReview(context.Context, apiv1.GetMyIdentityReviewRequ
 
 // GetMyProfile answers GET /v1/me/profile with 501 until its handler lands.
 func (Server) GetMyProfile(context.Context, apiv1.GetMyProfileRequestObject) (apiv1.GetMyProfileResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// GetMyVerification answers GET /v1/me/verifications/{verificationId} with 501 until its handler lands.
-func (Server) GetMyVerification(context.Context, apiv1.GetMyVerificationRequestObject) (apiv1.GetMyVerificationResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -329,11 +309,6 @@ func (Server) ListMyFollowedCompanies(context.Context, apiv1.ListMyFollowedCompa
 	return nil, notImplemented()
 }
 
-// ListMyVerifications answers GET /v1/me/verifications with 501 until its handler lands.
-func (Server) ListMyVerifications(context.Context, apiv1.ListMyVerificationsRequestObject) (apiv1.ListMyVerificationsResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // ListUniversities answers GET /v1/reference/universities with 501 until its handler lands.
 func (Server) ListUniversities(context.Context, apiv1.ListUniversitiesRequestObject) (apiv1.ListUniversitiesResponseObject, error) {
 	return nil, notImplemented()
@@ -411,11 +386,6 @@ func (Server) StartAddressSearchSession(context.Context, apiv1.StartAddressSearc
 
 // StartMediaUpload answers POST /v1/me/media with 501 until its handler lands.
 func (Server) StartMediaUpload(context.Context, apiv1.StartMediaUploadRequestObject) (apiv1.StartMediaUploadResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// StartMyVerification answers POST /v1/me/verifications with 501 until its handler lands.
-func (Server) StartMyVerification(context.Context, apiv1.StartMyVerificationRequestObject) (apiv1.StartMyVerificationResponseObject, error) {
 	return nil, notImplemented()
 }
 
