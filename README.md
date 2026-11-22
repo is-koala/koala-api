@@ -123,8 +123,14 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_REGISTRATION_MAILS_PER_HOUR` | hayır | `500` | Bütün adresler için saatlik kayıt isteği, dolayısıyla kayıt postası tavanı (ADR-0032 Karar 6). Kayıtlı ve kayıtsız adres tavanı aynı biçimde tüketir. Aşılırsa yeni kayıt postaları tutulur, `koala_account_mails_held_total{reason="global"}` artar ve `KoalaRegistrationMailCapReached` uyarısı çalar. 1–100000 |
 | `KOALA_REGISTRATION_STARTS_PER_IP_HOUR` | hayır | `10` | Bir istemci adresinden (IPv6'da /64) saatlik kayıt başlatma bütçesi, burst da aynı değer (ADR-0032 Karar 6). Aşılırsa `429 RATE_LIMITED`; `koala_http_rate_limited_total{group="registration_address"}` artar. 1–1000 |
 | `KOALA_WEB_BASE_URL` | staging ve production'da `serve` için | `local`/`test`'te `http://localhost:3000` | Postadaki bağlantıların açtığı web origin'i (`<origin>/hesap-dogrula?token=…`, `<origin>/sifre-sifirla?token=…`). `local` ve `test` dışında `https` |
+| `KOALA_ILETIMERKEZI_API_KEY` | staging ve production'da `serve` için | — | Doğrulama kodlarının SMS'le gittiği İleti Merkezi hesabının API anahtarı (ADR-0033). **Sırdır**. Yoksa `local` ve `test`'te SMS düşürülür ve yalnız düştüğü log'a yazılır; numara ve metin yazılmaz |
+| `KOALA_ILETIMERKEZI_API_HASH` | staging ve production'da `serve` için | — | İleti Merkezi hesabının API hash'i. **Sırdır**: log'a ve hata mesajına yazılmaz |
+| `KOALA_ILETIMERKEZI_SENDER` | staging ve production'da `serve` için | — | Onaylı SMS başlığı (3–11 ASCII karakter, ör. `KOALA`) |
+| `KOALA_SMS_PER_HOUR` | hayır | `200` | Bütün kullanıcılar için saatlik doğrulama SMS'i tavanı (ADR-0033). Aşılırsa kod tutulur, `koala_verification_codes_total{channel="PHONE",outcome="held"}` artar ve `KoalaVerificationTextCapReached` çalar. 1–100000 |
 
 `KOALA_SMTP_*`, `KOALA_MAIL_FROM` ve `KOALA_WEB_BASE_URL` de yarım verilemez: biri verildiyse aktarıcı, gönderen ve web origin'i de verilir; kullanıcı adı ve parola birlikte verilir. `staging` ve `production`'da hiçbiri verilmemişse `serve` açılmaz, çünkü kayıt ve sıfırlama `202` döner ama hiçbir posta gitmez ve bunu hiçbir şey bildirmez (ADR-0032).
+
+`KOALA_ILETIMERKEZI_*` de yarım verilemez: biri verildiyse üçü de verilir. `staging` ve `production`'da hiçbiri verilmemişse `serve` açılmaz, çünkü telefon doğrulaması `201` döner ama hiçbir SMS gitmez ve bunu hiçbir şey bildirmez (ADR-0033).
 
 `KOALA_OBJECT_*` değişkenleri **yarım verilemez**: biri verildiyse `KOALA_OBJECT_REGION`, `_BUCKET`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` ve `_PUBLIC_BASE_URL` de verilmek zorundadır, her ortamda. `staging` ve `production`'da yükleme uçları canlı olduğu için bu beşi hiç verilmemişse de `serve` açılmaz; `local` ve `test` nesne deposu yapılandırılmadan koşar (ADR-0030 Karar 7).
 
@@ -184,6 +190,7 @@ Konteynerin durdurma süresi (`stop_grace_period`) `KOALA_SHUTDOWN_DRAIN_DELAY +
 - [ ] Staging ve production'da `KOALA_JWT_MARKETPLACE_KEYS`, `KOALA_JWT_STAFF_KEYS` ve `KOALA_LOGIN_PEPPER` (biri yoksa `serve` açılmaz; `koala keygen` ile üretim ve rotasyon runbook'ta).
 - [ ] Staging ve production'da nesne deposu: `KOALA_OBJECT_REGION`, `KOALA_OBJECT_BUCKET`, `KOALA_OBJECT_ACCESS_KEY_ID`, `KOALA_OBJECT_SECRET_ACCESS_KEY` ve `KOALA_OBJECT_PUBLIC_BASE_URL` (biri yoksa `serve` açılmaz), **ve bucket'ta `incoming/` öneki için 1 günlük nesne yaşam döngüsü kuralı** (ADR-0030; tamamlanmayan yüklemeyi temizleyen şey o kuraldır, uygulama değil).
 - [ ] Staging ve production'da hesap postası: `KOALA_SMTP_HOST`, `KOALA_SMTP_USERNAME`, `KOALA_SMTP_PASSWORD`, `KOALA_MAIL_FROM` ve `KOALA_WEB_BASE_URL` (biri yoksa `serve` açılmaz; ADR-0032), ve gönderen alan adının SPF, DKIM ve DMARC kayıtları.
+- [ ] Staging ve production'da doğrulama SMS'i: `KOALA_ILETIMERKEZI_API_KEY`, `KOALA_ILETIMERKEZI_API_HASH` ve `KOALA_ILETIMERKEZI_SENDER` (biri yoksa `serve` açılmaz; ADR-0033), ve başlığın İleti Merkezi'de onaylı olması.
 - [ ] Faz 9'da `DOKPLOY_DEPLOY_WEBHOOK` sırrı (HTTPS alan adı) ve `DOKPLOY_DEPLOY_ENABLED` değişkeni.
 
 Elle build gerekirse (CI ya da sunucu ortamında):
