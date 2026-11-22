@@ -42,6 +42,11 @@ const (
 	// contract binds; only the implementation is missing, which is why
 	// this is not KindNotFound.
 	KindNotImplemented
+	// KindUnprocessable: the request is well formed but cannot be
+	// processed as sent; reserved for an Idempotency-Key reused with
+	// another request (422, ADR-0005 madde 6, ADR-0034). A field rule
+	// violation is KindInvalid (400), not this.
+	KindUnprocessable
 )
 
 // String returns a stable, lowercase name for logs.
@@ -71,6 +76,8 @@ func (k Kind) String() string {
 		return "unsupported_media_type"
 	case KindNotImplemented:
 		return "not_implemented"
+	case KindUnprocessable:
+		return "unprocessable"
 	default:
 		return fmt.Sprintf("kind(%d)", uint8(k))
 	}

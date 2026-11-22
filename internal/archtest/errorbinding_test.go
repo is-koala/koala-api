@@ -145,6 +145,7 @@ func kindStatuses() map[string]int {
 		"KindRateLimited": apperr.KindRateLimited, "KindUpstream": apperr.KindUpstream,
 		"KindPayloadTooLarge": apperr.KindPayloadTooLarge, "KindUnavailable": apperr.KindUnavailable,
 		"KindUnsupportedMediaType": apperr.KindUnsupportedMediaType, "KindNotImplemented": apperr.KindNotImplemented,
+		"KindUnprocessable": apperr.KindUnprocessable,
 	}
 	out := make(map[string]int, len(kinds))
 	for name, k := range kinds {
