@@ -203,10 +203,17 @@ func (q *Queries) GetVerificationTargetKey(ctx context.Context, id uuid.UUID) ([
 }
 
 const holdVerificationCode = `-- name: HoldVerificationCode :one
-UPDATE user_verifications
-SET held_at = COALESCE(held_at, $1::timestamptz), code_digest = NULL, code_sent_at = NULL
-WHERE id = $2 AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
-RETURNING expires_at, (held_at = $1::timestamptz)::boolean AS first_hold
+WITH prev AS (
+    SELECT o.id AS prev_id, o.held_at AS prev_held_at
+    FROM user_verifications o
+    WHERE o.id = $2::uuid AND o.confirmed_at IS NULL AND o.canceled_at IS NULL AND o.burned_at IS NULL
+    FOR UPDATE
+)
+UPDATE user_verifications v
+SET held_at = COALESCE(prev.prev_held_at, $1::timestamptz), code_digest = NULL, code_sent_at = NULL
+FROM prev
+WHERE v.id = prev.prev_id
+RETURNING v.expires_at, (prev.prev_held_at IS NULL)::boolean AS first_hold
 `
 
 type HoldVerificationCodeParams struct {

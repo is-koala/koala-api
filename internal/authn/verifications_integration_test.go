@@ -865,8 +865,8 @@ func TestHeldCodesRecheckTheTargetBudget(t *testing.T) {
 	first := v.heldStart(t, v.addUser(t, member, goodPw), phoneN1)
 	second := v.heldStart(t, v.addUser(t, newcomer, goodPw), phoneN1)
 
-	v.freeCap(t)
 	for _, id := range []uuid.UUID{first, second} {
+		v.freeCap(t) // the cap of one is free for each; only the budget can refuse
 		if err := v.verifications.SendCode(t.Context(), id, authn.ChannelPhone); err != nil {
 			t.Fatalf("the held code's job once the cap freed = %v", err)
 		}

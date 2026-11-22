@@ -57,10 +57,17 @@ WHERE channel = sqlc.arg(channel)::text AND code_sent_at > sqlc.arg(since)::time
 -- with it: the job runs again only after a failed attempt, so that code
 -- is taken as never delivered, and the verification spends no budget
 -- until a code goes out (ADR-0033 Karar 4). No row: it ended.
-UPDATE user_verifications
-SET held_at = COALESCE(held_at, sqlc.arg(now)::timestamptz), code_digest = NULL, code_sent_at = NULL
-WHERE id = sqlc.arg(id) AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
-RETURNING expires_at, (held_at = sqlc.arg(now)::timestamptz)::boolean AS first_hold;
+WITH prev AS (
+    SELECT o.id AS prev_id, o.held_at AS prev_held_at
+    FROM user_verifications o
+    WHERE o.id = sqlc.arg(id)::uuid AND o.confirmed_at IS NULL AND o.canceled_at IS NULL AND o.burned_at IS NULL
+    FOR UPDATE
+)
+UPDATE user_verifications v
+SET held_at = COALESCE(prev.prev_held_at, sqlc.arg(now)::timestamptz), code_digest = NULL, code_sent_at = NULL
+FROM prev
+WHERE v.id = prev.prev_id
+RETURNING v.expires_at, (prev.prev_held_at IS NULL)::boolean AS first_hold;
 
 -- name: GetVerificationTargetKey :one
 -- GetVerificationTargetKey is the keyed target of a verification: the

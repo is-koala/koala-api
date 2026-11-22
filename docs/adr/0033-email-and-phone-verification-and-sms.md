@@ -72,7 +72,7 @@ Sırayı `TestVerificationCallerBucketComesFirst` bağlar: kendi kovasını aşa
 <!-- rate-limit-groups: internal/app TestRateLimitGroups bu tabloyu ADR-0021, ADR-0025 ve ADR-0032'ninkilerle birlikte okur; ilk dört sütunun biçimi "dk / burst", "N/sa / burst" ya da "—". -->
 | Grup | Adres başına | Kimlik başına | Özel anahtar | Java karşılığı (IP başına) | Java'ya oran |
 |---|---|---|---|---|---|
-| `verification_address` | — | — | 60/sa / 60 | yok (Java'da doğrulama genel `WRITE` kovasındaydı, 60/dk) | yeni, saatlik |
+| `verification_address` | — | — | 1 / 60 | yok (Java'da doğrulama genel `WRITE` kovasındaydı, 60/dk) | yeni; saatte 60 (dakikada bir dolar, burst 60) |
 
 **2. İstek içi yeniden gönderme bütçesi**, senkron ve `429 VERIFICATION_RESEND_TOO_SOON` + `Retry-After` ile:
 
