@@ -1394,7 +1394,9 @@ type Media struct {
 	// Kind Medyanın türü.
 	Kind MediaKind `json:"kind"`
 
-	// RejectionCode Doğrulamada düştüyse sebebin kodu; düşmediyse `null`.
+	// RejectionCode Doğrulamada düştüyse sebebin kodu; düşmediyse `null`. Değer üçünden biridir:
+	// `MEDIA_UPLOAD_INCOMPLETE`, `MEDIA_TYPE_UNSUPPORTED` (bozuk ya da çok biçimli baytlar
+	// dahil) ya da `MEDIA_TOO_LARGE` (ADR-0035 Karar 3).
 	RejectionCode *ErrorCode `json:"rejectionCode"`
 
 	// SizeBytes Stripleme sonrası boyut; yükleme tamamlanmadıysa `null`.
@@ -1403,12 +1405,21 @@ type Media struct {
 	// Status Medyanın durumu.
 	Status MediaStatus `json:"status"`
 
-	// URL Nesnenin genel adresi; yalnız genel okunabilen türlerde ve hazır durumda dolar.
-	// Kimlik belgesi fotoğrafında her zaman `null`'dır.
+	// URL Nesnenin adresi; yalnız hazır durumda dolar ve türe göre ayrılır (ADR-0035 Karar 5).
+	// Genel okunabilen görüntüde (profil fotoğrafı, logo, galeri) kalıcı genel adrestir.
+	// Özgeçmişte yalnız medyayı okuma operasyonunun ürettiği kısa ömürlü imzalı indirme
+	// adresidir ve `urlExpiresAt`'te ölür; başka yanıtlarda `null`'dır. Kimlik belgesi
+	// fotoğrafında her zaman `null`'dır (IDN-007).
 	//
 	//
 	// Examples: https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg
 	URL *string `json:"url"`
+
+	// URLExpiresAt İmzalı adresin son geçerli anı; adres kalıcıysa ya da yoksa `null`.
+	//
+	//
+	// Examples: 2026-08-27T06:30:00Z
+	URLExpiresAt *NullableTimestamp `json:"urlExpiresAt"`
 }
 
 // MediaContentType Sunucunun içerikten saptadığı tip; istemcinin beyanı karara girmez (IDN-003). Değer
@@ -15034,7 +15045,8 @@ type StartMediaUploadResponseObject interface {
 }
 
 type StartMediaUpload201ResponseHeaders struct {
-	Location *string
+	IdempotentReplayed *string
+	Location           *string
 }
 
 type StartMediaUpload201JSONResponse struct {
@@ -15049,6 +15061,9 @@ func (response StartMediaUpload201JSONResponse) VisitStartMediaUploadResponse(w 
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.IdempotentReplayed != nil {
+		w.Header().Set("Idempotent-Replayed", fmt.Sprint(*response.Headers.IdempotentReplayed))
+	}
 	if response.Headers.Location != nil {
 		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
 	}

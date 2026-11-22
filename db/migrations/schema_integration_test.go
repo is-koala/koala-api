@@ -270,6 +270,9 @@ func TestRoleGrants(t *testing.T) {
 			// The Idempotency-Key store (0044, ADR-0034): M2, claimed,
 			// completed, released and purged by the application.
 			"idempotency_keys": dml,
+			// The daily upload budget's ledger (0045, ADR-0035): appended,
+			// counted and purged, never updated.
+			"media_upload_starts": {"SELECT", "INSERT", "DELETE"},
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below

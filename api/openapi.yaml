@@ -2325,7 +2325,7 @@ paths:
   /v1/me/media:
     post:
       operationId: startMediaUpload
-      x-error-codes: [MEDIA_TYPE_UNSUPPORTED, MEDIA_TOO_LARGE]
+      x-error-codes: [MEDIA_TOO_LARGE, MEDIA_UPLOAD_PENDING_LIMIT, MEDIA_UPLOAD_DAILY_LIMIT]
       tags: [media]
       summary: Yüklemeyi başlatır ve karantina için yazma adresi verir.
       description: |
@@ -2335,13 +2335,15 @@ paths:
         PNG, özgeçmişte PDF, DOC ve DOCX (MED-014). Tip tamamlama adımında **içerikten**
         saptanır; istemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
         Tamamlanmayan yükleme yirmi dört saat sonra silinir.
+
+        Bir kullanıcının aynı anda en çok on tamamlanmamış yüklemesi olur
+        (`MEDIA_UPLOAD_PENDING_LIMIT`) ve son yirmi dört saatte en çok elli yükleme
+        başlatır (`MEDIA_UPLOAD_DAILY_LIMIT`, `Retry-After` ile). Silinen yükleme ikinci
+        sınırdan düşmez (ADR-0035 Karar 6).
       x-authz-exempt: |
         Yükleme çağıranın kendi medyasıdır; henüz var olmayan nesne yetkilendirilemez.
       x-rate-limit: upload
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2360,6 +2362,8 @@ paths:
               schema:
                 type: string
                 examples: ["/v1/me/media/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"]
+            Idempotent-Replayed:
+              $ref: "./components/headers.yaml#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
@@ -2400,12 +2404,14 @@ paths:
         üstverisi striplenmiş ve son yerine taşınmıştır (MED-001). Başkasına ait ve hiç
         olmamış medya aynı 404'ü alır. Kimlik belgesi fotoğrafının adresi hiçbir yanıtta
         üretilmez (IDN-007).
+
+        Adres türe göre ayrılır (ADR-0035 Karar 5): genel okunabilen görüntüde kalıcı genel
+        adres, özgeçmişte yalnız bu operasyonun ürettiği beş dakikalık imzalı indirme adresi
+        (`urlExpiresAt` ile), kimlik belgesinde hiçbir adres. Beklemede ya da reddedilmiş
+        kayıt yirmi dört saat sonra silinir ve 404 alır.
       x-authz-exempt: |
         Arama çağıranın kendi medyasıyla sınırlıdır; başkasınınki yok sayılır.
       x-resource: media
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Medya.
@@ -2430,12 +2436,10 @@ paths:
       summary: Çağıranın medyasından birini siler.
       description: |
         Yalnız yükleyene açıktır; başkasınınki var olmayandan ayırt edilemez. Bir şirkete
-        ya da incelemeye bağlanmış medya silinemez (`SOFT_DELETE_RESTRICTED`).
+        ya da incelemeye bağlanmış medya silinemez (`SOFT_DELETE_RESTRICTED`). Silinen
+        medyanın nesnesi arka planda depodan da silinir (ADR-0035 Karar 7).
       x-authz-exempt: |
         Silme çağıranın kendi medyasıyla sınırlıdır; başkasınınki yok sayılır.
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "204":
           description: Medya silindi.
@@ -2463,8 +2467,7 @@ paths:
           format: uuid
     post:
       operationId: completeMediaUpload
-      x-error-codes:
-        [MEDIA_NOT_FOUND, MEDIA_UPLOAD_INCOMPLETE, MEDIA_TYPE_UNSUPPORTED, MEDIA_TOO_LARGE]
+      x-error-codes: [MEDIA_NOT_FOUND]
       tags: [media]
       summary: "Yüklemeyi tamamlar: doğrular, üstveriyi stripler ve son yerine taşır."
       description: |
@@ -2474,12 +2477,15 @@ paths:
         pişirilir, sonra o da silinir (IDN-006). İş arka planda koşar: yanıt `202`'dir ve
         sonuç medya kaynağından okunur. Nesne depoya yazıldıktan sonra kayıt düşerse nesne
         silinir; sonuç belirsizse nesne korunur (MED-006).
+
+        Doğrulamanın reddi bir problem yanıtı değildir: kayıt `REJECTED` olur ve sebebi
+        `rejectionCode`'da okunur (`MEDIA_UPLOAD_INCOMPLETE`, `MEDIA_TYPE_UNSUPPORTED`,
+        `MEDIA_TOO_LARGE`). Yalnız beklemedeki kayıt işe girer; hazır ya da reddedilmiş
+        kaydı yeniden tamamlamak hiçbir şey çalıştırmaz ve kaydı olduğu gibi döner
+        (ADR-0035 Karar 2).
       x-authz-exempt: |
         Tamamlama çağıranın kendi medyasıyla sınırlıdır; başkasınınki yok sayılır.
       x-rate-limit: upload
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Tamamlama idempotenttir; hazır bir medyayı yeniden tamamlamak durumu değiştirmez.
       responses:
         "202":
@@ -5658,7 +5664,7 @@ components:
         Bir medya kaydı. Hazır olduğunda nesnenin üstverisi tümden striplenmiştir: konum
         (GPS), kamera ve seri numaraları dahil (MED-005). Kimlik belgesi fotoğrafının
         adresi hiçbir durumda üretilmez (IDN-007).
-      required: [id, kind, status, contentType, sizeBytes, url, rejectionCode, createdAt]
+      required: [id, kind, status, contentType, sizeBytes, url, urlExpiresAt, rejectionCode, createdAt]
       properties:
         id:
           type: string
@@ -5684,14 +5690,24 @@ components:
         url:
           type: [string, "null"]
           description: |
-            Nesnenin genel adresi; yalnız genel okunabilen türlerde ve hazır durumda dolar.
-            Kimlik belgesi fotoğrafında her zaman `null`'dır.
+            Nesnenin adresi; yalnız hazır durumda dolar ve türe göre ayrılır (ADR-0035 Karar 5).
+            Genel okunabilen görüntüde (profil fotoğrafı, logo, galeri) kalıcı genel adrestir.
+            Özgeçmişte yalnız medyayı okuma operasyonunun ürettiği kısa ömürlü imzalı indirme
+            adresidir ve `urlExpiresAt`'te ölür; başka yanıtlarda `null`'dır. Kimlik belgesi
+            fotoğrafında her zaman `null`'dır (IDN-007).
           examples: ["https://cdn.example.com/images/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30.jpg"]
+        urlExpiresAt:
+          $ref: "./components/datetime.yaml#/components/schemas/NullableTimestamp"
+          description: |
+            İmzalı adresin son geçerli anı; adres kalıcıysa ya da yoksa `null`.
         rejectionCode:
           oneOf:
             - $ref: "./components/problem.yaml#/components/schemas/ErrorCode"
             - type: "null"
-          description: Doğrulamada düştüyse sebebin kodu; düşmediyse `null`.
+          description: |
+            Doğrulamada düştüyse sebebin kodu; düşmediyse `null`. Değer üçünden biridir:
+            `MEDIA_UPLOAD_INCOMPLETE`, `MEDIA_TYPE_UNSUPPORTED` (bozuk ya da çok biçimli baytlar
+            dahil) ya da `MEDIA_TOO_LARGE` (ADR-0035 Karar 3).
         createdAt:
           $ref: "./components/datetime.yaml#/components/schemas/Timestamp"
           description: Yüklemenin başlatıldığı an.

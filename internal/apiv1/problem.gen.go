@@ -64,7 +64,9 @@ const (
 	ErrorCodeMEDIANOTREADY                       ErrorCode = "MEDIA_NOT_READY"
 	ErrorCodeMEDIATOOLARGE                       ErrorCode = "MEDIA_TOO_LARGE"
 	ErrorCodeMEDIATYPEUNSUPPORTED                ErrorCode = "MEDIA_TYPE_UNSUPPORTED"
+	ErrorCodeMEDIAUPLOADDAILYLIMIT               ErrorCode = "MEDIA_UPLOAD_DAILY_LIMIT"
 	ErrorCodeMEDIAUPLOADINCOMPLETE               ErrorCode = "MEDIA_UPLOAD_INCOMPLETE"
+	ErrorCodeMEDIAUPLOADPENDINGLIMIT             ErrorCode = "MEDIA_UPLOAD_PENDING_LIMIT"
 	ErrorCodeMETHODNOTALLOWED                    ErrorCode = "METHOD_NOT_ALLOWED"
 	ErrorCodeNOTIMPLEMENTED                      ErrorCode = "NOT_IMPLEMENTED"
 	ErrorCodePASSWORDCONFIRMATIONMISMATCH        ErrorCode = "PASSWORD_CONFIRMATION_MISMATCH"
@@ -233,7 +235,11 @@ func (e ErrorCode) Valid() bool {
 		return true
 	case ErrorCodeMEDIATYPEUNSUPPORTED:
 		return true
+	case ErrorCodeMEDIAUPLOADDAILYLIMIT:
+		return true
 	case ErrorCodeMEDIAUPLOADINCOMPLETE:
+		return true
+	case ErrorCodeMEDIAUPLOADPENDINGLIMIT:
 		return true
 	case ErrorCodeMETHODNOTALLOWED:
 		return true
@@ -515,10 +521,23 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
 //   - `MEDIA_NOT_READY` (409): medya henüz doğrulanıp striplenmedi; bir kaynağa bağlanamaz.
 //   - `MEDIA_UPLOAD_INCOMPLETE` (409): karantinada nesne yok; istemci yazma adresine hiç
-//     yazmamış.
-//   - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil.
-//     İstemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
-//   - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004).
+//     yazmamış. Problem olarak değil, reddedilen medyanın `rejectionCode`'unda döner.
+//   - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil, ya da
+//     baytlar kabul edilen bir biçimin sihirli baytlarını taşıyıp o biçim olarak çözülmüyor
+//     (bozuk ya da çok biçimli dosya; ADR-0035 Karar 3). İstemcinin beyanı ve dosya adının
+//     uzantısı karara girmez (IDN-003). Tamamlamada reddedilen medyanın `rejectionCode`'unda
+//     döner.
+//   - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004). Başlatmada
+//     bildirilen boyut türün sınırını aşıyorsa problem olarak döner; tamamlamada reddedilen
+//     medyanın `rejectionCode`'unda döner. Görüntüde ölçülen boyut **saklanacak** nesnenin,
+//     yani üstveri striplenip yeniden kodlandıktan sonraki boyuttur: sınırın biraz altındaki
+//     düşük kaliteli bir fotoğraf yeniden kodlanınca sınırı aşıp reddedilebilir (ADR-0030
+//     Karar 5).
+//   - `MEDIA_UPLOAD_PENDING_LIMIT` (409): çağıranın tamamlanmamış yükleme sayısı sınırda; yeni
+//     yükleme başlatmadan önce birini tamamlamalı ya da silmeli (ADR-0035 Karar 6).
+//   - `MEDIA_UPLOAD_DAILY_LIMIT` (429): çağıran son yirmi dört saatte başlatabileceği yükleme
+//     sayısına ulaştı; `Retry-After` en eski başlatmanın pencereden çıkacağı ana kadar
+//     bekletir (ADR-0035 Karar 6).
 //   - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
 //   - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
 //     bir kullanıcının; üçü ayırt edilemez (MED-010).
@@ -707,10 +726,23 @@ type Problem struct {
 	// - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
 	// - `MEDIA_NOT_READY` (409): medya henüz doğrulanıp striplenmedi; bir kaynağa bağlanamaz.
 	// - `MEDIA_UPLOAD_INCOMPLETE` (409): karantinada nesne yok; istemci yazma adresine hiç
-	//   yazmamış.
-	// - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil.
-	//   İstemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
-	// - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004).
+	//   yazmamış. Problem olarak değil, reddedilen medyanın `rejectionCode`'unda döner.
+	// - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil, ya da
+	//   baytlar kabul edilen bir biçimin sihirli baytlarını taşıyıp o biçim olarak çözülmüyor
+	//   (bozuk ya da çok biçimli dosya; ADR-0035 Karar 3). İstemcinin beyanı ve dosya adının
+	//   uzantısı karara girmez (IDN-003). Tamamlamada reddedilen medyanın `rejectionCode`'unda
+	//   döner.
+	// - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004). Başlatmada
+	//   bildirilen boyut türün sınırını aşıyorsa problem olarak döner; tamamlamada reddedilen
+	//   medyanın `rejectionCode`'unda döner. Görüntüde ölçülen boyut **saklanacak** nesnenin,
+	//   yani üstveri striplenip yeniden kodlandıktan sonraki boyuttur: sınırın biraz altındaki
+	//   düşük kaliteli bir fotoğraf yeniden kodlanınca sınırı aşıp reddedilebilir (ADR-0030
+	//   Karar 5).
+	// - `MEDIA_UPLOAD_PENDING_LIMIT` (409): çağıranın tamamlanmamış yükleme sayısı sınırda; yeni
+	//   yükleme başlatmadan önce birini tamamlamalı ya da silmeli (ADR-0035 Karar 6).
+	// - `MEDIA_UPLOAD_DAILY_LIMIT` (429): çağıran son yirmi dört saatte başlatabileceği yükleme
+	//   sayısına ulaştı; `Retry-After` en eski başlatmanın pencereden çıkacağı ana kadar
+	//   bekletir (ADR-0035 Karar 6).
 	// - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
 	// - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
 	//   bir kullanıcının; üçü ayırt edilemez (MED-010).
@@ -930,10 +962,23 @@ type ProblemField struct {
 	// - `MEDIA_NOT_FOUND` (404): medya yok ya da çağıranın değil; ikisi ayırt edilemez.
 	// - `MEDIA_NOT_READY` (409): medya henüz doğrulanıp striplenmedi; bir kaynağa bağlanamaz.
 	// - `MEDIA_UPLOAD_INCOMPLETE` (409): karantinada nesne yok; istemci yazma adresine hiç
-	//   yazmamış.
-	// - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil.
-	//   İstemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
-	// - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004).
+	//   yazmamış. Problem olarak değil, reddedilen medyanın `rejectionCode`'unda döner.
+	// - `MEDIA_TYPE_UNSUPPORTED` (400): içerikten saptanan tip kabul edilenlerden değil, ya da
+	//   baytlar kabul edilen bir biçimin sihirli baytlarını taşıyıp o biçim olarak çözülmüyor
+	//   (bozuk ya da çok biçimli dosya; ADR-0035 Karar 3). İstemcinin beyanı ve dosya adının
+	//   uzantısı karara girmez (IDN-003). Tamamlamada reddedilen medyanın `rejectionCode`'unda
+	//   döner.
+	// - `MEDIA_TOO_LARGE` (400): nesne boyut ya da tuval sınırını aşıyor (IDN-004). Başlatmada
+	//   bildirilen boyut türün sınırını aşıyorsa problem olarak döner; tamamlamada reddedilen
+	//   medyanın `rejectionCode`'unda döner. Görüntüde ölçülen boyut **saklanacak** nesnenin,
+	//   yani üstveri striplenip yeniden kodlandıktan sonraki boyuttur: sınırın biraz altındaki
+	//   düşük kaliteli bir fotoğraf yeniden kodlanınca sınırı aşıp reddedilebilir (ADR-0030
+	//   Karar 5).
+	// - `MEDIA_UPLOAD_PENDING_LIMIT` (409): çağıranın tamamlanmamış yükleme sayısı sınırda; yeni
+	//   yükleme başlatmadan önce birini tamamlamalı ya da silmeli (ADR-0035 Karar 6).
+	// - `MEDIA_UPLOAD_DAILY_LIMIT` (429): çağıran son yirmi dört saatte başlatabileceği yükleme
+	//   sayısına ulaştı; `Retry-After` en eski başlatmanın pencereden çıkacağı ana kadar
+	//   bekletir (ADR-0035 Karar 6).
 	// - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
 	// - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
 	//   bir kullanıcının; üçü ayırt edilemez (MED-010).
