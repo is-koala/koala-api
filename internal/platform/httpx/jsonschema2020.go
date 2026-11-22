@@ -294,6 +294,10 @@ func fields2020(verr *jsonschema.ValidationError, out []apperr.FieldError) []app
 	switch k := verr.ErrorKind.(type) {
 	case *kind.Required:
 		member(CodeFieldRequired, k.Missing)
+	case *kind.DependentRequired:
+		// A member another member requires (dependentRequired) is missing
+		// like a required one: the problem names it.
+		member(CodeFieldRequired, k.Missing)
 	case *kind.AdditionalProperties:
 		member(CodeFieldUnknown, k.Properties)
 	case *kind.FalseSchema:

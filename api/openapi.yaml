@@ -910,14 +910,15 @@ paths:
       description: |
         Kimlik çekirdeği `GET /v1/me`'de kalır; profil alanları burada döner. Kimlik
         numarası tümden maskelenir, IBAN ve telefon kısmen maskelenir; parola özeti ve
-        kimlik belgesi numarası hiç dönmez (USR-027).
+        kimlik belgesi numarası hiç dönmez (USR-027). Çağıran kendi verisini okur: personel
+        PII kapısı ve erişim kaydı bu ucun konusu değildir (ADR-0036).
+
+        Profil fotoğrafı, özgeçmiş, birincil adres, IBAN ve şirket üyelikleri kendi
+        modülleriyle gelir; o güne kadar `null` ya da boş liste döner (ADR-0036).
       x-authz-exempt: |
         Çağıran yalnız kendi profilini okur; kimlik oturumdan gelir, seçilecek nesne yoktur.
       x-resource: users
       x-resource-self: true
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Çağıranın profili.
@@ -935,22 +936,33 @@ paths:
           $ref: "#/components/responses/InternalError"
     patch:
       operationId: updateMyProfile
-      x-error-codes:
-        [USER_FIELD_IMMUTABLE, VERIFICATION_TARGET_IN_USE, MEDIA_NOT_FOUND, MEDIA_NOT_READY,
-        ADDRESS_NOT_FOUND]
+      x-error-codes: [USER_FIELD_IMMUTABLE, PASSWORD_MISMATCH, VERIFICATION_RESEND_TOO_SOON]
       tags: [users]
       summary: Çağıranın profilini kısmen günceller.
       description: |
         JSON Merge Patch (RFC 7396): gönderilmeyen alan değişmez, `null` temizlenebilir
         alanı temizler. Kimlik doğrulanmışsa ad, soyad ve doğum tarihi değişmez (USR-024).
         E-posta ya da telefon göndermek değeri yazmaz, bir doğrulama başlatır; eski değer
-        ve doğrulanmışlık bayrağı onay gelene kadar yerinde kalır (USR-014).
+        ve doğrulanmışlık bayrağı onay gelene kadar yerinde kalır (USR-014). Hesaptaki
+        değerin aynısı hiçbir doğrulama başlatmaz.
+
+        E-posta ya da telefon gönderen yama mevcut parolayı da gönderir
+        (`currentPassword`; OWASP ASVS 4.0.3 V3.7.1): çalınmış bir oturum hesabın adresini
+        ya da numarasını değiştirip ardından parolayı sıfırlayamaz. Yanlış parola
+        `PASSWORD_MISMATCH` (403) alır ve hesabın giriş kilidine sayılır. Yamanın başlattığı
+        doğrulama `startMyVerification`'ın bütün kurallarına tabidir: aynı oran sınırı
+        kovaları, aynı bekleme, hedef ve kullanıcı bütçesi (`VERIFICATION_RESEND_TOO_SOON`,
+        `Retry-After`), aynı numara kuralı. Yanıt hedefin başka bir hesapta olup olmadığını
+        söylemez; o bilgi yalnız onayda döner (ADR-0033 Karar 3).
+
+        Yama ya bütünüyle uygulanır ya hiç: bir doğrulama başlatılamazsa alanlar da yazılmaz.
+        Profil fotoğrafı, özgeçmiş ve birincil adres bağları medya ve adres modülleriyle
+        gelir; o güne kadar bu alanlara kimlik göndermek `501 NOT_IMPLEMENTED` alır, `null`
+        bir şey değiştirmez (ADR-0036). `404` ve `409`'un bu bağlara ait kodları
+        (`MEDIA_NOT_FOUND`, `MEDIA_NOT_READY`, `ADDRESS_NOT_FOUND`) o modüllerle döner.
       x-authz-exempt: |
         Çağıran yalnız kendi profilini günceller; kimlik oturumdan gelir, seçilecek nesne yoktur.
       x-body-limit: 16384
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       requestBody:
         description: Değişecek alanlar.
         required: true
@@ -969,6 +981,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
@@ -3650,18 +3664,17 @@ paths:
   /v1/me/educations:
     get:
       operationId: listMyEducations
-      x-error-codes: []
+      x-error-codes: [CURSOR_INVALID]
       tags: [users]
       summary: Çağıranın eğitim kayıtlarını listeler.
       description: |
         Eğitim kayıtları profilin alt kaynağıdır ve sahibine bağlıdır. Üniversite,
-        fakülte ve bölüm referans verisine (`/v1/reference`) bağlanır.
+        fakülte ve bölüm referans verisine (`/v1/reference`) bağlanır. Süren eğitim (bitiş
+        yılı boş) başta gelir. Bozuk ya da başka bir sorguya ait cursor `CURSOR_INVALID`
+        alır (ADR-0036).
       x-authz-exempt: |
         Liste çağıranın kendi eğitim kayıtlarıyla sınırlıdır; seçilecek başka bir nesne yoktur.
       x-resource: educations
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - $ref: "./components/pagination.yaml#/components/parameters/Limit"
         - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
@@ -3682,19 +3695,18 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: createMyEducation
-      x-error-codes: [REFERENCE_ITEM_NOT_FOUND, EDUCATION_PERIOD_INVALID]
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND, EDUCATION_PERIOD_INVALID, EDUCATION_LIMIT_REACHED]
       tags: [users]
       summary: Çağırana yeni bir eğitim kaydı ekler.
       description: |
-        Üniversite, fakülte ve bölüm referans verisinden gelir; bilinmeyen referans
+        Üniversite, fakülte ve bölüm referans verisinden gelir; bilinmeyen referans,
+        üniversitesinin olmayan fakülte ve fakültesinin olmayan bölüm
         `REFERENCE_ITEM_NOT_FOUND` döner. Bitiş yılı başlangıç yılından küçük olamaz ve
-        süren eğitimde bitiş yılı boştur.
+        süren eğitimde bitiş yılı boştur. Bir kullanıcının en çok 20 eğitim kaydı olur;
+        fazlası `EDUCATION_LIMIT_REACHED` (409) alır (ADR-0036).
       x-authz-exempt: |
         Eğitim kaydı çağıranın kendi kaydıdır; henüz var olmayan nesne yetkilendirilemez.
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
       requestBody:
@@ -3713,6 +3725,8 @@ paths:
               schema:
                 type: string
                 examples: ["/v1/me/educations/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6e01"]
+            Idempotent-Replayed:
+              $ref: "./components/headers.yaml#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
@@ -3757,9 +3771,6 @@ paths:
       x-authz-exempt: |
         Değiştirme çağıranın kendi eğitim kayıtlarıyla sınırlıdır; başkasınınki yok sayılır.
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       requestBody:
         description: Eğitim kaydının tamamı.
         required: true
@@ -3790,15 +3801,15 @@ paths:
           $ref: "#/components/responses/InternalError"
     delete:
       operationId: deleteMyEducation
-      x-error-codes: [EDUCATION_NOT_FOUND]
+      x-error-codes: [EDUCATION_NOT_FOUND, SOFT_DELETE_RESTRICTED]
       tags: [users]
       summary: Çağıranın bir eğitim kaydını siler.
-      description: Başkasına ait ve hiç olmamış kayıt aynı 404'ü alır.
+      description: |
+        Başkasına ait ve hiç olmamış kayıt aynı 404'ü alır. Silme soft-delete platformundan
+        geçer (ADR-0013); eğitim kaydına bugün `restrict` kenarıyla bağlı bir çocuk tablo
+        yok, `409 SOFT_DELETE_RESTRICTED` böyle bir kenar eklendiğinde döner (ADR-0036).
       x-authz-exempt: |
         Silme çağıranın kendi eğitim kayıtlarıyla sınırlıdır; başkasınınki yok sayılır.
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "204":
           description: Eğitim kaydı silindi.
@@ -3808,6 +3819,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         default:
@@ -4744,9 +4757,22 @@ components:
         JSON Merge Patch gövdesi (RFC 7396): gönderilmeyen alan değişmez, `null`
         temizlenebilir alanı temizler. Ad ve soyad temizlenemez; kimlik doğrulanmışsa ad,
         soyad ve doğum tarihi hiç değiştirilemez (USR-024). `email` ve `phoneNumber`
-        değeri yazmaz, bir doğrulama başlatır (USR-014).
+        değeri yazmaz, bir doğrulama başlatır (USR-014); ikisinden biri varsa
+        `currentPassword` da zorunludur (ADR-0033 Karar 1b, ADR-0036).
       additionalProperties: false
+      dependentRequired:
+        email: [currentPassword]
+        phoneNumber: [currentPassword]
       properties:
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: |
+            Çağıranın mevcut parolası; yalnız `email` ya da `phoneNumber` ile birlikte ve
+            onlarla zorunlu. Profil alanı değildir, yazılmaz. Hassas iletişim bilgisi
+            değişikliği yeniden kimlik doğrulaması ister (ADR-0033).
+          examples: [eski parola cümlesi]
         firstName:
           type: string
           minLength: 1
@@ -6116,9 +6142,12 @@ components:
       description: |
         Bir eğitim kaydının alanları. Üniversite, fakülte ve bölüm referans verisinden
         gelir (`/v1/reference`). Süren eğitimde `endYear` boştur; verildiğinde
-        `startYear`'dan küçük olamaz.
+        `startYear`'dan küçük olamaz. Bölüm bir fakülte altında seçilir: `departmentId`
+        `facultyId` ister.
       additionalProperties: false
       required: [universityId, degree, startYear]
+      dependentRequired:
+        departmentId: [facultyId]
       properties:
         universityId:
           type: string

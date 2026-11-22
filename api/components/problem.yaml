@@ -205,8 +205,8 @@ components:
           tüketilmez.
         - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
           iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
-        - `PASSWORD_MISMATCH` (403): parola değişiminde ya da e-posta veya telefon doğrulaması
-          başlatırken mevcut parola yanlış.
+        - `PASSWORD_MISMATCH` (403): parola değişiminde, e-posta veya telefon doğrulaması
+          başlatırken ya da e-posta veya telefon gönderen profil yamasında mevcut parola yanlış.
         - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
         - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
         - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
@@ -301,6 +301,7 @@ components:
         - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
           edilemez.
         - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
+        - `EDUCATION_LIMIT_REACHED` (409): kullanıcının eğitim kaydı sayısı üst sınırda (ADR-0036).
 
         Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
         - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -411,6 +412,7 @@ components:
         - ADDRESS_OUTSIDE_SERVICE_AREA
         - EDUCATION_NOT_FOUND
         - EDUCATION_PERIOD_INVALID
+        - EDUCATION_LIMIT_REACHED
         - FIELD_REQUIRED
         - FIELD_UNKNOWN
         - FIELD_TYPE_INVALID

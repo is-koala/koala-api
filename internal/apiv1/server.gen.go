@@ -1080,7 +1080,8 @@ type EducationDegree string
 
 // EducationInput Bir eğitim kaydının alanları. Üniversite, fakülte ve bölüm referans verisinden
 // gelir (`/v1/reference`). Süren eğitimde `endYear` boştur; verildiğinde
-// `startYear`'dan küçük olamaz.
+// `startYear`'dan küçük olamaz. Bölüm bir fakülte altında seçilir: `departmentId`
+// `facultyId` ister.
 type EducationInput struct {
 	// Degree Eğitim kaydının derecesi.
 	Degree EducationDegree `json:"degree"`
@@ -2352,7 +2353,8 @@ type UserProfile struct {
 // UserProfilePatch JSON Merge Patch gövdesi (RFC 7396): gönderilmeyen alan değişmez, `null`
 // temizlenebilir alanı temizler. Ad ve soyad temizlenemez; kimlik doğrulanmışsa ad,
 // soyad ve doğum tarihi hiç değiştirilemez (USR-024). `email` ve `phoneNumber`
-// değeri yazmaz, bir doğrulama başlatır (USR-014).
+// değeri yazmaz, bir doğrulama başlatır (USR-014); ikisinden biri varsa
+// `currentPassword` da zorunludur (ADR-0033 Karar 1b, ADR-0036).
 type UserProfilePatch struct {
 	// About Tanıtım metni; temizlenebilir.
 	About nullable.Nullable[string] `json:"about,omitempty"`
@@ -2362,6 +2364,14 @@ type UserProfilePatch struct {
 
 	// BirthDate Doğum tarihi; kimlik doğrulanmadıysa temizlenebilir.
 	BirthDate nullable.Nullable[openapi_types.Date] `json:"birthDate,omitempty"`
+
+	// CurrentPassword Çağıranın mevcut parolası; yalnız `email` ya da `phoneNumber` ile birlikte ve
+	// onlarla zorunlu. Profil alanı değildir, yazılmaz. Hassas iletişim bilgisi
+	// değişikliği yeniden kimlik doğrulaması ister (ADR-0033).
+	//
+	//
+	// Examples: eski parola cümlesi
+	CurrentPassword *string `json:"currentPassword,omitempty"`
 
 	// CvID Özgeçmişin medya kimliği; temizlenebilir (Java'nın `DELETE /users/me/cv`'si).
 	CvID nullable.Nullable[openapi_types.UUID] `json:"cvId,omitempty"`
@@ -14231,7 +14241,8 @@ type CreateMyEducationResponseObject interface {
 }
 
 type CreateMyEducation201ResponseHeaders struct {
-	Location *string
+	IdempotentReplayed *string
+	Location           *string
 }
 
 type CreateMyEducation201JSONResponse struct {
@@ -14246,6 +14257,9 @@ func (response CreateMyEducation201JSONResponse) VisitCreateMyEducationResponse(
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.IdempotentReplayed != nil {
+		w.Header().Set("Idempotent-Replayed", fmt.Sprint(*response.Headers.IdempotentReplayed))
+	}
 	if response.Headers.Location != nil {
 		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
 	}
@@ -14468,6 +14482,22 @@ func (response DeleteMyEducation404ApplicationProblemPlusJSONResponse) VisitDele
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteMyEducation409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response DeleteMyEducation409ApplicationProblemPlusJSONResponse) VisitDeleteMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -15824,6 +15854,22 @@ func (response UpdateMyProfile401ApplicationProblemPlusJSONResponse) VisitUpdate
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateMyProfile403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response UpdateMyProfile403ApplicationProblemPlusJSONResponse) VisitUpdateMyProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }

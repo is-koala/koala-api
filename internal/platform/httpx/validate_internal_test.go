@@ -228,8 +228,11 @@ func TestFields2020(t *testing.T) {
 				"contains": {"type": "object", "required": ["cover"], "properties": {"cover": {"const": true}}},
 				"maxContains": 1
 			},
-			"atLeastTwo": {"type": "array", "contains": {"const": "x"}, "minContains": 2}
-		}
+			"atLeastTwo": {"type": "array", "contains": {"const": "x"}, "minContains": 2},
+			"secret": {"type": "string"},
+			"proof": {"type": "string"}
+		},
+		"dependentRequired": {"secret": ["proof"]}
 	}`
 	doc, err := jsonschema.UnmarshalJSON(strings.NewReader(schema))
 	if err != nil {
@@ -279,6 +282,13 @@ func TestFields2020(t *testing.T) {
 		// visible meaning and not only a comment.
 		{"contains without minContains", `{"a":"x","b":1,"needsCover":[]}`,
 			[]apperr.FieldError{{Pointer: "/needsCover", Code: CodeFieldValueInvalid}}},
+		// dependentRequired names the member that is missing, like
+		// required: a profile patch that sends an address without the
+		// current password is told which member to add (ADR-0036).
+		{"dependentRequired", `{"a":"x","b":1,"secret":"s"}`,
+			[]apperr.FieldError{{Pointer: "/proof", Code: CodeFieldRequired}}},
+		{"dependentRequired met", `{"a":"x","b":1,"secret":"s","proof":"p","k":"L"}`,
+			[]apperr.FieldError{{Pointer: "/k", Code: CodeFieldValueInvalid}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

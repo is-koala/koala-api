@@ -41,6 +41,7 @@ const (
 	ErrorCodeCURSORINVALID                       ErrorCode = "CURSOR_INVALID"
 	ErrorCodeDELETIONALREADYRESTORED             ErrorCode = "DELETION_ALREADY_RESTORED"
 	ErrorCodeDELETIONNOTFOUND                    ErrorCode = "DELETION_NOT_FOUND"
+	ErrorCodeEDUCATIONLIMITREACHED               ErrorCode = "EDUCATION_LIMIT_REACHED"
 	ErrorCodeEDUCATIONNOTFOUND                   ErrorCode = "EDUCATION_NOT_FOUND"
 	ErrorCodeEDUCATIONPERIODINVALID              ErrorCode = "EDUCATION_PERIOD_INVALID"
 	ErrorCodeFIELDFORMATINVALID                  ErrorCode = "FIELD_FORMAT_INVALID"
@@ -188,6 +189,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeDELETIONALREADYRESTORED:
 		return true
 	case ErrorCodeDELETIONNOTFOUND:
+		return true
+	case ErrorCodeEDUCATIONLIMITREACHED:
 		return true
 	case ErrorCodeEDUCATIONNOTFOUND:
 		return true
@@ -455,8 +458,8 @@ func (e ProblemFieldIn) Valid() bool {
 //     tüketilmez.
 //   - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
 //     iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
-//   - `PASSWORD_MISMATCH` (403): parola değişiminde ya da e-posta veya telefon doğrulaması
-//     başlatırken mevcut parola yanlış.
+//   - `PASSWORD_MISMATCH` (403): parola değişiminde, e-posta veya telefon doğrulaması
+//     başlatırken ya da e-posta veya telefon gönderen profil yamasında mevcut parola yanlış.
 //   - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
 //   - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
 //   - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
@@ -552,6 +555,7 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
 //     edilemez.
 //   - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
+//   - `EDUCATION_LIMIT_REACHED` (409): kullanıcının eğitim kaydı sayısı üst sınırda (ADR-0036).
 //
 // Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 // - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -664,8 +668,8 @@ type Problem struct {
 	//   tüketilmez.
 	// - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
 	//   iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
-	// - `PASSWORD_MISMATCH` (403): parola değişiminde ya da e-posta veya telefon doğrulaması
-	//   başlatırken mevcut parola yanlış.
+	// - `PASSWORD_MISMATCH` (403): parola değişiminde, e-posta veya telefon doğrulaması
+	//   başlatırken ya da e-posta veya telefon gönderen profil yamasında mevcut parola yanlış.
 	// - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
 	// - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
 	// - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
@@ -760,6 +764,7 @@ type Problem struct {
 	// - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
 	//   edilemez.
 	// - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
+	// - `EDUCATION_LIMIT_REACHED` (409): kullanıcının eğitim kaydı sayısı üst sınırda (ADR-0036).
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
@@ -903,8 +908,8 @@ type ProblemField struct {
 	//   tüketilmez.
 	// - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
 	//   iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
-	// - `PASSWORD_MISMATCH` (403): parola değişiminde ya da e-posta veya telefon doğrulaması
-	//   başlatırken mevcut parola yanlış.
+	// - `PASSWORD_MISMATCH` (403): parola değişiminde, e-posta veya telefon doğrulaması
+	//   başlatırken ya da e-posta veya telefon gönderen profil yamasında mevcut parola yanlış.
 	// - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
 	// - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
 	// - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
@@ -999,6 +1004,7 @@ type ProblemField struct {
 	// - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
 	//   edilemez.
 	// - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
+	// - `EDUCATION_LIMIT_REACHED` (409): kullanıcının eğitim kaydı sayısı üst sınırda (ADR-0036).
 	//
 	// Alan kodları (`ProblemField.code`, `REQUEST_INVALID` ile gelir):
 	// - `FIELD_REQUIRED`: zorunlu alan ya da parametre yok.
