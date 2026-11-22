@@ -24,6 +24,7 @@ import (
 )
 
 const (
+	member   = "ayse@example.com"
 	newcomer = "yeni@example.com"
 	// 15 characters: the shortest password the rule accepts (USR-021).
 	goodPw  = "on beş karakter"
@@ -510,14 +511,15 @@ func TestLinkMailBudget(t *testing.T) {
 	}
 }
 
-// resetFor runs a reset request for addr and returns the mailed token.
-func (a *accountsEnv) resetFor(t *testing.T, addr string) string {
+// reset runs a reset request for member and returns the mailed
+// token.
+func (a *accountsEnv) reset(t *testing.T) string {
 	t.Helper()
-	if err := a.accounts.RequestPasswordReset(t.Context(), addr); err != nil {
+	if err := a.accounts.RequestPasswordReset(t.Context(), member); err != nil {
 		t.Fatal(err)
 	}
 	a.work(t)
-	return a.lastToken(t, addr)
+	return a.lastToken(t, member)
 }
 
 // The reset token works once, in the transaction that writes the
@@ -528,7 +530,7 @@ func TestResetTokenIsSingleUse(t *testing.T) {
 	a := newAccountsEnv(t)
 	a.addUser(t, "ayse@example.com", otherPw)
 
-	token := a.resetFor(t, "ayse@example.com")
+	token := a.reset(t)
 	if err := a.accounts.CompletePasswordReset(t.Context(), token, goodPw); err != nil {
 		t.Fatalf("USR-015: reset = %v", err)
 	}
@@ -551,14 +553,14 @@ func TestInvalidResetTokensAreOneError(t *testing.T) {
 	a := newAccountsEnv(t)
 	a.addUser(t, "ayse@example.com", otherPw)
 
-	used := a.resetFor(t, "ayse@example.com")
+	used := a.reset(t)
 	if err := a.accounts.CompletePasswordReset(t.Context(), used, goodPw); err != nil {
 		t.Fatal(err)
 	}
 	a.clock.Advance(authn.LinkMailCooldown + time.Second)
-	revoked := a.resetFor(t, "ayse@example.com")
+	revoked := a.reset(t)
 	a.clock.Advance(authn.LinkMailCooldown + time.Second)
-	expired := a.resetFor(t, "ayse@example.com") // revokes the one before
+	expired := a.reset(t) // revokes the one before
 	a.clock.Advance(authn.ResetLinkTTL)
 
 	for name, token := range map[string]string{
@@ -580,9 +582,9 @@ func TestOneOpenResetToken(t *testing.T) {
 	a := newAccountsEnv(t)
 	a.addUser(t, "ayse@example.com", otherPw)
 
-	t1 := a.resetFor(t, "ayse@example.com")
+	t1 := a.reset(t)
 	a.clock.Advance(authn.LinkMailCooldown + time.Second)
-	t2 := a.resetFor(t, "ayse@example.com")
+	t2 := a.reset(t)
 	err := a.accounts.CompletePasswordReset(t.Context(), t1, goodPw)
 	wantErr(t, err, apperr.KindInvalid, authn.CodeResetLinkInvalid)
 
@@ -636,7 +638,7 @@ func TestResetEndsEverySession(t *testing.T) {
 	web := a.login(t, "ayse@example.com", otherPw, deviceW1)
 	phone := a.login(t, "ayse@example.com", otherPw, devicePhone)
 
-	token := a.resetFor(t, "ayse@example.com")
+	token := a.reset(t)
 	if err := a.accounts.CompletePasswordReset(t.Context(), token, goodPw); err != nil {
 		t.Fatal(err)
 	}
@@ -714,7 +716,7 @@ func TestAccountPasswordRule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reset := a.resetFor(t, "ayse@example.com")
+	reset := a.reset(t)
 
 	for _, bad := range []string{strings.Repeat("a", 14), strings.Repeat("a", 129)} {
 		_, err := a.complete(grant.Token, bad, consents())
