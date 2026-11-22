@@ -50,7 +50,6 @@ const (
 	ErrorCodeFIELDUNKNOWN                        ErrorCode = "FIELD_UNKNOWN"
 	ErrorCodeFIELDVALUEINVALID                   ErrorCode = "FIELD_VALUE_INVALID"
 	ErrorCodeIDEMPOTENCYKEYINUSE                 ErrorCode = "IDEMPOTENCY_KEY_IN_USE"
-	ErrorCodeIDEMPOTENCYKEYREQUIRED              ErrorCode = "IDEMPOTENCY_KEY_REQUIRED"
 	ErrorCodeIDEMPOTENCYKEYREUSED                ErrorCode = "IDEMPOTENCY_KEY_REUSED"
 	ErrorCodeIDENTITYALREADYVERIFIED             ErrorCode = "IDENTITY_ALREADY_VERIFIED"
 	ErrorCodeIDENTITYDOCUMENTNOTFOUND            ErrorCode = "IDENTITY_DOCUMENT_NOT_FOUND"
@@ -205,8 +204,6 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeFIELDVALUEINVALID:
 		return true
 	case ErrorCodeIDEMPOTENCYKEYINUSE:
-		return true
-	case ErrorCodeIDEMPOTENCYKEYREQUIRED:
 		return true
 	case ErrorCodeIDEMPOTENCYKEYREUSED:
 		return true
@@ -372,9 +369,11 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `REQUEST_BODY_MALFORMED` (400): gövde yok ya da JSON olarak çözülemiyor.
 //   - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
 //   - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
-//   - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
-//   - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
-//   - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
+//   - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir istekle kullanıldı. İsteğin
+//     parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform` (ADR-0034).
+//     Yalnız `Idempotency-Key` alan operasyon döner.
+//   - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor. Yalnız
+//     `Idempotency-Key` alan operasyon döner.
 //   - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 //     `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 //     başlığını zorunlu tutuyor (ADR-0019). Yalnız `IOS` ve `ANDROID` istemcisi alır;
@@ -562,9 +561,11 @@ type Problem struct {
 	// - `REQUEST_BODY_MALFORMED` (400): gövde yok ya da JSON olarak çözülemiyor.
 	// - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
 	// - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
-	// - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
-	// - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
-	// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
+	// - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir istekle kullanıldı. İsteğin
+	//   parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform` (ADR-0034).
+	//   Yalnız `Idempotency-Key` alan operasyon döner.
+	// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor. Yalnız
+	//   `Idempotency-Key` alan operasyon döner.
 	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 	//   başlığını zorunlu tutuyor (ADR-0019). Yalnız `IOS` ve `ANDROID` istemcisi alır;
@@ -783,9 +784,11 @@ type ProblemField struct {
 	// - `REQUEST_BODY_MALFORMED` (400): gövde yok ya da JSON olarak çözülemiyor.
 	// - `SORT_FIELD_NOT_ALLOWED` (400): `sort` alanı operasyonun `x-sort-fields` listesinde değil.
 	// - `CURSOR_INVALID` (400): `cursor` bozuk, süresi dolmuş ya da başka bir sorguya ait.
-	// - `IDEMPOTENCY_KEY_REQUIRED` (400): operasyon `Idempotency-Key` istiyor.
-	// - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir gövdeyle kullanıldı.
-	// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor.
+	// - `IDEMPOTENCY_KEY_REUSED` (422): aynı anahtar farklı bir istekle kullanıldı. İsteğin
+	//   parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform` (ADR-0034).
+	//   Yalnız `Idempotency-Key` alan operasyon döner.
+	// - `IDEMPOTENCY_KEY_IN_USE` (409): aynı anahtarlı istek hâlâ işleniyor. Yalnız
+	//   `Idempotency-Key` alan operasyon döner.
 	// - `APP_VERSION_UNSUPPORTED` (400): `X-App-Version` en düşük sürümün altında; yanıtta
 	//   `X-Minimum-App-Version` bulunur. 426 kullanılmaz: RFC 9110 426 yanıtında `Upgrade`
 	//   başlığını zorunlu tutuyor (ADR-0019). Yalnız `IOS` ve `ANDROID` istemcisi alır;

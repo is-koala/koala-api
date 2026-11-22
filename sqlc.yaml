@@ -191,6 +191,35 @@ sql:
               type: Time
               pointer: true
 
+  - name: idempotency
+    engine: postgresql
+    schema: db/migrations
+    queries: db/queries/idempotency
+    rules:
+      - no-base-table
+      - no-soft-delete-columns
+    gen:
+      go:
+        package: idempotencydb
+        out: internal/platform/idempotency/idempotencydb
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        omit_unused_structs: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: uuid
+            nullable: true
+            go_type: github.com/google/uuid.NullUUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              import: time
+              type: Time
+              pointer: true
+
   # koala_maint: base tables. Neither rule applies here, and no application
   # area may list db/queries/maint (TestSQLCConfig).
   - name: maint

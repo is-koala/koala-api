@@ -21,6 +21,7 @@ import (
 	"github.com/is-koala/koala-api/internal/pending"
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/idempotency"
 	"github.com/is-koala/koala-api/internal/staff"
 )
 
@@ -145,6 +146,7 @@ func kindStatuses() map[string]int {
 		"KindRateLimited": apperr.KindRateLimited, "KindUpstream": apperr.KindUpstream,
 		"KindPayloadTooLarge": apperr.KindPayloadTooLarge, "KindUnavailable": apperr.KindUnavailable,
 		"KindUnsupportedMediaType": apperr.KindUnsupportedMediaType, "KindNotImplemented": apperr.KindNotImplemented,
+		"KindUnprocessable": apperr.KindUnprocessable,
 	}
 	out := make(map[string]int, len(kinds))
 	for name, k := range kinds {
@@ -1634,11 +1636,25 @@ func TestHandlersReturnTheirDeclaredErrorCodes(t *testing.T) {
 	m := loadCodeModule(t)
 	handlers := m.handlers()
 	universal, kinds, unseen := universalCodes(), kindStatuses(), unseenCodes()
-	for code := range universal {
-		if _, ok := documented[code]; !ok && !strings.HasPrefix(code, "FIELD_") {
-			t.Errorf("universal code %s documents no status in ErrorCode", code)
+	for _, set := range []map[string]string{universal, keyedCodes()} {
+		for code := range set {
+			if _, ok := documented[code]; !ok && !strings.HasPrefix(code, "FIELD_") {
+				t.Errorf("universal code %s documents no status in ErrorCode", code)
+			}
 		}
 	}
+	// The store's codes are universal to the operations that take the
+	// Idempotency-Key and to no other (ADR-0034 Karar 7).
+	keyedOps, err := idempotency.Operations(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyed := map[string]bool{}
+	for _, op := range keyedOps {
+		keyed[op.ID] = true
+	}
+	keyedUniversal := maps.Clone(universal)
+	maps.Copy(keyedUniversal, keyedCodes())
 
 	traced := map[string][]errorSite{}
 	listedByOp := map[string][]string{}
@@ -1677,7 +1693,11 @@ func TestHandlersReturnTheirDeclaredErrorCodes(t *testing.T) {
 			}
 			listed := operationCodes(t, where, op.Extensions)
 			listedByOp[op.OperationID] = listed
-			for _, f := range bindingFindings(op.OperationID, listed, sites, documented, kinds, universal, unseen[op.OperationID]) {
+			opUniversal := universal
+			if keyed[op.OperationID] {
+				opUniversal = keyedUniversal
+			}
+			for _, f := range bindingFindings(op.OperationID, listed, sites, documented, kinds, opUniversal, unseen[op.OperationID]) {
 				t.Error(f)
 			}
 			traced[op.OperationID] = sites

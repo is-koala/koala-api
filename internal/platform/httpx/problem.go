@@ -76,6 +76,8 @@ func StatusOf(k apperr.Kind) int {
 		return http.StatusUnsupportedMediaType
 	case apperr.KindNotImplemented:
 		return http.StatusNotImplemented
+	case apperr.KindUnprocessable:
+		return http.StatusUnprocessableEntity
 	case apperr.KindInternal:
 		return http.StatusInternalServerError
 	default:

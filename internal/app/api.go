@@ -17,6 +17,7 @@ import (
 	"github.com/is-koala/koala-api/internal/pending"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/idempotency"
 	"github.com/is-koala/koala-api/internal/staff"
 )
 
@@ -59,7 +60,7 @@ func newRouter(ctx context.Context, cfg config.Config, logger *slog.Logger, heal
 	if err != nil {
 		return nil, fmt.Errorf("router: %w", err)
 	}
-	if err := mountAPI(spec, router, limiter, logger, mods); err != nil {
+	if err := mountAPI(spec, router, limiter, reg, logger, mods); err != nil {
 		return nil, err
 	}
 	// The ticket endpoint is a bounded route, the WebSocket a stream
@@ -79,7 +80,13 @@ func newRouter(ctx context.Context, cfg config.Config, logger *slog.Logger, heal
 // the per-address limit of the root chain applies to it. The sign-in,
 // refresh and staff password operations also take a token from their
 // target's bucket in the auth group (authn.StrictMiddleware, ADR-0021 §5).
-func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, logger *slog.Logger, mods modules) error {
+//
+// The Idempotency-Key store comes last, after validation: its actor is the
+// authenticated caller and its request hash is taken from the validated
+// value; a request the earlier steps refuse takes no key (ADR-0034).
+func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, reg prometheus.Registerer,
+	logger *slog.Logger, mods modules,
+) error {
 	validate, err := httpx.ValidateRequests(spec, logger)
 	if err != nil {
 		return fmt.Errorf("mount api: %w", err)
@@ -97,10 +104,12 @@ func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, l
 	if err != nil {
 		return fmt.Errorf("mount api: %w", err)
 	}
-	middlewares := []apiv1.StrictMiddlewareFunc{mods.authHTTP.StrictMiddleware(limiter, authn.LimitGroups{
-		Pair: groupAuth, Account: groupAuthAccount, RegistrationAddress: groupRegistrationAddress,
-		VerificationAddress: groupVerificationAddress,
-	})}
+	groups := apiLimitGroups()
+	idem, err := idempotency.NewMiddleware(spec, idempotencyConfig(mods.idempotency, limiter, groups, reg, logger))
+	if err != nil {
+		return fmt.Errorf("mount api: %w", err)
+	}
+	middlewares := []apiv1.StrictMiddlewareFunc{mods.authHTTP.StrictMiddleware(limiter, groups)}
 	server := strictServer{HTTP: mods.authHTTP, admin: mods.admin.http}
 	strict := apiv1.NewStrictHandlerWithOptions(server, middlewares, apiv1.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: bindError(logger),
@@ -109,13 +118,56 @@ func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, l
 		},
 	})
 	router.Group(func(g chi.Router) {
-		g.Use(authenticate.Handler, limiter.ByIdentity(logger), gate.Handler, validate)
+		g.Use(authenticate.Handler, limiter.ByIdentity(logger), gate.Handler, validate, idem.Handler)
 		apiv1.HandlerWithOptions(strict, apiv1.ChiServerOptions{
 			BaseRouter:       g,
 			ErrorHandlerFunc: bindError(logger),
 		})
 	})
 	return nil
+}
+
+// apiLimitGroups names the rate limit groups the authentication
+// operations take their target buckets from (ADR-0021 §5).
+func apiLimitGroups() authn.LimitGroups {
+	return authn.LimitGroups{
+		Pair: groupAuth, Account: groupAuthAccount, RegistrationAddress: groupRegistrationAddress,
+		VerificationAddress: groupVerificationAddress,
+	}
+}
+
+// idempotencyConfig binds the store to the callers of the API: a signed-in
+// user or staff member is the actor of their keys, and each public
+// operation that takes a key names the capability its request presents
+// and the bucket of that capability its stored answers take from
+// (ADR-0034 Karar 1 and 5). A public operation that takes a key and is
+// missing here stops the server.
+func idempotencyConfig(store *idempotency.Store, limiter authn.TargetLimiter, groups authn.LimitGroups,
+	reg prometheus.Registerer, logger *slog.Logger,
+) idempotency.Config {
+	return idempotency.Config{
+		Store:  store,
+		Caller: idempotencyCaller,
+		Public: map[string]idempotency.PublicOperation{
+			"completeRegistration": {
+				Actor:    authn.RegistrationTokenActor,
+				Throttle: authn.RegistrationReplayThrottle(limiter, groups),
+			},
+		},
+		Metrics: reg,
+		Logger:  logger,
+	}
+}
+
+// idempotencyCaller names the authenticated caller of a request.
+func idempotencyCaller(ctx context.Context) (string, bool) {
+	if p, ok := authn.UserFrom(ctx); ok {
+		return "user:" + p.UserID.String(), true
+	}
+	if p, ok := authn.StaffFrom(ctx); ok {
+		return "staff:" + p.StaffID.String(), true
+	}
+	return "", false
 }
 
 // bindError handles a request the generated code could not bind after the

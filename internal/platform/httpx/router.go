@@ -142,6 +142,12 @@ func (rt *Router) Stream(pattern string, h http.HandlerFunc) {
 
 func (rt *Router) isStream(pattern string) bool { return rt.streams[pattern] }
 
+// IsStream reports whether pattern is a Stream route: one without Timeout
+// and BodyLimit. The Idempotency-Key store's lease relies on the request
+// timeout, so a test holds the keyed operations off Stream routes
+// (ADR-0034).
+func (rt *Router) IsStream(pattern string) bool { return rt.isStream(pattern) }
+
 // Walk visits every registered route, streams included, with its method
 // and template (chi.Walk on the root router). Tests use it to check that
 // configuration naming routes (x-rate-limit, ExemptRoutes) names real

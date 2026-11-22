@@ -2616,10 +2616,23 @@ type ApproveCompanyParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2629,10 +2642,23 @@ type RejectCompanyParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2669,10 +2695,23 @@ type ApproveIdentityReviewParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2682,10 +2721,23 @@ type RejectIdentityReviewParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2740,10 +2792,23 @@ type CompleteRegistrationParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2753,10 +2818,23 @@ type CreateCompanyParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2781,10 +2859,23 @@ type InviteCompanyContactParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2806,10 +2897,23 @@ type AddCompanyImageParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2837,10 +2941,23 @@ type CreateMyAddressParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2862,10 +2979,23 @@ type CreateMyEducationParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2892,10 +3022,23 @@ type SubmitMyIdentityDocumentsParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -2905,10 +3048,23 @@ type StartMediaUploadParams struct {
 	// İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
 	// aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
 	// structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-	// `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-	// saklanır.
+	// (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+	// (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+	// birlikte 24 saat saklanır (ADR-0034). İki istek, parmak izleri aynıysa
+	// aynıdır; parmak izi şunlardan alınır: gövde (doğrulanmış değer), yol ve sorgu parametreleri, `X-Device-Id` ve `X-Client-Platform`.
+	// Aynı anahtarla aynı istek gelirse ilk yanıt bayt bayt aynen döner ve
+	// `Idempotent-Replayed: true` taşır. Aynı anahtar farklı bir istekle gelirse 422
+	// `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE`
+	// döner. Başarı saklanır; çağıranı olan operasyonda kalıcı 4xx de saklanır.
+	// Çağıranı olmayan operasyonda 4xx, ve her operasyonda 5xx, 408, 425 ve 429
+	// anahtarı serbest bırakır; istemci aynı anahtarla yeniden dener. Doğrulamada
+	// reddedilen istek anahtarı hiç almaz.
+	//
+	// **İstemci notu:** elinde token çifti olan istemci `Idempotent-Replayed`
+	// yanıtındaki çifti kullanmaz. Tekrar, ilk yanıtın çiftini taşır; istemci o çifti
+	// aldıysa ve yenilediyse tekrardaki refresh token artık eskidir, ve onu sunmak
+	// yeniden kullanım sayılıp oturumu kapatır (ADR-0025). Çifti hiç almamış istemci
+	// için tekrardaki çift kullanılmamıştır ve güvenlidir.
 	IdempotencyKey IdempotencyKey `json:"Idempotency-Key"`
 }
 
@@ -9973,7 +10129,8 @@ type CompleteRegistrationResponseObject interface {
 }
 
 type CompleteRegistration201ResponseHeaders struct {
-	Location *string
+	IdempotentReplayed *string
+	Location           *string
 }
 
 type CompleteRegistration201JSONResponse struct {
@@ -9988,6 +10145,9 @@ func (response CompleteRegistration201JSONResponse) VisitCompleteRegistrationRes
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.IdempotentReplayed != nil {
+		w.Header().Set("Idempotent-Replayed", fmt.Sprint(*response.Headers.IdempotentReplayed))
+	}
 	if response.Headers.Location != nil {
 		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
 	}
@@ -13487,6 +13647,22 @@ func (response CreateMyAddress404ApplicationProblemPlusJSONResponse) VisitCreate
 	return err
 }
 
+type CreateMyAddress409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyAddress409ApplicationProblemPlusJSONResponse) VisitCreateMyAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CreateMyAddress413ApplicationProblemPlusJSONResponse struct {
 	PayloadTooLargeApplicationProblemPlusJSONResponse
 }
@@ -14114,6 +14290,22 @@ func (response CreateMyEducation404ApplicationProblemPlusJSONResponse) VisitCrea
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateMyEducation409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response CreateMyEducation409ApplicationProblemPlusJSONResponse) VisitCreateMyEducationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -14896,6 +15088,22 @@ func (response StartMediaUpload401ApplicationProblemPlusJSONResponse) VisitStart
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartMediaUpload409ApplicationProblemPlusJSONResponse struct {
+	ConflictApplicationProblemPlusJSONResponse
+}
+
+func (response StartMediaUpload409ApplicationProblemPlusJSONResponse) VisitStartMediaUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(409)
 	_, err := buf.WriteTo(w)
 	return err
 }

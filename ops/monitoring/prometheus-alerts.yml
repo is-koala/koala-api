@@ -25,6 +25,15 @@ groups:
         for: 10m
         labels: { severity: warning, owner: backend }
         annotations: { summary: "Bir oran sınırı grubunda saniyede 1'den fazla 429 dönüyor; saldırı ya da dar sınır" }
+      # An operation that takes an Idempotency-Key answered a success it
+      # did not store in its own transaction (ADR-0034 Karar 4): its
+      # handler does not call idempotency.Commit there, so a lost commit
+      # can repeat the side effect. A wiring bug, never expected.
+      - alert: KoalaIdempotencyUnbound
+        expr: sum by (operation) (increase(koala_idempotency_requests_total{result="unbound"}[15m])) > 0
+        for: 1m
+        labels: { severity: critical, owner: backend }
+        annotations: { summary: "Idempotency-Key alan bir operasyon başarısını kendi tx'inde saklamadı; tekrar yan etkiyi yineleyebilir (ADR-0034)" }
       # The global hourly cap of registration mails (ADR-0032 Karar 6):
       # while it holds, legitimate registrations get no mail either.
       - alert: KoalaRegistrationMailCapReached

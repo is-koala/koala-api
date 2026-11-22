@@ -9,6 +9,11 @@ import (
 // (ADR-0005 madde 6).
 const HeaderIdempotencyKey = "Idempotency-Key"
 
+// HeaderIdempotentReplayed marks a response the Idempotency-Key store
+// replayed instead of running the operation again (Stripe's header;
+// ADR-0034).
+const HeaderIdempotentReplayed = "Idempotent-Replayed"
+
 // Idempotency-Key length bounds (stil rehberi §7, öneri).
 const (
 	minIdempotencyKeyLen = 8

@@ -1,0 +1,92 @@
+# The contract of the idempotency tests: one bound operation with a
+# caller (createNote), one public operation that takes a key
+# (redeemNote), one frozen operation that takes a key (archiveNote) and
+# one operation that takes none (listNotes).
+openapi: 3.1.0
+info:
+  title: idempotency test
+  version: 1.0.0
+security:
+  - bearer: []
+paths:
+  /notes:
+    post:
+      operationId: createNote
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  minLength: 1
+                copies:
+                  type: integer
+                  default: 1
+      responses:
+        "201":
+          description: Created.
+        default:
+          description: Error.
+    get:
+      operationId: listNotes
+      responses:
+        "200":
+          description: Notes.
+  /notes/redeem:
+    post:
+      operationId: redeemNote
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ticket]
+              properties:
+                ticket:
+                  type: string
+      responses:
+        "201":
+          description: Redeemed.
+        default:
+          description: Error.
+  /notes/{id}/archive:
+    post:
+      operationId: archiveNote
+      x-not-implemented: the handler of this test operation never lands
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Archived.
+        default:
+          description: Error.
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: '^([A-Za-z0-9_.:-]{8,255}|"[A-Za-z0-9_.:-]{8,255}")$'
