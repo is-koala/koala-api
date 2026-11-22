@@ -10,10 +10,11 @@ FROM active_users
 WHERE id = $1;
 
 -- name: InsertUser :exec
--- InsertUser adds a user. Faz 2's registration calls it; Faz 1 seeds tests
--- with it.
-INSERT INTO active_users (id, email, password_hash, status, created_at)
-VALUES ($1, $2, $3, $4, $5);
+-- InsertUser adds a user. Registration calls it (ADR-0029 Karar 2); tests
+-- seed users with it. phone_verified and identity_verified keep their
+-- default: a new account has verified neither (USR-006).
+INSERT INTO active_users (id, email, password_hash, status, first_name, last_name, employer, email_verified, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 
 -- name: LockUserForSignIn :one
 -- LockUserForSignIn locks the active user row FOR UPDATE. It serializes

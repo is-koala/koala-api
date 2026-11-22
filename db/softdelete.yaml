@@ -148,7 +148,45 @@ tables:
       application role holds any privilege on it.
   river_job:
     class: M3
-    reason: River's job queue (ADR-0010); River manages its rows.
+    pii: true
+    reason: >-
+      River's job queue (ADR-0010); River manages its rows. pii: the jobs of
+      a registration start and a password reset request carry the address
+      (and the names) they were asked for, because deciding in the job, not
+      in the request, is what keeps the request from telling a registered
+      address apart (ADR-0032). River deletes a finished job after its
+      retention (completed and cancelled 24 hours, discarded 7 days).
+  pending_registrations:
+    class: M2
+    pii: true
+    reason: >-
+      A registration between its first and third step (ADR-0029 Karar 2):
+      address, names and the SHA-256 digests of its two tokens. Hard-deleted
+      30 days after it was written, consumed or not (USR-007); a revoked or
+      expired row stays until then so the per-address mail budget can count
+      it (ADR-0032). Not soft-deleted: a registration never comes back.
+  password_reset_tokens:
+    class: M2
+    reason: >-
+      SHA-256 digests of password reset tokens (ADR-0029 Karar 4): single
+      use, fifteen minutes. Hard-deleted 30 days after the request; a used
+      or revoked row stays until then so the per-user mail budget can count
+      it (ADR-0032).
+  agreement_versions:
+    class: M4
+    reason: >-
+      The agreements a registration consents to, one current version per
+      document, seeded by migration. A version is retired with retired_at,
+      never deleted: consent records name it.
+  consent_records:
+    class: M1
+    pii: true
+    reason: >-
+      One consent decision of a user at registration (USR-006): evidence of
+      who agreed to which version when. Appended, never updated or
+      deleted; an account's anonymization keeps it (koala-backend ADR-0012).
+      No retention yet: how long consent evidence is kept is a legal
+      decision (ADR-0032, open question).
   river_leader:
     class: M3
     reason: River's leader election (ADR-0010).
@@ -190,4 +228,15 @@ edges:
   - child: staff_role_assignments
     column: staff_id
     parent: staff_members
+    policy: detach
+  # A deleted user's reset tokens are dead: consuming one locks the user's
+  # active row first. The rows are M2 and cannot cascade.
+  - child: password_reset_tokens
+    column: user_id
+    parent: users
+    policy: detach
+  # Consent evidence outlives the account (M1).
+  - child: consent_records
+    column: user_id
+    parent: users
     policy: detach

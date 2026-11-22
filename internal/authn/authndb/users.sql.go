@@ -181,26 +181,35 @@ func (q *Queries) InsertLoginAttempt(ctx context.Context, arg InsertLoginAttempt
 }
 
 const insertUser = `-- name: InsertUser :exec
-INSERT INTO active_users (id, email, password_hash, status, created_at)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO active_users (id, email, password_hash, status, first_name, last_name, employer, email_verified, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 `
 
 type InsertUserParams struct {
-	ID           uuid.UUID
-	Email        string
-	PasswordHash *string
-	Status       string
-	CreatedAt    time.Time
+	ID            uuid.UUID
+	Email         string
+	PasswordHash  *string
+	Status        string
+	FirstName     string
+	LastName      string
+	Employer      bool
+	EmailVerified bool
+	CreatedAt     time.Time
 }
 
-// InsertUser adds a user. Faz 2's registration calls it; Faz 1 seeds tests
-// with it.
+// InsertUser adds a user. Registration calls it (ADR-0029 Karar 2); tests
+// seed users with it. phone_verified and identity_verified keep their
+// default: a new account has verified neither (USR-006).
 func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 	_, err := q.db.Exec(ctx, insertUser,
 		arg.ID,
 		arg.Email,
 		arg.PasswordHash,
 		arg.Status,
+		arg.FirstName,
+		arg.LastName,
+		arg.Employer,
+		arg.EmailVerified,
 		arg.CreatedAt,
 	)
 	return err
