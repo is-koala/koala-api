@@ -246,6 +246,43 @@ tables:
       Hard-deleted a day after the row was written: the budget window is a
       day. pii: the user id ties the row to a person. No foreign key: the
       row outlives nothing and the purge does not wait for the user.
+  universities:
+    class: M4
+    reason: >-
+      Academic reference data (ADR-0029 Karar 8): the universities an
+      education record names. Read-only for the application; rows come by
+      migration and are retired with retired_at, never deleted, since
+      education records name them (ADR-0036).
+  faculties:
+    class: M4
+    reason: >-
+      Academic reference data (ADR-0029 Karar 8): a university's faculties.
+      Read-only for the application; rows come by migration and are retired
+      with retired_at, never deleted, since education records name them
+      (ADR-0036).
+  departments:
+    class: M4
+    reason: >-
+      Academic reference data (ADR-0029 Karar 8): a faculty's departments.
+      Read-only for the application; rows come by migration and are retired
+      with retired_at, never deleted, since education records name them
+      (ADR-0036).
+  educations:
+    class: soft_delete
+    pii: true
+  user_profile_sync_intents:
+    class: M2
+    pii: true
+    reason: >-
+      The outbox of the payment provider's profile sync (USR-022, ADR-0036):
+      one open intent per user, written in the transaction of the profile
+      change it stands for, published by the dispatcher of Faz 6. It holds no
+      profile data, only the user, the times and the origin of the latest
+      change (request id, session, device key), which is why it is pii. Not
+      soft-deleted: a queue row never comes back. Short-lived: the
+      dispatcher of Faz 6 hard-deletes a published intent after its
+      retention; until it lands nothing is published and a user has at most
+      one row.
   river_leader:
     class: M3
     reason: River's leader election (ADR-0010).
@@ -308,6 +345,18 @@ edges:
     column: owner_id
     parent: users
     policy: cascade
+  # A user's education records go with the user.
+  - child: educations
+    column: user_id
+    parent: users
+    policy: cascade
+  # A deleted user's open sync intent is left to the dispatcher, which
+  # reads the user by LEFT JOIN when it publishes. The rows are M3 and
+  # cannot cascade.
+  - child: user_profile_sync_intents
+    column: user_id
+    parent: users
+    policy: detach
   # Consent evidence outlives the account (M1).
   - child: consent_records
     column: user_id
