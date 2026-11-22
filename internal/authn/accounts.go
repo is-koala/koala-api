@@ -304,7 +304,14 @@ const maxUserAgentBytes = 512
 // consumed by one conditional statement in the transaction that writes
 // the user, the consents, the session and the welcome mail, so it works
 // once (USR-004).
-func (a *Accounts) CompleteRegistration(ctx context.Context, in RegistrationCompletion) (TokenPair, error) {
+//
+// commit, when not nil, runs last in that transaction with the new pair:
+// the HTTP layer stores its response there (the Idempotency-Key store,
+// ADR-0034), so the record that the registration happened commits with
+// it. Its error rolls everything back.
+func (a *Accounts) CompleteRegistration(ctx context.Context, in RegistrationCompletion,
+	commit func(ctx context.Context, q db.Querier, pair TokenPair) error,
+) (TokenPair, error) {
 	if err := checkDeviceKey(in.DeviceKey); err != nil {
 		return TokenPair{}, err
 	}
@@ -378,7 +385,13 @@ func (a *Accounts) CompleteRegistration(ctx context.Context, in RegistrationComp
 		if err := insertAttempt(ctx, q, principalUser, a.users.targets.of(p.Email), outcomeSucceeded, now); err != nil {
 			return err
 		}
-		return a.enqueueTx(ctx, tx, authMailArgs{Mail: mailWelcome, Ref: userID})
+		if err := a.enqueueTx(ctx, tx, authMailArgs{Mail: mailWelcome, Ref: userID}); err != nil {
+			return err
+		}
+		if commit != nil {
+			return commit(ctx, tx, pair)
+		}
+		return nil
 	})
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("authn: complete registration: %w", err)

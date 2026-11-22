@@ -13,6 +13,7 @@ import (
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/db"
+	"github.com/is-koala/koala-api/internal/platform/idempotency"
 	"github.com/is-koala/koala-api/internal/platform/jobs"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
@@ -71,12 +72,45 @@ func (w *authPurgeWorker) Work(ctx context.Context, _ *river.Job[authPurgeArgs])
 	return nil
 }
 
+// idempotencyPurgeInterval is how often the Idempotency-Key store is
+// purged. Keys live 24 hours (ADR-0034), so hourly keeps the table at
+// about a day of keys.
+const idempotencyPurgeInterval = time.Hour
+
+// idempotencyPurgeArgs is the periodic purge of idempotency_keys: rows
+// past their retention are hard-deleted (M2, ADR-0034).
+type idempotencyPurgeArgs struct{}
+
+// Kind is the job kind in River's tables.
+func (idempotencyPurgeArgs) Kind() string { return "idempotency_purge" }
+
+// idempotencyPurgeWorker runs the purge as koala_app.
+type idempotencyPurgeWorker struct {
+	river.WorkerDefaults[idempotencyPurgeArgs]
+
+	store  *idempotency.Store
+	logger *slog.Logger
+}
+
+// Work purges the expired keys and logs how many it removed.
+func (w *idempotencyPurgeWorker) Work(ctx context.Context, _ *river.Job[idempotencyPurgeArgs]) error {
+	n, err := w.store.Purge(ctx)
+	if err != nil {
+		return fmt.Errorf("idempotency purge: %w", err)
+	}
+	w.logger.InfoContext(ctx, "idempotency purge", slog.Int64("idempotency_keys", n))
+	return nil
+}
+
 // newWorkerClient returns the River client of serve: the default queue and
 // the periodic jobs. Periodic jobs are enqueued by the elected leader only,
 // so each runs once per interval however many instances run (ADR-0010).
 func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.Client, error) {
 	workers := river.NewWorkers()
 	if err := river.AddWorkerSafely(workers, mods.purge); err != nil {
+		return nil, fmt.Errorf("workers: %w", err)
+	}
+	if err := river.AddWorkerSafely(workers, mods.idempotencyPurge); err != nil {
 		return nil, fmt.Errorf("workers: %w", err)
 	}
 	if err := mods.accounts.AddWorkers(workers); err != nil {
@@ -93,6 +127,9 @@ func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.
 			river.NewPeriodicJob(river.PeriodicInterval(authPurgeInterval),
 				func() (river.JobArgs, *river.InsertOpts) { return authPurgeArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "auth_purge", RunOnStart: true}),
+			river.NewPeriodicJob(river.PeriodicInterval(idempotencyPurgeInterval),
+				func() (river.JobArgs, *river.InsertOpts) { return idempotencyPurgeArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "idempotency_purge", RunOnStart: true}),
 		},
 	})
 	if err != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/idempotency"
 	"github.com/is-koala/koala-api/internal/platform/jobs"
 	"github.com/is-koala/koala-api/internal/platform/mailer"
 	"github.com/is-koala/koala-api/internal/platform/sms"
@@ -38,6 +39,9 @@ type modules struct {
 	hub           *realtime.Hub
 	realtime      *realtime.Handler
 	purge         *authPurgeWorker
+	// The Idempotency-Key store (ADR-0034) and its purge.
+	idempotency      *idempotency.Store
+	idempotencyPurge *idempotencyPurgeWorker
 }
 
 // wireModules builds the modules on database, their metrics on reg.
@@ -57,9 +61,19 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, fmt.Errorf("wire authn: %w", err)
 	}
-	users, staff, err := wireAuthn(ctx, cfg, database, clk, logger, metrics, onRevoke)
+	pepper, err := loginPepper(ctx, cfg.LoginPepper, logger)
 	if err != nil {
 		return modules{}, err
+	}
+	users, staff, err := wireAuthn(ctx, cfg, database, clk, logger, metrics, pepper, onRevoke)
+	if err != nil {
+		return modules{}, err
+	}
+	// The store's keys are derived from the login pepper with their own
+	// HKDF contexts (ADR-0034 Karar 3).
+	idem, err := idempotency.NewStore(database, pepper, clk)
+	if err != nil {
+		return modules{}, fmt.Errorf("wire idempotency: %w", err)
 	}
 	accounts, verifications, err := wireAccounts(cfg, database, users, logger)
 	if err != nil {
@@ -90,6 +104,8 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 			users: users, staff: staff, accounts: accounts, verifications: verifications,
 			tickets: ticketStore, clock: clk, logger: logger,
 		},
+		idempotency:      idem,
+		idempotencyPurge: &idempotencyPurgeWorker{store: idem, logger: logger},
 	}, nil
 }
 
@@ -98,7 +114,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 // that is not configured is generated per process (config.ServeAuthErrors
 // refuses that where it matters).
 func wireAuthn(ctx context.Context, cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
-	metrics *authn.Metrics, onRevoke authn.RevokeHook,
+	metrics *authn.Metrics, pepper []byte, onRevoke authn.RevokeHook,
 ) (*authn.Service, *authn.StaffService, error) {
 	// One argon2id hash per CPU at a time: each holds 19 MiB for tens of
 	// milliseconds; more in parallel would only queue on the CPUs.
@@ -118,10 +134,6 @@ func wireAuthn(ctx context.Context, cfg config.Config, database *db.DB, clk cloc
 		if classes[aud], err = authn.NewTokenClass(aud, ring, clk); err != nil {
 			return nil, nil, fmt.Errorf("wire authn: %w", err)
 		}
-	}
-	pepper, err := loginPepper(ctx, cfg.LoginPepper, logger)
-	if err != nil {
-		return nil, nil, err
 	}
 	users, err := authn.NewService(database, passwords, classes[authn.AudienceMarketplace], pepper, clk, logger, metrics, onRevoke)
 	if err != nil {

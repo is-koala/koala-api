@@ -2,13 +2,17 @@ package authn
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"net/http"
 	"time"
 
 	"github.com/is-koala/koala-api/internal/apiv1"
+	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/idempotency"
 	"github.com/is-koala/koala-api/internal/platform/jsontime"
 )
 
@@ -207,19 +211,45 @@ func (h *HTTP) CompleteRegistration(ctx context.Context, req apiv1.CompleteRegis
 	for _, c := range req.Body.Consents {
 		consents = append(consents, ConsentDecision{DocumentCode: c.DocumentCode, Version: c.Version, Granted: c.Granted})
 	}
-	pair, err := h.accounts.CompleteRegistration(ctx, RegistrationCompletion{
+	// The response is built in the registration's transaction and stored
+	// there for the Idempotency-Key (ADR-0034 Karar 4): a retry whose
+	// first answer was lost gets the same token pair.
+	var resp apiv1.CompleteRegistration201JSONResponse
+	_, err := h.accounts.CompleteRegistration(ctx, RegistrationCompletion{
 		Token: req.Body.RegistrationToken, Password: req.Body.Password, Consents: consents,
 		DeviceKey: httpx.DeviceIDFrom(ctx), Platform: string(httpx.ClientPlatformFrom(ctx)),
 		ClientIP: httpx.ClientIPFrom(ctx), UserAgent: userAgentFrom(ctx),
+	}, func(ctx context.Context, q db.Querier, pair TokenPair) error {
+		location := "/v1/me"
+		resp = apiv1.CompleteRegistration201JSONResponse{
+			Body:    tokenPair(pair),
+			Headers: apiv1.CompleteRegistration201ResponseHeaders{Location: &location},
+		}
+		return idempotency.Commit(ctx, q, resp.VisitCompleteRegistrationResponse) //nolint:wrapcheck // its 409 reaches the response as it is; the service wraps it once
 	})
 	if err != nil {
 		return nil, err
 	}
-	location := "/v1/me"
-	return apiv1.CompleteRegistration201JSONResponse{
-		Body:    tokenPair(pair),
-		Headers: apiv1.CompleteRegistration201ResponseHeaders{Location: &location},
-	}, nil
+	return resp, nil
+}
+
+// RegistrationTokenActor is the Idempotency-Key actor of
+// completeRegistration, which has no caller: a digest of the registration
+// token the body presents (ADR-0034 Karar 1). Only the holder of the
+// token can address its keys, and the token is what the operation
+// consumes anyway. The digest is domain-separated from the stored token
+// hash, so the two tables do not share a value.
+func RegistrationTokenActor(body any) (string, bool) {
+	m, ok := body.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	token, ok := m["registrationToken"].(string)
+	if !ok || token == "" {
+		return "", false
+	}
+	sum := sha256.Sum256([]byte("koala-api idempotency actor v1\x00" + token))
+	return "registration:" + base64.RawURLEncoding.EncodeToString(sum[:]), true
 }
 
 // RequestPasswordReset queues a reset request; the answer does not say

@@ -49,6 +49,7 @@ type authApp struct {
 	passwords *authn.Passwords
 	mods      modules
 	dbt       dbtest.DB
+	reg       *prometheus.Registry
 }
 
 func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
@@ -58,8 +59,9 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	clk := clock.NewFake(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC))
 	logger := log.New(&bytes.Buffer{}, slog.LevelInfo)
 	mods := testModulesOn(t, database, clk)
+	reg := prometheus.NewRegistry()
 	router, err := newRouter(context.Background(), config.Config{Env: config.EnvTest}, logger,
-		httpx.NewHealth(logger), prometheus.NewRegistry(), groups, mods)
+		httpx.NewHealth(logger), reg, groups, mods)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +71,7 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	}
 	return &authApp{
 		router: router, clock: clk, db: database, maint: d.Open(t, db.RoleMaint),
-		q: authndb.New(database.Pool()), passwords: passwords, mods: mods, dbt: d,
+		q: authndb.New(database.Pool()), passwords: passwords, mods: mods, dbt: d, reg: reg,
 	}
 }
 

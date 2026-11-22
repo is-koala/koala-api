@@ -220,7 +220,7 @@ func (a *accountsEnv) complete(token, password string, decisions []authn.Consent
 	return a.accounts.CompleteRegistration(context.Background(), authn.RegistrationCompletion{
 		Token: token, Password: password, Consents: decisions, DeviceKey: deviceW1, Platform: "WEB",
 		ClientIP: netip.MustParseAddr("192.0.2.44"), UserAgent: "Koala/1.4.0 (iOS 19)",
-	})
+	}, nil)
 }
 
 // completeReset completes a reset from device.
