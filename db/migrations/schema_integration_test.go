@@ -267,6 +267,9 @@ func TestRoleGrants(t *testing.T) {
 			// Verifications (0043, ADR-0033): M2, written and purged by
 			// the application.
 			"user_verifications": dml,
+			// The Idempotency-Key store (0044, ADR-0034): M2, claimed,
+			// completed, released and purged by the application.
+			"idempotency_keys": dml,
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below

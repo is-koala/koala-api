@@ -218,6 +218,20 @@ tables:
       a new version, or the account deleted); the row itself stays. A
       consent's end is not modeled yet, so the anonymization job comes with
       the PR that models it.
+  idempotency_keys:
+    class: M2
+    pii: true
+    reason: >-
+      The Idempotency-Key store (ADR-0034, plan §4.1-6): per (actor,
+      operation, key) the keyed HMAC of the request and, once it finished,
+      the response sealed under a key derived from the request and the
+      login pepper. Hard-deleted 24 hours after the row was written
+      (Stripe's window); a key never comes back. pii: the actor is a user
+      or staff id, and a stored response may carry personal data (an
+      address an operation returns): encrypted personal data is still
+      personal data, so the table is in the retention inventory even though
+      the database alone cannot open a response. completeRegistration's
+      response carries a session's tokens, no personal data.
   river_leader:
     class: M3
     reason: River's leader election (ADR-0010).
