@@ -342,3 +342,49 @@ scenarios:
       - "src/main/java/com/exskylab/koala/webAPI/AddressSearchController.java:91"
       - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#reverse"
     go_test: null
+
+  - id: MED-014
+    priority: P0
+    title: Özgeçmiş PDF, DOC ve DOCX kabul eder; tip içerikten saptanır ve belge üstverisi sökülmez
+    rule: >
+      Özgeçmiş olarak PDF, Word 97-2003 belgesi ve Word belgesi (OOXML) kabul edilir;
+      başka bir tür reddedilir. Boyut sınırı on megabayttır. Hangi tür olduğu dosyanın
+      içeriğinden saptanır: belge biçiminin kendi yapısı aranır, dosya adının uzantısı ve
+      istemcinin beyanı karara girmez. Aynı sihirli baytları taşıyan başka biçimler
+      (hesap tablosu, sunum, kurulum paketi, sıradan bir arşiv) özgeçmiş olarak kabul
+      edilmez. Saklanan belgenin kendi üstverisi (yazar, üretici, oluşturma tarihi)
+      silinmez; belge yalnız indirilmek üzere, önbelleklenmeden ve genel bir adrese
+      çözülmeden saklanır.
+    given:
+      - "Kimlikli kullanıcı U bir özgeçmiş yüklüyor"
+    when:
+      - "U bir PDF, bir Word 97-2003 belgesi ve bir Word belgesi (OOXML) yükler"
+      - "U, Word belgesiyle aynı sihirli baytları taşıyan bir hesap tablosu yükler"
+      - "U yalnız sihirli baytları taşıyan, içi olmayan bir dosya yükler"
+      - "U on megabaytı aşan bir dosya yükler"
+    then:
+      - "Üç belge türü de kabul edilir ve saptanan türüyle saklanır"
+      - "Hesap tablosu reddedilir"
+      - "İçi olmayan dosya reddedilir"
+      - "On megabaytı aşan dosya reddedilir"
+      - "Saklanan belgenin yazar bilgisi yerinde kalır"
+      - "Belge indirme eki olarak, önbelleklenmeden saklanır ve genel bir adrese çözülmez"
+    error: MEDIA_TYPE_UNSUPPORTED
+    decision: "Yusuf, 08.11.2026 (ADR-0030'un PDF-only kararını geri alır)"
+    target: >
+      Sektör standardı: LinkedIn, Indeed, Greenhouse, Lever ve Kariyer.net üçünü de kabul
+      ediyor. Java bugün de üçünü kabul ediyor ama kararı dosya adının uzantısından
+      veriyor; Go içerikten verir (ADR-0029 Karar 5). DOCX bir zip, DOC bir OLE bileşik
+      dosyasıdır ve bu baytları xlsx, pptx, jar, apk, xls, ppt, msi de taşır, bu yüzden
+      sihirli bayt tek başına karar vermez: arşivin içindekiler listesinde
+      `word/document.xml`, OLE dosyasında `WordDocument` akışı aranır (ADR-0031 Karar 2).
+      Belge üstverisinin sökülmemesi kabul edilmiş sınırdır; azaltması belgenin nasıl
+      sunulduğudur (ADR-0030 Karar 4).
+    source:
+      - "src/main/java/com/exskylab/koala/core/properties/UploadProperties.java:30"
+      - "src/main/java/com/exskylab/koala/core/helpers/UploadValidator.java#allowedExtensions"
+      - "src/main/java/com/exskylab/koala/business/concretes/CvManager.java#uploadCv"
+    go_test: null
+    deferred:
+      phase: 2
+      reason: "Sözleşme donduruldu; özgeçmiş uçları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1). Tür kabulü ve taşıma internal/media'da yeşil."

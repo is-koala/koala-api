@@ -23,6 +23,7 @@
 package imaging
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"errors"
@@ -38,19 +39,39 @@ import (
 // "unknown, pass it through" branch.
 type Type string
 
-// The accepted types (ADR-0029 Karar 5 and the CV upload).
+// The accepted types (ADR-0029 Karar 5 and the CV upload; the two Word
+// types ADR-0031 Karar 2).
 const (
 	TypeJPEG Type = "image/jpeg"
 	TypePNG  Type = "image/png"
 	TypePDF  Type = "application/pdf"
+	TypeDOC  Type = "application/msword"
+	TypeDOCX Type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
 
 // Types lists every accepted type.
-func Types() []Type { return []Type{TypeJPEG, TypePNG, TypePDF} }
+func Types() []Type { return []Type{TypeJPEG, TypePNG, TypePDF, TypeDOC, TypeDOCX} }
 
 // Image reports whether the type is a raster image, which is what
-// Sanitize can re-encode. PDF is not: see Sanitize.
+// Sanitize can re-encode. PDF and the two Word types are not: see
+// Sanitize.
 func (t Type) Image() bool { return t == TypeJPEG || t == TypePNG }
+
+// Container reports whether the type is carried by a container file --
+// an OLE compound file or a ZIP archive -- whose structure, and not its
+// leading bytes, decides what it is (ADR-0031 Karar 2). Detect needs the
+// whole object for such a type, never a head.
+//
+// The answer is read from the signature table, so a type whose second
+// stage is added or removed cannot disagree with this method.
+func (t Type) Container() bool {
+	for _, m := range signatures() {
+		if m.typ == t {
+			return m.verify != nil
+		}
+	}
+	return false
+}
 
 // Errors of this package.
 var (
@@ -75,6 +96,11 @@ type magic struct {
 	prefix []byte
 	// at is the offset the prefix sits at.
 	at int
+	// verify is the second stage, for a signature that several formats
+	// share: the prefix says which container, this says what is inside
+	// it. nil means the prefix is the whole decision, which is the case
+	// for JPEG, PNG and PDF.
+	verify func([]byte) bool
 }
 
 // signatures is the magic byte table, in the order it is tried. It is a
@@ -90,23 +116,112 @@ type magic struct {
 //   - PDF: "%PDF-" at offset 0. The specification tolerates it within the
 //     first 1024 bytes, which is how a polyglot hides a PDF behind
 //     another format's header; Koala requires offset 0 (ADR-0030 Karar 3).
+//   - DOCX: the local file header of a ZIP archive. Every OOXML file,
+//     every ODF file, every jar and every apk starts with these four
+//     bytes, so the prefix decides nothing on its own and a second stage
+//     reads the archive's own table of contents.
+//   - DOC: the eight byte signature of an OLE compound file, shared with
+//     xls, ppt and msi for the same reason, with the same consequence.
 func signatures() []magic {
 	return []magic{
 		{typ: TypeJPEG, prefix: []byte{0xFF, 0xD8, 0xFF}},
 		{typ: TypePNG, prefix: []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}},
 		{typ: TypePDF, prefix: []byte("%PDF-")},
+		{typ: TypeDOCX, prefix: []byte("PK\x03\x04"), verify: isWordprocessingML},
+		{typ: TypeDOC, prefix: []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}, verify: isWordBinary},
 	}
 }
 
+// wordMainPart is the part every WordprocessingML document carries: the
+// main document body. A spreadsheet carries xl/workbook.xml instead and a
+// presentation ppt/presentation.xml, so this one name is what separates
+// a .docx from the other members of the family.
+const wordMainPart = "word/document.xml"
+
+// isWordprocessingML reports whether the ZIP archive in b is a
+// WordprocessingML document, by reading its central directory and
+// looking for the main document part.
+//
+// Nothing is decompressed. Only the archive's table of contents is
+// parsed, so a zip bomb is never inflated: its compressed entries are
+// never opened. The work and the memory are bounded by len(b), which the
+// caller has already bounded (media.Kind.Limits, 10 MiB) -- archive/zip
+// refuses a record count larger than the file could hold, so the
+// directory it builds is at most one entry per 46 bytes of input.
+//
+// An archive whose directory does not parse is refused, not passed
+// through: this is an allowlist, and "it is some kind of zip" is not a
+// membership proof.
+func isWordprocessingML(b []byte) bool {
+	r, err := zip.NewReader(bytes.NewReader(b), int64(len(b)))
+	if err != nil {
+		return false
+	}
+	for _, f := range r.File {
+		if f.Name == wordMainPart {
+			return true
+		}
+	}
+	return false
+}
+
+// wordBinaryStream is the name of the stream every Word 97-2003 document
+// carries, as it is spelled in an OLE directory entry: UTF-16, little
+// endian, no terminator.
+func wordBinaryStream() []byte {
+	name := "WordDocument"
+	out := make([]byte, 0, 2*len(name))
+	for _, c := range []byte(name) {
+		out = append(out, c, 0x00)
+	}
+	return out
+}
+
+// isWordBinary reports whether the OLE compound file in b is a Word
+// 97-2003 document, by looking for the name of its main stream.
+//
+// This is a bounded search over bytes already in memory and not a parse
+// of the compound file: the directory of a compound file is a chain of
+// sectors that may sit anywhere in the file, so reaching it means
+// following the FAT, and writing that walk would be a new parser over
+// attacker supplied offsets for no gain here. Searching for the name
+// costs one pass and cannot run off the end of anything.
+//
+// It is therefore a signal and not a proof, and the direction of its
+// error matters: it accepts an xls or a ppt that **embeds** a Word
+// object, because such a file does carry a WordDocument stream. The
+// consequence is bounded -- the object is stored as an attachment, is
+// never rendered by Koala and resolves to no public address -- and
+// recorded in ADR-0031 Karar 2. It does not accept a file that carries
+// no Word stream at all, which is what keeps the CV slot from becoming
+// a general file host.
+func isWordBinary(b []byte) bool { return bytes.Contains(b, wordBinaryStream()) }
+
 // Detect returns the type the bytes are, and false when they are none of
-// the accepted ones. It reads at most the first few bytes, so a caller
-// may hand it a head instead of the whole file.
+// the accepted ones.
+//
+// It wants the whole object. For JPEG, PNG and PDF the signature is the
+// whole decision and a head would do, but a container type is decided by
+// its structure: a DOCX's table of contents sits at the **end** of the
+// file, so a head of one is not a DOCX and is answered as such. There is
+// no way to get the first stage's answer on its own, on purpose -- an
+// "it is a zip" that escaped into a caller would be a type decision
+// nobody verified (ADR-0031 Karar 2).
+//
+// A prefix that matches while the second stage refuses is refused
+// outright. No other signature can match the same first bytes, so there
+// is nothing further to try, and falling through to "unknown" is the
+// fail-closed answer.
 func Detect(b []byte) (Type, bool) {
 	for _, m := range signatures() {
 		end := m.at + len(m.prefix)
-		if len(b) >= end && bytes.Equal(b[m.at:end], m.prefix) {
-			return m.typ, true
+		if len(b) < end || !bytes.Equal(b[m.at:end], m.prefix) {
+			continue
 		}
+		if m.verify != nil && !m.verify(b) {
+			return "", false
+		}
+		return m.typ, true
 	}
 	return "", false
 }
@@ -183,10 +298,11 @@ type Result struct {
 //  6. the orientation applied to the pixels;
 //  7. the re-encode, which is what actually drops the metadata.
 //
-// Sanitize refuses a PDF with ErrUnsupportedType. A PDF cannot be
-// re-encoded without a PDF library, and there is no approved one
-// (ADR-0003); the caller moves it as it is and relies on how it is
-// served instead (ADR-0030 Karar 4).
+// Sanitize refuses a PDF and the two Word types with
+// ErrUnsupportedType. None of them can be re-encoded without a library
+// for its format, and there is no approved one (ADR-0003); the caller
+// moves such an object as it is and relies on how it is served instead
+// (ADR-0030 Karar 4, widened to the Word types by ADR-0031 Karar 2).
 //
 // The CPU work is bounded by MaxBytes and MaxPixels rather than by a
 // timer, because a decode cannot be interrupted part way. ctx is checked

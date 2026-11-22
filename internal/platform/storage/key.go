@@ -71,9 +71,10 @@ func Prefixes() []Prefix {
 
 // Ext is the extension of a key. It is derived from the content type the
 // server detected in the bytes, never from the name the client sent, so
-// the alphabet is these three values and nothing else (ADR-0029 Karar 6:
+// the alphabet is these five values and nothing else (ADR-0029 Karar 6:
 // a deliberate narrowing of Java, which took the extension from the file
-// name and allowed up to ten alphanumeric characters).
+// name and allowed up to ten alphanumeric characters; the two Word
+// extensions ADR-0031 Karar 2).
 type Ext string
 
 // The extensions.
@@ -81,10 +82,12 @@ const (
 	ExtJPEG Ext = "jpg"
 	ExtPNG  Ext = "png"
 	ExtPDF  Ext = "pdf"
+	ExtDOC  Ext = "doc"
+	ExtDOCX Ext = "docx"
 )
 
 // Exts lists every extension a key may carry.
-func Exts() []Ext { return []Ext{ExtJPEG, ExtPNG, ExtPDF} }
+func Exts() []Ext { return []Ext{ExtJPEG, ExtPNG, ExtPDF, ExtDOC, ExtDOCX} }
 
 // keyPattern is the read allowlist of ADR-0029 Karar 6. It is an
 // allowlist and not a denylist on purpose: it closes "..", ".", "%2e",
@@ -95,12 +98,13 @@ func Exts() []Ext { return []Ext{ExtJPEG, ExtPNG, ExtPDF} }
 var keyPattern = regexp.MustCompile(
 	`^(?:images|public|files/dispute-evidence|files|identity-documents|incoming)/` +
 		`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}` +
-		`\.(?:jpg|png|pdf)$`)
+		`\.(?:jpg|png|pdf|docx|doc)$`)
 
 // MaxKeyLen bounds the raw input ParseKey accepts before it decodes
-// anything. A well formed key is 50 to 62 bytes; the bound is generous
-// enough for a percent-encoded one and small enough that no pathological
-// input reaches the decoder.
+// anything. A well formed key is 46 to 64 bytes -- the shortest prefix
+// with a three letter extension, the longest with "docx"; the bound is
+// generous enough for a percent-encoded one and small enough that no
+// pathological input reaches the decoder.
 const MaxKeyLen = 256
 
 // Errors of the key scheme.
@@ -188,7 +192,7 @@ func ParseKey(raw string) (Key, error) {
 		return Key{}, fmt.Errorf("%w: identifier", ErrKeyInvalid)
 	}
 	// The extension is checked against the list as well, the way the
-	// prefix is. keyPattern already allows only these three, so this is
+	// prefix is. keyPattern already allows only these five, so this is
 	// the same redundancy as the prefix check above and exists for the
 	// same reason: the pattern and the two lists are three descriptions
 	// of one language, and a Key must not be constructible from a

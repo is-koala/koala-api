@@ -2061,7 +2061,8 @@ paths:
       description: |
         Yalnız şirketin yöneticisine açıktır. Galeri en çok on görüntü taşır; sınır
         dolduğunda çakışma hatası döner (MED-011). Görüntü önce `POST /v1/me/media` ile
-        yüklenir ve kimliğiyle verilir.
+        yüklenir ve kimliğiyle verilir. Görüntü listenin **sonuna** eklenir; galeri boşsa
+        kapak olur, boş değilse kapak değişmez (CMP-025).
       x-authz:
         action: can_manage
         object: company
@@ -2116,33 +2117,41 @@ paths:
         [COMPANY_NOT_FOUND, MEDIA_NOT_FOUND, MEDIA_NOT_READY, COMPANY_GALLERY_LIMIT_REACHED,
         COMPANY_GALLERY_DUPLICATE_IMAGE]
       tags: [company]
-      summary: Şirketin galerisini verilen sırayla değiştirir.
+      summary: Şirketin galerisini verilen sıra ve kapakla değiştirir.
       description: |
-        Galerinin tamamı gönderilen listeyle yer değiştirir ve **sıra anlamlıdır**:
-        listedeki ilk görüntü kapaktır. Böylece kapağı değiştirmek, görüntüleri yeniden
-        sıralamak ve açıklamalarını güncellemek tek işlemdir; kapak ayrı bir uç istemez
-        (ADR-0029 Karar 7). Listede olmayan görüntüler galeriden çıkar, medya kayıtları
-        silinmez. Boş liste galeriyi boşaltır ve kapağı `null` yapar. En çok on görüntü
-        (MED-011); her görüntü hazır durumda olmak zorundadır.
+        Galerinin tamamı gönderilen listeyle yer değiştirir. **Sıra anlamlıdır** ve
+        **kapak öğenin `cover` işaretinden gelir**; hiçbir öğe işaretlenmemişse listenin
+        ilk öğesi kapak olur. Böylece sıralamak, kapağı seçmek ve açıklamaları güncellemek
+        tek işlemdir; kapak ayrı bir uç istemez (ADR-0031 Karar 1). Listede olmayan
+        görüntüler galeriden çıkar, medya kayıtları silinmez. Boş liste galeriyi boşaltır
+        ve kapağı `null` yapar. En çok on görüntü (MED-011); her görüntü hazır durumda
+        olmak zorundadır.
+
+        **En çok bir öğe kapak olabilir.** Bu değişmez şemada yazılıdır (`contains` +
+        `maxContains: 1`), bu yüzden kendi hata kodunu istemez: iki kapak taşıyan gövde
+        `400 REQUEST_INVALID` ve `/items` işaretçisinde `FIELD_OUT_OF_RANGE` alır (CMP-025).
 
         **Aynı medya listede iki kez geçemez** (`COMPANY_GALLERY_DUPLICATE_IMAGE`): sıra
-        anlamlı olduğu için bir görüntünün iki konumu olamaz. Kural şema ile ifade
-        edilemiyor, çünkü öğeler nesne ve `uniqueItems` bütün nesneyi karşılaştırır: aynı
-        `mediaId`, farklı `caption` iki ayrı öğe sayılır (CMP-024).
+        anlamlı olduğu için bir görüntünün iki konumu olamaz. Bu kural, kapak kuralının
+        tersine, şema ile ifade **edilemiyor**, çünkü öğeler nesne ve `uniqueItems` bütün
+        nesneyi karşılaştırır: aynı `mediaId`, farklı `caption` iki ayrı öğe sayılır
+        (CMP-024).
       x-authz:
         action: can_manage
         object: company
       x-rate-limit: upload
       # Şemanın kabul ettiği en büyük gövde: 10 öğe x 255 karakter caption.
-      # ASCII'de ~3,2 KB, Türkçe'de ~5,7 KB, `\u` kaçışlı istemcide ~16 KB. Sınır
-      # en genişini almak zorunda, yoksa `maxLength`'i geçmeyen meşru bir istek
-      # gövde okunmadan 413 alır (ADR-0029 Karar 7).
+      # ASCII'de ~3,2 KB, Türkçe'de ~5,7 KB, `\u` kaçışlı istemcide ~16,1 KB
+      # (öğe başına 36 baytlık `mediaId`, 6 bayta kaçan 255 karakter ve
+      # `"cover":true` ile 1.606 bayt; 10 öğe, ayraçlar ve zarf 16.081 bayt).
+      # Sınır en genişini almak zorunda, yoksa `maxLength`'i geçmeyen meşru bir
+      # istek gövde okunmadan 413 alır (ADR-0029 Karar 7, ADR-0031 Karar 1).
       x-body-limit: 16384
       x-not-implemented: |
         Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
         Bugün 501 NOT_IMPLEMENTED döner.
       requestBody:
-        description: Galerinin yeni içeriği, kapak ilk olacak şekilde sıralı.
+        description: "Galerinin yeni içeriği: öğelerin sırası ve kapak işareti."
         required: true
         content:
           application/json:
@@ -2306,9 +2315,10 @@ paths:
       description: |
         Dosya API'den geçmez (ADR-0019 §4): istemci verilen kısa ömürlü adrese doğrudan
         yazar. Yanıt beklemede bir medya kaydı ve karantina anahtarının yazma adresini
-        taşır (MED-001). Kabul edilen tipler yalnız JPEG, PNG ve PDF'tir ve tip tamamlama
-        adımında **içerikten** saptanır; istemcinin beyanı ve dosya adının uzantısı karara
-        girmez (IDN-003). Tamamlanmayan yükleme yirmi dört saat sonra silinir.
+        taşır (MED-001). Kabul edilen tipler **türe göre** değişir: görüntülerde JPEG ve
+        PNG, özgeçmişte PDF, DOC ve DOCX (MED-014). Tip tamamlama adımında **içerikten**
+        saptanır; istemcinin beyanı ve dosya adının uzantısı karara girmez (IDN-003).
+        Tamamlanmayan yükleme yirmi dört saat sonra silinir.
       x-authz-exempt: |
         Yükleme çağıranın kendi medyasıdır; henüz var olmayan nesne yetkilendirilemez.
       x-rate-limit: upload
@@ -5461,7 +5471,9 @@ components:
       type: object
       description: |
         Galerinin sonuna eklenecek görüntü; medya hazır durumda olmak zorundadır. Galeri
-        boşsa eklenen görüntü kapak olur.
+        boşsa eklenen görüntü kapak olur; boş değilse **kapak değişmez** ve mevcut kapak
+        yerinde kalır. Ekleme kapak seçmez: kapak `PUT /v1/companies/{companyId}/images`
+        ile seçilir (CMP-025).
       additionalProperties: false
       required: [mediaId]
       properties:
@@ -5502,24 +5514,28 @@ components:
           type: [string, "null"]
           format: uuid
           description: |
-            Kapak görüntüsünün medya kimliği; galerinin ilk görüntüsüdür. Galeri boşsa
-            `null`. Kapak ayrı bir uçla değil, galeriyi sıralayarak değişir.
+            Kapak görüntüsünün medya kimliği; galeri boşsa `null`. Kapağı taşıyan öğe
+            dizinin herhangi bir konumunda olabilir: kapak `PUT /v1/companies/{companyId}/images`
+            ile öğenin `cover` işareti verilerek seçilir, hiçbir öğe işaretlenmemişse ilk
+            öğedir (CMP-025).
           examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30]
         items:
           type: array
           maxItems: 10
           description: |
-            Galerideki görüntüler **sıra numarasına göre**: ilk öğe kapaktır. Sıra
+            Galerideki görüntüler **sıra numarasına göre**. Sıra
             `PUT /v1/companies/{companyId}/images` ile değişir, eklenme anıyla değil;
-            yoksa sıralamanın sonucu gözlenemez ve kapak hiç değiştirilemezdi (CMP-023).
+            yoksa sıralamanın sonucu gözlenemezdi (CMP-023). Kapak sıradan okunmaz:
+            `coverMediaId` onu adlandırır.
           items:
             $ref: "#/components/schemas/GalleryImage"
 
     GalleryImage:
       type: object
       description: |
-        Galerideki bir görüntü. Sıra numarası dizideki konumuna katlanmıştır ve kapak
-        dizinin ilk öğesidir; ikisi de ayrı alan taşımaz (ADR-0029 Karar 7).
+        Galerideki bir görüntü. Sıra numarası dizideki konumuna katlanmıştır ve ayrı alan
+        taşımaz. Kapak da öğede alan taşımaz, çünkü galeri kaynağı `coverMediaId` ile onu
+        tek yerde adlandırır (ADR-0031 Karar 1).
       required: [mediaId, url, caption]
       properties:
         mediaId:
@@ -5555,8 +5571,14 @@ components:
 
     MediaContentType:
       type: string
-      description: Sunucunun içerikten saptadığı tip; istemcinin beyanı karara girmez (IDN-003).
-      enum: [IMAGE_JPEG, IMAGE_PNG, APPLICATION_PDF]
+      description: |
+        Sunucunun içerikten saptadığı tip; istemcinin beyanı karara girmez (IDN-003). Değer
+        medya tipinin UPPER_SNAKE yazımıdır; son iki değer `application/msword` ve
+        `application/vnd.openxmlformats-officedocument.wordprocessingml.document` karşılığıdır
+        ve yalnız özgeçmişte görülür (MED-014, ADR-0031 Karar 2).
+      enum:
+        [IMAGE_JPEG, IMAGE_PNG, APPLICATION_PDF, APPLICATION_MSWORD,
+        APPLICATION_VND_OPENXMLFORMATS_OFFICEDOCUMENT_WORDPROCESSINGML_DOCUMENT]
 
     StartMediaUploadRequest:
       type: object
@@ -5975,26 +5997,43 @@ components:
     ReplaceCompanyGalleryRequest:
       type: object
       description: |
-        Galerinin yeni içeriği. Sıra anlamlıdır: ilk öğe kapaktır. Boş liste galeriyi
-        boşaltır. Her medya hazır durumda olmak zorundadır (ADR-0029 Karar 7).
+        Galerinin yeni içeriği. Sıra anlamlıdır ve kapak `cover` işaretiyle seçilir; hiçbir
+        öğe işaretlenmemişse ilk öğe kapak olur. Boş liste galeriyi boşaltır. Her medya hazır
+        durumda olmak zorundadır (ADR-0031 Karar 1).
       additionalProperties: false
       required: [items]
       properties:
         items:
           type: array
           maxItems: 10
-          description: Galerinin öğeleri, kapak ilk olacak şekilde sıralı.
+          description: |
+            Galerinin öğeleri, görünecekleri sırayla. Kapak sıradan değil `cover`
+            işaretinden gelir (CMP-025).
           items:
             $ref: "#/components/schemas/CompanyGalleryItemInput"
+          # "En çok bir kapak" değişmezi: `cover: true` taşıyan öğeleri sayar.
+          # `minContains: 0` olmadan `contains` en az bir eşleşme **isteyecekti**,
+          # yani kapaksız liste reddedilirdi (JSON Schema 2020-12 §10.3.1.3:
+          # minContains'in öntanımı 1'dir).
+          contains:
+            type: object
+            description: "`cover: true` taşıyan öğe; yalnız saymak için, gövdenin biçimini genişletmez."
+            required: [cover]
+            properties:
+              cover:
+                const: true
+          minContains: 0
+          maxContains: 1
       examples:
         - items:
             - mediaId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
               caption: Kadıköy deposu, yükleme rampası
             - mediaId: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31
+              cover: true
 
     CompanyGalleryItemInput:
       type: object
-      description: "Galerinin bir öğesi: medya kimliği ve isteğe bağlı açıklaması."
+      description: "Galerinin bir öğesi: medya kimliği, isteğe bağlı açıklaması ve kapak işareti."
       additionalProperties: false
       required: [mediaId]
       properties:
@@ -6008,6 +6047,13 @@ components:
           maxLength: 255
           description: Görüntünün açıklaması.
           examples: ["Kadıköy deposu, yükleme rampası"]
+        cover:
+          type: boolean
+          description: |
+            Bu öğe kapak mı. Listede en çok bir öğe `true` taşıyabilir. Alanı vermemek
+            `false` ile aynıdır ve hiçbir öğe işaretlenmemişse **listenin ilk öğesi** kapak
+            olur: alanı hiç göndermeyen istemci eski davranışı aynen görür (CMP-025).
+          examples: [true]
 
     EducationDegree:
       type: string

@@ -269,15 +269,21 @@ func (e MeStatus) Valid() bool {
 
 // Defines values for MediaContentType.
 const (
-	MediaContentTypeAPPLICATIONPDF MediaContentType = "APPLICATION_PDF"
-	MediaContentTypeIMAGEJPEG      MediaContentType = "IMAGE_JPEG"
-	MediaContentTypeIMAGEPNG       MediaContentType = "IMAGE_PNG"
+	MediaContentTypeAPPLICATIONMSWORD                                                  MediaContentType = "APPLICATION_MSWORD"
+	MediaContentTypeAPPLICATIONPDF                                                     MediaContentType = "APPLICATION_PDF"
+	MediaContentTypeAPPLICATIONVNDOPENXMLFORMATSOFFICEDOCUMENTWORDPROCESSINGMLDOCUMENT MediaContentType = "APPLICATION_VND_OPENXMLFORMATS_OFFICEDOCUMENT_WORDPROCESSINGML_DOCUMENT"
+	MediaContentTypeIMAGEJPEG                                                          MediaContentType = "IMAGE_JPEG"
+	MediaContentTypeIMAGEPNG                                                           MediaContentType = "IMAGE_PNG"
 )
 
 // Valid indicates whether the value is a known member of the MediaContentType enum.
 func (e MediaContentType) Valid() bool {
 	switch e {
+	case MediaContentTypeAPPLICATIONMSWORD:
+		return true
 	case MediaContentTypeAPPLICATIONPDF:
+		return true
+	case MediaContentTypeAPPLICATIONVNDOPENXMLFORMATSOFFICEDOCUMENTWORDPROCESSINGMLDOCUMENT:
 		return true
 	case MediaContentTypeIMAGEJPEG:
 		return true
@@ -427,7 +433,9 @@ func (e VerificationStatus) Valid() bool {
 }
 
 // AddCompanyImageRequest Galerinin sonuna eklenecek görüntü; medya hazır durumda olmak zorundadır. Galeri
-// boşsa eklenen görüntü kapak olur.
+// boşsa eklenen görüntü kapak olur; boş değilse **kapak değişmez** ve mevcut kapak
+// yerinde kalır. Ekleme kapak seçmez: kapak `PUT /v1/companies/{companyId}/images`
+// ile seçilir (CMP-025).
 //
 // Examples: {"caption":"Kadıköy deposu, yükleme rampası","mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30"}
 type AddCompanyImageRequest struct {
@@ -741,25 +749,36 @@ type CompanyContactRole string
 
 // CompanyGallery Şirketin galerisi; en çok on görüntü (MED-011).
 type CompanyGallery struct {
-	// CoverMediaID Kapak görüntüsünün medya kimliği; galerinin ilk görüntüsüdür. Galeri boşsa
-	// `null`. Kapak ayrı bir uçla değil, galeriyi sıralayarak değişir.
+	// CoverMediaID Kapak görüntüsünün medya kimliği; galeri boşsa `null`. Kapağı taşıyan öğe
+	// dizinin herhangi bir konumunda olabilir: kapak `PUT /v1/companies/{companyId}/images`
+	// ile öğenin `cover` işareti verilerek seçilir, hiçbir öğe işaretlenmemişse ilk
+	// öğedir (CMP-025).
 	//
 	//
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30
 	CoverMediaID *openapi_types.UUID `json:"coverMediaId"`
 
-	// Items Galerideki görüntüler **sıra numarasına göre**: ilk öğe kapaktır. Sıra
+	// Items Galerideki görüntüler **sıra numarasına göre**. Sıra
 	// `PUT /v1/companies/{companyId}/images` ile değişir, eklenme anıyla değil;
-	// yoksa sıralamanın sonucu gözlenemez ve kapak hiç değiştirilemezdi (CMP-023).
+	// yoksa sıralamanın sonucu gözlenemezdi (CMP-023). Kapak sıradan okunmaz:
+	// `coverMediaId` onu adlandırır.
 	Items []GalleryImage `json:"items"`
 }
 
-// CompanyGalleryItemInput Galerinin bir öğesi: medya kimliği ve isteğe bağlı açıklaması.
+// CompanyGalleryItemInput Galerinin bir öğesi: medya kimliği, isteğe bağlı açıklaması ve kapak işareti.
 type CompanyGalleryItemInput struct {
 	// Caption Görüntünün açıklaması.
 	//
 	// Examples: Kadıköy deposu, yükleme rampası
 	Caption *string `json:"caption,omitempty"`
+
+	// Cover Bu öğe kapak mı. Listede en çok bir öğe `true` taşıyabilir. Alanı vermemek
+	// `false` ile aynıdır ve hiçbir öğe işaretlenmemişse **listenin ilk öğesi** kapak
+	// olur: alanı hiç göndermeyen istemci eski davranışı aynen görür (CMP-025).
+	//
+	//
+	// Examples: true
+	Cover *bool `json:"cover,omitempty"`
 
 	// MediaID Görüntünün medya kimliği.
 	//
@@ -1148,8 +1167,9 @@ type FollowedCompanyPage struct {
 	PrevCursor *string `json:"prevCursor"`
 }
 
-// GalleryImage Galerideki bir görüntü. Sıra numarası dizideki konumuna katlanmıştır ve kapak
-// dizinin ilk öğesidir; ikisi de ayrı alan taşımaz (ADR-0029 Karar 7).
+// GalleryImage Galerideki bir görüntü. Sıra numarası dizideki konumuna katlanmıştır ve ayrı alan
+// taşımaz. Kapak da öğede alan taşımaz, çünkü galeri kaynağı `coverMediaId` ile onu
+// tek yerde adlandırır (ADR-0031 Karar 1).
 type GalleryImage struct {
 	// Caption Görüntünün açıklaması; verilmediyse `null`.
 	//
@@ -1391,7 +1411,10 @@ type Media struct {
 	URL *string `json:"url"`
 }
 
-// MediaContentType Sunucunun içerikten saptadığı tip; istemcinin beyanı karara girmez (IDN-003).
+// MediaContentType Sunucunun içerikten saptadığı tip; istemcinin beyanı karara girmez (IDN-003). Değer
+// medya tipinin UPPER_SNAKE yazımıdır; son iki değer `application/msword` ve
+// `application/vnd.openxmlformats-officedocument.wordprocessingml.document` karşılığıdır
+// ve yalnız özgeçmişte görülür (MED-014, ADR-0031 Karar 2).
 type MediaContentType string
 
 // MediaKind Medyanın türü; depolama önekini ve kabul edilen tipleri belirler. `IDENTITY_DOCUMENT`
@@ -1565,12 +1588,14 @@ type RejectionRequest struct {
 	Reason string `json:"reason"`
 }
 
-// ReplaceCompanyGalleryRequest Galerinin yeni içeriği. Sıra anlamlıdır: ilk öğe kapaktır. Boş liste galeriyi
-// boşaltır. Her medya hazır durumda olmak zorundadır (ADR-0029 Karar 7).
+// ReplaceCompanyGalleryRequest Galerinin yeni içeriği. Sıra anlamlıdır ve kapak `cover` işaretiyle seçilir; hiçbir
+// öğe işaretlenmemişse ilk öğe kapak olur. Boş liste galeriyi boşaltır. Her medya hazır
+// durumda olmak zorundadır (ADR-0031 Karar 1).
 //
-// Examples: {"items":[{"caption":"Kadıköy deposu, yükleme rampası","mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30"},{"mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31"}]}
+// Examples: {"items":[{"caption":"Kadıköy deposu, yükleme rampası","mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a30"},{"cover":true,"mediaId":"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a31"}]}
 type ReplaceCompanyGalleryRequest struct {
-	// Items Galerinin öğeleri, kapak ilk olacak şekilde sıralı.
+	// Items Galerinin öğeleri, görünecekleri sırayla. Kapak sıradan değil `cover`
+	// işaretinden gelir (CMP-025).
 	Items []CompanyGalleryItemInput `json:"items"`
 }
 
@@ -3095,7 +3120,7 @@ type ServerInterface interface {
 	// AddCompanyImage Şirketin galerisine görüntü ekler.
 	// (POST /v1/companies/{companyId}/images)
 	AddCompanyImage(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID, params AddCompanyImageParams)
-	// ReplaceCompanyGallery Şirketin galerisini verilen sırayla değiştirir.
+	// ReplaceCompanyGallery Şirketin galerisini verilen sıra ve kapakla değiştirir.
 	// (PUT /v1/companies/{companyId}/images)
 	ReplaceCompanyGallery(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID)
 	// RemoveCompanyImage Şirketin galerisinden bir görüntüyü çıkarır.
@@ -3473,7 +3498,7 @@ func (_ Unimplemented) AddCompanyImage(w http.ResponseWriter, r *http.Request, c
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// ReplaceCompanyGallery Şirketin galerisini verilen sırayla değiştirir.
+// ReplaceCompanyGallery Şirketin galerisini verilen sıra ve kapakla değiştirir.
 // (PUT /v1/companies/{companyId}/images)
 func (_ Unimplemented) ReplaceCompanyGallery(w http.ResponseWriter, r *http.Request, companyID openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -17439,7 +17464,7 @@ type StrictServerInterface interface {
 	// AddCompanyImage Şirketin galerisine görüntü ekler.
 	// (POST /v1/companies/{companyId}/images)
 	AddCompanyImage(ctx context.Context, request AddCompanyImageRequestObject) (AddCompanyImageResponseObject, error)
-	// ReplaceCompanyGallery Şirketin galerisini verilen sırayla değiştirir.
+	// ReplaceCompanyGallery Şirketin galerisini verilen sıra ve kapakla değiştirir.
 	// (PUT /v1/companies/{companyId}/images)
 	ReplaceCompanyGallery(ctx context.Context, request ReplaceCompanyGalleryRequestObject) (ReplaceCompanyGalleryResponseObject, error)
 	// RemoveCompanyImage Şirketin galerisinden bir görüntüyü çıkarır.

@@ -210,30 +210,6 @@ func bodyLimit(op *openapi3.Operation) (int64, error) {
 	return int64(n), nil
 }
 
-// schemaUses2020 reports whether s uses a keyword that only kin-openapi's
-// JSON Schema 2020-12 validator checks (the list kin uses to decide its own
-// fallback, plus nullable, whose meaning differs between the two).
-func schemaUses2020(s *openapi3.Schema, seen map[*openapi3.Schema]bool) bool {
-	if s == nil || seen[s] {
-		return false
-	}
-	seen[s] = true
-	if schemaUses2020Here(s) {
-		return true
-	}
-	children := slices.Concat(s.OneOf, s.AnyOf, s.AllOf,
-		openapi3.SchemaRefs{s.Not, s.Items, s.AdditionalProperties.Schema})
-	for _, p := range s.Properties {
-		children = append(children, p)
-	}
-	for _, c := range children {
-		if c != nil && schemaUses2020(c.Value, seen) {
-			return true
-		}
-	}
-	return false
-}
-
 // schemaUses2020Here reports whether s itself, not its children, uses a
 // 2020-only keyword.
 func schemaUses2020Here(s *openapi3.Schema) bool {
