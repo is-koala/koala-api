@@ -134,6 +134,10 @@ func unresolvedCalls() map[string]string {
 	return map[string]string{
 		"internal/authn.jobQueue": "River's client implements it (outside the module): it inserts a job and returns River's own errors, never an apperr code",
 		"internal/media.jobQueue": "River's client implements it (outside the module): it inserts a job and returns River's own errors, never an apperr code",
+		// The media handlers (ADR-0035) are the first to reach these two
+		// hand-written pgx reads of the soft-delete platform.
+		"internal/platform/softdelete.LockActiveParent: q.QueryRow(ctx, sql, id).Scan":           "pgx's Row.Scan (outside the module) returns pgx.ErrNoRows or a driver error, which LockActiveParent wraps as ErrNotActive or a plain error; never an apperr code",
+		"internal/platform/softdelete.Deleter.checkRestrict: q.QueryRow(ctx, sql, parents).Scan": "pgx's Row.Scan (outside the module) returns a driver error, which checkRestrict wraps as a plain error; its one apperr site, SOFT_DELETE_RESTRICTED, is a constant the trace reads",
 	}
 }
 
