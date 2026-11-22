@@ -14,9 +14,10 @@ func smsOrder(sender, iys, text, recipients string) string {
 	return `"order":{"sender":"` + sender + `"` + iys + `,"message":{"text":"` + text + `",` + recipients + `}}`
 }
 
-// smsBody is a send request with the provider's key names.
-func smsBody(key, hash, order string) string {
-	return `{"request":{"authentication":{"key":"` + key + `","hash":"` + hash + `"},` + order + `}}`
+// smsBody is a send request of the fake's account key with the
+// provider's key names.
+func smsBody(hash, order string) string {
+	return `{"request":{"authentication":{"key":"key-1","hash":"` + hash + `"},` + order + `}}`
 }
 
 // recipientsOf is the recipients member with the provider's spelling.
@@ -39,7 +40,7 @@ func TestIletiMerkeziAcceptsAnAuthenticatedMessage(t *testing.T) {
 	f := fakes.NewIletiMerkezi(t, "key-1", "hash-1", "KOALA")
 	status, body := call(t, f.Client(), http.MethodPost, f.URL()+f.SendPath(),
 		http.Header{"Content-Type": {"application/json"}},
-		smsBody("key-1", "hash-1", smsOrder("KOALA", `,"iys":"0","iysList":""`, okText, recipientsOf("5321234567"))))
+		smsBody("hash-1", smsOrder("KOALA", `,"iys":"0","iysList":""`, okText, recipientsOf("5321234567"))))
 	m := decode(t, body)
 	if status != http.StatusOK || statusCode(t, m) != "200" {
 		t.Fatalf("status %d, body %s", status, body)
@@ -62,26 +63,26 @@ func TestIletiMerkeziRefuses(t *testing.T) {
 		reject string
 		want   string
 	}{
-		"foreign credentials": {body: smsBody("key-1", "other", smsOrder("KOALA", iys, okText, ok)), want: "401"},
+		"foreign credentials": {body: smsBody("other", smsOrder("KOALA", iys, okText, ok)), want: "401"},
 		"not JSON":            {body: "<request/>", want: "400"},
-		"no iys flag":         {body: smsBody("key-1", "hash-1", smsOrder("KOALA", "", okText, ok)), want: "468"},
+		"no iys flag":         {body: smsBody("hash-1", smsOrder("KOALA", "", okText, ok)), want: "468"},
 		"an empty date list": {
-			body: smsBody("key-1", "hash-1", smsOrder("KOALA", iys+`,"sendDateTime":[]`, okText, ok)), want: "457",
+			body: smsBody("hash-1", smsOrder("KOALA", iys+`,"sendDateTime":[]`, okText, ok)), want: "457",
 		},
 		"a malformed date": {
-			body: smsBody("key-1", "hash-1", smsOrder("KOALA", iys+`,"sendDateTime":"2026-11-22 10:00"`, okText, ok)), want: "457",
+			body: smsBody("hash-1", smsOrder("KOALA", iys+`,"sendDateTime":"2026-11-22 10:00"`, okText, ok)), want: "457",
 		},
-		"no sender":         {body: smsBody("key-1", "hash-1", smsOrder("", iys, okText, ok)), want: "459"},
-		"sender too long":   {body: smsBody("key-1", "hash-1", smsOrder("KOALAKOALAKO", iys, okText, ok)), want: "460"},
-		"unapproved sender": {body: smsBody("key-1", "hash-1", smsOrder("OTHER", iys, okText, ok)), want: "450"},
-		"empty text":        {body: smsBody("key-1", "hash-1", smsOrder("KOALA", iys, "", ok)), want: "454"},
-		"over seven parts":  {body: smsBody("key-1", "hash-1", smsOrder("KOALA", iys, strings.Repeat("ş", 7*148+1), ok)), want: "453"},
+		"no sender":         {body: smsBody("hash-1", smsOrder("", iys, okText, ok)), want: "459"},
+		"sender too long":   {body: smsBody("hash-1", smsOrder("KOALAKOALAKO", iys, okText, ok)), want: "460"},
+		"unapproved sender": {body: smsBody("hash-1", smsOrder("OTHER", iys, okText, ok)), want: "450"},
+		"empty text":        {body: smsBody("hash-1", smsOrder("KOALA", iys, "", ok)), want: "454"},
+		"over seven parts":  {body: smsBody("hash-1", smsOrder("KOALA", iys, strings.Repeat("ş", 7*148+1), ok)), want: "453"},
 		"the English key": {
-			body: smsBody("key-1", "hash-1", smsOrder("KOALA", iys, okText, `"recipients":{"number":["5321234567"]}`)), want: "452",
+			body: smsBody("hash-1", smsOrder("KOALA", iys, okText, `"recipients":{"number":["5321234567"]}`)), want: "452",
 		},
-		"a malformed number": {body: smsBody("key-1", "hash-1", smsOrder("KOALA", iys, okText, recipientsOf("02121234567"))), want: "452"},
+		"a malformed number": {body: smsBody("hash-1", smsOrder("KOALA", iys, okText, recipientsOf("02121234567"))), want: "452"},
 		"rejected number": {
-			body: smsBody("key-1", "hash-1", smsOrder("KOALA", iys, okText, recipientsOf("5329999999"))), reject: "5329999999", want: "452",
+			body: smsBody("hash-1", smsOrder("KOALA", iys, okText, recipientsOf("5329999999"))), reject: "5329999999", want: "452",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
