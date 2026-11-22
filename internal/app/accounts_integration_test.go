@@ -158,3 +158,36 @@ func TestRegistrationStartsPerAddress(t *testing.T) {
 	wantStatus(t, a.callFrom(t, "198.51.100.7", http.MethodPost, "/v1/auth/password-reset", "", `{"email":"kutu9@example.com"}`),
 		http.StatusAccepted, "")
 }
+
+// The address's own bucket is asked first: a registration start it
+// refuses spends nothing of the mailbox's buckets. With the address
+// bucket holding one start and the mailbox's account-wide bucket three,
+// five refused starts from one address leave the account bucket with the
+// two the accepted start left, which two other addresses then take; were
+// the mailbox's buckets asked first, the refused starts would have
+// drained it (ADR-0032 Karar 6).
+func TestRegistrationAddressBucketComesFirst(t *testing.T) {
+	t.Parallel()
+	groups := rateLimitGroups()
+	slow := func(burst int) httpx.Rate { return httpx.Rate{Every: time.Hour, Burst: burst} }
+	auth := groups[groupAuth]
+	auth.PerCustom = slow(10)
+	groups[groupAuth] = auth
+	groups[groupAuthAccount] = httpx.GroupLimits{PerCustom: slow(3)}
+	groups[groupRegistrationAddress] = httpx.GroupLimits{PerCustom: slow(1)}
+	a := newAuthApp(t, groups)
+	start := func(addr string) *httptest.ResponseRecorder {
+		t.Helper()
+		return a.callFrom(t, addr, http.MethodPost, "/v1/auth/registrations", "",
+			`{"firstName":"A","lastName":"B","employer":false,"email":"hedef@example.com"}`)
+	}
+
+	wantStatus(t, start("203.0.113.1"), http.StatusAccepted, "")
+	for range 5 {
+		wantStatus(t, start("203.0.113.1"), http.StatusTooManyRequests, httpx.CodeRateLimited)
+	}
+	wantStatus(t, start("203.0.113.2"), http.StatusAccepted, "")
+	wantStatus(t, start("203.0.113.3"), http.StatusAccepted, "")
+	// The account bucket is what holds now: the test can tell the order.
+	wantStatus(t, start("203.0.113.4"), http.StatusTooManyRequests, httpx.CodeRateLimited)
+}

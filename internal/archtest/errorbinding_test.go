@@ -1218,12 +1218,13 @@ func (tr *errorTrace) call(sc *scope, call *ast.CallExpr, stack []ast.Node) {
 }
 
 // passedOn visits a function value passed as the i-th argument of a call
-// to c: a package function, a method value (of a type, or of an interface
-// to its implementations). What cannot be followed is red, like a call:
-// a function-typed field or an unimplemented interface method, a local
-// function value that is neither a literal of this body nor a parameter,
-// and any unresolved selector the callee takes as a function returning an
-// error.
+// to c: a package function, plain or instantiated (F[T]), a method value
+// (of a type, or of an interface to its implementations). What cannot be
+// followed is red, like a call: a function-typed field or an
+// unimplemented interface method, a local function value that is neither
+// a literal of this body nor a parameter, a package-level function value,
+// an element of a container of functions, and any unresolved selector the
+// callee takes as a function returning an error.
 func (tr *errorTrace) passedOn(sc *scope, c callee, i int, arg ast.Expr) {
 	switch a := unparen(arg).(type) {
 	case *ast.Ident:
@@ -1235,7 +1236,17 @@ func (tr *errorTrace) passedOn(sc *scope, c callee, i int, arg ast.Expr) {
 		}
 		if f, ok := sc.fn.pkg.funcs[a.Name]; ok {
 			tr.visit(f)
+			return
 		}
+		if v, ok := sc.fn.pkg.vars[a.Name]; ok {
+			if t, typed := tr.varType(sc.fn.pkg, v); (typed && tr.isErrorFunc(t)) || tr.takesErrorFunc(c, i) {
+				tr.unresolvedAt(a, tr.key(sc, a), "a package-level function value passed on")
+			}
+		}
+	case *ast.IndexExpr:
+		tr.passedIndexed(sc, c, i, a, a.X)
+	case *ast.IndexListExpr:
+		tr.passedIndexed(sc, c, i, a, a.X)
 	case *ast.SelectorExpr:
 		v := tr.resolveSelector(sc, a)
 		switch {
@@ -1248,6 +1259,21 @@ func (tr *errorTrace) passedOn(sc *scope, c callee, i int, arg ast.Expr) {
 		case v.why != "" && (tr.isErrorFunc(v.sig) || tr.takesErrorFunc(c, i)):
 			tr.unresolvedAt(a, v.missing, v.why+", passed on")
 		}
+	}
+}
+
+// passedIndexed is passedOn for x[…]: an instantiated generic function is
+// followed like the function itself; an element of a container of
+// functions that return an error is red, its value put there elsewhere.
+func (tr *errorTrace) passedIndexed(sc *scope, c callee, i int, arg, x ast.Expr) {
+	if t, ok := tr.exprType(sc, x); ok && !t.ext {
+		if _, isFunc := unparen(tr.m.underlying(t).expr).(*ast.FuncType); isFunc {
+			tr.passedOn(sc, c, i, x)
+			return
+		}
+	}
+	if t, ok := tr.exprType(sc, arg); (ok && tr.isErrorFunc(t)) || (!ok && tr.takesErrorFunc(c, i)) {
+		tr.unresolvedAt(arg, tr.key(sc, arg), "an indexed function value passed on")
 	}
 }
 
@@ -1784,7 +1810,9 @@ const (
 	CodeStaff  apperr.Code = "DEMO_STAFF_ONLY"
 	CodeVar    apperr.Code = "DEMO_VAR"
 	CodeImpl   apperr.Code = "DEMO_IMPL"
-	CodePassed apperr.Code = "DEMO_PASSED"
+	CodePassed  apperr.Code = "DEMO_PASSED"
+	CodeIndexed apperr.Code = "DEMO_INDEXED"
+	CodeGeneric apperr.Code = "DEMO_GENERIC"
 )
 
 var errVar = apperr.New(apperr.KindConflict, CodeVar)
@@ -1801,6 +1829,12 @@ type Passer struct{}
 
 func (Passer) Pass() error { return apperr.New(apperr.KindConflict, CodePassed) }
 
+type Indexed struct{}
+
+func (Indexed) Get() error { return apperr.New(apperr.KindNotFound, CodeIndexed) }
+
+var hookVar func() error
+
 type Store struct{}
 
 type Impl struct{}
@@ -1815,7 +1849,7 @@ type HTTP struct {
 	log    *slog.Logger
 	hook   func() error
 	passer passer
-	svcs   map[string]Passer
+	svcs   map[string]Indexed
 	fns    map[string]func() error
 	quits  []func()
 }
@@ -1859,7 +1893,11 @@ func (h *HTTP) GetLonely(context.Context, apiv1.GetLonelyRequestObject) (any, er
 
 func (h *HTTP) GetBlind(ctx context.Context, _ apiv1.GetBlindRequestObject) (any, error) {
 	_ = run(h.passer.Pass)
-	_ = h.svcs["k"].Pass()
+	_ = h.svcs["k"].Get()
+	_ = run(generic[int])
+	_ = run(h.hook)
+	_ = run(hookVar)
+	_ = run(h.fns["k"])
 	h.quits[0]()
 	_ = viaParam[Passer](Passer{})
 	_ = viaIndex[[]Passer](nil)
@@ -1871,6 +1909,8 @@ func (h *HTTP) GetBlind(ctx context.Context, _ apiv1.GetBlindRequestObject) (any
 }
 
 func run(f func() error) error { return f() }
+
+func generic[T any]() error { return apperr.New(apperr.KindForbidden, CodeGeneric) }
 
 func viaParam[T doer](v T) error { return v.Do() }
 
@@ -2012,17 +2052,21 @@ func TestErrorTraceOnADemoModule(t *testing.T) {
 		t.Errorf("GetLonely followed %d calls, want 0: the handler alone, which the real test makes red", followed)
 	}
 
-	// GetBlind: a method value passed on is followed to the interface's
-	// implementation, an indexed access of a known element type and an
-	// indexed callee of functions returning nothing are followed or let
-	// past; everything else it meets is red, each for its own reason.
+	// GetBlind: each green path has a code of its own, reached by no other
+	// path (visit enters a declaration once): DEMO_PASSED only through the
+	// interface method value passed on, DEMO_GENERIC only through the
+	// instantiated generic function passed on, DEMO_INDEXED only through
+	// the indexed access of a known element type. An indexed callee of
+	// functions returning nothing is let past; everything else it meets is
+	// red, each for its own reason.
 	sites, unres, _ = m.trace(handlers["GetBlind"][0])
 	got = nil
 	for _, s := range sites {
 		got = append(got, s.kind+" "+s.code)
 	}
-	if !slices.Equal(got, []string{"KindConflict DEMO_PASSED"}) {
-		t.Errorf("GetBlind reaches %v, want DEMO_PASSED through the method value passed on", got)
+	slices.Sort(got)
+	if want := []string{"KindConflict DEMO_PASSED", "KindForbidden DEMO_GENERIC", "KindNotFound DEMO_INDEXED"}; !slices.Equal(got, want) {
+		t.Errorf("GetBlind reaches %v, want %v", got, want)
 	}
 	whys = nil
 	for _, u := range unres {
@@ -2031,10 +2075,13 @@ func TestErrorTraceOnADemoModule(t *testing.T) {
 	slices.Sort(whys)
 	wantWhys := []string{
 		"a call of a local function value",                        // f()
+		"a function-typed field, passed on",                       // run(h.hook)
 		"a local function value passed on",                        // run(f)
+		"a package-level function value passed on",                // run(hookVar)
 		"a receiver of unknown type",                              // s[0].Do(), an indexed access of unknown element type
 		"a receiver whose type is not a named type of the module", // v.Do(), a parameter of a type parameter's type
 		"an indexed callee",                                       // h.fns["k"]()
+		"an indexed function value passed on",                     // run(h.fns["k"])
 	}
 	if !slices.Equal(whys, wantWhys) {
 		t.Errorf("GetBlind: unresolved %q, want %q", whys, wantWhys)
