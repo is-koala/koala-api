@@ -5,7 +5,6 @@ package media_test
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -196,16 +195,9 @@ func (a *app) runDeleteJobs(ctx context.Context) error {
 		return err
 	}
 	for _, j := range queue {
-		var args struct {
-			Media     uuid.UUID `json:"media"`
-			Kind      string    `json:"kind"`
-			UploadKey string    `json:"upload_key"`
-			Keep      string    `json:"keep"`
-		}
-		if err := json.Unmarshal(j.args, &args); err != nil {
-			return err
-		}
-		if err := a.svc.DeleteObjects(ctx, args.Media, media.Kind(args.Kind), args.UploadKey, args.Keep); err != nil {
+		// Through the registered worker, as River runs it: what Work
+		// passes on (Keep, ADR-0035 Karar 7) is under test too.
+		if err := a.svc.WorkDeleteObjects(ctx, j.args); err != nil {
 			return err
 		}
 		if _, err := a.db.Pool().Exec(ctx, "UPDATE river_job SET state = 'completed', finalized_at = now() WHERE id = $1", j.id); err != nil {

@@ -471,20 +471,19 @@ func (s *Service) Sweep(ctx context.Context) (Swept, error) {
 		for i := range rows {
 			r := &rows[i]
 			afterAt, afterID = r.CreatedAt, r.ID
-			status, err := s.retire(ctx, r, b, now)
+			status, adopted, err := s.retire(ctx, r, b, now)
 			if err != nil {
-				adopted, adoptErr := s.adopt(ctx, r, err, now)
-				if adopted {
-					s.logger.ErrorContext(ctx, "media bound by the sweep: a consumer points at it without media.Bind",
-						slog.String("id", r.ID.String()))
-					out.Adopted++
-					s.metrics.swept(sweptAdopted)
-					continue
-				}
 				s.logger.WarnContext(ctx, "media kept by the sweep: its retirement failed",
-					slog.String("id", r.ID.String()), slog.Any("error", errors.Join(err, adoptErr)))
+					slog.String("id", r.ID.String()), slog.Any("error", err))
 				out.Kept++
 				s.metrics.swept(sweptKept)
+				continue
+			}
+			if adopted {
+				s.logger.ErrorContext(ctx, "media bound by the sweep: a consumer points at it without media.Bind",
+					slog.String("id", r.ID.String()))
+				out.Adopted++
+				s.metrics.swept(sweptAdopted)
 				continue
 			}
 			if status != "" {
@@ -512,40 +511,28 @@ func (s *Service) Sweep(ctx context.Context) (Swept, error) {
 	return out, nil
 }
 
-// adopt answers a retirement that failed on a restrict edge
-// (SOFT_DELETE_RESTRICTED) for a READY media: an active consuming row
-// points at it, so it is bound in fact, and the consumer did not call
-// Bind. Leaving it unbound would list it, fail it and count it on every
-// run, and enough of them would spend each run's pages before the sweep
-// reached anything it can remove. It is bound through BindMedia, the one
-// writer of bound_at, so no later listing returns it (ADR-0035 Karar 8).
-// A media whose retirement failed otherwise, or that is not READY, is not
-// adopted.
-//
-// The listing does not exclude such media itself: the consuming tables do
-// not exist yet and their restrict edges are the catalog's, so a static
-// query cannot name them; the restrict check is the platform's
-// (softdelete.Delete), and this is where its answer arrives.
-func (s *Service) adopt(ctx context.Context, r *mediadb.ListSweepableRow, cause error, now time.Time) (bool, error) {
-	var ae *apperr.Error
-	if !errors.As(cause, &ae) || ae.Code != softdelete.CodeRestricted {
-		return false, nil
-	}
-	_, err := queries(s.db.Pool()).BindMedia(ctx, mediadb.BindMediaParams{Now: now, ID: r.ID, OwnerID: r.OwnerID})
-	switch {
-	case errors.Is(err, pgx.ErrNoRows):
-		return false, nil
-	case err != nil:
-		return false, fmt.Errorf("media: bind restricted media: %w", err)
-	}
-	return true, nil
-}
-
 // retire retires one media of the sweep and returns the status it had,
 // or "" when it no longer qualifies (completed, bound, deleted or held by
 // a completion meanwhile).
-func (s *Service) retire(ctx context.Context, r *mediadb.ListSweepableRow, b sweepBounds, now time.Time) (Status, error) {
+//
+// A READY media whose deletion the platform refuses on a restrict edge
+// (SOFT_DELETE_RESTRICTED) is bound in fact: a consuming row points at it
+// and the consumer did not call Bind. It is adopted -- bound through
+// BindMedia, the one writer of bound_at, so no later listing returns it
+// (ADR-0035 Karar 8) -- in the same transaction, under the media row's
+// lock the retirement took: the deletion runs under a savepoint, the
+// refusal rolls back to it, and the bind follows at once. A separate
+// transaction would release the lock between the refusal and the bind;
+// a consumer that let go of the media in between would leave it bound
+// for good with nothing pointing at it. adopted reports the bind.
+//
+// The listing does not exclude such media itself: the consuming tables'
+// restrict edges are the catalog's, so a static query cannot name them;
+// the restrict check is the platform's, and this is where its answer
+// arrives.
+func (s *Service) retire(ctx context.Context, r *mediadb.ListSweepableRow, b sweepBounds, now time.Time) (Status, bool, error) {
 	var was Status
+	adopted := false
 	err := s.db.InTx(ctx, func(ctx context.Context, q db.Querier) error {
 		mq := queries(q)
 		status, err := mq.LockSweepable(ctx, mediadb.LockSweepableParams{
@@ -568,17 +555,36 @@ func (s *Service) retire(ctx context.Context, r *mediadb.ListSweepableRow, b swe
 				return fmt.Errorf("media: expire upload: %w", err)
 			}
 		}
-		if _, err := s.deleter.Delete(ctx, q, softdelete.DeleteRequest{
+		sp, err := q.PgxTx().Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("media: savepoint: %w", err)
+		}
+		_, err = s.deleter.Delete(ctx, q, softdelete.DeleteRequest{
 			Table: tableMedia, ID: r.ID,
 			Actor:  softdelete.Actor{Kind: softdelete.ActorSystem},
 			Reason: softdelete.ReasonRetention, At: now,
-		}); err != nil {
-			return fmt.Errorf("media: retire media: %w", err)
+		})
+		if err != nil {
+			if rbErr := sp.Rollback(ctx); rbErr != nil {
+				return errors.Join(fmt.Errorf("media: retire media: %w", err), fmt.Errorf("media: roll back the savepoint: %w", rbErr))
+			}
+			var ae *apperr.Error
+			if was != StatusReady || !errors.As(err, &ae) || ae.Code != softdelete.CodeRestricted {
+				return fmt.Errorf("media: retire media: %w", err)
+			}
+			if _, err := mq.BindMedia(ctx, mediadb.BindMediaParams{Now: now, ID: r.ID, OwnerID: r.OwnerID}); err != nil {
+				return fmt.Errorf("media: bind restricted media: %w", err)
+			}
+			was, adopted = "", true
+			return nil
+		}
+		if err := sp.Commit(ctx); err != nil {
+			return fmt.Errorf("media: release the savepoint: %w", err)
 		}
 		return s.queueDeleteObjects(ctx, q, r.ID, r.Kind, r.UploadKey, "")
 	})
 	if err != nil {
-		return "", fmt.Errorf("media: sweep %s: %w", r.ID, err)
+		return "", false, fmt.Errorf("media: sweep %s: %w", r.ID, err)
 	}
-	return was, nil
+	return was, adopted, nil
 }
