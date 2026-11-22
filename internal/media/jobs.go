@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/is-koala/koala-api/internal/media/mediadb"
+	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
 	"github.com/is-koala/koala-api/internal/platform/storage"
@@ -78,11 +79,15 @@ func (completeArgs) InsertOpts() river.InsertOpts {
 
 // deleteObjectsArgs is the deletion of the objects a media id may have
 // left. It carries the kind and the quarantine key because the row may no
-// longer be readable when the job runs.
+// longer be readable when the job runs. Keep, when set, is a final key
+// the job never deletes: the object a completion recorded, which a row
+// that disappears before the job runs (an account deletion's cascade) may
+// get back with a restore (ADR-0035 Karar 7).
 type deleteObjectsArgs struct {
 	Media     uuid.UUID `json:"media"`
 	MediaKind string    `json:"kind"`
 	UploadKey string    `json:"upload_key"`
+	Keep      string    `json:"keep,omitempty"`
 }
 
 // Kind is the job kind in River's tables.
@@ -132,7 +137,8 @@ type deleteObjectsWorker struct {
 }
 
 func (w *deleteObjectsWorker) Work(ctx context.Context, job *river.Job[deleteObjectsArgs]) error {
-	return w.service.DeleteObjects(ctx, job.Args.Media, Kind(job.Args.MediaKind), job.Args.UploadKey)
+	a := job.Args
+	return w.service.DeleteObjects(ctx, a.Media, Kind(a.MediaKind), a.UploadKey, a.Keep)
 }
 
 type sweepWorker struct {
@@ -148,9 +154,10 @@ func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[SweepArgs]) error {
 
 // queueDeleteObjects queues the deletion of the objects of the media id
 // in q's transaction: a guaranteed side effect, committed with the
-// decision that makes the objects leftovers (CLAUDE.md, ADR-0010).
-func (s *Service) queueDeleteObjects(ctx context.Context, q db.Querier, id uuid.UUID, kind, uploadKey string) error {
-	args := deleteObjectsArgs{Media: id, MediaKind: kind, UploadKey: uploadKey}
+// decision that makes the objects leftovers (CLAUDE.md, ADR-0010). keep is
+// a final key the job must not delete, or "".
+func (s *Service) queueDeleteObjects(ctx context.Context, q db.Querier, id uuid.UUID, kind, uploadKey, keep string) error {
+	args := deleteObjectsArgs{Media: id, MediaKind: kind, UploadKey: uploadKey, Keep: keep}
 	if _, err := s.queue.InsertTx(ctx, q.PgxTx(), args, nil); err != nil {
 		return fmt.Errorf("media: queue the deletion of the objects: %w", err)
 	}
@@ -230,7 +237,7 @@ func (s *Service) Complete(ctx context.Context, id uuid.UUID, kind Kind, uploadK
 		return fmt.Errorf("media: complete %s: %w", id, err)
 	}
 	if gone {
-		return s.DeleteObjects(ctx, id, kind, uploadKey)
+		return s.DeleteObjects(ctx, id, kind, uploadKey, "")
 	}
 	if !pending {
 		return nil
@@ -251,7 +258,7 @@ func (s *Service) Complete(ctx context.Context, id uuid.UUID, kind Kind, uploadK
 			if done.Rejected() {
 				return nil
 			}
-			return s.queueDeleteObjects(ctx, q, id, string(m.Kind), m.UploadKey.String())
+			return s.queueDeleteObjects(ctx, q, id, string(m.Kind), m.UploadKey.String(), "")
 		case err != nil:
 			return fmt.Errorf("media: lock media: %w", err)
 		}
@@ -264,7 +271,11 @@ func (s *Service) Complete(ctx context.Context, id uuid.UUID, kind Kind, uploadK
 			if done.Rejected() {
 				return nil
 			}
-			return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey)
+			keep := ""
+			if r.ObjectKey != nil {
+				keep = *r.ObjectKey
+			}
+			return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey, keep)
 		}
 		now := s.clock.Now()
 		if done.Rejected() {
@@ -287,8 +298,11 @@ func (s *Service) Complete(ctx context.Context, id uuid.UUID, kind Kind, uploadK
 			return fmt.Errorf("media: record the outcome: %w", err)
 		}
 		// The id's other extensions and the quarantine key are leftovers
-		// now; the job keeps the object_key just written.
-		return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey)
+		// now. The object just recorded is named in the job: a job that
+		// read only the active row would delete it when an account
+		// deletion cascades to the row before the job runs, and the
+		// account's restore would bring back a READY row with no object.
+		return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey, done.Key.String())
 	})
 	if err != nil {
 		if !done.Rejected() {
@@ -324,25 +338,32 @@ func candidates(kind Kind, id uuid.UUID) ([]storage.Key, error) {
 }
 
 // DeleteObjects deletes every object the media id of kind may have that
-// no active row names (ADR-0035 Karar 4 and 7): its candidate final keys
-// and its quarantine key. What it keeps depends on the active row with
-// the id, read when the job runs:
+// nothing keeps (ADR-0035 Karar 4 and 7): its candidate final keys and its
+// quarantine key. keep, the job's own argument, is never deleted, whatever
+// the row looks like when the job runs; a recorded completion names its
+// object there. Beyond it, what stays depends on the active row with the
+// id, read when the job runs:
 //
-//   - none (deleted by its owner, by the sweep, with its account): all of
-//     them go;
-//   - READY: its object_key stays, the rest goes;
-//   - REJECTED: all of them go;
+//   - none (deleted by its owner, by the sweep, with its account): the
+//     rest goes;
+//   - READY: its object_key stays too;
+//   - REJECTED: the rest goes;
 //   - PENDING: nothing is touched -- the upload is still the completion's
 //     (a restored row, or a job queued for a row that came back).
+//
+// An unfinished upload does not survive its account's deletion: a
+// completion run that finds its row gone deletes the id's objects, and a
+// restored PENDING row is answered NOT_UPLOADED by its next completion and
+// swept. Only a recorded object is kept for a restore (keep).
 //
 // It is the job a deletion, a recorded completion and the sweep queue in
 // their transactions, and what a completion run does itself when it finds
 // its row gone. A failure is returned and River retries it.
-func (s *Service) DeleteObjects(ctx context.Context, id uuid.UUID, kind Kind, uploadKey string) error {
+func (s *Service) DeleteObjects(ctx context.Context, id uuid.UUID, kind Kind, uploadKey, keep string) error {
 	if s.store == nil {
 		return nil
 	}
-	var keep string
+	var named string
 	active, err := queries(s.db.Pool()).ActiveObject(ctx, id)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -351,7 +372,7 @@ func (s *Service) DeleteObjects(ctx context.Context, id uuid.UUID, kind Kind, up
 	case Status(active.Status) == StatusPending:
 		return nil
 	case active.ObjectKey != nil:
-		keep = *active.ObjectKey
+		named = *active.ObjectKey
 	}
 	upload, err := storage.ParseKey(uploadKey)
 	if err != nil {
@@ -364,7 +385,7 @@ func (s *Service) DeleteObjects(ctx context.Context, id uuid.UUID, kind Kind, up
 	keys = append(keys, upload)
 	var errs []error
 	for _, key := range keys {
-		if key.String() == keep {
+		if k := key.String(); k == keep || k == named {
 			continue
 		}
 		if err := s.store.Delete(ctx, key); err != nil {
@@ -387,8 +408,14 @@ type Swept struct {
 	Deleted int
 	// Unbound counts the READY media among Deleted that nothing bound.
 	Unbound int
-	// Kept counts the media whose deletion failed; they are logged and
-	// left, and the sweep pages past them.
+	// Adopted counts the READY media the sweep found bound without a
+	// bound_at -- a consuming row on a restrict edge points at them, so a
+	// consumer forgot Bind. The sweep binds them (BindMedia), which takes
+	// them out of every later listing, and the metric's alert names the
+	// bug.
+	Adopted int
+	// Kept counts the media whose deletion failed otherwise; they are
+	// logged and left, and the sweep pages past them.
 	Kept int
 	// Starts counts the purged rows of the budget ledger.
 	Starts int64
@@ -446,10 +473,22 @@ func (s *Service) Sweep(ctx context.Context) (Swept, error) {
 			afterAt, afterID = r.CreatedAt, r.ID
 			status, err := s.retire(ctx, r, b, now)
 			if err != nil {
+				adopted, adoptErr := s.adopt(ctx, r, err, now)
+				if adopted {
+					s.logger.ErrorContext(ctx, "media bound by the sweep: a consumer points at it without media.Bind",
+						slog.String("id", r.ID.String()))
+					out.Adopted++
+					s.metrics.swept(sweptAdopted)
+					continue
+				}
 				s.logger.WarnContext(ctx, "media kept by the sweep: its retirement failed",
-					slog.String("id", r.ID.String()), slog.Any("error", err))
+					slog.String("id", r.ID.String()), slog.Any("error", errors.Join(err, adoptErr)))
 				out.Kept++
+				s.metrics.swept(sweptKept)
 				continue
+			}
+			if status != "" {
+				s.metrics.swept(sweptDeleted)
 			}
 			switch status {
 			case "":
@@ -469,8 +508,37 @@ func (s *Service) Sweep(ctx context.Context) (Swept, error) {
 	}
 	s.logger.InfoContext(ctx, "media sweep",
 		slog.Int("expired", out.Expired), slog.Int("deleted", out.Deleted), slog.Int("unbound", out.Unbound),
-		slog.Int("kept", out.Kept), slog.Int64("upload_starts", out.Starts))
+		slog.Int("adopted", out.Adopted), slog.Int("kept", out.Kept), slog.Int64("upload_starts", out.Starts))
 	return out, nil
+}
+
+// adopt answers a retirement that failed on a restrict edge
+// (SOFT_DELETE_RESTRICTED) for a READY media: an active consuming row
+// points at it, so it is bound in fact, and the consumer did not call
+// Bind. Leaving it unbound would list it, fail it and count it on every
+// run, and enough of them would spend each run's pages before the sweep
+// reached anything it can remove. It is bound through BindMedia, the one
+// writer of bound_at, so no later listing returns it (ADR-0035 Karar 8).
+// A media whose retirement failed otherwise, or that is not READY, is not
+// adopted.
+//
+// The listing does not exclude such media itself: the consuming tables do
+// not exist yet and their restrict edges are the catalog's, so a static
+// query cannot name them; the restrict check is the platform's
+// (softdelete.Delete), and this is where its answer arrives.
+func (s *Service) adopt(ctx context.Context, r *mediadb.ListSweepableRow, cause error, now time.Time) (bool, error) {
+	var ae *apperr.Error
+	if !errors.As(cause, &ae) || ae.Code != softdelete.CodeRestricted {
+		return false, nil
+	}
+	_, err := queries(s.db.Pool()).BindMedia(ctx, mediadb.BindMediaParams{Now: now, ID: r.ID, OwnerID: r.OwnerID})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("media: bind restricted media: %w", err)
+	}
+	return true, nil
 }
 
 // retire retires one media of the sweep and returns the status it had,
@@ -507,7 +575,7 @@ func (s *Service) retire(ctx context.Context, r *mediadb.ListSweepableRow, b swe
 		}); err != nil {
 			return fmt.Errorf("media: retire media: %w", err)
 		}
-		return s.queueDeleteObjects(ctx, q, r.ID, r.Kind, r.UploadKey)
+		return s.queueDeleteObjects(ctx, q, r.ID, r.Kind, r.UploadKey, "")
 	})
 	if err != nil {
 		return "", fmt.Errorf("media: sweep %s: %w", r.ID, err)

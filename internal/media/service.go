@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
@@ -44,6 +45,15 @@ const (
 	DailyUploads       = 50
 	UploadBudgetWindow = 24 * time.Hour
 )
+
+// RetryFloor is the shortest Retry-After the two upload caps answer. The
+// computed wait can be zero or negative: the oldest open upload may be
+// past its retention while the hourly sweep has not taken it yet, or it
+// may have left PENDING between the count and the read. Retry-After: 0 or
+// 1 would invite a client loop against a cap that will not move for up to
+// the sweep's hour; a minute keeps a retrying client cheap, and the client
+// can free a place at once by completing or deleting an upload.
+const RetryFloor = time.Minute
 
 // UploadRetention is how long an upload that did not end READY is kept:
 // the quarantine's 24 hours (M2, ADR-0029 Karar 6). After it the sweep
@@ -99,17 +109,22 @@ type Service struct {
 	deleter  *softdelete.Deleter
 	clock    clock.Clock
 	logger   *slog.Logger
+	metrics  *sweepMetrics
 }
 
-// NewService returns the service. store may be nil (see Service); every
-// other dependency is required.
+// NewService returns the service, its metrics registered on reg. store may
+// be nil (see Service); every other dependency is required.
 func NewService(database *db.DB, queue jobQueue, store *storage.Store, deleter *softdelete.Deleter,
-	clk clock.Clock, logger *slog.Logger,
+	clk clock.Clock, logger *slog.Logger, reg prometheus.Registerer,
 ) (*Service, error) {
-	if database == nil || queue == nil || deleter == nil || clk == nil || logger == nil {
-		return nil, errors.New("media: the service needs a database, a job queue, a deleter, a clock and a logger")
+	if database == nil || queue == nil || deleter == nil || clk == nil || logger == nil || reg == nil {
+		return nil, errors.New("media: the service needs a database, a job queue, a deleter, a clock, a logger and a registry")
 	}
-	s := &Service{db: database, queue: queue, store: store, deleter: deleter, clock: clk, logger: logger}
+	metrics, err := newSweepMetrics(reg)
+	if err != nil {
+		return nil, err
+	}
+	s := &Service{db: database, queue: queue, store: store, deleter: deleter, clock: clk, logger: logger, metrics: metrics}
 	if store != nil {
 		p, err := NewPipeline(store, logger)
 		if err != nil {
@@ -194,15 +209,22 @@ func (s *Service) Start(ctx context.Context, owner uuid.UUID, kind Kind, declare
 			return fmt.Errorf("media: count open uploads: %w", err)
 		}
 		if open >= MaxOpenUploads {
-			oldest, err := mq.OldestOpenUpload(ctx, owner)
-			if err != nil {
-				return fmt.Errorf("media: oldest open upload: %w", err)
-			}
 			// The place frees when an upload is completed or deleted, and
-			// at the latest when the sweep takes the oldest one.
+			// at the latest when the sweep takes the oldest one. A
+			// completion job can move uploads out of PENDING without this
+			// lock, so the oldest may be gone by now: the floor answers.
+			wait := RetryFloor
+			oldest, err := mq.OldestOpenUpload(ctx, owner)
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+			case err != nil:
+				return fmt.Errorf("media: oldest open upload: %w", err)
+			default:
+				wait = oldest.Add(UploadRetention).Sub(now)
+			}
 			return &budgetError{
 				err:  apperr.New(apperr.KindRateLimited, CodePendingLimit),
-				wait: oldest.Add(UploadRetention).Sub(now),
+				wait: max(wait, RetryFloor),
 			}
 		}
 		since := now.Add(-UploadBudgetWindow)
@@ -217,7 +239,7 @@ func (s *Service) Start(ctx context.Context, owner uuid.UUID, kind Kind, declare
 			}
 			return &budgetError{
 				err:  apperr.New(apperr.KindRateLimited, CodeDailyLimit),
-				wait: oldest.Add(UploadBudgetWindow).Sub(now),
+				wait: max(oldest.Add(UploadBudgetWindow).Sub(now), RetryFloor),
 			}
 		}
 		id := up.Key.ID()
@@ -346,7 +368,7 @@ func (s *Service) Delete(ctx context.Context, owner, id uuid.UUID) error {
 		}); err != nil {
 			return fmt.Errorf("media: soft-delete: %w", err)
 		}
-		return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey)
+		return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey, "")
 	})
 	if err != nil {
 		return fmt.Errorf("media: delete media: %w", err)
@@ -429,4 +451,34 @@ func Bind(ctx context.Context, q db.Querier, now time.Time, owner, id uuid.UUID)
 		return fmt.Errorf("media: bind: %w", err)
 	}
 	return apperr.New(apperr.KindConflict, CodeNotReady)
+}
+
+// Release lets go of one of owner's media a consuming resource no longer
+// uses, in q's transaction -- the transaction that points the consumer at
+// its new media (ADR-0035 Karar 8). A profile picture that is replaced, an
+// identity photo slot that gets a new photo: the old media is not kept
+// unbound for the sweep's week, it is soft-deleted now, as the owner, and
+// the deletion of its objects is queued in the same transaction. The
+// consumer moves its row first: a media an active consuming row still
+// points at is refused with SOFT_DELETE_RESTRICTED by the platform.
+//
+// It is the consumers' one way to drop a media, as Bind is their one way
+// to keep one. Another user's media, or one that is not there, is
+// MEDIA_NOT_FOUND.
+func (s *Service) Release(ctx context.Context, q db.Querier, now time.Time, owner, id uuid.UUID) error {
+	r, err := queries(q).LockOwnMedia(ctx, mediadb.LockOwnMediaParams{ID: id, OwnerID: owner})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperr.New(apperr.KindNotFound, CodeNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("media: release: %w", err)
+	}
+	if _, err := s.deleter.Delete(ctx, q, softdelete.DeleteRequest{
+		Table: tableMedia, ID: id,
+		Actor:  softdelete.Actor{Kind: softdelete.ActorUser, ID: owner},
+		Reason: softdelete.ReasonUserRequest, At: now,
+	}); err != nil {
+		return fmt.Errorf("media: release: %w", err)
+	}
+	return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey, "")
 }

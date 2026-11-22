@@ -98,3 +98,17 @@ groups:
         for: 5m
         labels: { severity: warning, owner: security }
         annotations: { summary: "15 dakikada 10'dan fazla pazaryeri girişi kilitlendi; kimlik bilgisi doldurma saldırısı olabilir" }
+      # The media sweep (ADR-0035 Karar 4 and 8). A kept media is one whose
+      # retirement failed; it is retried every hour and logged with its id.
+      # An adopted media is a READY one a consumer points at without having
+      # called media.Bind: the sweep binds it, and the consumer has a bug.
+      - alert: KoalaMediaSweepKept
+        expr: increase(koala_media_swept_total{result="kept"}[3h]) > 0
+        for: 0m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Medya süpürmesi bir medyayı emekli edemedi ve bıraktı; log'daki kimliğe bakın (ADR-0035)" }
+      - alert: KoalaMediaBoundBySweep
+        expr: increase(koala_media_swept_total{result="adopted"}[3h]) > 0
+        for: 0m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Bir tüketici medyaya media.Bind çağırmadan bağlandı; süpürme bağladı, tüketicide hata var (ADR-0035)" }

@@ -100,7 +100,7 @@ WHERE id = sqlc.arg(id)::uuid AND status = 'PENDING';
 --     requested_before (a job may be writing its object right now);
 --   - a READY media nothing bound, decided before unbound_before.
 -- No lock: retire locks and checks each row again.
-SELECT id, kind, upload_key, created_at
+SELECT id, owner_id, kind, upload_key, created_at
 FROM active_media
 WHERE (created_at, id) > (sqlc.arg(after_created_at)::timestamptz, sqlc.arg(after_id)::uuid)
     AND (

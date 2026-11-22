@@ -218,7 +218,7 @@ func (q *Queries) InsertUploadStart(ctx context.Context, arg InsertUploadStartPa
 }
 
 const listSweepable = `-- name: ListSweepable :many
-SELECT id, kind, upload_key, created_at
+SELECT id, owner_id, kind, upload_key, created_at
 FROM active_media
 WHERE (created_at, id) > ($1::timestamptz, $2::uuid)
     AND (
@@ -240,6 +240,7 @@ type ListSweepableParams struct {
 
 type ListSweepableRow struct {
 	ID        uuid.UUID
+	OwnerID   uuid.UUID
 	Kind      string
 	UploadKey string
 	CreatedAt time.Time
@@ -271,6 +272,7 @@ func (q *Queries) ListSweepable(ctx context.Context, arg ListSweepableParams) ([
 		var i ListSweepableRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.OwnerID,
 			&i.Kind,
 			&i.UploadKey,
 			&i.CreatedAt,

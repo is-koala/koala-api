@@ -101,7 +101,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
-	mediaService, mediaHTTP, err := wireMedia(ctx, cfg, database, clk, logger)
+	mediaService, mediaHTTP, err := wireMedia(ctx, cfg, database, clk, logger, reg)
 	if err != nil {
 		return modules{}, err
 	}

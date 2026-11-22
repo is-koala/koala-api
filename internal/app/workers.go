@@ -107,23 +107,37 @@ func (w *idempotencyPurgeWorker) Work(ctx context.Context, _ *river.Job[idempote
 // the periodic jobs. Periodic jobs are enqueued by the elected leader only,
 // so each runs once per interval however many instances run (ADR-0010).
 func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.Client, error) {
+	cfg, err := workerConfig(mods, logger)
+	if err != nil {
+		return nil, err
+	}
+	client, err := jobs.NewClient(database.Pool(), cfg)
+	if err != nil {
+		return nil, fmt.Errorf("workers: %w", err)
+	}
+	return client, nil
+}
+
+// workerConfig is the River configuration newWorkerClient starts serve's
+// client with: the workers, the queues and the periodic jobs.
+func workerConfig(mods modules, logger *slog.Logger) (jobs.Config, error) {
 	workers := river.NewWorkers()
 	if err := river.AddWorkerSafely(workers, mods.purge); err != nil {
-		return nil, fmt.Errorf("workers: %w", err)
+		return jobs.Config{}, fmt.Errorf("workers: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, mods.idempotencyPurge); err != nil {
-		return nil, fmt.Errorf("workers: %w", err)
+		return jobs.Config{}, fmt.Errorf("workers: %w", err)
 	}
 	if err := mods.accounts.AddWorkers(workers); err != nil {
-		return nil, fmt.Errorf("workers: %w", err)
+		return jobs.Config{}, fmt.Errorf("workers: %w", err)
 	}
 	if err := mods.verifications.AddWorkers(workers); err != nil {
-		return nil, fmt.Errorf("workers: %w", err)
+		return jobs.Config{}, fmt.Errorf("workers: %w", err)
 	}
 	if err := mods.media.AddWorkers(workers); err != nil {
-		return nil, fmt.Errorf("workers: %w", err)
+		return jobs.Config{}, fmt.Errorf("workers: %w", err)
 	}
-	client, err := jobs.NewClient(database.Pool(), jobs.Config{
+	return jobs.Config{
 		Logger:  logger,
 		Queues:  workerQueues(),
 		Workers: workers,
@@ -140,11 +154,7 @@ func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.
 				func() (river.JobArgs, *river.InsertOpts) { return media.SweepArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "media_sweep", RunOnStart: true}),
 		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("workers: %w", err)
-	}
-	return client, nil
+	}, nil
 }
 
 // workerQueues are the River queues of serve: the default queue of the

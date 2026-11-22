@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	dbsrc "github.com/is-koala/koala-api/db"
 	"github.com/is-koala/koala-api/internal/media"
 	"github.com/is-koala/koala-api/internal/platform/clock"
@@ -31,6 +33,7 @@ const mediaSweepInterval = time.Hour
 // names the missing configuration in the log, a read answers without an
 // address.
 func wireMedia(ctx context.Context, cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
+	reg prometheus.Registerer,
 ) (*media.Service, *media.HTTP, error) {
 	var store *storage.Store
 	if cfg.Object.Configured() {
@@ -54,7 +57,7 @@ func wireMedia(ctx context.Context, cfg config.Config, database *db.DB, clk cloc
 	if err != nil {
 		return nil, nil, fmt.Errorf("wire media: %w", err)
 	}
-	service, err := media.NewService(database, queue, store, softdelete.New(catalog), clk, logger)
+	service, err := media.NewService(database, queue, store, softdelete.New(catalog), clk, logger, reg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("wire media: %w", err)
 	}
