@@ -3,6 +3,7 @@
 package authn_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -137,7 +138,7 @@ func (v *verificationsEnv) workCodes(t *testing.T) error {
 	return nil
 }
 
-var sixDigits = regexp.MustCompile(`\b([0-9]{6})\b`)
+var sixDigits = regexp.MustCompile(`\b(\d{6})\b`)
 
 // codeIn takes the code out of a text or mail body.
 func codeIn(t *testing.T, body string) string {
@@ -216,9 +217,9 @@ func (v *verificationsEnv) contact(t *testing.T, id uuid.UUID) (email string, em
 	return email, emailVerified, phone, phoneVerified
 }
 
-// codeCounter reads koala_verification_codes_total for a channel and an
-// outcome.
-func (v *verificationsEnv) codeCounter(t *testing.T, channel, outcome string) float64 {
+// textCounter reads koala_verification_codes_total of the text channel
+// for an outcome.
+func (v *verificationsEnv) textCounter(t *testing.T, outcome string) float64 {
 	t.Helper()
 	families, err := v.reg.Gather()
 	if err != nil {
@@ -233,12 +234,12 @@ func (v *verificationsEnv) codeCounter(t *testing.T, channel, outcome string) fl
 			for _, l := range m.GetLabel() {
 				labels[l.GetName()] = l.GetValue()
 			}
-			if labels["channel"] == channel && labels["outcome"] == outcome {
+			if labels["channel"] == authn.ChannelPhone && labels["outcome"] == outcome {
 				return m.GetCounter().GetValue()
 			}
 		}
 	}
-	t.Fatalf("no %s{channel=%q,outcome=%q}", authn.MetricVerificationCodes, channel, outcome)
+	t.Fatalf("no %s{channel=%q,outcome=%q}", authn.MetricVerificationCodes, authn.ChannelPhone, outcome)
 	return 0
 }
 
@@ -257,7 +258,7 @@ func TestVerificationCodeIsDigestedAndLivesTenMinutes(t *testing.T) {
 		!ver.ExpiresAt.Equal(ver.CreatedAt.Add(authn.VerificationTTL)) || ver.MaskedTarget != "+90******4567" {
 		t.Errorf("USR-008: started verification = %+v", ver)
 	}
-	if !regexp.MustCompile(`^[0-9]{6}$`).MatchString(code) {
+	if !regexp.MustCompile(`^\d{6}$`).MatchString(code) {
 		t.Fatalf("USR-008: code %q is not six digits", code)
 	}
 	// Every stored value of the verification and of every job: none is
@@ -287,7 +288,7 @@ func TestVerificationCodeIsDigestedAndLivesTenMinutes(t *testing.T) {
 	}
 	d := v.row(t, ver.ID).CodeDigest
 	plain := sha256.Sum256([]byte(code))
-	if len(d) != 32 || string(d) == string(plain[:]) {
+	if len(d) != 32 || bytes.Equal(d, plain[:]) {
 		t.Errorf("USR-008: the stored digest is %d bytes or the code's plain SHA-256", len(d))
 	}
 
@@ -431,7 +432,7 @@ func TestOneOpenVerificationPerTarget(t *testing.T) {
 	if n := len(v.texts.to(phoneN1)); n != authn.VerificationsPerTargetHour {
 		t.Errorf("USR-010: the number got %d codes in the hour, want %d", n, authn.VerificationsPerTargetHour)
 	}
-	if got := v.codeCounter(t, authn.ChannelPhone, "throttled"); got != 4 {
+	if got := v.textCounter(t, "throttled"); got != 4 {
 		t.Errorf("%s{throttled} = %v, want 4", authn.MetricVerificationCodes, got)
 	}
 }
@@ -677,10 +678,10 @@ func TestGlobalTextCap(t *testing.T) {
 	if n := v.texts.count(); n != 2 {
 		t.Errorf("%d texts under a cap of 2", n)
 	}
-	if got := v.codeCounter(t, authn.ChannelPhone, "held"); got != 1 {
+	if got := v.textCounter(t, "held"); got != 1 {
 		t.Errorf("%s{PHONE,held} = %v, want 1", authn.MetricVerificationCodes, got)
 	}
-	if got := v.codeCounter(t, authn.ChannelPhone, "sent"); got != 2 {
+	if got := v.textCounter(t, "sent"); got != 2 {
 		t.Errorf("%s{PHONE,sent} = %v, want 2", authn.MetricVerificationCodes, got)
 	}
 }
@@ -720,7 +721,7 @@ func TestUndeliverableCodeIsCanceled(t *testing.T) {
 		}
 		tc.refuse(nil)
 	}
-	if got := v.codeCounter(t, authn.ChannelPhone, "undeliverable"); got != 1 {
+	if got := v.textCounter(t, "undeliverable"); got != 1 {
 		t.Errorf("%s{PHONE,undeliverable} = %v, want 1", authn.MetricVerificationCodes, got)
 	}
 }

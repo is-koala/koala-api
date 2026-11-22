@@ -56,7 +56,7 @@ func (a *authApp) codeFor(t *testing.T, id uuid.UUID) string {
 	if err := v.SendCode(t.Context(), id, authn.ChannelPhone); err != nil {
 		t.Fatal(err)
 	}
-	m := regexp.MustCompile(`[0-9]{6}`).FindString(texts.last)
+	m := regexp.MustCompile(`\d{6}`).FindString(texts.last)
 	if m == "" {
 		t.Fatalf("no code in %q", texts.last)
 	}
@@ -174,9 +174,9 @@ func TestVerificationRefusalsDoNotTellApart(t *testing.T) {
 		theirs := a.call(t, op.method, "/v1/me/verifications/"+id.String()+op.suffix, intruder, op.body)
 		none := a.call(t, op.method, "/v1/me/verifications/"+missing.String()+op.suffix, intruder, op.body)
 		wantStatus(t, theirs, http.StatusNotFound, string(authn.CodeVerificationNotFound))
-		// The instance differs by the path; the rest is the same.
-		same("USR-011 "+op.method+op.suffix, theirs,
-			withBody(none, strings.ReplaceAll(none.Body.String(), missing.String(), id.String())))
+		// The instance is the route template, so the bodies are the same
+		// bytes.
+		same("USR-011 "+op.method+op.suffix, theirs, none)
 	}
 
 	a.clock.Advance(authn.VerificationTTL)
@@ -188,12 +188,4 @@ func TestVerificationRefusalsDoNotTellApart(t *testing.T) {
 	wrong := a.call(t, http.MethodPost, "/v1/me/verifications/"+id.String()+"/confirm", owner, `{"code":"`+wrongCode+`"}`)
 	wantStatus(t, right, http.StatusBadRequest, string(authn.CodeVerificationExpired))
 	same("USR-012 right and wrong code after the expiry", right, wrong)
-}
-
-// withBody is rec with its body replaced.
-func withBody(rec *httptest.ResponseRecorder, body string) *httptest.ResponseRecorder {
-	out := httptest.NewRecorder()
-	out.Code = rec.Code
-	_, _ = out.WriteString(body)
-	return out
 }

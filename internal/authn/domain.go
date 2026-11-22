@@ -163,9 +163,9 @@ const (
 )
 
 // Verification channels (user_verifications CHECK) and the statuses a
-// caller sees (the contract's VerificationStatus). BURNED and CANCELLED
-// are in the contract, but a burned or canceled verification reads as
-// missing (USR-011), so no answer carries them (ADR-0033).
+// caller sees (the contract's VerificationStatus). The contract also has
+// a burned and a canceled status, but a burned or canceled verification
+// reads as missing (USR-011), so no answer carries them (ADR-0033).
 const (
 	ChannelEmail = "EMAIL"
 	ChannelPhone = "PHONE"
@@ -242,7 +242,7 @@ func NormalizePhone(raw string) (string, bool) {
 }
 
 // e164Pattern is an E.164 number (users_phone_check).
-var e164Pattern = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
+var e164Pattern = regexp.MustCompile(`^\+[1-9]\d{7,14}$`)
 
 // textableCountries are the country codes a code may be texted to, with
 // the national number's length and the first digit of a mobile number

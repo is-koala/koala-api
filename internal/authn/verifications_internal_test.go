@@ -1,6 +1,7 @@
 package authn
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"errors"
 	"io/fs"
@@ -121,7 +122,7 @@ func TestMaskTarget(t *testing.T) {
 func TestCodeUsesTheWholeSpace(t *testing.T) {
 	t.Parallel()
 
-	six := regexp.MustCompile(`^[0-9]{6}$`)
+	six := regexp.MustCompile(`^\d{6}$`)
 	leadingZero := false
 	for range 20000 {
 		c, err := newVerificationCode()
@@ -150,10 +151,10 @@ func TestCodeDigestIsKeyed(t *testing.T) {
 	id, other := uuid.New(), uuid.New()
 	d := a.codeDigest(id, "042913")
 	plain := sha256.Sum256([]byte("042913"))
-	if string(d) == string(plain[:]) {
+	if bytes.Equal(d, plain[:]) {
 		t.Error("USR-008: the digest is the code's plain SHA-256")
 	}
-	if string(d) == string(b.codeDigest(id, "042913")) || string(d) == string(a.codeDigest(other, "042913")) {
+	if bytes.Equal(d, b.codeDigest(id, "042913")) || bytes.Equal(d, a.codeDigest(other, "042913")) {
 		t.Error("USR-008: the digest does not depend on the key and the verification")
 	}
 	if !a.codeMatches(id, d, "042913") || a.codeMatches(id, d, "042914") || a.codeMatches(id, nil, "042913") {

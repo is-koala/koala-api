@@ -264,6 +264,9 @@ func TestRoleGrants(t *testing.T) {
 			"registration_requests": {"SELECT", "INSERT", "DELETE"},
 			"agreement_versions":    {"SELECT"},
 			"consent_records":       {"INSERT"},
+			// Verifications (0043, ADR-0033): M2, written and purged by
+			// the application.
+			"user_verifications": dml,
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below
