@@ -14,7 +14,7 @@ import (
 
 const getProfile = `-- name: GetProfile :one
 SELECT id, email, phone, status, first_name, last_name, birth_date, gender, job_title, about, qualifications,
-       interests, employer, email_verified, phone_verified, identity_verified, created_at
+       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at
 FROM active_users
 WHERE id = $1
 `
@@ -32,6 +32,8 @@ type GetProfileRow struct {
 	About            *string
 	Qualifications   *string
 	Interests        *string
+	ProfilePictureID uuid.NullUUID
+	CvID             uuid.NullUUID
 	Employer         bool
 	EmailVerified    bool
 	PhoneVerified    bool
@@ -58,6 +60,8 @@ func (q *Queries) GetProfile(ctx context.Context, id uuid.UUID) (GetProfileRow, 
 		&i.About,
 		&i.Qualifications,
 		&i.Interests,
+		&i.ProfilePictureID,
+		&i.CvID,
 		&i.Employer,
 		&i.EmailVerified,
 		&i.PhoneVerified,
@@ -69,7 +73,7 @@ func (q *Queries) GetProfile(ctx context.Context, id uuid.UUID) (GetProfileRow, 
 
 const lockProfile = `-- name: LockProfile :one
 SELECT id, email, phone, status, first_name, last_name, birth_date, gender, job_title, about, qualifications,
-       interests, employer, email_verified, phone_verified, identity_verified, created_at
+       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at
 FROM active_users
 WHERE id = $1
 FOR UPDATE
@@ -88,6 +92,8 @@ type LockProfileRow struct {
 	About            *string
 	Qualifications   *string
 	Interests        *string
+	ProfilePictureID uuid.NullUUID
+	CvID             uuid.NullUUID
 	Employer         bool
 	EmailVerified    bool
 	PhoneVerified    bool
@@ -115,6 +121,8 @@ func (q *Queries) LockProfile(ctx context.Context, id uuid.UUID) (LockProfileRow
 		&i.About,
 		&i.Qualifications,
 		&i.Interests,
+		&i.ProfilePictureID,
+		&i.CvID,
 		&i.Employer,
 		&i.EmailVerified,
 		&i.PhoneVerified,
@@ -133,25 +141,30 @@ SET first_name = $1::text,
     job_title = $5::text,
     about = $6::text,
     qualifications = $7::text,
-    interests = $8::text
-WHERE id = $9
+    interests = $8::text,
+    profile_picture_id = $9::uuid,
+    cv_id = $10::uuid
+WHERE id = $11
 `
 
 type UpdateProfileParams struct {
-	FirstName      string
-	LastName       string
-	BirthDate      *time.Time
-	Gender         *string
-	JobTitle       *string
-	About          *string
-	Qualifications *string
-	Interests      *string
-	ID             uuid.UUID
+	FirstName        string
+	LastName         string
+	BirthDate        *time.Time
+	Gender           *string
+	JobTitle         *string
+	About            *string
+	Qualifications   *string
+	Interests        *string
+	ProfilePictureID uuid.NullUUID
+	CvID             uuid.NullUUID
+	ID               uuid.UUID
 }
 
 // UpdateProfile writes the profile fields of a patch; the caller holds
 // the row lock (LockProfile). The e-mail and the phone are not among
-// them: only a confirmed verification writes those (USR-014).
+// them: only a confirmed verification writes those (USR-014). A media
+// link it writes was bound in the same transaction (media.Bind).
 func (q *Queries) UpdateProfile(ctx context.Context, arg UpdateProfileParams) error {
 	_, err := q.db.Exec(ctx, updateProfile,
 		arg.FirstName,
@@ -162,6 +175,8 @@ func (q *Queries) UpdateProfile(ctx context.Context, arg UpdateProfileParams) er
 		arg.About,
 		arg.Qualifications,
 		arg.Interests,
+		arg.ProfilePictureID,
+		arg.CvID,
 		arg.ID,
 	)
 	return err

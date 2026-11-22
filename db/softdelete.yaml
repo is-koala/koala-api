@@ -345,6 +345,18 @@ edges:
     column: owner_id
     parent: users
     policy: cascade
+  # The profile's media (ADR-0036 Karar 10): a media a profile names
+  # cannot be deleted (ADR-0035 Karar 7). The account's own deletion is not
+  # held back: it marks the user before it checks, and the cascade above
+  # takes the user's media along.
+  - child: users
+    column: profile_picture_id
+    parent: media
+    policy: restrict
+  - child: users
+    column: cv_id
+    parent: media
+    policy: restrict
   # A user's education records go with the user.
   - child: educations
     column: user_id

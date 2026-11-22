@@ -153,7 +153,7 @@ func TestEducationPages(t *testing.T) {
 }
 
 // The profile answers its links to later modules with null and an empty
-// list (ADR-0036 Karar 5), and two later changes owe the profile sync an
+// list (ADR-0036 Karar 5; the media links landed with Karar 10), and two later changes owe the profile sync an
 // intent, as Java publishes after them (Karar 8). The day one of those
 // tables lands, this is red: the PR that brings it wires the profile to it
 // in the same change, so a live link is never answered as absent and a
@@ -165,7 +165,6 @@ func TestProfileLinksWaitForTheirTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	for table, link := range map[string]string{
-		"media": "profilePictureId and cvId (PATCH answers 501 for an id, GET answers null)",
 		"addresses": "addressId (PATCH answers 501 for an id, GET answers null); and a change of the " +
 			"primary address records the profile sync intent (profilesync.Record), Java's UserManager.java:536",
 		"companies":     "companies (GET answers an empty list)",

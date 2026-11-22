@@ -60,6 +60,7 @@ type profileBody struct {
 	MaskedIdentityNumber *string   `json:"maskedIdentityNumber"`
 	MaskedIban           *string   `json:"maskedIban"`
 	ProfilePictureID     *string   `json:"profilePictureId"`
+	CvID                 *string   `json:"cvId"`
 	Companies            []any     `json:"companies"`
 }
 
@@ -145,13 +146,14 @@ func TestProfileOverHTTP(t *testing.T) {
 	}
 }
 
-// The links to the media and address modules are not live yet: an id is
-// 501, a null changes nothing (ADR-0036 Karar 5).
+// The link to the address module is not live yet: an id is 501, a null
+// changes nothing (ADR-0036 Karar 5). The media links landed (Karar 10,
+// TestProfileMediaLinks).
 func TestProfileLinksWaitForTheirModules(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
 	tok := a.addSignedIn(t, "bag@example.com")
-	for _, member := range []string{"profilePictureId", "cvId", "addressId"} {
+	for _, member := range []string{"addressId"} {
 		rec := a.patchProfile(t, tok, `{"`+member+`":"`+uuid.NewString()+`"}`)
 		wantStatus(t, rec, http.StatusNotImplemented, string(pending.CodeNotImplemented))
 		wantStatus(t, a.patchProfile(t, tok, `{"`+member+`":null}`), http.StatusOK, "")

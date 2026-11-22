@@ -5,7 +5,7 @@
 - Karar kaydı: K10, K14, K19, S4
 - Kaynak: [ADR-0013](0013-soft-delete.md), [ADR-0014](0014-authorization.md), [ADR-0020](0020-sqlc-toolchain-and-soft-delete-platform.md), [ADR-0026](0026-staff-rbac-audit-trail-and-pii-gate.md) Karar 9, [ADR-0027](0027-soft-delete-platform-hardening.md), [ADR-0029](0029-identity-user-company-and-media-contract.md) Karar 3, 8, 9, 11 ve *Sonuçlar*, [ADR-0032](0032-registration-password-reset-mail-and-error-code-binding.md) Karar 5, [ADR-0033](0033-email-and-phone-verification-and-sms.md) Karar 1b, 3, 4, 5 ve 8, [ADR-0034](0034-idempotency-key-store.md); Java `origin/main` (0cbbce69): `UserManager#patchCurrentUser`, `EducationManager`, `AcademicReferenceManager`, `University`/`Faculty`/`Department`/`Education` varlıkları, `SaveEducationDto`, `EducationMessages`, `db/changelog/data/{universities,faculties,departments}.csv`, `UserProfileSyncManager`, `UserProfileSyncOutboxAtomicityIT`, `UserProfileSyncDispatchIT` (okundu, koşturulmadı)
 - Dış kaynaklar: RFC 7396 (JSON Merge Patch), OWASP ASVS 4.0.3 V3.7.1 (hassas işlemden önce yeniden kimlik doğrulama), JSON Schema 2020-12 `dependentRequired`, "transactional outbox" kalıbı
-- Kod: `internal/users` (`domain.go`, `service.go`, `educations.go`, `http.go`), `internal/profilesync`, `internal/authn/verifications.go` (`Reauthenticate`, `StartTx`, `CheckTarget`, onayda giden kaydı), `internal/authn/http.go` (`verificationStartKeys`), `internal/platform/httpx/jsonschema2020.go` (`dependentRequired`), `internal/app/users.go`, `db/migrations/0046_profile_and_educations.sql`, `db/queries/users`, `db/queries/profilesync`
+- Kod: `internal/users` (`domain.go`, `service.go`, `educations.go`, `http.go`), `internal/profilesync`, `internal/media` (`KindOf`, `Bind` metodu, `retire`'da benimseme), `internal/authn/verifications.go` (`Reauthenticate`, `StartTx`, `CheckTarget`, onayda giden kaydı), `internal/authn/http.go` (`verificationStartKeys`), `internal/platform/httpx/jsonschema2020.go` (`dependentRequired`), `internal/app/users.go`, `db/migrations/0046_profile_and_educations.sql`, `db/queries/users`, `db/queries/profilesync`
 
 ## Bağlam
 
@@ -48,13 +48,13 @@ ADR-0026 Karar 9'un PII kapısı **personelin başkasının** kişisel verisine 
 
 ### 5. Sonraki modüllere bağlar: kolon yok, 501, tetik testi
 
-Profilin beş alanı bu PR'da karşılığı olmayan tablolara bağlanır: `profilePictureId` ve `cvId` (medya, paralel PR), `addressId` (adres), `maskedIban` (banka hesabı, Faz 6), `companies` (şirket üyelikleri).
+Profilin dört alanı karşılığı olmayan tablolara bağlanır: `addressId` (adres), `maskedIban` (banka hesabı, Faz 6), `companies` (şirket üyelikleri). `profilePictureId` ve `cvId` ilk sürümde de bu listedeydi; medya modülü (ADR-0035, #27) birleşince Karar 10'la bağlandılar.
 
 - `users` tablosuna bu bağların kolonu **eklenmedi**. FK'siz bir kolon bütünlüğü olmayan bir değer olurdu; kolonu ve FK'yi hedef tabloyu getiren PR ekler.
 - `getMyProfile` bu alanları `null` (şirketler boş liste) döndürür.
-- `updateMyProfile`'da bu üç bağa bir kimlik göndermek `501 NOT_IMPLEMENTED` alır (ADR-0029 Karar 1'in evrensel kodu, `default` yanıtı); `null` bir şey değiştirmez. 404 ("böyle bir medya yok") **seçilmedi**: medya tablosu geldiği gün gerçek bir medyaya "yok" diyen sessiz bir yalana dönüşürdü, deponun baskın kusur sınıfı.
-- Sözleşmenin `updateMyProfile` listesinden `MEDIA_NOT_FOUND`, `MEDIA_NOT_READY` ve `ADDRESS_NOT_FOUND` çıkarıldı: bugün hiçbir yerden dönmüyorlar ve bağ denetimi (ADR-0032 Karar 1) dönmeyen liste üyesini kırmızı sayar. `404` ve `409` yanıtları sözleşmede kalır; kodlar bağı getiren PR'la listeye geri döner.
-- **Tetik testi** `users.TestProfileLinksWaitForTheirTables`: soft-delete kataloğunda `media`, `addresses` ya da `companies` tablosu belirdiği gün kırmızıdır ve hangi profil alanının bağlanacağını yazar. Böylece medya PR'ı bu PR'dan sonra birleşirse onun CI'ı, önce birleşirse bu PR'ın yeniden tabanlanmış CI'ı bağı ister; hiçbir sıra bağı sessizce açık bırakamaz.
+- `updateMyProfile`'da `addressId`'ye bir kimlik göndermek `501 NOT_IMPLEMENTED` alır (ADR-0029 Karar 1'in evrensel kodu, `default` yanıtı); `null` bir şey değiştirmez. 404 ("böyle bir adres yok") **seçilmedi**: tablo geldiği gün gerçek bir kayda "yok" diyen sessiz bir yalana dönüşürdü, deponun baskın kusur sınıfı. Kalıp stil rehberi §11.1'e "alan düzeyinde 501" olarak yazıldı.
+- `ADDRESS_NOT_FOUND` `updateMyProfile`'ın listesinde durmaz: bugün hiçbir yerden dönmez ve bağ denetimi (ADR-0032 Karar 1) dönmeyen liste üyesini kırmızı sayar. `404` yanıtı sözleşmede kalır; kod bağı getiren PR'la listeye döner.
+- **Tetik testi** `users.TestProfileLinksWaitForTheirTables`: soft-delete kataloğunda `addresses`, `companies`, `bank_accounts` ya da `identity_verifications` tablosu belirdiği gün kırmızıdır ve hangi profil alanının bağlanacağını ya da hangi senkron yükümlülüğünün (Karar 8) doğduğunu yazar. Medya PR'ı birleştiğinde bu testin `media` satırı tam olarak bunu yaptı ve bağ bu PR'da kuruldu (Karar 10).
 
 ### 6. Eğitim kayıtları
 
@@ -92,6 +92,24 @@ Yama tek transaction'dır: kullanıcının satırı `FOR UPDATE` kilitlenir (ADR
 
 Kimlik doğrulanmışsa ad, soyad ve doğum tarihi **değişemez**; hesaptaki değerin aynısını göndermek değişiklik değildir ve kabul edilir (profili bütün olarak gönderen istemci kırılmasın). Cinsiyet donmaz (USR-029). Ad ve soyad kırpılır, boş kalamaz; metin alanı boş ya da `null` gönderilirse temizlenir; doğum tarihi gelecekte ya da 1900'den önce olamaz.
 
+### 10. Profilin medya bağları
+
+`users.profile_picture_id` ve `users.cv_id` medyaya (0045) FK'dir; katalogda ikisi de **`restrict`** kenarıdır (`TestMediaConsumersAreRestrictEdges`, ADR-0035 Karar 7). Bağ ADR-0035 Karar 8'in sözleşmesine göre kurulur ve yamanın transaction'ındadır (Karar 9), kullanıcının satır kilidi altında:
+
+1. **Denetim:** yeni adlandırılan medya `media.Service.KindOf` ile kilitlenir ve türü okunur: başkasının ya da olmayan medya `MEDIA_NOT_FOUND`. Türü alana uymayan medya (`profilePictureId` için `PROFILE_PICTURE`, `cvId` için `CV`) **`400 REQUEST_INVALID`, üyeyi adlandıran `FIELD_VALUE_INVALID`** alır. Gerekçe: medya vardır ve çağıranındır, yanlış olan gönderilen değerin bu alana uygunluğudur; bu bir biçim hatasıdır, durum çakışması değil (409) ve yeni bir kod gerektirmez; gösterici istemciye hangi alanın yanlış olduğunu söyler (stil rehberi §5).
+2. **Bağlama:** `media.Bind` (`bound_at`'in tek yazıcısı) aynı transaction'da: `READY` olmayan medya `MEDIA_NOT_READY`. Bağlanan medya süpürülmez. `Bind`'ın güncellemesi medya satırını kilitler ve yalnız etkin satırı bulur; ADR-0035 Karar 8'e göre ayrıca `LockActiveParent(media)` gerekmez.
+3. **Yazım:** kullanıcının satırı yeni medyayı gösterir (ve giden kaydı yazılır, Karar 8).
+4. **Bırakma:** artık gösterilmeyen eski medya (yerine yenisi geldi ya da `null` ile kaldırıldı) `media.Service.Release` ile aynı transaction'da soft-delete edilir ve nesnelerinin silinmesi kuyruğa girer. Sıra ADR-0035 Karar 8'inkidir: önce satır yeni medyaya döner, sonra eskisi bırakılır; ters sırada platform `SOFT_DELETE_RESTRICTED` döner.
+
+Bağlı bir medyanın bırakılması ya da sahibince silinmesi `409 SOFT_DELETE_RESTRICTED` alır. ADR-0035 Karar 8 bunu `TestRelease`'e bağlıyor, ama o test bu durumu koşmuyor; gerçek tüketiciyle koşan test `TestProfileMediaLinks`'tir (`Release` ve `DELETE /v1/me/media/{id}` ikisi de 409). Bu yüzden `updateMyProfile`'ın listesinde `MEDIA_NOT_FOUND`, `MEDIA_NOT_READY` ve `SOFT_DELETE_RESTRICTED` vardır; sonuncusu bugün profil dışında bir tüketici olmadığı için yalnız teoriktir, ama izlemede `Release` → `Delete` yolundan ulaşılabilirdir.
+
+**Hesabın silinmesi:** `media.owner_id → users` kenarı `cascade`, `users.profile_picture_id/cv_id → media` kenarları `restrict`'tir. Hesap silinirken platform önce kullanıcıyı işaretler, kaskadla medyayı işaretler, sonra `restrict` kenarlarını denetler; kullanıcı aynı silmede işaretlendiği için etkin bir tüketici bulunmaz ve silme engellenmez (`TestAccountDeletionTakesItsProfileMedia`). Geri alma (`softdelete.Restore`) bu ikili kenarla denenmedi.
+
+**Medya modülünde, ilk tüketici olarak kapatılan iki not** (ADR-0035 değişmedi, davranışları burada kayda geçer):
+
+- **Benimseme artık aynı transaction'da.** Süpürme, tüketicisi `Bind` çağırmamış bir `READY` medyayı silmeye çalışıp `SOFT_DELETE_RESTRICTED` alınca onu benimser (bağlar). İlk sürümde benimseme, silme transaction'ı geri alındıktan sonra ayrı bir `BindMedia` ile koşuyordu: arada kilit bırakılıyordu ve o aralıkta tüketicisini kaybeden medya kalıcı olarak bağlı kalabiliyordu. Şimdi silme bir savepoint altında koşar, ret savepoint'e geri sarılır ve `BindMedia` aynı transaction'da, `LockSweepable`'ın aldığı medya satırı kilidi altında koşar (`media.Service.retire`). **Kalan pencere:** platformun `restrict` denetimi tüketici satırını kilitlemez; tüketicisini `Release` etmeden bırakan bir yol denetimle commit arasında yine bir medyayı bağlı bırakabilir. Profil eski medyayı her zaman `Release` eder ve `Release` medya satırının kilidini bekler, bu yüzden profil bu pencereye düşmez.
+- **İşçinin `Keep`'i iletmesi teste bağlandı.** Testlerin kuyruktaki silme işlerini koşturan yardımcısı (`runDeleteJobs`) işçiyi atlayıp `Service.DeleteObjects`'i doğrudan çağırıyordu; artık kayıtlı işçinin `Work`'ünden geçiyor (`media.Service.WorkDeleteObjects`, yalnız testte). `TestRecordedObjectSurvivesAccountDeletion` böylece `Work`'ün `Keep`'i iletmesini de bağlar.
+
 ## "Profil yolundan atlatılabilir mi?"
 
 | Kural (#23) | Profil yolu | Neden atlatılamaz | Test |
@@ -128,13 +146,14 @@ Kimlik doğrulanmışsa ad, soyad ve doğum tarihi **değişemez**; hesaptaki de
 | Kimlik doğrulamada yayın | `UserManager.java:393`, `IdentityVerificationManager.java:151` | kimlik PR'ında, tetik testi | Karar 8 |
 | Birincil adres değişikliğinde yayın | `UserManager.java:536` | adres PR'ında, tetik testi | Karar 8 |
 | Lise derecesi | `GradeType` içinde | yok | Karar 6 |
+| Profil fotoğrafı ve özgeçmiş | `PUT /users/me/profile-picture`, `PUT`/`DELETE /users/me/cv` | yükleme + yama (`profilePictureId`, `cvId`); eski medya aynı tx'te bırakılır | Karar 10 |
 
 ## Sözleşme değişiklikleri
 
 Altı operasyonun `x-not-implemented` işareti kalktı, iskele metotları silindi. Uç hiçbir istemcide yok.
 
 - `getMyProfile`: açıklama kendi verisini okumayı ve sonraki modüllerin bağlarını yazar.
-- `updateMyProfile`: `x-error-codes: [USER_FIELD_IMMUTABLE, PASSWORD_MISMATCH, VERIFICATION_RESEND_TOO_SOON]` (ADR-0033 Karar 3: `VERIFICATION_TARGET_IN_USE` çıktı; Karar 5: `MEDIA_NOT_FOUND`, `MEDIA_NOT_READY`, `ADDRESS_NOT_FOUND` çıktı); `403` yanıtı eklendi; açıklama yeniden kimlik doğrulamayı, ortak bütçeyi ve atomikliği yazar.
+- `updateMyProfile`: `x-error-codes: [USER_FIELD_IMMUTABLE, PASSWORD_MISMATCH, VERIFICATION_RESEND_TOO_SOON, MEDIA_NOT_FOUND, MEDIA_NOT_READY, SOFT_DELETE_RESTRICTED]` (ADR-0033 Karar 3: `VERIFICATION_TARGET_IN_USE` çıktı; Karar 5: `ADDRESS_NOT_FOUND` çıktı; Karar 10: medya kodları ve `SOFT_DELETE_RESTRICTED`); `403` yanıtı eklendi; açıklama yeniden kimlik doğrulamayı, ortak bütçeyi, atomikliği ve medya bağını yazar.
 - `UserProfilePatch`: `currentPassword` ve `dependentRequired`.
 - `listMyEducations`: `x-error-codes: [CURSOR_INVALID]`.
 - `createMyEducation`: `EDUCATION_LIMIT_REACHED` listede; `201` `Idempotent-Replayed` başlığını tanımlar (ADR-0034, bağlı operasyon kuralı).
@@ -160,11 +179,11 @@ ADR-0010, ADR-0013, ADR-0014, ADR-0021, ADR-0026, ADR-0029 ve ADR-0033'ün karar
 
 - Bağlanan P0'lar: USR-014, USR-022 (`boundAhead`). USR-023 `deferred: phase 6`. P1'lerden USR-024, USR-027 (IBAN yarısı `partial: phase 6`), USR-028 ve P2 USR-029 da teste bağlandı.
 - `users` alanının kalan donmuş operasyonları (`getPublicProfile`, kimlik belgeleri, adresler, takip edilen şirketler, medya) `boundAhead` kuralını sürdürür.
-- Medya, adres, şirket ve banka hesabı PR'ları profil bağlarını (`profilePictureId`/`cvId`, `addressId`, `companies`, `maskedIban`) getirmek zorundadır; tetik testi bunu zorlar (Karar 5).
+- Adres, şirket ve banka hesabı PR'ları profil bağlarını (`addressId`, `companies`, `maskedIban`) getirmek zorundadır; tetik testi bunu zorlar (Karar 5). Medya bağı bu PR'da kuruldu (Karar 10).
 - **Kimlik ve adres PR'larının senkron yükümlülüğü:** onaylanan kimlik doğrulaması ve birincil adres değişikliği kendi transaction'ında `profilesync.Record` çağırır (Java'nın `UserManager.java:393`, `:536`, `IdentityVerificationManager.java:151` yayınları). Tetik testi `identity_verifications` ve `addresses` tablolarında kırmızıdır.
 - Referans PR'ı tabloları tohumlar ve uçları açar; o gün `createMyEducation` gerçek kimliklerle çalışır.
 - Faz 6'nın göndericisi `user_profile_sync_intents`'i sahiplenir, yayımlar, saklama süresini getirir ve USR-023'ü bağlar.
-- `softdelete.LockActiveParent` ve `Deleter.Delete`'e ulaşan ilk handler'lar bunlar. Bağ denetimi (ADR-0032 Karar 1) platformun elle yazılmış iki sorgusunda `db.Querier`'ın gömülü pgx arayüzünden geçen `QueryRow(…).Scan` çağrısının tipini çözemiyor; `unresolvedCalls`'a gerekçeli iki muafiyet eklendi (pgx hatası döner, platform onu sarar ya da `ErrNotActive`'e çevirir; apperr kodu üretmez). Muafiyet, izleme onu artık gerektirmediği gün kırmızıdır.
+- Bağ denetimi (ADR-0032 Karar 1), platformun elle yazılmış iki sorgusundaki `QueryRow(…).Scan` çağrısının tipini çözemiyor. Gerekçeli iki `unresolvedCalls` muafiyetini medya PR'ı getirdi; eğitim ve profil handler'ları aynı yollardan (`LockActiveParent`, `Delete`, `Release`) geçer ve aynı muafiyetleri kullanır.
 
 ## Açık sorular
 

@@ -1,12 +1,13 @@
 -- The caller's profile, education records and the profile sync intent
 -- (ADR-0029 Karar 11, ADR-0036).
 --
--- users gains the profile fields of GET/PATCH /v1/me/profile. The address,
--- the phone and the e-mail are not among them: the e-mail and the phone
--- are written only by a confirmed verification (USR-014, 0043), and the
--- profile picture, the CV and the primary address are links to the media
--- and address tables, which their own PRs bring together with the columns
--- and foreign keys (ADR-0036 Karar 5).
+-- users gains the profile fields of GET/PATCH /v1/me/profile. The e-mail
+-- and the phone are not among them: a confirmed verification writes them
+-- (USR-014, 0043). The profile picture and the CV are links to media (0045)
+-- on restrict edges: a media a profile names cannot be deleted, and the
+-- patch that replaces one binds the new media and releases the old one in
+-- its transaction (ADR-0035 Karar 8, ADR-0036 Karar 10). The primary
+-- address comes with the address PR (ADR-0036 Karar 5).
 --
 -- universities, faculties, departments: the academic reference data (M4,
 -- ADR-0029 Karar 8), read-only for the application. A row is retired
@@ -41,6 +42,8 @@ ALTER TABLE users
     ADD COLUMN about text,
     ADD COLUMN qualifications text,
     ADD COLUMN interests text,
+    ADD COLUMN profile_picture_id uuid REFERENCES media (id),
+    ADD COLUMN cv_id uuid REFERENCES media (id),
     ADD CONSTRAINT users_gender_check CHECK (gender IN ('MALE', 'FEMALE', 'NOT_SPECIFIED')),
     ADD CONSTRAINT users_birth_date_check CHECK (birth_date >= DATE '1900-01-01'),
     ADD CONSTRAINT users_job_title_check CHECK (length(job_title) BETWEEN 1 AND 120),
@@ -53,6 +56,11 @@ CREATE VIEW active_users WITH (security_barrier) AS
     SELECT * FROM users WHERE deleted_at IS NULL;
 GRANT SELECT, INSERT, UPDATE ON active_users TO koala_app;
 -- +koala end generated
+
+-- The restrict edges users.profile_picture_id and users.cv_id → media: a
+-- deletion of media looks its consumers up by these columns.
+CREATE INDEX users_profile_picture_idx ON users (profile_picture_id);
+CREATE INDEX users_cv_idx ON users (cv_id);
 
 CREATE TABLE universities (
     id uuid PRIMARY KEY,
@@ -160,6 +168,8 @@ DROP TABLE faculties;
 DROP TABLE universities;
 DROP VIEW active_users;
 ALTER TABLE users
+    DROP COLUMN cv_id,
+    DROP COLUMN profile_picture_id,
     DROP COLUMN interests,
     DROP COLUMN qualifications,
     DROP COLUMN about,

@@ -82,6 +82,10 @@ type Profile struct {
 	About          *string
 	Qualifications *string
 	Interests      *string
+	// ProfilePicture and CV are the media the profile names, bound to it
+	// (ADR-0036 Karar 10).
+	ProfilePicture *uuid.UUID
+	CV             *uuid.UUID
 	Employer       bool
 	EmailVerified  bool
 	PhoneVerified  bool
@@ -126,7 +130,8 @@ type Patch struct {
 	PhoneNumber     *string
 	CurrentPassword string
 
-	// The links to the media and address modules (ADR-0036 Karar 5).
+	// The links to the media module (ADR-0036 Karar 10) and to the
+	// address module, which has not landed (Karar 5).
 	ProfilePicture Field[uuid.UUID]
 	CV             Field[uuid.UUID]
 	Address        Field[uuid.UUID]
@@ -135,10 +140,31 @@ type Patch struct {
 // contactChange reports whether the patch sends an address or a number.
 func (p Patch) contactChange() bool { return p.Email != nil || p.PhoneNumber != nil }
 
-// links reports whether the patch links a media or an address: a member
-// sent with an id. Clearing one (null) links nothing.
-func (p Patch) links() bool {
-	return p.ProfilePicture.Value != nil || p.CV.Value != nil || p.Address.Value != nil
+// linksAddress reports whether the patch links an address: a member sent
+// with an id. Clearing it (null) links nothing.
+func (p Patch) linksAddress() bool { return p.Address.Value != nil }
+
+// mediaLink is one media member of the profile: its kind and the body
+// member that names it.
+type mediaLink struct {
+	kind    string
+	pointer string
+}
+
+// link is a media member after a patch: unchanged when not sent, nil when
+// cleared, else the id sent.
+func link(f Field[uuid.UUID], cur *uuid.UUID) *uuid.UUID {
+	if !f.Set {
+		return cur
+	}
+	return f.Value
+}
+
+func sameID(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // apply returns cur with the patch's profile fields written. Names are
@@ -168,6 +194,8 @@ func (p Patch) apply(cur Profile) (Profile, error) {
 	next.About = text(p.About, cur.About)
 	next.Qualifications = text(p.Qualifications, cur.Qualifications)
 	next.Interests = text(p.Interests, cur.Interests)
+	next.ProfilePicture = link(p.ProfilePicture, cur.ProfilePicture)
+	next.CV = link(p.CV, cur.CV)
 	return next, nil
 }
 
@@ -175,7 +203,8 @@ func (p Patch) apply(cur Profile) (Profile, error) {
 func fieldsChanged(a, b Profile) bool {
 	return a.FirstName != b.FirstName || a.LastName != b.LastName || !sameDate(a.BirthDate, b.BirthDate) ||
 		!sameText(a.Gender, b.Gender) || !sameText(a.JobTitle, b.JobTitle) || !sameText(a.About, b.About) ||
-		!sameText(a.Qualifications, b.Qualifications) || !sameText(a.Interests, b.Interests)
+		!sameText(a.Qualifications, b.Qualifications) || !sameText(a.Interests, b.Interests) ||
+		!sameID(a.ProfilePicture, b.ProfilePicture) || !sameID(a.CV, b.CV)
 }
 
 // text is a clearable text field after a patch: unchanged when not sent,

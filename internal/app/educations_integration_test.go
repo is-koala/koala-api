@@ -293,7 +293,7 @@ func TestEducationNeedsAnActiveUser(t *testing.T) {
 	id := a.userID(t, "silinen@example.com")
 	ref := a.seedReference(t)
 	cat := dbtest.SoftDeleteCatalog(t)
-	svc, err := users.NewService(a.db, a.mods.verifications, softdelete.New(cat), a.clock)
+	svc, err := users.NewService(a.db, a.mods.verifications, a.mods.media, softdelete.New(cat), a.clock)
 	if err != nil {
 		t.Fatal(err)
 	}

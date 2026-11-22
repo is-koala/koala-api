@@ -107,7 +107,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
-	usersHTTP, err := wireUsers(database, verifications, clk)
+	usersHTTP, err := wireUsers(database, verifications, mediaService, clk)
 	if err != nil {
 		return modules{}, err
 	}

@@ -913,8 +913,9 @@ paths:
         kimlik belgesi numarası hiç dönmez (USR-027). Çağıran kendi verisini okur: personel
         PII kapısı ve erişim kaydı bu ucun konusu değildir (ADR-0036).
 
-        Profil fotoğrafı, özgeçmiş, birincil adres, IBAN ve şirket üyelikleri kendi
-        modülleriyle gelir; o güne kadar `null` ya da boş liste döner (ADR-0036).
+        `profilePictureId` ve `cvId` profile bağlı medyanın kimliğidir. Birincil adres, IBAN
+        ve şirket üyelikleri kendi modülleriyle gelir; o güne kadar `null` ya da boş liste
+        döner (ADR-0036).
       x-authz-exempt: |
         Çağıran yalnız kendi profilini okur; kimlik oturumdan gelir, seçilecek nesne yoktur.
       x-resource: users
@@ -936,7 +937,9 @@ paths:
           $ref: "#/components/responses/InternalError"
     patch:
       operationId: updateMyProfile
-      x-error-codes: [USER_FIELD_IMMUTABLE, PASSWORD_MISMATCH, VERIFICATION_RESEND_TOO_SOON]
+      x-error-codes:
+        [USER_FIELD_IMMUTABLE, PASSWORD_MISMATCH, VERIFICATION_RESEND_TOO_SOON, MEDIA_NOT_FOUND,
+        MEDIA_NOT_READY, SOFT_DELETE_RESTRICTED]
       tags: [users]
       summary: Çağıranın profilini kısmen günceller.
       description: |
@@ -956,10 +959,16 @@ paths:
         söylemez; o bilgi yalnız onayda döner (ADR-0033 Karar 3).
 
         Yama ya bütünüyle uygulanır ya hiç: bir doğrulama başlatılamazsa alanlar da yazılmaz.
-        Profil fotoğrafı, özgeçmiş ve birincil adres bağları medya ve adres modülleriyle
-        gelir; o güne kadar bu alanlara kimlik göndermek `501 NOT_IMPLEMENTED` alır, `null`
-        bir şey değiştirmez (ADR-0036). `404` ve `409`'un bu bağlara ait kodları
-        (`MEDIA_NOT_FOUND`, `MEDIA_NOT_READY`, `ADDRESS_NOT_FOUND`) o modüllerle döner.
+
+        `profilePictureId` ve `cvId` çağıranın kendi medyasını adlandırır: başkasının ya da
+        olmayan medya `MEDIA_NOT_FOUND`, henüz doğrulanmamış medya `MEDIA_NOT_READY`, türü
+        alana uymayan medya (`PROFILE_PICTURE`, `CV`) üyeyi adlandıran `REQUEST_INVALID`
+        alır. Bağlanan medya süpürülmez; yerine yenisi bağlanan ya da `null` ile kaldırılan
+        eski medya aynı transaction'da silinir ve nesneleri silinmek üzere kuyruğa girer
+        (ADR-0035 Karar 8, ADR-0036). Birincil adres bağı adres modülüyle gelir; o güne
+        kadar `addressId`'ye kimlik göndermek `501 NOT_IMPLEMENTED` alır, `null` bir şey
+        değiştirmez. `SOFT_DELETE_RESTRICTED` eski medyaya başka bir aktif kaydın hâlâ
+        bağlı olduğunu söyler; bugün profil dışında medya tüketicisi yoktur.
       x-authz-exempt: |
         Çağıran yalnız kendi profilini günceller; kimlik oturumdan gelir, seçilecek nesne yoktur.
       x-body-limit: 16384

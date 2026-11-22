@@ -7,6 +7,7 @@ import (
 	dbsrc "github.com/is-koala/koala-api/db"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/media"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
@@ -21,13 +22,16 @@ type usersHandlers = users.HTTP
 // wireUsers builds the profile and education module (ADR-0036). A profile
 // patch that sends an address or a number starts its verifications through
 // the verification flows themselves, so the start's rules have one home;
-// education records are deleted along the soft-delete catalog.
-func wireUsers(database *db.DB, verifications *authn.Verifications, clk clock.Clock) (*users.HTTP, error) {
+// its media links are bound and released through the media service
+// (ADR-0035 Karar 8); education records are deleted along the soft-delete
+// catalog.
+func wireUsers(database *db.DB, verifications *authn.Verifications, mediaService *media.Service, clk clock.Clock,
+) (*users.HTTP, error) {
 	cat, err := softdelete.ParseCatalog(dbsrc.SoftDeleteCatalog())
 	if err != nil {
 		return nil, fmt.Errorf("wire users: %w", err)
 	}
-	svc, err := users.NewService(database, verifications, softdelete.New(cat), clk)
+	svc, err := users.NewService(database, verifications, mediaService, softdelete.New(cat), clk)
 	if err != nil {
 		return nil, fmt.Errorf("wire users: %w", err)
 	}
