@@ -36,7 +36,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Reads the toolchain line of go.mod (go1.27.3).
+      # Reads the toolchain line of go.mod (go1.27.4).
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
