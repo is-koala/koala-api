@@ -88,6 +88,8 @@ scenarios:
       - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#identityDocumentsLiveOutsideEveryServablePrefix"
     go_test:
       - internal/app.TestMediaPathsStayInTheirPrefix
+      - internal/platform/storage.TestParseKeyRejects
+      - internal/platform/storage.FuzzStorageKey
 
   - id: MED-004
     priority: P0
@@ -110,6 +112,8 @@ scenarios:
       - "src/main/java/com/exskylab/koala/webAPI/StorageDownloadController.java#keyOf"
     go_test:
       - internal/app.TestMediaPathsStayInTheirPrefix
+      - internal/platform/storage.TestParseKeyDecodesExactlyOnce
+      - internal/platform/storage.FuzzStorageKey
 
   - id: MED-005
     priority: P0
@@ -137,6 +141,8 @@ scenarios:
     go_test:
       - internal/media.TestUploadIsStartedCompletedAndSwept
       - "internal/media.TestAddressesAndRejectionsByKind/identity document"
+      - internal/platform/imaging.TestSanitizeDropsEveryMetadataSegment
+      - internal/platform/imaging.TestSanitizeDropsCameraSerialAndTextChunks
 
   - id: MED-006
     priority: P0
@@ -168,6 +174,7 @@ scenarios:
     go_test:
       - internal/media.TestCompletionKeepsAnObjectItCouldNotRecord
       - internal/media.TestCompletionGateHoldsForADecidedUpload/orphan
+      - internal/media.TestCompletionGateHoldsForADecidedUpload/decided
       - "internal/media.TestOrphanedFinalObjectsAreSwept/recorded object"
       - internal/media.TestDeletionTakesTheObjectsOfItsMediaOnly
       - internal/media.TestDiscardDoesNotMaskTheOriginalError

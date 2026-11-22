@@ -82,7 +82,7 @@ func TestMediaOverHTTP(t *testing.T) {
 	if got := decodeBody[mediaBody](t, rec); got.Status != "PENDING" {
 		t.Fatalf("complete answered %s, want the PENDING media", rec.Body)
 	}
-	if err := a.mods.media.Complete(t.Context(), id); err != nil {
+	if err := a.mods.media.Complete(t.Context(), id, media.KindProfilePicture, "incoming/"+id.String()+".jpg"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -136,7 +136,7 @@ func TestRejectedMediaRendersItsCode(t *testing.T) {
 	}](t, rec).Media.ID
 	a.s3.Seed("incoming/"+id.String()+".jpg", fakes.S3Object{Body: append([]byte{0xFF, 0xD8, 0xFF}, make([]byte, 64)...)})
 	wantStatus(t, a.call(t, http.MethodPost, "/v1/me/media/"+id.String()+"/complete", bearer, ""), http.StatusAccepted, "")
-	if err := a.mods.media.Complete(t.Context(), id); err != nil {
+	if err := a.mods.media.Complete(t.Context(), id, media.KindCompanyLogo, "incoming/"+id.String()+".jpg"); err != nil {
 		t.Fatal(err)
 	}
 	rec = a.call(t, http.MethodGet, "/v1/me/media/"+id.String(), bearer, "")
@@ -173,6 +173,26 @@ func TestDailyUploadLimitAnswersRetryAfter(t *testing.T) {
 	wantStatus(t, rec, http.StatusTooManyRequests, string(media.CodeDailyLimit))
 	if wait, err := strconv.Atoi(rec.Header().Get("Retry-After")); err != nil || wait <= 0 {
 		t.Errorf("Retry-After = %q, want the seconds until the oldest start leaves the window", rec.Header().Get("Retry-After"))
+	}
+}
+
+// The open-upload cap answers 429 with Retry-After too (ADR-0035 Karar 6):
+// it is a passing state, not a conflict a retry with the same key should
+// see for a day, and a 429 is not stored for the Idempotency-Key.
+func TestPendingUploadLimitAnswersRetryAfter(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	bearer := a.addSignedIn(t, "bekleyen@example.com")
+	for i := range media.MaxOpenUploads {
+		wantStatus(t, a.startUploadOverHTTP(t, bearer, "COMPANY_IMAGE", "open-"+strconv.Itoa(i)+"-key"), http.StatusCreated, "")
+	}
+	rec := a.startUploadOverHTTP(t, bearer, "COMPANY_IMAGE", "open-over-key")
+	wantStatus(t, rec, http.StatusTooManyRequests, string(media.CodePendingLimit))
+	if wait, err := strconv.Atoi(rec.Header().Get("Retry-After")); err != nil || wait <= 0 {
+		t.Errorf("Retry-After = %q, want the seconds until the oldest open upload is swept", rec.Header().Get("Retry-After"))
+	}
+	if n := a.count(t, "SELECT count(*) FROM idempotency_keys WHERE key = 'open-over-key'"); n != 0 {
+		t.Errorf("the 429 was stored for its key (%d rows)", n)
 	}
 }
 

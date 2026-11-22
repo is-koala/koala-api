@@ -277,7 +277,9 @@ func (ix testIndex) load(pkg string) (map[string][]string, error) {
 		}
 		for _, d := range file.Decls {
 			fd, ok := d.(*ast.FuncDecl)
-			if !ok || fd.Recv != nil || !strings.HasPrefix(fd.Name.Name, "Test") {
+			// A fuzz target is bound like a test: the gate runs it with
+			// every seed (go test without -fuzz).
+			if !ok || fd.Recv != nil || (!strings.HasPrefix(fd.Name.Name, "Test") && !strings.HasPrefix(fd.Name.Name, "Fuzz")) {
 				continue
 			}
 			if fd.Body == nil {

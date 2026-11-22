@@ -5,19 +5,24 @@ package media_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
+	dbsrc "github.com/is-koala/koala-api/db"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/authn/authndb"
 	"github.com/is-koala/koala-api/internal/media"
+	"github.com/is-koala/koala-api/internal/media/mediadb"
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	fakeclock "github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/db"
@@ -34,15 +39,24 @@ import (
 // fake clock. Jobs are queued in river_job by an insert-only client and
 // run by calling the service's job methods, so a test decides when.
 type app struct {
-	svc   *media.Service
-	db    *db.DB
-	fake  *fakes.S3
-	clock *fakeclock.Fake
+	svc     *media.Service
+	db      *db.DB
+	dbt     dbtest.DB
+	store   *storage.Store
+	fake    *fakes.S3
+	clock   *fakeclock.Fake
+	catalog *softdelete.Catalog
 }
 
 func newApp(t *testing.T) *app {
 	t.Helper()
-	database := dbtest.New(t).Open(t, db.RoleApp)
+	return newAppWith(t, dbtest.SoftDeleteCatalog(t))
+}
+
+// newAppWith is newApp with the soft-delete catalog the deletions follow.
+func newAppWith(t *testing.T, catalog *softdelete.Catalog) *app {
+	t.Helper()
+	d := dbtest.New(t)
 	clk := fakeclock.NewFake(time.Date(2026, time.November, 22, 9, 0, 0, 0, time.UTC))
 	fake := fakes.NewS3(t, testBucket)
 	store, err := storage.New(storage.Config{
@@ -53,16 +67,26 @@ func newApp(t *testing.T) *app {
 	if err != nil {
 		t.Fatal(err)
 	}
+	a := &app{dbt: d, store: store, fake: fake, clock: clk, catalog: catalog}
+	a.reopen(t)
+	return a
+}
+
+// reopen opens a new koala_app pool and a service on it, for a test that
+// closed the old pool to make a transaction fail.
+func (a *app) reopen(t *testing.T) {
+	t.Helper()
+	database := a.dbt.Open(t, db.RoleApp)
 	logger := log.New(&bytes.Buffer{}, slog.LevelDebug)
 	queue, err := jobs.NewClient(database.Pool(), jobs.Config{Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := media.NewService(database, queue, store, softdelete.New(dbtest.SoftDeleteCatalog(t)), clk, logger)
+	svc, err := media.NewService(database, queue, a.store, softdelete.New(a.catalog), a.clock, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &app{svc: svc, db: database, fake: fake, clock: clk}
+	a.db, a.svc = database, svc
 }
 
 // user writes an active user and returns its id.
@@ -97,23 +121,31 @@ func (a *app) put(s media.Started, body []byte) {
 	a.fake.Seed(s.Media.UploadKey.String(), fakes.S3Object{Body: body, ContentType: "application/octet-stream"})
 }
 
-// complete requests the completion and runs its job.
+// run runs the completion job of m with its arguments.
+func (a *app) run(ctx context.Context, m media.Media) error {
+	return a.svc.Complete(ctx, m.ID, m.Kind, m.UploadKey.String())
+}
+
+// complete requests the completion, runs its job and the object deletions
+// it queued, and reads the media back.
 func (a *app) complete(t *testing.T, owner, id uuid.UUID) media.Media {
 	t.Helper()
-	if _, err := a.svc.RequestCompletion(t.Context(), owner, id); err != nil {
+	m, err := a.svc.RequestCompletion(t.Context(), owner, id)
+	if err != nil {
 		t.Fatalf("RequestCompletion() = %v", err)
 	}
-	if err := a.svc.Complete(t.Context(), id); err != nil {
+	if err := a.run(t.Context(), m); err != nil {
 		t.Fatalf("Complete() = %v", err)
 	}
-	m, err := a.svc.Get(t.Context(), owner, id)
+	a.deleteObjects(t)
+	m, err = a.svc.Get(t.Context(), owner, id)
 	if err != nil {
 		t.Fatalf("Get() = %v", err)
 	}
 	return m
 }
 
-// queued counts the queued jobs of kind for the media id.
+// queued counts the jobs of kind for the media id.
 func (a *app) queued(t *testing.T, kind string, id uuid.UUID) int {
 	t.Helper()
 	var n int
@@ -123,6 +155,59 @@ func (a *app) queued(t *testing.T, kind string, id uuid.UUID) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+// deleteObjects runs every waiting object deletion job, as River would,
+// and marks it completed.
+func (a *app) deleteObjects(t *testing.T) {
+	t.Helper()
+	if err := a.runDeleteJobs(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// runDeleteJobs is deleteObjects for a caller without a *testing.T (a
+// fake's hook).
+func (a *app) runDeleteJobs(ctx context.Context) error {
+	rows, err := a.db.Pool().Query(ctx,
+		"SELECT id, args FROM river_job WHERE kind = 'media_delete_objects' AND state = 'available' ORDER BY id")
+	if err != nil {
+		return err
+	}
+	type job struct {
+		id   int64
+		args []byte
+	}
+	var queue []job
+	for rows.Next() {
+		var j job
+		if err := rows.Scan(&j.id, &j.args); err != nil {
+			rows.Close()
+			return err
+		}
+		queue = append(queue, j)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, j := range queue {
+		var args struct {
+			Media     uuid.UUID `json:"media"`
+			Kind      string    `json:"kind"`
+			UploadKey string    `json:"upload_key"`
+		}
+		if err := json.Unmarshal(j.args, &args); err != nil {
+			return err
+		}
+		if err := a.svc.DeleteObjects(ctx, args.Media, media.Kind(args.Kind), args.UploadKey); err != nil {
+			return err
+		}
+		if _, err := a.db.Pool().Exec(ctx, "UPDATE river_job SET state = 'completed', finalized_at = now() WHERE id = $1", j.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // finalKey is the final key of the image id with ext.
@@ -145,8 +230,8 @@ func wantCode(t *testing.T, err error, code apperr.Code) {
 
 // MED-001, MED-005: an upload is started (a PENDING row and a short lived
 // write address), written, completed (validated, stripped of its GPS
-// marker and moved) and read; an upload that is never completed is gone
-// after its retention.
+// marker and written to its final key) and read; an upload that is never
+// completed is gone after its retention.
 func TestUploadIsStartedCompletedAndSwept(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
@@ -187,6 +272,12 @@ func TestUploadIsStartedCompletedAndSwept(t *testing.T) {
 	if err != nil || addr.URL != "https://cdn.example.com/"+want.String() || addr.ExpiresAt != nil {
 		t.Errorf("Address() = %+v, %v, want the permanent public URL", addr, err)
 	}
+	// Bound, so the unbound sweep leaves it alone below.
+	if err := a.db.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		return media.Bind(ctx, q, a.clock.Now(), owner, m.ID)
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Another upload is started and never completed.
 	abandoned := a.start(t, owner, media.KindProfilePicture)
@@ -200,9 +291,13 @@ func TestUploadIsStartedCompletedAndSwept(t *testing.T) {
 	}
 	_, err = a.svc.Get(t.Context(), owner, abandoned.Media.ID)
 	wantCode(t, err, media.CodeNotFound)
+	if n := a.queued(t, "media_delete_objects", abandoned.Media.ID); n != 1 {
+		t.Errorf("the sweep queued %d object deletions for the abandoned upload, want 1", n)
+	}
 	if got, err := a.svc.Get(t.Context(), owner, s.Media.ID); err != nil || got.Status != media.StatusReady {
 		t.Errorf("the sweep touched a READY media: %+v, %v", got, err)
 	}
+	a.deleteObjects(t)
 	if _, ok := a.fake.Object(want.String()); !ok {
 		t.Error("the sweep deleted a READY media's object")
 	}
@@ -234,6 +329,52 @@ func TestKeysAreTheServersAndCarryTheRowsID(t *testing.T) {
 	}
 }
 
+// ADR-0035 Karar 4 says the database holds the key rules too: a final key
+// under another kind's prefix, with an extension its type does not have,
+// or a type the kind does not accept is refused by a CHECK, whatever the
+// application writes.
+func TestDatabaseHoldsTheKeyRules(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	owner := a.user(t)
+	s := a.start(t, owner, media.KindProfilePicture)
+	id := s.Media.ID
+	for name, tt := range map[string]struct{ key, typ string }{
+		"another kind's prefix":       {"identity-documents/" + id.String() + ".jpg", "image/jpeg"},
+		"another type's extension":    {"images/" + id.String() + ".png", "image/jpeg"},
+		"a type the kind refuses":     {"images/" + id.String() + ".pdf", "application/pdf"},
+		"another row's id in the key": {"images/" + uuid.Must(uuid.NewV7()).String() + ".jpg", "image/jpeg"},
+	} {
+		_, err := mediadb.New(a.db.Pool()).MarkReady(t.Context(), mediadb.MarkReadyParams{
+			Now: a.clock.Now(), ObjectKey: tt.key, ContentType: tt.typ, SizeBytes: 1, ID: id,
+		})
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23514" {
+			t.Errorf("%s: MarkReady(%s, %s) = %v, want a check violation", name, tt.key, tt.typ, err)
+		}
+	}
+	// The right one passes, so the refusals above are not a broken query.
+	_, err := mediadb.New(a.db.Pool()).MarkReady(t.Context(), mediadb.MarkReadyParams{
+		Now: a.clock.Now(), ObjectKey: "images/" + id.String() + ".jpg", ContentType: "image/jpeg", SizeBytes: 1, ID: id,
+	})
+	if err != nil {
+		t.Fatalf("a well formed READY row: %v", err)
+	}
+}
+
+// ready starts an upload, writes a JPEG and completes it.
+func (a *app) ready(t *testing.T, owner uuid.UUID, kind media.Kind) media.Media {
+	t.Helper()
+	s := a.start(t, owner, kind)
+	body, _ := jpegWithGPS(t, 1)
+	a.put(s, body)
+	m := a.complete(t, owner, s.Media.ID)
+	if m.Status != media.StatusReady {
+		t.Fatalf("setup: %+v", m)
+	}
+	return m
+}
+
 // The status gate (ADR-0030, ADR-0035 Karar 2). A READY upload's write
 // address still works for its fifteen minutes; a client that writes a
 // second object of another type there and completes again must get
@@ -247,25 +388,15 @@ func TestKeysAreTheServersAndCarryTheRowsID(t *testing.T) {
 //     refuse the second job and keep this subtest green without the gate;
 //   - "job": the job does not call the pipeline for a decided row; the
 //     store sees no read of the quarantine object;
-//   - "orphan": a run that wrote an object for a row that left PENDING
-//     meanwhile deletes it (MED-006).
+//   - "orphan": a run that wrote an object for a row deleted meanwhile
+//     queues its deletion in its recording transaction (MED-006). The
+//     owner's own deletion job runs before the object is written, so only
+//     the run's job can remove it.
+//   - "decided": the same for a row decided meanwhile (the sweep or a
+//     person rejected it); its deletion is queued from the row's branch.
 func TestCompletionGateHoldsForADecidedUpload(t *testing.T) {
 	t.Parallel()
 
-	ready := func(t *testing.T) (*app, uuid.UUID, media.Started) {
-		t.Helper()
-		a := newApp(t)
-		owner := a.user(t)
-		s := a.start(t, owner, media.KindProfilePicture)
-		body, _ := jpegWithGPS(t, 1)
-		a.put(s, body)
-		if m := a.complete(t, owner, s.Media.ID); m.Status != media.StatusReady {
-			t.Fatalf("setup: %+v", m)
-		}
-		// The second object, of another type, at the same address.
-		a.put(s, pngBytes(t, 4, 4))
-		return a, owner, s
-	}
 	png := func(t *testing.T, id uuid.UUID) string {
 		t.Helper()
 		return finalKey(t, id, storage.ExtPNG).String()
@@ -273,30 +404,35 @@ func TestCompletionGateHoldsForADecidedUpload(t *testing.T) {
 
 	t.Run("request", func(t *testing.T) {
 		t.Parallel()
-		a, owner, s := ready(t)
+		a := newApp(t)
+		owner := a.user(t)
+		m := a.ready(t, owner, media.KindProfilePicture)
 		if _, err := a.db.Pool().Exec(t.Context(), "DELETE FROM river_job WHERE kind = 'media_complete'"); err != nil {
 			t.Fatal(err)
 		}
-		m, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID)
-		if err != nil || m.Status != media.StatusReady {
-			t.Fatalf("RequestCompletion() = %+v, %v, want the READY row as it is", m, err)
+		got, err := a.svc.RequestCompletion(t.Context(), owner, m.ID)
+		if err != nil || got.Status != media.StatusReady {
+			t.Fatalf("RequestCompletion() = %+v, %v, want the READY row as it is", got, err)
 		}
-		if n := a.queued(t, "media_complete", s.Media.ID); n != 0 {
+		if n := a.queued(t, "media_complete", m.ID); n != 0 {
 			t.Errorf("a READY upload queued %d completion jobs, want none", n)
 		}
 	})
 	t.Run("job", func(t *testing.T) {
 		t.Parallel()
-		a, _, s := ready(t)
-		path := "/" + testBucket + "/" + s.Media.UploadKey.String()
+		a := newApp(t)
+		owner := a.user(t)
+		m := a.ready(t, owner, media.KindProfilePicture)
+		a.fake.Seed(m.UploadKey.String(), fakes.S3Object{Body: pngBytes(t, 4, 4)})
+		path := "/" + testBucket + "/" + m.UploadKey.String()
 		before := len(a.fake.RequestsTo(http.MethodGet, path)) + len(a.fake.RequestsTo(http.MethodHead, path))
-		if err := a.svc.Complete(t.Context(), s.Media.ID); err != nil {
+		if err := a.run(t.Context(), m); err != nil {
 			t.Fatal(err)
 		}
 		if after := len(a.fake.RequestsTo(http.MethodGet, path)) + len(a.fake.RequestsTo(http.MethodHead, path)); after != before {
 			t.Errorf("the job read the quarantine of a READY upload (%d requests, want %d)", after, before)
 		}
-		if _, ok := a.fake.Object(png(t, s.Media.ID)); ok {
+		if _, ok := a.fake.Object(png(t, m.ID)); ok {
 			t.Error("a second final object was written for a READY upload")
 		}
 	})
@@ -306,73 +442,120 @@ func TestCompletionGateHoldsForADecidedUpload(t *testing.T) {
 		owner := a.user(t)
 		s := a.start(t, owner, media.KindProfilePicture)
 		a.put(s, pngBytes(t, 4, 4))
-		if _, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID); err != nil {
+		m, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID)
+		if err != nil {
 			t.Fatal(err)
 		}
-		// The owner deletes the upload while the job writes its object.
-		deleted := make(chan error, 1)
+		// The owner deletes the upload while the job writes its object,
+		// and the deletion's own job runs before the object lands.
+		hook := make(chan error, 1)
 		ctx := t.Context()
 		a.fake.Before(http.MethodPut, "/"+testBucket+"/"+png(t, s.Media.ID), func() {
-			deleted <- a.svc.Delete(ctx, owner, s.Media.ID)
+			if err := a.svc.Delete(ctx, owner, s.Media.ID); err != nil {
+				hook <- err
+				return
+			}
+			hook <- a.runDeleteJobs(ctx)
 		})
-		if err := a.svc.Complete(ctx, s.Media.ID); err != nil {
+		if err := a.run(ctx, m); err != nil {
 			t.Fatal(err)
 		}
-		if err := <-deleted; err != nil {
+		if err := <-hook; err != nil {
 			t.Fatalf("the delete during the write: %v", err)
 		}
+		if _, ok := a.fake.Object(png(t, s.Media.ID)); !ok {
+			t.Fatal("setup: the object was not written after the deletion's job ran")
+		}
+		a.deleteObjects(t)
 		if _, ok := a.fake.Object(png(t, s.Media.ID)); ok {
 			t.Error("MED-006: the object of a row deleted meanwhile was kept; no row will ever name it")
 		}
 	})
+	t.Run("decided", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		owner := a.user(t)
+		s := a.start(t, owner, media.KindProfilePicture)
+		a.put(s, pngBytes(t, 4, 4))
+		m, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hook := make(chan error, 1)
+		ctx := t.Context()
+		a.fake.Before(http.MethodPut, "/"+testBucket+"/"+png(t, s.Media.ID), func() {
+			_, err := mediadb.New(a.db.Pool()).MarkRejected(ctx, mediadb.MarkRejectedParams{
+				Now: a.clock.Now(), Rejection: string(media.RejectionNotUploaded), ID: s.Media.ID,
+			})
+			hook <- err
+		})
+		if err := a.run(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-hook; err != nil {
+			t.Fatal(err)
+		}
+		if n := a.queued(t, "media_delete_objects", s.Media.ID); n != 1 {
+			t.Fatalf("%d object deletions queued for a row rejected meanwhile, want 1", n)
+		}
+		a.deleteObjects(t)
+		if _, ok := a.fake.Object(png(t, s.Media.ID)); ok {
+			t.Error("MED-006: the object of a row decided meanwhile was kept")
+		}
+	})
 }
 
-// MED-006: the rollback invariant on the job. An object whose recording
-// failed with an unknown outcome is kept, and the retry records it; an
-// object whose row is gone is deleted (TestCompletionGateHoldsForADecidedUpload,
-// "orphan"); deleting one media leaves another media's object alone.
+// MED-006: an object whose recording failed with an unknown outcome is
+// kept, and the retry records it. The recording transaction fails because
+// its pool is gone, not because a context ended: the object is deleted on
+// a context of its own (Pipeline.Discard), so a test that canceled the
+// job's context would stay green with WriteIndeterminate turned into
+// WriteFailed. This one is red then.
 func TestCompletionKeepsAnObjectItCouldNotRecord(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
 	owner := a.user(t)
 	s := a.start(t, owner, media.KindProfilePicture)
 	a.put(s, pngBytes(t, 4, 4))
-	if _, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID); err != nil {
+	m, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID)
+	if err != nil {
 		t.Fatal(err)
 	}
 	final := finalKey(t, s.Media.ID, storage.ExtPNG).String()
 
-	// The context ends after the object is written and before the
-	// outcome is recorded: the recording transaction cannot begin.
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	a.fake.Before(http.MethodDelete, "/"+testBucket+"/"+s.Media.UploadKey.String(), cancel)
-	if err := a.svc.Complete(ctx, s.Media.ID); err == nil {
-		t.Fatal("MED-006: Complete() = nil with a canceled recording")
+	// After the object is written and before the outcome is recorded, the
+	// service's pool closes: the recording transaction cannot begin.
+	old := a.db
+	a.fake.Before(http.MethodDelete, "/"+testBucket+"/"+s.Media.UploadKey.String(), old.Close)
+	if err := a.run(t.Context(), m); err == nil {
+		t.Fatal("MED-006: Complete() = nil with a recording that could not run")
 	}
 	if _, ok := a.fake.Object(final); !ok {
 		t.Fatal("MED-006: the object of an unrecorded outcome was deleted")
 	}
-	if m, err := a.svc.Get(t.Context(), owner, s.Media.ID); err != nil || m.Status != media.StatusPending {
-		t.Fatalf("after the failed run: %+v, %v, want PENDING", m, err)
-	}
 
-	// The retry finds the object at its final key and records it.
-	if err := a.svc.Complete(t.Context(), s.Media.ID); err != nil {
+	// The retry, on a working pool, finds the object at its final key and
+	// records it.
+	a.reopen(t)
+	if got, err := a.svc.Get(t.Context(), owner, s.Media.ID); err != nil || got.Status != media.StatusPending {
+		t.Fatalf("after the failed run: %+v, %v, want PENDING", got, err)
+	}
+	if err := a.run(t.Context(), m); err != nil {
 		t.Fatal(err)
 	}
-	m, err := a.svc.Get(t.Context(), owner, s.Media.ID)
-	if err != nil || m.Status != media.StatusReady || m.ObjectKey.String() != final {
-		t.Fatalf("MED-006: after the retry %+v, %v, want READY at %s", m, err, final)
+	got, err := a.svc.Get(t.Context(), owner, s.Media.ID)
+	if err != nil || got.Status != media.StatusReady || got.ObjectKey.String() != final {
+		t.Fatalf("MED-006: after the retry %+v, %v, want READY at %s", got, err, final)
 	}
 }
 
 // ADR-0035 Karar 4, the orphan sweep of the final prefixes: a completion
 // that wrote its object and was never recorded leaves an object under
-// images/ that no lifecycle rule covers. Two paths remove it, each held
-// here on its own: the sweep of an expired upload deletes every final key
-// the row's id can have, and a later completion of the same id deletes
-// the extensions it did not write.
+// images/ that no lifecycle rule covers. The paths that remove it, each
+// held here on its own: the sweep of an expired upload queues the deletion
+// of every final key the row's id can have; a later completion of the
+// same id queues the deletion of the extensions it did not write; a
+// completion whose row is gone deletes the id's objects itself.
 func TestOrphanedFinalObjectsAreSwept(t *testing.T) {
 	t.Parallel()
 
@@ -387,6 +570,7 @@ func TestOrphanedFinalObjectsAreSwept(t *testing.T) {
 		if _, err := a.svc.Sweep(t.Context()); err != nil {
 			t.Fatal(err)
 		}
+		a.deleteObjects(t)
 		if _, ok := a.fake.Object(left); ok {
 			t.Error("the sweep left a final object no row names")
 		}
@@ -400,11 +584,15 @@ func TestOrphanedFinalObjectsAreSwept(t *testing.T) {
 		a.fake.Seed(left, fakes.S3Object{Body: []byte("an earlier run's PNG"), ContentType: "image/png"})
 		body, _ := jpegWithGPS(t, 1)
 		a.put(s, body)
-		if m := a.complete(t, owner, s.Media.ID); m.Status != media.StatusReady || m.ObjectKey.Ext() != storage.ExtJPEG {
+		m := a.complete(t, owner, s.Media.ID)
+		if m.Status != media.StatusReady || m.ObjectKey.Ext() != storage.ExtJPEG {
 			t.Fatalf("completion: %+v", m)
 		}
 		if _, ok := a.fake.Object(left); ok {
 			t.Error("the completion left the id's other extension in the store")
+		}
+		if _, ok := a.fake.Object(m.ObjectKey.String()); !ok {
+			t.Error("the completion's deletion job took the row's own object")
 		}
 	})
 	t.Run("recorded object", func(t *testing.T) {
@@ -423,74 +611,94 @@ func TestOrphanedFinalObjectsAreSwept(t *testing.T) {
 			t.Error("MED-006: the object of a processed upload was deleted")
 		}
 	})
+	t.Run("row gone", func(t *testing.T) {
+		t.Parallel()
+		// Spec D4: an earlier run wrote the object, its recording failed,
+		// and the row was deleted before the retry. The retry finds no row
+		// and deletes the id's objects as its own work.
+		a := newApp(t)
+		owner := a.user(t)
+		s := a.start(t, owner, media.KindProfilePicture)
+		m, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		left := finalKey(t, s.Media.ID, storage.ExtJPEG).String()
+		if err := a.svc.Delete(t.Context(), owner, s.Media.ID); err != nil {
+			t.Fatal(err)
+		}
+		a.deleteObjects(t)
+		a.fake.Seed(left, fakes.S3Object{Body: []byte("written after the deletion's job"), ContentType: "image/jpeg"})
+		if err := a.run(t.Context(), m); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := a.fake.Object(left); ok {
+			t.Error("a completion run whose row is gone left the id's object")
+		}
+	})
 }
 
 // ADR-0035 Karar 7: a deletion soft-deletes the row and queues the
-// deletion of its objects; the job deletes them unless the row came back
-// meanwhile, and never touches another media's object (MED-006).
+// deletion of its objects; the job deletes them unless an active row
+// names them, and never touches another media's object (MED-006).
 func TestDeletionTakesTheObjectsOfItsMediaOnly(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
 	owner := a.user(t)
-	var keys []string
-	var ids []uuid.UUID
-	for range 2 {
-		s := a.start(t, owner, media.KindCompanyImage)
-		body, _ := jpegWithGPS(t, 1)
-		a.put(s, body)
-		m := a.complete(t, owner, s.Media.ID)
-		keys = append(keys, m.ObjectKey.String())
-		ids = append(ids, m.ID)
-	}
-	if err := a.svc.Delete(t.Context(), owner, ids[0]); err != nil {
+	first := a.ready(t, owner, media.KindCompanyImage)
+	second := a.ready(t, owner, media.KindCompanyImage)
+	if err := a.svc.Delete(t.Context(), owner, first.ID); err != nil {
 		t.Fatal(err)
 	}
-	if n := a.queued(t, "media_delete_objects", ids[0]); n != 1 {
-		t.Fatalf("%d object deletion jobs, want 1", n)
+	if n := a.queued(t, "media_delete_objects", first.ID); n != 2 {
+		t.Fatalf("%d object deletion jobs, want the completion's and the deletion's", n)
 	}
-	_, err := a.svc.Get(t.Context(), owner, ids[0])
+	_, err := a.svc.Get(t.Context(), owner, first.ID)
 	wantCode(t, err, media.CodeNotFound)
 
-	// The job of the still active media does nothing: a restored row
-	// keeps its objects.
-	if err := a.svc.DeleteObjects(t.Context(), ids[1], media.KindCompanyImage, "incoming/"+ids[1].String()+".jpg"); err != nil {
+	// A job for the still active media keeps the object its row names.
+	if err := a.svc.DeleteObjects(t.Context(), second.ID, media.KindCompanyImage, second.UploadKey.String()); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := a.fake.Object(keys[1]); !ok {
+	if _, ok := a.fake.Object(second.ObjectKey.String()); !ok {
 		t.Fatal("the deletion job deleted an active media's object")
 	}
-	if err := a.svc.DeleteObjects(t.Context(), ids[0], media.KindCompanyImage, "incoming/"+ids[0].String()+".jpg"); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := a.fake.Object(keys[0]); ok {
+	a.deleteObjects(t)
+	if _, ok := a.fake.Object(first.ObjectKey.String()); ok {
 		t.Error("the deleted media's object is still in the store")
 	}
-	if _, ok := a.fake.Object(keys[1]); !ok {
+	if _, ok := a.fake.Object(second.ObjectKey.String()); !ok {
 		t.Error("MED-006: deleting one media deleted another's object")
 	}
 
 	// Another user's media is the same not found, for a deletion too.
 	stranger := a.user(t)
-	err = a.svc.Delete(t.Context(), stranger, ids[1])
+	err = a.svc.Delete(t.Context(), stranger, second.ID)
 	wantCode(t, err, media.CodeNotFound)
 }
 
 // ADR-0035 Karar 6: at most MaxOpenUploads open uploads, and DailyUploads
-// starts a day. Deleting an open upload frees its place in the open cap
-// and not in the budget: the budget counts its own ledger, so a budget
-// that counted media rows would be refilled by the deletions below and
-// this test would be red.
+// starts a day, both 429 with a wait. Deleting an open upload frees its
+// place in the open cap and not in the budget: the budget counts its own
+// ledger, so a budget that counted media rows would be refilled by the
+// deletions below and this test would be red.
 func TestUploadBudget(t *testing.T) {
 	t.Parallel()
 	a := newApp(t)
 	owner := a.user(t)
 
 	var open []uuid.UUID
+	opened := a.clock.Now()
 	for range media.MaxOpenUploads {
 		open = append(open, a.start(t, owner, media.KindCompanyImage).Media.ID)
 	}
+	a.clock.Advance(time.Minute)
 	_, err := a.svc.Start(t.Context(), owner, media.KindCompanyImage, 1024, noCommit)
 	wantCode(t, err, media.CodePendingLimit)
+	wait, ok := media.RetryAfter(err)
+	if want := opened.Add(media.UploadRetention).Sub(a.clock.Now()); !ok || wait != want {
+		t.Errorf("open cap RetryAfter = %v, %v, want %v (the oldest open upload is swept then)", wait, ok, want)
+	}
 
 	// Start and delete until the day's budget is spent.
 	for _, id := range open {
@@ -498,7 +706,6 @@ func TestUploadBudget(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	first := a.clock.Now()
 	for range media.DailyUploads - media.MaxOpenUploads {
 		s := a.start(t, owner, media.KindCompanyImage)
 		if err := a.svc.Delete(t.Context(), owner, s.Media.ID); err != nil {
@@ -508,9 +715,9 @@ func TestUploadBudget(t *testing.T) {
 	}
 	_, err = a.svc.Start(t.Context(), owner, media.KindCompanyImage, 1024, noCommit)
 	wantCode(t, err, media.CodeDailyLimit)
-	wait, ok := media.RetryAfter(err)
-	if want := first.Add(media.UploadBudgetWindow).Sub(a.clock.Now()); !ok || wait != want {
-		t.Errorf("RetryAfter = %v, %v, want %v (the oldest start leaves the window)", wait, ok, want)
+	wait, ok = media.RetryAfter(err)
+	if want := opened.Add(media.UploadBudgetWindow).Sub(a.clock.Now()); !ok || wait != want {
+		t.Errorf("budget RetryAfter = %v, %v, want %v (the oldest start leaves the window)", wait, ok, want)
 	}
 
 	// Another user's budget is its own.
@@ -532,12 +739,291 @@ func TestUploadBudget(t *testing.T) {
 	}
 }
 
+// The uploader's advisory lock (ADR-0035 Karar 6): the caps are counted
+// and spent in one transaction under it, so of N concurrent starts at one
+// place below a cap exactly one passes. Without the lock every start
+// counts the same rows before any commits, and more than one passes; the
+// race needs no luck with N goroutines released at once, but it is a
+// race, so a single run of the mutation may pass -- it fails nearly every
+// run.
+func TestUploadCapsHoldUnderConcurrency(t *testing.T) {
+	t.Parallel()
+	const n = 8
+
+	race := func(t *testing.T, a *app, owner uuid.UUID) (passed int, codes []apperr.Code) {
+		t.Helper()
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		gate := make(chan struct{})
+		for range n {
+			wg.Go(func() {
+				<-gate
+				_, err := a.svc.Start(t.Context(), owner, media.KindCompanyImage, 1024, noCommit)
+				mu.Lock()
+				defer mu.Unlock()
+				if err == nil {
+					passed++
+					return
+				}
+				var ae *apperr.Error
+				if errors.As(err, &ae) {
+					codes = append(codes, ae.Code)
+				} else {
+					codes = append(codes, apperr.Code(err.Error()))
+				}
+			})
+		}
+		close(gate)
+		wg.Wait()
+		return passed, codes
+	}
+
+	t.Run("daily budget", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		owner := a.user(t)
+		// One place left in the day's budget.
+		for range media.DailyUploads - 1 {
+			_, err := a.db.Pool().Exec(t.Context(), "INSERT INTO media_upload_starts (id, user_id, created_at) VALUES ($1, $2, $3)",
+				uuid.Must(uuid.NewV7()), owner, a.clock.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		passed, codes := race(t, a, owner)
+		if passed != 1 {
+			t.Errorf("%d of %d concurrent starts passed the last place of the budget, want 1 (refusals %v)", passed, n, codes)
+		}
+		for _, c := range codes {
+			if c != media.CodeDailyLimit {
+				t.Errorf("a refusal was %s, want %s", c, media.CodeDailyLimit)
+			}
+		}
+	})
+	t.Run("open uploads", func(t *testing.T) {
+		t.Parallel()
+		a := newApp(t)
+		owner := a.user(t)
+		for range media.MaxOpenUploads - 1 {
+			a.start(t, owner, media.KindCompanyImage)
+		}
+		passed, codes := race(t, a, owner)
+		if passed != 1 {
+			t.Errorf("%d of %d concurrent starts passed the last open place, want 1 (refusals %v)", passed, n, codes)
+		}
+		for _, c := range codes {
+			if c != media.CodePendingLimit {
+				t.Errorf("a refusal was %s, want %s", c, media.CodePendingLimit)
+			}
+		}
+	})
+}
+
+// A caller whose account was deleted after authentication let the request
+// through gets the session's 401, not a 500 and not a 404 (ADR-0035
+// Karar 2; CLAUDE.md, ErrNotActive).
+func TestStartOfADeletedCallerIsUnauthenticated(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	owner := a.user(t)
+	err := a.db.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		_, err := softdelete.New(a.catalog).Delete(ctx, q, softdelete.DeleteRequest{
+			Table: "users", ID: owner, Actor: softdelete.Actor{Kind: softdelete.ActorSystem},
+			Reason: softdelete.ReasonAccountDeletion, At: a.clock.Now(),
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.svc.Start(t.Context(), owner, media.KindProfilePicture, 1024, noCommit)
+	wantCode(t, err, authn.CodeSessionInactive)
+	var ae *apperr.Error
+	if errors.As(err, &ae) && ae.Kind != apperr.KindUnauthenticated {
+		t.Errorf("kind %v, want KindUnauthenticated", ae.Kind)
+	}
+}
+
+// ADR-0035 Karar 10: without an object store no upload starts (an
+// internal error that names the missing configuration in the log) and no
+// row is written; a read of an existing row answers without an address.
+func TestWithoutAnObjectStore(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	owner := a.user(t)
+	m := a.ready(t, owner, media.KindProfilePicture)
+
+	logger := log.New(&bytes.Buffer{}, slog.LevelDebug)
+	queue, err := jobs.NewClient(a.db.Pool(), jobs.Config{Logger: logger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, err := media.NewService(a.db, queue, nil, softdelete.New(a.catalog), a.clock, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = bare.Start(t.Context(), owner, media.KindProfilePicture, 1024, noCommit)
+	if err == nil || apperr.From(err).Kind != apperr.KindInternal || !strings.Contains(err.Error(), "KOALA_OBJECT_") {
+		t.Fatalf("Start() without a store = %v, want an internal error naming the configuration", err)
+	}
+	var rows int
+	if err := a.db.Pool().QueryRow(t.Context(), "SELECT count(*) FROM active_media WHERE owner_id = $1", owner).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 1 {
+		t.Errorf("%d media rows, want only the one written with a store", rows)
+	}
+	got, err := bare.Get(t.Context(), owner, m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if addr, err := bare.Address(t.Context(), got, true); err != nil || addr.URL != "" {
+		t.Errorf("Address() without a store = %+v, %v, want none", addr, err)
+	}
+}
+
+// ADR-0035 Karar 8: a READY media nothing bound is swept UnboundRetention
+// after it was decided, objects and all; a bound one stays; an upload
+// whose completion was asked for within SweepGrace is not swept even past
+// its retention (a job may be writing its object).
+func TestSweepTakesUnboundMediaAndSparesRecentCompletions(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	owner := a.user(t)
+	unbound := a.ready(t, owner, media.KindIdentityDocument)
+	bound := a.ready(t, owner, media.KindProfilePicture)
+	if err := a.db.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		return media.Bind(ctx, q, a.clock.Now(), owner, bound.ID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// An upload whose completion is asked for just before its retention
+	// ends.
+	late := a.start(t, owner, media.KindProfilePicture)
+	a.clock.Advance(media.UploadRetention - time.Minute)
+	if _, err := a.svc.RequestCompletion(t.Context(), owner, late.Media.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.clock.Advance(2 * time.Minute)
+	if _, err := a.svc.Sweep(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := a.svc.Get(t.Context(), owner, late.Media.ID); err != nil || got.Status != media.StatusPending {
+		t.Errorf("an upload completed within the grace was swept: %+v, %v", got, err)
+	}
+
+	a.clock.Advance(media.UnboundRetention)
+	swept, err := a.svc.Sweep(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swept.Unbound != 1 {
+		t.Errorf("sweep = %+v, want one unbound media", swept)
+	}
+	_, err = a.svc.Get(t.Context(), owner, unbound.ID)
+	wantCode(t, err, media.CodeNotFound)
+	if got, err := a.svc.Get(t.Context(), owner, bound.ID); err != nil || got.Status != media.StatusReady {
+		t.Errorf("a bound media was swept: %+v, %v", got, err)
+	}
+	a.deleteObjects(t)
+	if _, ok := a.fake.Object(unbound.ObjectKey.String()); ok {
+		t.Error("an unbound identity photo's object is still in the store")
+	}
+	if _, ok := a.fake.Object(bound.ObjectKey.String()); !ok {
+		t.Error("a bound media's object was deleted")
+	}
+}
+
+// Bind is the one writer of bound_at (ADR-0035 Karar 8): only the owner's
+// READY media binds; another user's is not found, a PENDING one is not
+// ready.
+func TestBind(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	owner := a.user(t)
+	ready := a.ready(t, owner, media.KindCompanyLogo)
+	pending := a.start(t, owner, media.KindCompanyLogo)
+	bind := func(who, id uuid.UUID) error {
+		return a.db.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+			return media.Bind(ctx, q, a.clock.Now(), who, id)
+		})
+	}
+	if err := bind(owner, ready.ID); err != nil {
+		t.Fatalf("binding a READY media: %v", err)
+	}
+	if err := bind(owner, ready.ID); err != nil {
+		t.Fatalf("binding it again: %v", err)
+	}
+	wantCode(t, bind(owner, pending.Media.ID), media.CodeNotReady)
+	wantCode(t, bind(a.user(t), ready.ID), media.CodeNotFound)
+	wantCode(t, bind(owner, uuid.Must(uuid.NewV7())), media.CodeNotFound)
+}
+
+// The sweep pages past a media it cannot retire (ADR-0035 Karar 4). A
+// consuming table on a restrict edge makes the soft deletion of a media it
+// points at fail: here the budget ledger plays that table, since every
+// started upload has a ledger row with its id. A full batch of such rows,
+// older than everything else, must not keep the sweep from the deletable
+// row behind them; a sweep that stopped on a batch it could not retire
+// (the earlier len(taken) loop) never reached it.
+func TestSweepPagesPastMediaItCannotRetire(t *testing.T) {
+	t.Parallel()
+	catalog, err := softdelete.ParseCatalog(dbsrc.SoftDeleteCatalog(), []byte(
+		"edges:\n  - child: media_upload_starts\n    column: id\n    parent: media\n    policy: restrict\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newAppWith(t, catalog)
+	owner := a.user(t)
+	q := mediadb.New(a.db.Pool())
+	insert := func(withLedger bool) uuid.UUID {
+		id := uuid.Must(uuid.NewV7())
+		if _, err := q.InsertMedia(t.Context(), mediadb.InsertMediaParams{
+			ID: id, OwnerID: owner, Kind: string(media.KindProfilePicture),
+			UploadKey: "incoming/" + id.String() + ".jpg", DeclaredSize: 1, CreatedAt: a.clock.Now(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if withLedger {
+			if err := q.InsertUploadStart(t.Context(), mediadb.InsertUploadStartParams{
+				ID: id, UserID: owner, CreatedAt: a.clock.Now(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		a.clock.Advance(time.Millisecond)
+		return id
+	}
+	const stuck = 100 // one full sweep batch
+	for range stuck {
+		insert(true)
+	}
+	behind := insert(false)
+	// The budget window ends first so the ledger rows are not purged by
+	// the same sweep; the media are past their retention.
+	a.clock.Advance(media.UploadRetention + time.Minute)
+	if _, err := a.db.Pool().Exec(t.Context(), "UPDATE media_upload_starts SET created_at = $1", a.clock.Now()); err != nil {
+		t.Fatal(err)
+	}
+	swept, err := a.svc.Sweep(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swept.Kept != stuck {
+		t.Errorf("sweep = %+v, want the %d restricted media kept", swept, stuck)
+	}
+	_, err = a.svc.Get(t.Context(), owner, behind)
+	wantCode(t, err, media.CodeNotFound)
+}
+
 // ADR-0035 Karar 3 and Karar 5, MED-014: a CV is a PDF, a DOC or a DOCX,
-// moved as it is, served only through a five minute signed download that
-// getMedia asks for; a spreadsheet is refused as an unsupported type; an
-// identity document has no address at all; bytes that carry a JPEG's
-// magic and do not decode are stored as CORRUPT and rendered as
-// MEDIA_TYPE_UNSUPPORTED.
+// written as it was validated, served only through a five minute signed
+// download that getMedia asks for, with the detected type; a spreadsheet,
+// an empty file, a file that is only a signature and a file over ten
+// megabytes are refused; an identity document has no address at all;
+// bytes that carry a JPEG's magic and do not decode are stored as CORRUPT
+// and rendered as MEDIA_TYPE_UNSUPPORTED.
 func TestAddressesAndRejectionsByKind(t *testing.T) {
 	t.Parallel()
 
@@ -560,7 +1046,7 @@ func TestAddressesAndRejectionsByKind(t *testing.T) {
 				t.Fatalf("MED-014 %s: %+v", name, m)
 			}
 			stored, _ := a.fake.Object(m.ObjectKey.String())
-			if !bytes.Contains(stored.Body, []byte("Yusuf")) || stored.ContentDisposition != "attachment" ||
+			if !bytes.Equal(stored.Body, tt.body) || stored.ContentDisposition != "attachment" ||
 				stored.CacheControl != "no-store" {
 				t.Errorf("MED-014 %s: stored as %+v, want the document as it is, an uncached attachment", name, stored)
 			}
@@ -575,20 +1061,32 @@ func TestAddressesAndRejectionsByKind(t *testing.T) {
 			if err != nil || u.Query().Get("X-Amz-Expires") != "300" ||
 				u.Query().Get("response-content-disposition") != "attachment" ||
 				u.Query().Get("response-cache-control") != "no-store" ||
+				u.Query().Get("response-content-type") != string(tt.typ) ||
 				!strings.HasPrefix(u.Path, "/"+testBucket+"/files/") {
-				t.Errorf("%s: download address %s, want a signed, uncached attachment under files/", name, addr.URL)
+				t.Errorf("%s: download address %s, want a signed, uncached %s attachment under files/", name, addr.URL, tt.typ)
 			}
 		}
 	})
-	t.Run("spreadsheet", func(t *testing.T) {
+	t.Run("refused cv", func(t *testing.T) {
 		t.Parallel()
-		a := newApp(t)
-		owner := a.user(t)
-		s := a.start(t, owner, media.KindCV)
-		a.put(s, zipOf(t, "[Content_Types].xml", "xl/workbook.xml"))
-		m := a.complete(t, owner, s.Media.ID)
-		if code, _ := m.Rejection.Code(); m.Status != media.StatusRejected || code != media.CodeTypeUnsupported {
-			t.Errorf("MED-014: a spreadsheet as a CV is %+v, want REJECTED with MEDIA_TYPE_UNSUPPORTED", m)
+		oversize := append([]byte("%PDF-1.7\n"), make([]byte, 10<<20)...)
+		for name, tt := range map[string]struct {
+			body []byte
+			want media.Rejection
+		}{
+			"spreadsheet":        {zipOf(t, "[Content_Types].xml", "xl/workbook.xml"), media.RejectionTypeUnsupported},
+			"empty file":         {[]byte{}, media.RejectionTypeUnsupported},
+			"only the signature": {[]byte("PK\x03\x04"), media.RejectionTypeUnsupported},
+			"over ten megabytes": {oversize, media.RejectionTooLarge},
+		} {
+			a := newApp(t)
+			owner := a.user(t)
+			s := a.start(t, owner, media.KindCV)
+			a.put(s, tt.body)
+			m := a.complete(t, owner, s.Media.ID)
+			if m.Status != media.StatusRejected || m.Rejection != tt.want {
+				t.Errorf("MED-014 %s: %+v, want REJECTED with %s", name, m, tt.want)
+			}
 		}
 	})
 	t.Run("identity document", func(t *testing.T) {

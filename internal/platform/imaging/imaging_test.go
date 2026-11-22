@@ -196,7 +196,7 @@ func TestSanitizeDropsEveryMetadataSegment(t *testing.T) {
 				t.Errorf("Type = %q, want %q", got.Type, tc.typ)
 			}
 			if bytes.Contains(got.Data, marker) {
-				t.Error("the metadata marker survived the strip")
+				t.Error("MED-005: the GPS marker survived the strip")
 			}
 			if bytes.Contains(got.Data, []byte("Exif")) {
 				t.Error("an Exif header survived the strip")
@@ -723,5 +723,80 @@ func TestSanitizeBoundsItsOutput(t *testing.T) {
 	// fits it. FuzzSanitize checks the same invariant generatively.
 	if int64(len(grown.Data)) > wide.MaxBytes {
 		t.Errorf("the output is %d bytes, over the bound %d", len(grown.Data), wide.MaxBytes)
+	}
+}
+
+// withPNGChunk splices an ancillary chunk of type typ right after IHDR,
+// with a correct CRC (image/png verifies every chunk's CRC).
+func withPNGChunk(tb testing.TB, pngBytes []byte, typ string, data []byte) []byte {
+	tb.Helper()
+	const afterIHDR = 8 + 25
+	if len(pngBytes) < afterIHDR {
+		tb.Fatal("not a PNG")
+	}
+	body := append([]byte(typ), data...)
+	chunk := binary.BigEndian.AppendUint32(nil, uint32(len(data)))
+	chunk = append(chunk, body...)
+	chunk = binary.BigEndian.AppendUint32(chunk, crc32.ChecksumIEEE(body))
+	out := make([]byte, 0, len(pngBytes)+len(chunk))
+	out = append(out, pngBytes[:afterIHDR]...)
+	out = append(out, chunk...)
+	return append(out, pngBytes[afterIHDR:]...)
+}
+
+// TestSanitizeDropsCameraSerialAndTextChunks is the rest of MED-005's
+// list: the camera's make and model, its body serial number and the image's
+// unique id in EXIF, and the PNG text chunks (tEXt, zTXt, iTXt), each
+// carrying a marker that must not survive the strip.
+func TestSanitizeDropsCameraSerialAndTextChunks(t *testing.T) {
+	t.Parallel()
+
+	const (
+		tagMake          = 0x010F
+		tagModel         = 0x0110
+		tagImageUniqueID = 0xA420
+		tagBodySerial    = 0xA431
+	)
+	camera := []byte("KOALA-CAMERA-Canon-EOS-R5")
+	serial := []byte("KOALA-SERIAL-032021001234")
+	exif := tiffBlock(map[uint16]uint16{tagMake: 1, tagModel: 2, tagImageUniqueID: 3, tagBodySerial: 4})
+	exif = append(exif, camera...)
+	exif = append(exif, serial...)
+
+	text := []byte("Comment\x00KOALA-TEXT-ev-adresi")
+	ztxt := []byte("Comment\x00\x00KOALA-ZTXT-raw")
+	itxt := []byte("Comment\x00\x00\x00\x00\x00KOALA-ITXT-not")
+	texts := encodePNG(t, gradient(16, 16))
+	texts = withPNGChunk(t, texts, "tEXt", text)
+	texts = withPNGChunk(t, texts, "zTXt", ztxt)
+	texts = withPNGChunk(t, texts, "iTXt", itxt)
+
+	cases := []struct {
+		name    string
+		in      []byte
+		markers [][]byte
+	}{
+		{"jpeg camera and serial", withJPEGAPP1(t, encodeJPEG(t, gradient(16, 16)), exif), [][]byte{camera, serial}},
+		{"png camera and serial", withPNGeXIf(t, encodePNG(t, gradient(16, 16)), exif), [][]byte{camera, serial}},
+		{"png text chunks", texts, [][]byte{[]byte("KOALA-TEXT"), []byte("KOALA-ZTXT"), []byte("KOALA-ITXT"), []byte("tEXt"), []byte("iTXt")}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			for _, m := range tc.markers {
+				if !bytes.Contains(tc.in, m) {
+					t.Fatalf("the fixture does not carry %q; the test would pass vacuously", m)
+				}
+			}
+			got, err := imaging.Sanitize(context.Background(), tc.in, imaging.Limits{})
+			if err != nil {
+				t.Fatalf("Sanitize() = %v", err)
+			}
+			for _, m := range tc.markers {
+				if bytes.Contains(got.Data, m) {
+					t.Errorf("MED-005: %q survived the strip", m)
+				}
+			}
+		})
 	}
 }

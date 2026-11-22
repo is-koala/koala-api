@@ -144,7 +144,7 @@ func FuzzStorageKey(f *testing.F) {
 
 		// Invariant 2: the key stays under its prefix.
 		if key.EscapesPrefix() {
-			t.Fatalf("ParseKey(%q) accepted %q, which escapes prefix %q", raw, got, key.Prefix())
+			t.Fatalf("MED-003/MED-004: ParseKey(%q) accepted %q, which escapes prefix %q", raw, got, key.Prefix())
 		}
 		prefix := string(key.Prefix())
 		if !strings.HasPrefix(got, prefix) {

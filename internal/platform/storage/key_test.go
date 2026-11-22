@@ -187,7 +187,7 @@ func TestParseKeyRejects(t *testing.T) {
 
 			key, err := storage.ParseKey(tt.raw)
 			if !errors.Is(err, storage.ErrKeyInvalid) {
-				t.Fatalf("ParseKey(%q) error = %v, want ErrKeyInvalid", tt.raw, err)
+				t.Fatalf("MED-003: ParseKey(%q) error = %v, want ErrKeyInvalid", tt.raw, err)
 			}
 			if !key.Zero() {
 				t.Errorf("ParseKey(%q) returned %q on error", tt.raw, key.String())
@@ -242,7 +242,7 @@ func TestParseKeyDecodesExactlyOnce(t *testing.T) {
 		"images/%252e%252e/" + v7 + ".jpg",
 	} {
 		if _, err := storage.ParseKey(twice); !errors.Is(err, storage.ErrKeyInvalid) {
-			t.Errorf("ParseKey(%q) error = %v, want ErrKeyInvalid", twice, err)
+			t.Errorf("MED-004: ParseKey(%q) error = %v, want ErrKeyInvalid", twice, err)
 		}
 	}
 }

@@ -146,10 +146,20 @@ func idempotentFixtures() map[string]func(t *testing.T, a *authApp) idempotentFi
 				path: "/v1/me/media", body: `{"kind":"PROFILE_PICTURE","sizeBytes":524288}`, bearer: bearer,
 				businessXmin: func(t *testing.T) string {
 					t.Helper()
-					// The budget ledger's row: active_media is a view and has
-					// no xmin, and the ledger row is written in the same
-					// transaction as the media row.
-					return a.text(t, "SELECT s.xmin::text FROM media_upload_starts s JOIN active_users u ON u.id = s.user_id WHERE u.email = $1", email)
+					// Both business rows: the budget ledger's, and the media
+					// row's, read on the base table as koala_maint (the
+					// active_media view has no xmin).
+					ledger := a.text(t, "SELECT s.xmin::text FROM media_upload_starts s JOIN active_users u ON u.id = s.user_id WHERE u.email = $1", email)
+					var row string
+					err := a.maint.Pool().QueryRow(t.Context(),
+						"SELECT m.xmin::text FROM media m JOIN users u ON u.id = m.owner_id WHERE u.email = $1", email).Scan(&row)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if row != ledger {
+						t.Fatalf("the media row was written by transaction %s, the ledger row by %s", row, ledger)
+					}
+					return ledger
 				},
 			}
 		},
