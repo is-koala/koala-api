@@ -159,9 +159,11 @@ func (c Completion) Rejected() bool { return c.Rejection != RejectionNone }
 // whose object is correct and sitting under a prefix no sweep covers,
 // losing it for good.
 //
-// A PDF, a DOC and a DOCX are not re-encoded: each is copied as it is,
-// with the detected type and an attachment disposition instead of the
-// strip. Their document metadata therefore survives, which is an
+// A PDF, a DOC and a DOCX are not re-encoded: the bytes that were read
+// and validated are written as they are, with the detected type and an
+// attachment disposition instead of the strip. They are never copied
+// server side from the quarantine key, whose content the client can
+// still replace (ADR-0035 Karar 1). Their document metadata therefore survives, which is an
 // accepted limit and not an oversight (ADR-0030 Karar 4, ADR-0031
 // Karar 2).
 func (p *Pipeline) Complete(ctx context.Context, kind Kind, quarantined storage.Key) (Completion, error) {
@@ -238,26 +240,34 @@ func (p *Pipeline) Complete(ctx context.Context, kind Kind, quarantined storage.
 		if err := p.store.Put(ctx, final, stripped.Data, put); err != nil {
 			return Completion{}, fmt.Errorf("media: complete upload: %w", err)
 		}
-		// The quarantine object has served its purpose. A failure here
-		// leaves a leftover for the sweep and does not fail the upload:
-		// the final object is written and correct.
-		p.sweepLater(ctx, quarantined, p.store.Delete(ctx, quarantined))
 		done.Size = int64(len(stripped.Data))
 		done.Width, done.Height = stripped.Width, stripped.Height
 		done.Orientation = stripped.Orientation
 	} else {
-		// A type that cannot be re-encoded moves as it is. ErrSourceKept
-		// means the copy landed and the delete did not, which is the same
-		// leftover as above.
-		err := p.store.Move(ctx, quarantined, final, put)
-		switch {
-		case errors.Is(err, storage.ErrSourceKept):
-			p.sweepLater(ctx, quarantined, err)
-		case err != nil:
+		// A type that cannot be re-encoded is written as it is: the bytes
+		// that were read and validated above, never a server side copy of
+		// the quarantine key. The write address lives for UploadTTL and
+		// its signature covers the key and not the content (ADR-0030
+		// Karar 1), so between the read and a copy the client could
+		// replace the object -- an HTML page, an executable, gigabytes --
+		// and the copy would store that under a validated row. A
+		// conditional copy (x-amz-copy-source-if-match) would close it on
+		// AWS, but S3 compatible stores implement it unevenly, and the
+		// bytes are in memory anyway, bounded by the kind's limit
+		// (ADR-0035 Karar 1).
+		if err := p.store.Put(ctx, final, body, put); err != nil {
 			return Completion{}, fmt.Errorf("media: complete upload: %w", err)
 		}
-		done.Size = info.Size
+		done.Size = int64(len(body))
 	}
+	// The quarantine object has served its purpose. A failure here leaves
+	// a leftover for the bucket's lifecycle rule and does not fail the
+	// upload: the final object is written and correct. The delete runs on
+	// a context of its own, so a job that is being canceled still cleans
+	// up (ADR-0035 Karar 2).
+	cleanup, cancel := cleanupContext(ctx)
+	p.sweepLater(cleanup, quarantined, p.store.Delete(cleanup, quarantined))
+	cancel()
 
 	if url, ok := p.store.PublicURL(done.Key); ok && kind.PublicReadable() {
 		done.PublicURL = url
@@ -310,8 +320,23 @@ func (p *Pipeline) finishedEarlier(ctx context.Context, kind Kind, quarantined s
 // delete is best effort: a rejection that could not clean up is still a
 // rejection, and the sweep removes what is left.
 func (p *Pipeline) reject(ctx context.Context, quarantined storage.Key, why Rejection) Completion {
-	p.sweepLater(ctx, quarantined, p.store.Delete(ctx, quarantined))
+	cleanup, cancel := cleanupContext(ctx)
+	defer cancel()
+	p.sweepLater(cleanup, quarantined, p.store.Delete(cleanup, quarantined))
 	return Completion{Rejection: why}
+}
+
+// CleanupTimeout bounds a best-effort cleanup that runs after its caller's
+// context may have ended.
+const CleanupTimeout = 30 * time.Second
+
+// cleanupContext is the context of a best-effort cleanup: not canceled
+// with ctx -- a River job canceled at its timeout, an HTTP request whose
+// client left -- and bounded on its own. A cleanup on the caller's
+// context fails exactly when the caller is being torn down, which is when
+// the leftover it would remove is made (ADR-0035 Karar 2).
+func cleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), CleanupTimeout)
 }
 
 // Outcome is how a caller's own write ended, for Discard.
@@ -343,7 +368,9 @@ func (p *Pipeline) Discard(ctx context.Context, key storage.Key, outcome Outcome
 			slog.String("prefix", string(key.Prefix())))
 		return
 	}
-	p.sweepLater(ctx, key, p.store.Delete(ctx, key))
+	cleanup, cancel := cleanupContext(ctx)
+	defer cancel()
+	p.sweepLater(cleanup, key, p.store.Delete(cleanup, key))
 }
 
 // sweepLater logs a failed cleanup and does nothing else. It is one

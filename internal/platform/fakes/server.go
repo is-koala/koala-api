@@ -94,6 +94,7 @@ type Server struct {
 	mu       sync.Mutex
 	requests []Request
 	queues   map[string][]Response
+	hooks    map[string][]func()
 	problems []string
 }
 
@@ -107,6 +108,7 @@ func newServer(tb testing.TB, name string, check, fallback responder) *Server {
 		fallback: fallback,
 		maxBody:  defaultMaxBody,
 		queues:   map[string][]Response{},
+		hooks:    map[string][]func(){},
 	}
 	s.srv = httptest.NewServer(http.HandlerFunc(s.serveHTTP))
 	tb.Cleanup(s.close)
@@ -126,6 +128,18 @@ func (s *Server) Enqueue(method, path string, rs ...Response) {
 	defer s.mu.Unlock()
 	k := key(method, path)
 	s.queues[k] = append(s.queues[k], rs...)
+}
+
+// Before runs fn once, when the next request to method and path arrives
+// and before it is answered: a test uses it to change the world between
+// two calls of the client under test (another transaction commits while
+// the client waits for the store). fn runs on the fake's goroutine, so it
+// must not call the test's t.Fatal.
+func (s *Server) Before(method, path string, fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := key(method, path)
+	s.hooks[k] = append(s.hooks[k], fn)
 }
 
 // Requests returns every request received so far, in arrival order.
@@ -175,7 +189,15 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) respond(req Request) Response {
 	s.mu.Lock()
 	s.requests = append(s.requests, req)
+	var hook func()
+	if hs := s.hooks[key(req.Method, req.Path)]; len(hs) > 0 {
+		hook = hs[0]
+		s.hooks[key(req.Method, req.Path)] = hs[1:]
+	}
 	s.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 
 	if s.check != nil {
 		if resp, ok := s.check(req); ok {

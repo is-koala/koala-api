@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/riverqueue/river"
 
+	"github.com/is-koala/koala-api/internal/media"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/log"
 )
@@ -79,5 +81,28 @@ func TestWorkersStartFailuresAreCountedAndStopReturns(t *testing.T) {
 	case <-stopped:
 	case <-stopCtx.Done():
 		t.Fatal("stop did not return within workerStopTimeout")
+	}
+}
+
+// The River client of serve runs the media queue with its own worker
+// count, next to the default queue (ADR-0035 Karar 2): a job on a queue
+// the client does not run waits forever. The configuration read here is
+// the one newWorkerClient hands to River (workerConfig), so a client built
+// with another queue map is red.
+func TestWorkersRunTheMediaQueue(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := workerConfig(testModules(t), log.New(&bytes.Buffer{}, slog.LevelInfo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q, ok := cfg.Queues[media.Queue]; !ok || q.MaxWorkers != media.QueueWorkers {
+		t.Errorf("media queue = %+v, %v, want %d workers", q, ok, media.QueueWorkers)
+	}
+	if q, ok := cfg.Queues[river.QueueDefault]; !ok || q.MaxWorkers < 1 {
+		t.Errorf("default queue = %+v, %v", q, ok)
+	}
+	if cfg.Workers == nil {
+		t.Error("the configuration carries no workers")
 	}
 }

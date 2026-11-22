@@ -100,6 +100,12 @@ func TestMediaContentTypesMatchTheContract(t *testing.T) {
 	for _, typ := range types {
 		value := contentTypeEnumValue(typ)
 		spelled[value] = typ
+		// The handlers render with media.ContentTypeValue; it must spell
+		// what this rule spells, or a READY media would carry a value the
+		// test above never checked.
+		if got := string(media.ContentTypeValue(typ)); got != value {
+			t.Errorf("media.ContentTypeValue(%q) = %q, the rule spells %q", typ, got, value)
+		}
 		if !apiv1.MediaContentType(value).Valid() {
 			t.Errorf("imaging.Type %q spells %q, which is not a member of the contract's MediaContentType enum; "+
 				"a completed upload would record a type the contract does not declare", typ, value)

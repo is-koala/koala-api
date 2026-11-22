@@ -59,14 +59,18 @@ func completionBody(token, password string) string {
 		`{"documentCode":"COMMERCIAL_MESSAGE","version":"1.0","granted":false}]}`
 }
 
-// postKeyed sends a POST with an Idempotency-Key from a current iOS build.
-func (a *authApp) postKeyed(t *testing.T, path, key, body string) *httptest.ResponseRecorder {
+// postKeyedAs sends a POST with an Idempotency-Key from a current iOS build,
+// signed in with bearer when it is not empty.
+func (a *authApp) postKeyedAs(t *testing.T, path, key, body, bearer string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, strings.NewReader(body))
 	req.RemoteAddr = "192.0.2.1:40000"
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(httpx.HeaderIdempotencyKey, key)
 	setClient(req.Header)
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
 	rec := httptest.NewRecorder()
 	a.router.ServeHTTP(rec, req)
 	return rec
@@ -105,6 +109,9 @@ func isReplay(rec *httptest.ResponseRecorder) bool {
 // app, and how to read the xmin of a business row its success writes.
 type idempotentFixture struct {
 	path, body string
+	// bearer signs the request in; empty for an operation without a
+	// caller.
+	bearer string
 	// businessXmin returns the xmin of a row the operation's transaction
 	// wrote, once the operation succeeded.
 	businessXmin func(t *testing.T) string
@@ -126,6 +133,33 @@ func idempotentFixtures() map[string]func(t *testing.T, a *authApp) idempotentFi
 				businessXmin: func(t *testing.T) string {
 					t.Helper()
 					return a.text(t, "SELECT s.xmin::text FROM user_sessions s JOIN active_users u ON u.id = s.user_id WHERE u.email = $1", email)
+				},
+			}
+		},
+		// The start writes the media row and the budget ledger's row in
+		// one transaction with the stored answer (ADR-0035).
+		"startMediaUpload": func(t *testing.T, a *authApp) idempotentFixture {
+			t.Helper()
+			const email = "yukleyen@example.com"
+			bearer := a.addSignedIn(t, email)
+			return idempotentFixture{
+				path: "/v1/me/media", body: `{"kind":"PROFILE_PICTURE","sizeBytes":524288}`, bearer: bearer,
+				businessXmin: func(t *testing.T) string {
+					t.Helper()
+					// Both business rows: the budget ledger's, and the media
+					// row's, read on the base table as koala_maint (the
+					// active_media view has no xmin).
+					ledger := a.text(t, "SELECT s.xmin::text FROM media_upload_starts s JOIN active_users u ON u.id = s.user_id WHERE u.email = $1", email)
+					var row string
+					err := a.maint.Pool().QueryRow(t.Context(),
+						"SELECT m.xmin::text FROM media m JOIN users u ON u.id = m.owner_id WHERE u.email = $1", email).Scan(&row)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if row != ledger {
+						t.Fatalf("the media row was written by transaction %s, the ledger row by %s", row, ledger)
+					}
+					return ledger
 				},
 			}
 		},
@@ -186,7 +220,7 @@ func TestIdempotentOperationsReplay(t *testing.T) {
 			a := newAuthApp(t, unlimitedGroups())
 			fx := fixtures[op](t, a)
 			path, body, key := fx.path, fx.body, "fixture-"+op
-			first := a.postKeyed(t, path, key, body)
+			first := a.postKeyedAs(t, path, key, body, fx.bearer)
 			if first.Code < 200 || first.Code > 299 || isReplay(first) {
 				t.Fatalf("first answer %d (replay %v): %s", first.Code, isReplay(first), first.Body)
 			}
@@ -200,7 +234,7 @@ func TestIdempotentOperationsReplay(t *testing.T) {
 				t.Fatalf("%s's success was not committed in its transaction (committed %v, unbound %v)", op,
 					a.counted(t, op, idempotency.ResultCommitted), a.counted(t, op, idempotency.ResultUnbound))
 			}
-			again := a.postKeyed(t, path, key, body)
+			again := a.postKeyedAs(t, path, key, body, fx.bearer)
 			if !isReplay(again) || again.Code != first.Code || !bytes.Equal(again.Body.Bytes(), first.Body.Bytes()) ||
 				again.Header().Get("Location") != first.Header().Get("Location") {
 				t.Fatalf("second answer %d %s (replay %v), want the first, %d %s",
@@ -239,7 +273,7 @@ func TestRegistrationKeyBelongsToTheToken(t *testing.T) {
 	const key = "0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"
 	const path = "/v1/auth/registrations/complete"
 
-	first := a.postKeyed(t, path, key, completionBody(victim, userPw))
+	first := a.postKeyedAs(t, path, key, completionBody(victim, userPw), "")
 	wantStatus(t, first, http.StatusCreated, "")
 	pair := decodeBody[tokens](t, first)
 	leaks := func(rec *httptest.ResponseRecorder) bool {
@@ -248,7 +282,7 @@ func TestRegistrationKeyBelongsToTheToken(t *testing.T) {
 
 	// The attacker's own token: the same key is a new key of another
 	// actor, and the attacker registers its own address.
-	own := a.postKeyed(t, path, key, completionBody(attacker, userPw))
+	own := a.postKeyedAs(t, path, key, completionBody(attacker, userPw), "")
 	wantStatus(t, own, http.StatusCreated, "")
 	if isReplay(own) || leaks(own) {
 		t.Fatal("another registration token reached the victim's stored response")
@@ -256,21 +290,21 @@ func TestRegistrationKeyBelongsToTheToken(t *testing.T) {
 	// A guessed token: no such registration, nothing stored is reached.
 	raw := make([]byte, 32)
 	_, _ = rand.Read(raw)
-	guessed := a.postKeyed(t, path, key, completionBody(base64.RawURLEncoding.EncodeToString(raw), userPw))
+	guessed := a.postKeyedAs(t, path, key, completionBody(base64.RawURLEncoding.EncodeToString(raw), userPw), "")
 	wantStatus(t, guessed, http.StatusBadRequest, string(authn.CodeRegistrationInvalid))
 	if isReplay(guessed) || leaks(guessed) {
 		t.Fatal("a guessed token reached the victim's stored response")
 	}
 	// The victim's token without its password: another request with the
 	// victim's key.
-	stolen := a.postKeyed(t, path, key, completionBody(victim, "bambaşka uzun bir parola"))
+	stolen := a.postKeyedAs(t, path, key, completionBody(victim, "bambaşka uzun bir parola"), "")
 	wantStatus(t, stolen, http.StatusUnprocessableEntity, string(idempotency.CodeIdempotencyKeyReused))
 	if leaks(stolen) {
 		t.Fatal("the token alone reached the victim's stored response")
 	}
 
 	// The victim's own retry: the same pair, and one account, one session.
-	retry := a.postKeyed(t, path, key, completionBody(victim, userPw))
+	retry := a.postKeyedAs(t, path, key, completionBody(victim, userPw), "")
 	if !isReplay(retry) || retry.Code != first.Code || !bytes.Equal(retry.Body.Bytes(), first.Body.Bytes()) {
 		t.Fatalf("the victim's retry = %d %s (replay %v), want the stored pair", retry.Code, retry.Body, isReplay(retry))
 	}
@@ -302,7 +336,7 @@ func TestConcurrentRegistrationCompletions(t *testing.T) {
 	recs := make([]*httptest.ResponseRecorder, n)
 	var wg sync.WaitGroup
 	for i := range n {
-		wg.Go(func() { recs[i] = a.postKeyed(t, "/v1/auth/registrations/complete", "concurrent-key-1", body) })
+		wg.Go(func() { recs[i] = a.postKeyedAs(t, "/v1/auth/registrations/complete", "concurrent-key-1", body, "") })
 	}
 	wg.Wait()
 	var ran *httptest.ResponseRecorder
@@ -342,8 +376,8 @@ func TestPublicRefusalWritesNoKey(t *testing.T) {
 	raw := make([]byte, 32)
 	_, _ = rand.Read(raw)
 	for i := range 3 {
-		rec := a.postKeyed(t, "/v1/auth/registrations/complete", "guess-key-"+strconv.Itoa(i),
-			completionBody(base64.RawURLEncoding.EncodeToString(raw), userPw))
+		rec := a.postKeyedAs(t, "/v1/auth/registrations/complete", "guess-key-"+strconv.Itoa(i),
+			completionBody(base64.RawURLEncoding.EncodeToString(raw), userPw), "")
 		wantStatus(t, rec, http.StatusBadRequest, string(authn.CodeRegistrationInvalid))
 	}
 	if n := a.count(t, "SELECT count(*) FROM idempotency_keys"); n != 0 {
@@ -371,13 +405,13 @@ func TestRegistrationReplaysTakeFromTheTokenBucket(t *testing.T) {
 	const path, key = "/v1/auth/registrations/complete", "bucket-key-1"
 	right, wrong := completionBody(token, userPw), completionBody(token, "bambaşka uzun bir parola")
 
-	wantStatus(t, a.postKeyed(t, path, key, right), http.StatusCreated, "") // the handler's token
-	wantStatus(t, a.postKeyed(t, path, key, wrong), http.StatusUnprocessableEntity, string(idempotency.CodeIdempotencyKeyReused))
-	if rec := a.postKeyed(t, path, key, right); !isReplay(rec) {
+	wantStatus(t, a.postKeyedAs(t, path, key, right, ""), http.StatusCreated, "") // the handler's token
+	wantStatus(t, a.postKeyedAs(t, path, key, wrong, ""), http.StatusUnprocessableEntity, string(idempotency.CodeIdempotencyKeyReused))
+	if rec := a.postKeyedAs(t, path, key, right, ""); !isReplay(rec) {
 		t.Fatalf("the third answer is not the replay: %d %s", rec.Code, rec.Body)
 	}
 	for _, body := range []string{wrong, right} {
-		rec := a.postKeyed(t, path, key, body)
+		rec := a.postKeyedAs(t, path, key, body, "")
 		wantStatus(t, rec, http.StatusTooManyRequests, httpx.CodeRateLimited)
 		if rec.Header().Get("Retry-After") == "" || isReplay(rec) {
 			t.Fatalf("the refusal = %v", rec.Header())

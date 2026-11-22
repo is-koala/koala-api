@@ -14,6 +14,7 @@ import (
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/integrations/iletimerkezi"
 	"github.com/is-koala/koala-api/internal/integrations/smtp"
+	"github.com/is-koala/koala-api/internal/media"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
@@ -42,6 +43,10 @@ type modules struct {
 	// The Idempotency-Key store (ADR-0034) and its purge.
 	idempotency      *idempotency.Store
 	idempotencyPurge *idempotencyPurgeWorker
+	// Media uploads (ADR-0035): the service runs the jobs, mediaHTTP
+	// serves /v1/me/media.
+	media     *media.Service
+	mediaHTTP *media.HTTP
 }
 
 // wireModules builds the modules on database, their metrics on reg.
@@ -96,6 +101,10 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
+	mediaService, mediaHTTP, err := wireMedia(ctx, cfg, database, clk, logger, reg)
+	if err != nil {
+		return modules{}, err
+	}
 	return modules{
 		users: users, staff: staff, accounts: accounts, verifications: verifications,
 		authHTTP: authn.NewHTTP(users, staff, accounts, verifications),
@@ -106,6 +115,8 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 		},
 		idempotency:      idem,
 		idempotencyPurge: &idempotencyPurgeWorker{store: idem, logger: logger},
+		media:            mediaService,
+		mediaHTTP:        mediaHTTP,
 	}, nil
 }
 

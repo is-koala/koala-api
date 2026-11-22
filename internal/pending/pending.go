@@ -44,7 +44,6 @@ func Operations() []string {
 		"DELETE /v1/companies/{companyId}/logo",
 		"DELETE /v1/me/addresses/{addressId}",
 		"DELETE /v1/me/educations/{educationId}",
-		"DELETE /v1/me/media/{mediaId}",
 		"GET /v1/admin/companies",
 		"GET /v1/admin/companies/{companyId}",
 		"GET /v1/admin/identity-verifications",
@@ -64,7 +63,6 @@ func Operations() []string {
 		"GET /v1/me/educations",
 		"GET /v1/me/followed-companies",
 		"GET /v1/me/identity-documents",
-		"GET /v1/me/media/{mediaId}",
 		"GET /v1/me/profile",
 		"GET /v1/reference/cities/{cityId}/districts",
 		"GET /v1/reference/countries",
@@ -91,8 +89,6 @@ func Operations() []string {
 		"POST /v1/me/addresses",
 		"POST /v1/me/educations",
 		"POST /v1/me/identity-documents",
-		"POST /v1/me/media",
-		"POST /v1/me/media/{mediaId}/complete",
 		"PUT /v1/companies/{companyId}/follow",
 		"PUT /v1/companies/{companyId}/images",
 		"PUT /v1/companies/{companyId}/logo",
@@ -129,11 +125,6 @@ func (Server) ApproveIdentityReview(context.Context, apiv1.ApproveIdentityReview
 	return nil, notImplemented()
 }
 
-// CompleteMediaUpload answers POST /v1/me/media/{mediaId}/complete with 501 until its handler lands.
-func (Server) CompleteMediaUpload(context.Context, apiv1.CompleteMediaUploadRequestObject) (apiv1.CompleteMediaUploadResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // CreateCompany answers POST /v1/companies with 501 until its handler lands.
 func (Server) CreateCompany(context.Context, apiv1.CreateCompanyRequestObject) (apiv1.CreateCompanyResponseObject, error) {
 	return nil, notImplemented()
@@ -151,11 +142,6 @@ func (Server) CreateMyEducation(context.Context, apiv1.CreateMyEducationRequestO
 
 // DeclineCompanyInvitation answers POST /v1/contact-invitations/{invitationId}/decline with 501 until its handler lands.
 func (Server) DeclineCompanyInvitation(context.Context, apiv1.DeclineCompanyInvitationRequestObject) (apiv1.DeclineCompanyInvitationResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// DeleteMedia answers DELETE /v1/me/media/{mediaId} with 501 until its handler lands.
-func (Server) DeleteMedia(context.Context, apiv1.DeleteMediaRequestObject) (apiv1.DeleteMediaResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -196,11 +182,6 @@ func (Server) GetIdentityReview(context.Context, apiv1.GetIdentityReviewRequestO
 
 // GetIdentityReviewDocument answers GET /v1/admin/identity-verifications/{reviewId}/documents/{documentId} with 501 until its handler lands.
 func (Server) GetIdentityReviewDocument(context.Context, apiv1.GetIdentityReviewDocumentRequestObject) (apiv1.GetIdentityReviewDocumentResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// GetMedia answers GET /v1/me/media/{mediaId} with 501 until its handler lands.
-func (Server) GetMedia(context.Context, apiv1.GetMediaRequestObject) (apiv1.GetMediaResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -381,11 +362,6 @@ func (Server) SetCompanyLogo(context.Context, apiv1.SetCompanyLogoRequestObject)
 
 // StartAddressSearchSession answers POST /v1/me/address-search-sessions with 501 until its handler lands.
 func (Server) StartAddressSearchSession(context.Context, apiv1.StartAddressSearchSessionRequestObject) (apiv1.StartAddressSearchSessionResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// StartMediaUpload answers POST /v1/me/media with 501 until its handler lands.
-func (Server) StartMediaUpload(context.Context, apiv1.StartMediaUploadRequestObject) (apiv1.StartMediaUploadResponseObject, error) {
 	return nil, notImplemented()
 }
 

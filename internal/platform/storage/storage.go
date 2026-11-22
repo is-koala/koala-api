@@ -284,7 +284,7 @@ func (s *Store) PublicURL(key Key) (string, bool) {
 	if s.publicer == "" || key.Zero() {
 		return "", false
 	}
-	if key.Prefix() != PrefixImages && key.Prefix() != PrefixPublic {
+	if !key.Prefix().Public() {
 		return "", false
 	}
 	return s.publicer + "/" + key.String(), true

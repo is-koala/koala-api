@@ -232,6 +232,20 @@ tables:
       personal data, so the table is in the retention inventory even though
       the database alone cannot open a response. completeRegistration's
       response carries a session's tokens, no personal data.
+  media:
+    class: soft_delete
+    pii: true
+  media_upload_starts:
+    class: M2
+    pii: true
+    reason: >-
+      The daily upload budget's ledger (ADR-0035 Karar 6): one row per
+      started upload, with its user and time and nothing else. A ledger of
+      its own because a soft-deleted media row leaves active_media, so a
+      budget that counted media could be refilled by deleting uploads.
+      Hard-deleted a day after the row was written: the budget window is a
+      day. pii: the user id ties the row to a person. No foreign key: the
+      row outlives nothing and the purge does not wait for the user.
   river_leader:
     class: M3
     reason: River's leader election (ADR-0010).
@@ -287,6 +301,13 @@ edges:
     column: user_id
     parent: users
     policy: detach
+  # A user's media go with the user (ADR-0035 Karar 7): the rows are
+  # soft-deleted in the account's deletion and come back with its restore.
+  # The objects stay in the store until the account is anonymized.
+  - child: media
+    column: owner_id
+    parent: users
+    policy: cascade
   # Consent evidence outlives the account (M1).
   - child: consent_records
     column: user_id

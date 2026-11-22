@@ -69,6 +69,17 @@ func Prefixes() []Prefix {
 	}
 }
 
+// Public reports whether objects under the prefix are publicly readable:
+// served from the public base URL to anyone who has the address. It is the
+// one place the rule is written. Store.PublicURL resolves a key with it,
+// and internal/media decides whether a kind is publicly readable by asking
+// its prefix, so the two cannot disagree (ADR-0035 Karar 5; ADR-0030
+// "İki liste, bir kural"). identity-documents/ and the quarantine are not
+// public in any state (IDN-007, ADR-0030 Karar 4).
+func (p Prefix) Public() bool {
+	return p == PrefixImages || p == PrefixPublic
+}
+
 // Ext is the extension of a key. It is derived from the content type the
 // server detected in the bytes, never from the name the client sent, so
 // the alphabet is these five values and nothing else (ADR-0029 Karar 6:

@@ -793,7 +793,7 @@ func TestDiscardDoesNotMaskTheOriginalError(t *testing.T) {
 
 	h.pipeline.Discard(context.Background(), done.Key, media.WriteFailed)
 	if !strings.Contains(h.logs.String(), "object left in the store after a failed cleanup") {
-		t.Errorf("the failed cleanup was not logged: %s", h.logs.String())
+		t.Errorf("MED-006: the failed cleanup was not logged: %s", h.logs.String())
 	}
 }
 
@@ -923,5 +923,44 @@ func TestCompleteFindsTheOtherExtension(t *testing.T) {
 	}
 	if !second.AlreadyComplete || second.Key != first.Key {
 		t.Errorf("the retry reported %+v, want the jpg key as already complete", second)
+	}
+}
+
+// TestCompleteCVStoresTheValidatedBytes is ADR-0035 Karar 1: the write
+// address still works after the job read and validated the quarantine
+// object, so the client can replace it before the final object is
+// written. The final object must be the bytes that were validated. A
+// server side copy of the quarantine key (the earlier Move) stores
+// whatever is there at copy time, and is red here: the hook replaces the
+// object at the moment the final key is written, which is when a copy
+// reads its source.
+func TestCompleteCVStoresTheValidatedBytes(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t)
+	pdf := []byte("%PDF-1.7\n1 0 obj\n<< /Author (Yusuf) >>\nendobj\n%%EOF\n")
+	up := h.upload(t, media.KindCV, imaging.TypePDF, pdf)
+	final, err := up.Key.WithPrefix(storage.PrefixFiles)
+	if err != nil {
+		t.Fatal(err)
+	}
+	swapped := []byte("<html><script>alert(1)</script></html>")
+	h.fake.Before(http.MethodPut, objectPath(final), func() {
+		h.fake.Seed(up.Key.String(), fakes.S3Object{Body: swapped, ContentType: "text/html"})
+	})
+
+	done, err := h.pipeline.Complete(context.Background(), media.KindCV, up.Key)
+	if err != nil || done.Rejected() {
+		t.Fatalf("Complete() = %+v, %v", done, err)
+	}
+	stored, ok := h.fake.Object(done.Key.String())
+	if !ok {
+		t.Fatal("the final object is not in the store")
+	}
+	if !bytes.Equal(stored.Body, pdf) {
+		t.Fatalf("the final object is %q, want the validated PDF: the content was taken after validation", stored.Body)
+	}
+	if done.Size != int64(len(pdf)) {
+		t.Errorf("Size = %d, want the written bytes' %d", done.Size, len(pdf))
 	}
 }

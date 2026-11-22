@@ -35,10 +35,9 @@ scenarios:
       - "src/main/java/com/exskylab/koala/business/concretes/ImageManager.java#uploadImage"
       - "src/main/java/com/exskylab/koala/webAPI/ImagesController.java#uploadImage"
       - "src/main/java/com/exskylab/koala/core/utilities/storage/S3StorageService.java#uploadFile"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; medya handler'ları ve River dönüştürme işi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/media.TestUploadIsStartedCompletedAndSwept
+      - internal/app.TestMediaOverHTTP
 
   - id: MED-002
     priority: P0
@@ -63,10 +62,8 @@ scenarios:
       - "src/main/java/com/exskylab/koala/core/utilities/storage/StorageKeys.java#newKey"
       - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#theKeyKeepsTheExtensionButNotTheOriginalName"
       - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#aDisguisedExtensionIsRejected"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; depolama anahtarı Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/media.TestKeysAreTheServersAndCarryTheRowsID
 
   - id: MED-003
     priority: P0
@@ -89,10 +86,10 @@ scenarios:
       - "src/main/java/com/exskylab/koala/core/utilities/storage/StorageKeys.java#isWellFormed"
       - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#aKeyThatClimbsOutOfItsPrefixIsNotServable"
       - "src/test/java/com/exskylab/koala/core/utilities/storage/StorageKeysTest.java#identityDocumentsLiveOutsideEveryServablePrefix"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; anahtar doğrulaması ve fuzz hedefi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/app.TestMediaPathsStayInTheirPrefix
+      - internal/platform/storage.TestParseKeyRejects
+      - internal/platform/storage.FuzzStorageKey
 
   - id: MED-004
     priority: P0
@@ -113,10 +110,10 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/core/utilities/storage/StorageKeys.java#fromRequestPath"
       - "src/main/java/com/exskylab/koala/webAPI/StorageDownloadController.java#keyOf"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; anahtar doğrulaması ve fuzz hedefi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/app.TestMediaPathsStayInTheirPrefix
+      - internal/platform/storage.TestParseKeyDecodesExactlyOnce
+      - internal/platform/storage.FuzzStorageKey
 
   - id: MED-005
     priority: P0
@@ -141,10 +138,11 @@ scenarios:
       - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aJpegLosesItsLocationCameraAndSerialNumbersButKeepsItsPicture"
       - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aPngLosesItsTextChunks"
       - "src/test/java/com/exskylab/koala/core/helpers/ImageMetadataStripperTest.java#aTransparentImageSavedAsJpegIsFlattenedInsteadOfStoredEmpty"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; üstveri striplemesi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/media.TestUploadIsStartedCompletedAndSwept
+      - "internal/media.TestAddressesAndRejectionsByKind/identity document"
+      - internal/platform/imaging.TestSanitizeDropsEveryMetadataSegment
+      - internal/platform/imaging.TestSanitizeDropsCameraSerialAndTextChunks
 
   - id: MED-006
     priority: P0
@@ -173,10 +171,13 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/MediaUploadRollbackTest.java#aCvWrittenBeforeRollbackIsRemovedWithoutDeletingThePreviousCv"
       - "src/test/java/com/exskylab/koala/business/concretes/MediaUploadRollbackTest.java#anImageCleanupFailureDoesNotMaskThePersistenceFailureAndIsLogged"
       - "src/test/java/com/exskylab/koala/business/concretes/MediaUploadRollbackIT.java#aDatabaseFailureAtCommitThroughTheSpringProxyRemovesTheNewObject"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; yükleme geri alma davranışı Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/media.TestCompletionKeepsAnObjectItCouldNotRecord
+      - internal/media.TestCompletionGateHoldsForADecidedUpload/orphan
+      - internal/media.TestCompletionGateHoldsForADecidedUpload/decided
+      - "internal/media.TestOrphanedFinalObjectsAreSwept/recorded object"
+      - internal/media.TestDeletionTakesTheObjectsOfItsMediaOnly
+      - internal/media.TestDiscardDoesNotMaskTheOriginalError
 
   - id: MED-007
     priority: P0
@@ -384,7 +385,5 @@ scenarios:
       - "src/main/java/com/exskylab/koala/core/properties/UploadProperties.java:30"
       - "src/main/java/com/exskylab/koala/core/helpers/UploadValidator.java#allowedExtensions"
       - "src/main/java/com/exskylab/koala/business/concretes/CvManager.java#uploadCv"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; özgeçmiş uçları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1). Tür kabulü ve taşıma internal/media'da yeşil."
+    go_test:
+      - internal/media.TestAddressesAndRejectionsByKind

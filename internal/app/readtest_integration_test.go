@@ -15,6 +15,8 @@ import (
 	"github.com/is-koala/koala-api/api"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/authn/authndb"
+	"github.com/is-koala/koala-api/internal/media"
+	"github.com/is-koala/koala-api/internal/media/mediadb"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
@@ -23,7 +25,7 @@ import (
 
 // TestReadTestOnTheContract is the generated read test (ADR-0020 §11) on
 // the real contract and router: every GET's x-resource that names a
-// soft-deleted table (users, staff_members) gets a fixture; user_sessions,
+// soft-deleted table (users, staff_members, media) gets a fixture; user_sessions,
 // realtime_tickets, staff_role_assignments and user_verifications are
 // exempt and have nothing to hide. /v1/me and /v1/admin/me read the caller itself
 // (x-resource-self): after the soft delete the caller no longer
@@ -47,21 +49,44 @@ func TestReadTestOnTheContract(t *testing.T) {
 	var mu sync.Mutex
 	emails := map[uuid.UUID]string{}
 	tokens := map[uuid.UUID]string{}
+	// owners maps a media fixture to its owner: getMedia reads the
+	// caller's own media, so the owner is the caller that may read it.
+	owners := map[uuid.UUID]uuid.UUID{}
+	insertUser := func(ctx context.Context, q db.Querier) (uuid.UUID, error) {
+		id := uuid.Must(uuid.NewV7())
+		email := "read-" + id.String() + "@example.com"
+		err := authndb.New(q).InsertUser(ctx, authndb.InsertUserParams{
+			ID: id, Email: email, PasswordHash: &userHash, Status: authn.UserActive, CreatedAt: a.clock.Now(),
+		})
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("insert user: %w", err)
+		}
+		mu.Lock()
+		emails[id] = email
+		mu.Unlock()
+		return id, nil
+	}
 	fixtures := map[string]softdeletetest.Fixture{
-		"users": func(ctx context.Context, q db.Querier) (uuid.UUID, error) {
+		// A PENDING upload of a fresh user, as startMediaUpload leaves it.
+		"media": func(ctx context.Context, q db.Querier) (uuid.UUID, error) {
+			owner, err := insertUser(ctx, q)
+			if err != nil {
+				return uuid.Nil, err
+			}
 			id := uuid.Must(uuid.NewV7())
-			email := "read-" + id.String() + "@example.com"
-			err := authndb.New(q).InsertUser(ctx, authndb.InsertUserParams{
-				ID: id, Email: email, PasswordHash: &userHash, Status: authn.UserActive, CreatedAt: a.clock.Now(),
+			_, err = mediadb.New(q).InsertMedia(ctx, mediadb.InsertMediaParams{
+				ID: id, OwnerID: owner, Kind: string(media.KindProfilePicture),
+				UploadKey: "incoming/" + id.String() + ".jpg", DeclaredSize: 1024, CreatedAt: a.clock.Now(),
 			})
 			if err != nil {
-				return uuid.Nil, fmt.Errorf("insert user: %w", err)
+				return uuid.Nil, fmt.Errorf("insert media: %w", err)
 			}
 			mu.Lock()
-			emails[id] = email
+			owners[id] = owner
 			mu.Unlock()
 			return id, nil
 		},
+		"users": insertUser,
 		// The application cannot create staff (ADR-0025): the fixture
 		// writes as koala_maint.
 		"staff_members": func(ctx context.Context, _ db.Querier) (uuid.UUID, error) {
@@ -82,6 +107,10 @@ func TestReadTestOnTheContract(t *testing.T) {
 	authorize := func(ctx context.Context, table string, id uuid.UUID, r *http.Request) error {
 		mu.Lock()
 		defer mu.Unlock()
+		if table == "media" {
+			// The owner reads it, as a user.
+			id, table = owners[id], "users"
+		}
 		if table == "users" {
 			setClient(r.Header)
 		}
