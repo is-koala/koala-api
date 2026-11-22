@@ -25,6 +25,13 @@ groups:
         for: 10m
         labels: { severity: warning, owner: backend }
         annotations: { summary: "Bir oran sınırı grubunda saniyede 1'den fazla 429 dönüyor; saldırı ya da dar sınır" }
+      # The global hourly cap of registration mails (ADR-0032 Karar 6):
+      # while it holds, legitimate registrations get no mail either.
+      - alert: KoalaRegistrationMailCapReached
+        expr: increase(koala_account_mails_held_total{reason="global"}[15m]) > 0
+        for: 1m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Saatlik küresel kayıt postası tavanı doldu; yeni kayıt postaları tutuluyor (ADR-0032)" }
       - alert: KoalaBackupStale
         expr: time() - koala_backup_last_success_timestamp_seconds > 93600
         for: 15m

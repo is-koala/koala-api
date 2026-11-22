@@ -13,15 +13,18 @@ import (
 )
 
 // HTTP implements the authentication operations of the generated strict
-// server (api/openapi.yaml, tags auth and admin-auth).
+// server (api/openapi.yaml, tags auth and admin-auth) and the account
+// operations of marketplace users (registration, password reset and
+// change; ADR-0029 Karar 2 and 4).
 type HTTP struct {
-	users *Service
-	staff *StaffService
+	users    *Service
+	staff    *StaffService
+	accounts *Accounts
 }
 
 // NewHTTP returns the handlers.
-func NewHTTP(users *Service, staff *StaffService) *HTTP {
-	return &HTTP{users: users, staff: staff}
+func NewHTTP(users *Service, staff *StaffService, accounts *Accounts) *HTTP {
+	return &HTTP{users: users, staff: staff, accounts: accounts}
 }
 
 // errNoPrincipal means a protected handler ran without the middleware's
@@ -172,6 +175,89 @@ func (h *HTTP) ChangeStaffPassword(ctx context.Context, req apiv1.ChangeStaffPas
 	return apiv1.ChangeStaffPassword204Response{}, nil
 }
 
+// StartRegistration queues the first step of a registration; the answer
+// does not say whether the address has an account (USR-001).
+func (h *HTTP) StartRegistration(ctx context.Context, req apiv1.StartRegistrationRequestObject) (apiv1.StartRegistrationResponseObject, error) {
+	err := h.accounts.StartRegistration(ctx, RegistrationRequest{
+		Email: req.Body.Email, FirstName: req.Body.FirstName, LastName: req.Body.LastName, Employer: req.Body.Employer,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.StartRegistration202Response{}, nil
+}
+
+// VerifyRegistration turns a registration link into a registration token.
+func (h *HTTP) VerifyRegistration(ctx context.Context, req apiv1.VerifyRegistrationRequestObject) (apiv1.VerifyRegistrationResponseObject, error) {
+	g, err := h.accounts.VerifyRegistration(ctx, req.Body.VerificationToken)
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.VerifyRegistration200JSONResponse{
+		RegistrationToken: g.Token, ExpiresAt: jsontime.From(g.ExpiresAt), Employer: g.Employer,
+	}, nil
+}
+
+// CompleteRegistration creates the user and signs it in on the request's
+// device.
+func (h *HTTP) CompleteRegistration(ctx context.Context, req apiv1.CompleteRegistrationRequestObject) (apiv1.CompleteRegistrationResponseObject, error) {
+	consents := make([]ConsentDecision, 0, len(req.Body.Consents))
+	for _, c := range req.Body.Consents {
+		consents = append(consents, ConsentDecision{DocumentCode: c.DocumentCode, Version: c.Version, Granted: c.Granted})
+	}
+	pair, err := h.accounts.CompleteRegistration(ctx, RegistrationCompletion{
+		Token: req.Body.RegistrationToken, Password: req.Body.Password, Consents: consents,
+		DeviceKey: httpx.DeviceIDFrom(ctx), Platform: string(httpx.ClientPlatformFrom(ctx)),
+		ClientIP: httpx.ClientIPFrom(ctx), UserAgent: userAgentFrom(ctx),
+	})
+	if err != nil {
+		return nil, err
+	}
+	location := "/v1/me"
+	return apiv1.CompleteRegistration201JSONResponse{
+		Body:    tokenPair(pair),
+		Headers: apiv1.CompleteRegistration201ResponseHeaders{Location: &location},
+	}, nil
+}
+
+// RequestPasswordReset queues a reset request; the answer does not say
+// whether the address has an account (USR-018).
+func (h *HTTP) RequestPasswordReset(ctx context.Context, req apiv1.RequestPasswordResetRequestObject) (apiv1.RequestPasswordResetResponseObject, error) {
+	if err := h.accounts.RequestPasswordReset(ctx, req.Body.Email); err != nil {
+		return nil, err
+	}
+	return apiv1.RequestPasswordReset202Response{}, nil
+}
+
+// CompletePasswordReset sets a new password with a reset token and ends
+// every session.
+func (h *HTTP) CompletePasswordReset(ctx context.Context, req apiv1.CompletePasswordResetRequestObject) (apiv1.CompletePasswordResetResponseObject, error) {
+	err := h.accounts.CompletePasswordReset(ctx, PasswordResetCompletion{
+		Token: req.Body.ResetToken, Password: req.Body.NewPassword,
+		DeviceKey: httpx.DeviceIDFrom(ctx), Platform: string(httpx.ClientPlatformFrom(ctx)),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.CompletePasswordReset204Response{}, nil
+}
+
+// ChangeMyPassword changes the caller's password; the caller's session
+// stays.
+func (h *HTTP) ChangeMyPassword(ctx context.Context, req apiv1.ChangeMyPasswordRequestObject) (apiv1.ChangeMyPasswordResponseObject, error) {
+	p, ok := UserFrom(ctx)
+	if !ok {
+		return nil, errNoPrincipal
+	}
+	err := h.accounts.ChangePassword(ctx, p, PasswordChange{
+		Current: req.Body.CurrentPassword, New: req.Body.NewPassword, Confirmation: req.Body.NewPasswordConfirmation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return apiv1.ChangeMyPassword204Response{}, nil
+}
+
 func tokenPair(p TokenPair) apiv1.TokenPair {
 	return apiv1.TokenPair{
 		AccessToken: p.AccessToken, AccessTokenExpiresAt: jsontime.From(p.AccessTokenExpiresAt),
@@ -209,8 +295,8 @@ type TargetLimiter interface {
 // authentication operations (ADR-0025 §5, AUTH-018):
 //
 //   - A sign-in takes a token from two KeyCustom buckets: one per (target,
-//     client address) in pairGroup and one per target from any address in
-//     accountGroup. The target is the keyed hash of the address, so one
+//     client address) in the pair group and one per target from any address
+//     in the account group (LimitGroups). The target is the keyed hash of the address, so one
 //     account hammered behind an office NAT does not lock out the next,
 //     and many addresses together cannot try one account fast. A
 //     known-good source of the account (a marketplace device it signed in
@@ -218,23 +304,35 @@ type TargetLimiter interface {
 //     account bucket, so an attacker cannot keep the user out by draining
 //     it; its own (target, address) bucket still applies.
 //   - A refresh takes one from the bucket of its hashed token, a staff
-//     password change from the member's, both in pairGroup.
+//     password change from the member's, both in the pair group.
+//   - A registration start and a password reset request take a token from
+//     the two buckets of their target mailbox (the address without its
+//     sub-address, ADR-0032 Karar 6), like a sign-in but without the
+//     known-source escape: the e-mail bomb defense (the mail budget of the
+//     job is the second line). A registration start first takes one from
+//     its client address's bucket in the registration address group, a
+//     low hourly budget, so one address cannot fill the global hourly
+//     cap of registration mails on its own (ADR-0032 Karar 6).
+//   - The steps that present a mailed or issued token (registration
+//     verify and complete, reset complete) take one from the bucket of the
+//     hashed token, an in-app password change from the user's; all in
+//     the pair group.
 //   - Token responses are not cached (RFC 6749 §5.1).
 //
 // The address bucket of the root chain applies on top.
-func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup string) apiv1.StrictMiddlewareFunc {
+func (h *HTTP) StrictMiddleware(limiter TargetLimiter, groups LimitGroups) apiv1.StrictMiddlewareFunc {
 	return func(f apiv1.StrictHandlerFunc, _ string) apiv1.StrictHandlerFunc {
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 			keys, tokens := h.rateLimitKeys(ctx, request)
 			if tokens {
 				w.Header().Set("Cache-Control", "no-store")
 			}
+			if _, ok := request.(apiv1.CompleteRegistrationRequestObject); ok {
+				// The consent records keep it (ADR-0032 Karar 8).
+				ctx = context.WithValue(ctx, userAgentKey{}, r.UserAgent())
+			}
 			for _, k := range keys {
-				group := pairGroup
-				if k.account {
-					group = accountGroup
-				}
-				ok, wait := limiter.Allow(group, httpx.KeyCustom, k.key)
+				ok, wait := limiter.Allow(groups.of(k.bucket), httpx.KeyCustom, k.key)
 				if ok {
 					continue
 				}
@@ -254,9 +352,52 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup s
 	}
 }
 
+// userAgentKey carries the request's User-Agent to a handler that records
+// it.
+type userAgentKey struct{}
+
+// userAgentFrom returns the User-Agent the strict middleware put on ctx.
+func userAgentFrom(ctx context.Context) string {
+	ua, _ := ctx.Value(userAgentKey{}).(string)
+	return ua
+}
+
+// LimitGroups name the rate limit groups of the module's KeyCustom
+// buckets.
+type LimitGroups struct {
+	// Pair holds the (target, address) and presented-token buckets.
+	Pair string
+	// Account holds the account-wide target buckets.
+	Account string
+	// RegistrationAddress holds the per-address budget of registration
+	// starts.
+	RegistrationAddress string
+}
+
+// bucketKind says which of LimitGroups a key's bucket is in.
+type bucketKind int
+
+const (
+	pairBucket bucketKind = iota
+	accountBucket
+	registrationAddressBucket
+)
+
+func (g LimitGroups) of(kind bucketKind) string {
+	switch kind {
+	case pairBucket:
+		return g.Pair
+	case accountBucket:
+		return g.Account
+	case registrationAddressBucket:
+		return g.RegistrationAddress
+	}
+	return g.Pair
+}
+
 type limitKey struct {
-	key     string
-	account bool
+	key    string
+	bucket bucketKind
 	// known, on an account bucket, reports whether the request comes from
 	// a known-good source of the account, which an empty bucket lets past.
 	known func(context.Context) (bool, error)
@@ -268,7 +409,7 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 	addr := ClientKey(httpx.ClientIPFrom(ctx))
 	signIn := func(prefix string, target []byte, known func(context.Context) (bool, error)) []limitKey {
 		t := prefix + hex.EncodeToString(target)
-		return []limitKey{{key: t + "@" + addr}, {key: t, account: true, known: known}}
+		return []limitKey{{key: t + "@" + addr}, {key: t, bucket: accountBucket, known: known}}
 	}
 	switch req := request.(type) {
 	case apiv1.LoginUserRequestObject:
@@ -288,6 +429,23 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 	case apiv1.ChangeStaffPasswordRequestObject:
 		if p, ok := StaffFrom(ctx); ok {
 			return []limitKey{{key: "password:staff:" + p.StaffID.String()}}, false
+		}
+	case apiv1.StartRegistrationRequestObject:
+		// The address's own budget first: a request it refuses spends
+		// nothing of the mailbox's buckets.
+		own := limitKey{key: "registration:address:" + addr, bucket: registrationAddressBucket}
+		return append([]limitKey{own}, signIn("registration:", h.users.MailboxTarget(req.Body.Email), nil)...), true
+	case apiv1.RequestPasswordResetRequestObject:
+		return signIn("password-reset:", h.users.MailboxTarget(req.Body.Email), nil), true
+	case apiv1.VerifyRegistrationRequestObject:
+		return []limitKey{{key: "registration-link:" + hex.EncodeToString(hashOpaque(req.Body.VerificationToken))}}, true
+	case apiv1.CompleteRegistrationRequestObject:
+		return []limitKey{{key: "registration-token:" + hex.EncodeToString(hashOpaque(req.Body.RegistrationToken))}}, true
+	case apiv1.CompletePasswordResetRequestObject:
+		return []limitKey{{key: "reset-token:" + hex.EncodeToString(hashOpaque(req.Body.ResetToken))}}, true
+	case apiv1.ChangeMyPasswordRequestObject:
+		if p, ok := UserFrom(ctx); ok {
+			return []limitKey{{key: "password:user:" + p.UserID.String()}}, false
 		}
 	}
 	return nil, false

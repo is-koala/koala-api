@@ -35,6 +35,7 @@ const (
 
 // env is one test's database and services, on a fake clock.
 type env struct {
+	dbt       dbtest.DB
 	db        *db.DB
 	maint     *db.DB
 	q         *authndb.Queries
@@ -81,7 +82,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	return &env{
-		db: database, maint: d.Open(t, db.RoleMaint), q: authndb.New(database.Pool()), clock: clk, reg: reg,
+		dbt: d, db: database, maint: d.Open(t, db.RoleMaint), q: authndb.New(database.Pool()), clock: clk, reg: reg,
 		passwords: passwords, users: users, staff: staff, revoked: rev,
 	}
 }

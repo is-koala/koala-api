@@ -11,6 +11,7 @@ package authn
 import (
 	"net/netip"
 	"regexp"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -67,6 +68,31 @@ const (
 	// CodeStaffCurrentPasswordMismatch: a password change with a wrong
 	// current password (AUTH-013).
 	CodeStaffCurrentPasswordMismatch apperr.Code = "STAFF_CURRENT_PASSWORD_MISMATCH"
+
+	// The account codes (ADR-0029 Karar 2 and 4). The names avoid the
+	// words gosec's G101 reads as credentials; the values are the
+	// contract's.
+
+	// CodeRegistrationInvalid: a registration link or registration token
+	// that is unknown, revoked, expired or consumed; the four are
+	// indistinguishable.
+	CodeRegistrationInvalid apperr.Code = "REGISTRATION_TOKEN_INVALID"
+	// CodeConsentRequired: a mandatory agreement was not consented to; the
+	// registration token is not read (USR-005).
+	CodeConsentRequired apperr.Code = "CONSENT_REQUIRED"
+	// CodeResetLinkInvalid: a reset token that is unknown, expired,
+	// revoked or used; the four are indistinguishable (USR-016).
+	CodeResetLinkInvalid apperr.Code = "PASSWORD_RESET_TOKEN_INVALID"
+	// CodeCurrentMismatch: an in-app change with a wrong current password.
+	CodeCurrentMismatch apperr.Code = "PASSWORD_MISMATCH"
+	// CodeNewEqualsCurrent: the new password is the current one.
+	CodeNewEqualsCurrent apperr.Code = "PASSWORD_REUSED"
+	// CodeConfirmationMismatch: the new password and its confirmation
+	// differ.
+	CodeConfirmationMismatch apperr.Code = "PASSWORD_CONFIRMATION_MISMATCH"
+	// CodeVerificationTargetInUse: the registration's address got an
+	// account between the first and the third step.
+	CodeVerificationTargetInUse apperr.Code = "VERIFICATION_TARGET_IN_USE"
 )
 
 // Codes lists every code this package returns, for the contract test.
@@ -76,9 +102,42 @@ func Codes() []apperr.Code {
 		CodeTokenExpired, CodeSessionInactive, CodeSessionDeviceMismatch, CodeRefreshTokenInvalid,
 		CodeRefreshTokenExpired, CodeRefreshTokenReused, CodeSessionNotFound, CodePasswordPolicy,
 		CodeStaffLoginFailed, CodeStaffSessionEnded, CodeStaffPasswordChangeRequired,
-		CodeStaffCurrentPasswordMismatch,
+		CodeStaffCurrentPasswordMismatch, CodeRegistrationInvalid, CodeConsentRequired, CodeResetLinkInvalid,
+		CodeCurrentMismatch, CodeNewEqualsCurrent, CodeConfirmationMismatch, CodeVerificationTargetInUse,
 	}
 }
+
+// Account flows (ADR-0029 Karar 2 and 4, ADR-0032).
+const (
+	// RegistrationLinkTTL is the life of the link mailed at the first
+	// step, from the moment it is minted (USR-003).
+	RegistrationLinkTTL = time.Hour
+	// RegistrationTokenTTL is the life of the token the second step hands
+	// out for the third (USR-004).
+	RegistrationTokenTTL = 15 * time.Minute
+	// ResetLinkTTL is the life of a password reset link.
+	ResetLinkTTL = 15 * time.Minute
+	// LinkMailCooldown and LinkMailsPerHour bound the link mails one
+	// address (registration) or one account (reset) gets: none within the
+	// cooldown of the last, at most LinkMailsPerHour an hour. Karar 3's
+	// resend rule for OTP, applied to links (ADR-0032); a request over the
+	// budget is answered like any other and sends nothing.
+	LinkMailCooldown = time.Minute
+	LinkMailsPerHour = 5
+	// DefaultRegistrationMailsPerHour is the global cap of registration
+	// requests handled an hour, over every address, and so of registration
+	// link mails (KOALA_REGISTRATION_MAILS_PER_HOUR overrides it). It
+	// bounds what a spread-out flood can send through the relay; every
+	// request spends it alike, registered address or not, and a held
+	// request is counted and alerted on (ADR-0032 Karar 6).
+	DefaultRegistrationMailsPerHour = 500
+	// AccountRowRetention is how long pending registrations and reset
+	// requests are kept before the purge hard-deletes them (M2; USR-007).
+	AccountRowRetention = 30 * 24 * time.Hour
+	// RegistrationLedgerRetention is how long the global cap's ledger
+	// keeps a request: its hour and a margin (M2).
+	RegistrationLedgerRetention = 24 * time.Hour
+)
 
 // Lifetimes (ADR-0025). Access tokens are short (K12); a refresh token's
 // idle limit slides with each rotation; the session's absolute limit does
@@ -204,6 +263,10 @@ const (
 	reasonExpired        = "EXPIRED"
 	reasonInactive       = "INACTIVE"
 	reasonLocked         = "LOCKED"
+	// reasonReset ends every session after a password reset, reasonChanged
+	// every other session after an in-app change (ADR-0029 Karar 4).
+	reasonReset   = "PASSWORD_RESET"
+	reasonChanged = "PASSWORD_CHANGED"
 )
 
 // Attempt outcomes (login_attempts CHECK constraint).
@@ -315,6 +378,29 @@ func accountFailure(failures int32, now time.Time) (int32, *time.Time) {
 // inForce reports whether a lock or backoff ending at until holds at now.
 func inForce(until *time.Time, now time.Time) bool {
 	return until != nil && now.Before(*until)
+}
+
+// mailboxKey is the mailbox an address delivers to, for the mail budget
+// and the rate limit keys of the account requests (ADR-0032 Karar 6): the
+// sub-address after '+' is dropped, googlemail.com is gmail.com, and at
+// Gmail the dots of the local part are dropped. The stored address does
+// not change. email is normalized (normalizeEmail).
+func mailboxKey(email string) string {
+	at := strings.LastIndexByte(email, '@')
+	if at < 0 {
+		return email
+	}
+	local, domain := email[:at], email[at+1:]
+	if plus := strings.IndexByte(local, '+'); plus >= 0 {
+		local = local[:plus]
+	}
+	if domain == "googlemail.com" {
+		domain = "gmail.com"
+	}
+	if domain == "gmail.com" {
+		local = strings.ReplaceAll(local, ".", "")
+	}
+	return local + "@" + domain
 }
 
 // ClientKey is the address part of a lock or rate limit key: the address,

@@ -31,12 +31,14 @@ func rateLimitADRs() []string {
 	return []string{
 		"../../docs/adr/0021-http-edge-clients-rate-limit-metrics.md",
 		"../../docs/adr/0025-authentication-tokens-sessions-and-staff-sign-in.md",
+		"../../docs/adr/0032-registration-password-reset-mail-and-error-code-binding.md",
 	}
 }
 
 // adrRateLimitTable reads the rate limit tables of rateLimitADRs: group →
-// per address, per identity and custom rates as "per minute / burst" ("—"
-// for none). A group listed twice is an error.
+// per address, per identity and custom rates as "per minute / burst", or
+// "N/sa / burst" for a rate slower than one a minute ("—" for none). A
+// group listed twice is an error.
 func adrRateLimitTable(t *testing.T) map[string][3]string {
 	t.Helper()
 	out := map[string][3]string{}
@@ -88,6 +90,9 @@ func TestRateLimitGroups(t *testing.T) {
 		if r.Every == 0 {
 			return "—"
 		}
+		if r.Every > time.Minute {
+			return strconv.Itoa(int(time.Hour/r.Every)) + "/sa / " + strconv.Itoa(r.Burst)
+		}
 		return strconv.Itoa(int(time.Minute/r.Every)) + " / " + strconv.Itoa(r.Burst)
 	}
 	want := adrRateLimitTable(t)
@@ -100,6 +105,21 @@ func TestRateLimitGroups(t *testing.T) {
 		if row != want[name] {
 			t.Errorf("group %s: code %q, ADR %q", name, row, want[name])
 		}
+	}
+}
+
+// The per-address budget of registration starts is configurable; unset,
+// it is the ADR's default (ADR-0032 Karar 6).
+func TestRegistrationStartsPerIPIsConfigurable(t *testing.T) {
+	t.Parallel()
+	if got, want := serveRateLimitGroups(config.Config{}), rateLimitGroups(); got[groupRegistrationAddress] != want[groupRegistrationAddress] {
+		t.Errorf("unset: %+v, want the default %+v", got[groupRegistrationAddress], want[groupRegistrationAddress])
+	}
+	var cfg config.Config
+	cfg.Mail.RegistrationStartsPerIP = 4
+	got := serveRateLimitGroups(cfg)[groupRegistrationAddress].PerCustom
+	if got.Burst != 4 || got.Every != 15*time.Minute {
+		t.Errorf("4 an hour: %+v, want a burst of 4 refilled every 15 minutes", got)
 	}
 }
 

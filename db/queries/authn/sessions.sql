@@ -102,11 +102,16 @@ WHERE expires_at < sqlc.arg(before)::timestamptz OR revoked_at < sqlc.arg(before
 -- CountRecentDeviceSessions counts the user's sessions on a device seen
 -- since a bound: the device is a known-good source (ADR-0025 §5). Sessions
 -- ended for a stolen token or another device, or revoked by the user, do
--- not vouch for it.
+-- not vouch for it, and neither does a session opened before the
+-- account's credential epoch, the last password reset or change: the
+-- account may have been taken over from that device, and the reason a
+-- session ended (REPLACED by a second sign-in, say) does not tell
+-- (ADR-0032 Karar 7). The two password reasons are excluded as well.
 -- softdelete:inner-by-design devices: only a session on this very device vouches for it, and a soft-deleted device vouches for nothing
 SELECT count(*)
 FROM user_sessions s
 LEFT JOIN active_devices d ON d.id = s.device_id
 WHERE s.user_id = sqlc.arg(user_id) AND d.device_key = sqlc.arg(device_key)::text
   AND s.last_seen_at >= sqlc.arg(since)::timestamptz
-  AND (s.revoke_reason IS NULL OR s.revoke_reason NOT IN ('DEVICE_MISMATCH', 'REFRESH_REUSED', 'USER_REVOKED'));
+  AND s.created_at > sqlc.arg(credentials_since)::timestamptz
+  AND (s.revoke_reason IS NULL OR s.revoke_reason NOT IN ('DEVICE_MISMATCH', 'REFRESH_REUSED', 'USER_REVOKED', 'PASSWORD_RESET', 'PASSWORD_CHANGED'));

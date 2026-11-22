@@ -3,6 +3,7 @@ package app
 import (
 	"time"
 
+	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
 
@@ -25,11 +26,32 @@ const (
 	// groupAuthAccount holds the account-wide sign-in buckets, one per
 	// target from any address (ADR-0025 §8). No route is in it.
 	groupAuthAccount = "auth_account"
+	// groupRegistrationAddress holds the per-client-address budget of
+	// registration starts (ADR-0032 Karar 6). No route is in it.
+	groupRegistrationAddress = "registration_address"
+	// defaultRegistrationStartsPerIP is that budget an hour, and its burst;
+	// KOALA_REGISTRATION_STARTS_PER_IP_HOUR overrides it.
+	defaultRegistrationStartsPerIP = 10
 )
 
 // perMinute is a bucket of burst requests that refills n per minute.
 func perMinute(n, burst int) httpx.Rate {
 	return httpx.Rate{Every: time.Minute / time.Duration(n), Burst: burst}
+}
+
+// perHour is a bucket of burst requests that refills n per hour.
+func perHour(n, burst int) httpx.Rate {
+	return httpx.Rate{Every: time.Hour / time.Duration(n), Burst: burst}
+}
+
+// serveRateLimitGroups are rateLimitGroups with cfg's overrides: the
+// per-address budget of registration starts is configurable.
+func serveRateLimitGroups(cfg config.Config) map[string]httpx.GroupLimits {
+	groups := rateLimitGroups()
+	if n := cfg.Mail.RegistrationStartsPerIP; n > 0 {
+		groups[groupRegistrationAddress] = httpx.GroupLimits{PerCustom: perHour(n, n)}
+	}
+	return groups
 }
 
 // rateLimitGroups are the production limits (proposal, not measured);
@@ -49,5 +71,8 @@ func rateLimitGroups() map[string]httpx.GroupLimits {
 		// A sign-in target from any address; the (target, address) bucket
 		// is auth's PerCustom (ADR-0025 §8).
 		groupAuthAccount: {PerCustom: perMinute(30, 10)},
+		// Registration starts from one client address (an IPv6 /64), on
+		// top of auth's per-address limit (ADR-0032 Karar 6).
+		groupRegistrationAddress: {PerCustom: perHour(defaultRegistrationStartsPerIP, defaultRegistrationStartsPerIP)},
 	}
 }

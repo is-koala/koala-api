@@ -97,7 +97,9 @@ func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, l
 	if err != nil {
 		return fmt.Errorf("mount api: %w", err)
 	}
-	middlewares := []apiv1.StrictMiddlewareFunc{mods.authHTTP.StrictMiddleware(limiter, groupAuth, groupAuthAccount)}
+	middlewares := []apiv1.StrictMiddlewareFunc{mods.authHTTP.StrictMiddleware(limiter, authn.LimitGroups{
+		Pair: groupAuth, Account: groupAuthAccount, RegistrationAddress: groupRegistrationAddress,
+	})}
 	server := strictServer{HTTP: mods.authHTTP, admin: mods.admin.http}
 	strict := apiv1.NewStrictHandlerWithOptions(server, middlewares, apiv1.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: bindError(logger),

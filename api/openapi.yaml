@@ -469,7 +469,8 @@ paths:
   /v1/admin/auth/refresh:
     post:
       operationId: refreshStaffSession
-      x-error-codes: [STAFF_LOGIN_FAILED]
+      x-error-codes:
+        [AUTH_REFRESH_TOKEN_INVALID, AUTH_REFRESH_TOKEN_EXPIRED, AUTH_REFRESH_TOKEN_REUSED]
       tags: [admin-auth]
       summary: Personel refresh token'ını döndürür.
       description: |
@@ -674,19 +675,24 @@ paths:
       tags: [users]
       summary: Kaydı başlatır ve adrese doğrulama bağlantısı gönderir.
       description: |
-        Üç adımlı kaydın birinci adımı (ADR-0029 Karar 2). Adres kayıtlı olsun olmasın
-        aynı gövde döner ve aynı maliyet ödenir; kayıtlı adrese posta gitmez ve bekleyen
-        kayıt yazılmaz (USR-001). Aynı adres için ikinci istek öncekini iptal eder ve
-        yeniden gönderme olur; adres başına tek açık bekleyen kayıt vardır (USR-002).
-        Bağlantının token'ı opaktır, özetlenerek saklanır ve bir saat yaşar (USR-003).
-        Oran sınırı `auth` grubu, adres ve hedefin özeti başına.
+        Üç adımlı kaydın birinci adımı (ADR-0029 Karar 2, ADR-0032). İstek yalnız bir arka
+        plan işini kuyruğa yazar; adresin kayıtlı olup olmadığına o iş karar verir. Bu
+        yüzden adres kayıtlı olsun olmasın aynı gövde döner ve istek aynı işi yapar;
+        kayıtlı adrese posta gitmez ve bekleyen kayıt yazılmaz (USR-001). Aynı adres için
+        yeni istek açık bekleyen kaydı iptal eder ve yenisini yazar; adres başına tek açık
+        bekleyen kayıt vardır (USR-002). Yeniden göndermenin sınırı vardır: bir posta
+        kutusu (alt adresler ve Gmail'de noktalar tek kutu sayılır) son postasından sonraki
+        60 saniye içinde ve bir saat içinde 5'ten fazla posta almaz; ayrıca bütün adresler
+        için saatlik bir tavan vardır. Tavanı her istek, adres kayıtlı olsun olmasın, aynı
+        biçimde tüketir. Sınıra takılan istek aynı yanıtı alır ve posta sessizce düşer
+        (ADR-0032 Karar 6). Bağlantının token'ı opaktır, posta gönderilirken üretilir,
+        özetlenerek saklanır ve bir saat yaşar (USR-003). Oran sınırı `auth` grubu, adres ve
+        posta kutusunun özeti başına; ayrıca istemci adresi başına saatlik düşük bir kayıt
+        bütçesi vardır (öntanım saatte 10), aşılırsa 429 döner.
       security: []
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
-      x-no-idempotency-key: Tekrar eden istek yalnız bekleyen kaydı yeniler ve yeni bir posta gönderir; kullanıcı oluşmaz.
+      x-no-idempotency-key: Tekrar eden istek yalnız bekleyen kaydı yeniler ve, posta bütçesi elverirse, yeni bir posta gönderir; kullanıcı oluşmaz.
       requestBody:
         description: Kaydı başlatan bilgiler.
         required: true
@@ -697,8 +703,9 @@ paths:
       responses:
         "202":
           description: |
-            Adres kayıtlı değilse doğrulama postası kuyruğa girdi. Yanıt adresin kayıtlı
-            olup olmadığını söylemez ve önbelleğe alınmaz.
+            İstek kuyruğa girdi. Adres kayıtlı değilse ve posta bütçesi elveriyorsa doğrulama
+            postası gönderilir; aksi hâlde posta sessizce düşer. Yanıt adresin kayıtlı olup
+            olmadığını ve postanın gidip gitmediğini söylemez; önbelleğe alınmaz.
         "400":
           $ref: "#/components/responses/BadRequest"
         "413":
@@ -725,9 +732,6 @@ paths:
       security: []
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Bağlantı token'ı tüketilmez; tekrar eden istek yalnız yeni bir kayıt token'ı verir.
       requestBody:
         description: Bağlantının token'ı.
@@ -768,12 +772,16 @@ paths:
         doğrulanmış sayılır, telefonu ve kimliği doğrulanmamış olur; bekleyen kayıt
         tüketilir ve cihaza bağlı bir oturum açılır (USR-006). Parola en az 15, en çok 128
         karakterdir (USR-021).
+
+        **Bugünkü `Idempotency-Key` davranışı:** başlık zorunludur ve biçimi doğrulanır,
+        ama tekrar deposu henüz yoktur (issue #22). Yanıtı kaybolan bir tekrar
+        `REGISTRATION_TOKEN_INVALID` alır; kayıt token'ı tek kullanımlık olduğu için yan
+        etki iki kez olmaz ve kullanıcı belirlediği parolayla giriş yapar. Depo gelince
+        aynı anahtarın tekrarı saklanan yanıtı alır, ve parametrenin 422/409 vaadi
+        karşılanır.
       security: []
       x-rate-limit: auth
       x-body-limit: 8192
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
       requestBody:
@@ -818,17 +826,19 @@ paths:
       tags: [users]
       summary: Parola sıfırlama bağlantısı ister.
       description: |
-        Adres kayıtlı olsun olmasın aynı gövde döner; kayıtsız dalda da token üretme ve
-        posta hazırlama maliyeti ödenir, üretilen token atılır (USR-018). Kullanıcı başına
-        tek açık token vardır: yeni istek öncekini iptal eder (USR-017). Token 32 baytlık
-        opak bir değerdir, özeti saklanır ve on beş dakika yaşar.
+        İstek yalnız bir arka plan işini kuyruğa yazar; adresin etkin bir hesabı olup
+        olmadığına o iş karar verir (ADR-0032). Bu yüzden adres kayıtlı olsun olmasın aynı
+        gövde döner ve istek aynı işi yapar; kayıtsız, askıya alınmış ya da silinmiş hesaba
+        posta gitmez ve token üretilmez (USR-018). Kullanıcı başına tek açık token vardır:
+        yeni istek öncekini iptal eder (USR-017). Bir hesap son postasından sonraki 60
+        saniye içinde ve bir saat içinde 5'ten fazla sıfırlama postası almaz; sınıra takılan
+        istek aynı yanıtı alır ve posta sessizce düşer (ADR-0032 Karar 6). Token 32 baytlık
+        opak bir değerdir, posta gönderilirken üretilir, özeti saklanır ve on beş dakika
+        yaşar.
       security: []
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
-      x-no-idempotency-key: Tekrar eden istek yalnız yeni bir token üretir ve öncekini iptal eder; yan etkisi birikmez.
+      x-no-idempotency-key: Tekrar eden istek, posta bütçesi elverirse, yalnız yeni bir token üretir ve öncekini iptal eder; yan etkisi birikmez.
       requestBody:
         description: Sıfırlama istenen adres.
         required: true
@@ -838,7 +848,10 @@ paths:
               $ref: "#/components/schemas/PasswordResetRequest"
       responses:
         "202":
-          description: Adres kayıtlıysa sıfırlama postası kuyruğa girdi. Yanıt adresin kayıtlı olup olmadığını söylemez.
+          description: |
+            İstek kuyruğa girdi. Adresin etkin bir hesabı varsa ve posta bütçesi elveriyorsa
+            sıfırlama postası gönderilir; aksi hâlde posta sessizce düşer. Yanıt adresin
+            kayıtlı olup olmadığını ve postanın gidip gitmediğini söylemez.
         "400":
           $ref: "#/components/responses/BadRequest"
         "413":
@@ -866,9 +879,6 @@ paths:
       security: []
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Token tek kullanımlıktır; aynı gövdenin tekrarı geçersiz token yanıtı alır.
       requestBody:
         description: Sıfırlama token'ı ve yeni parola.
@@ -989,9 +999,6 @@ paths:
         Çağıran yalnız kendi parolasını değiştirir; kimlik oturumdan gelir, seçilecek nesne yoktur.
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       requestBody:
         description: Mevcut parola, yeni parola ve onayı.
         required: true

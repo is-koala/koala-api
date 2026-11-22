@@ -1,0 +1,10 @@
+{{define "reset_link.subject"}}Koala parola sıfırlama{{end}}
+{{define "reset_link.text"}}
+Merhaba {{.FirstName}},
+
+Parolanı sıfırlamak için aşağıdaki bağlantıyı aç. Bağlantı on beş dakika geçerlidir ve bir kez kullanılabilir.
+
+{{.Link}}
+
+Bu isteği sen yapmadıysan bu postayı yok sayabilirsin; parolan değişmez.
+{{end}}

@@ -33,7 +33,7 @@ func runServe(ctx context.Context, args []string, sio IO) int {
 		return ExitError
 	}
 	if err := errors.Join(cfg.ServeLoginErrors(), cfg.ServeEdgeErrors(), cfg.ServeAuthErrors(),
-		cfg.ServeStorageErrors()); err != nil {
+		cfg.ServeStorageErrors(), cfg.ServeMailErrors()); err != nil {
 		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
 		return ExitError
 	}
@@ -158,7 +158,7 @@ func wireService(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, nil, nil, err
 	}
-	router, err := newRouter(ctx, cfg, logger, health, reg, rateLimitGroups(), mods)
+	router, err := newRouter(ctx, cfg, logger, health, reg, serveRateLimitGroups(cfg), mods)
 	if err != nil {
 		return modules{}, nil, nil, err
 	}

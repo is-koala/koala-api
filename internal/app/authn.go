@@ -12,10 +12,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/integrations/smtp"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/jobs"
+	"github.com/is-koala/koala-api/internal/platform/mailer"
 	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
@@ -26,6 +29,7 @@ import (
 type modules struct {
 	users    *authn.Service
 	staff    *authn.StaffService
+	accounts *authn.Accounts
 	authHTTP *authn.HTTP
 	admin    staffModule
 	hub      *realtime.Hub
@@ -54,6 +58,10 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
+	accounts, err := wireAccounts(cfg, database, users, logger)
+	if err != nil {
+		return modules{}, err
+	}
 	sessions := realtimeSessions{users: users}
 	hub, err = realtime.NewHub(noConversations{}, sessions, clk, logger, realtime.DefaultOptions())
 	if err != nil {
@@ -72,8 +80,9 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 		return modules{}, err
 	}
 	return modules{
-		users: users, staff: staff, authHTTP: authn.NewHTTP(users, staff), admin: admin, hub: hub, realtime: handler,
-		purge: &authPurgeWorker{users: users, staff: staff, tickets: ticketStore, clock: clk, logger: logger},
+		users: users, staff: staff, accounts: accounts, authHTTP: authn.NewHTTP(users, staff, accounts),
+		admin: admin, hub: hub, realtime: handler,
+		purge: &authPurgeWorker{users: users, staff: staff, accounts: accounts, tickets: ticketStore, clock: clk, logger: logger},
 	}, nil
 }
 
@@ -116,6 +125,64 @@ func wireAuthn(ctx context.Context, cfg config.Config, database *db.DB, clk cloc
 		return nil, nil, fmt.Errorf("wire authn: %w", err)
 	}
 	return users, staff, nil
+}
+
+// localWebBaseURL is the web origin of mailed links where none is
+// configured: local and test only, where the mail itself is dropped
+// (config.ServeMailErrors requires one elsewhere).
+const localWebBaseURL = "http://localhost:3000"
+
+// wireAccounts builds the account flows (ADR-0032): an insert-only River
+// client for the jobs they queue in their transactions, and the SMTP
+// relay, or where none is configured a sender that drops the mail.
+func wireAccounts(cfg config.Config, database *db.DB, users *authn.Service, logger *slog.Logger) (*authn.Accounts, error) {
+	queue, err := jobs.NewClient(database.Pool(), jobs.Config{Logger: logger})
+	if err != nil {
+		return nil, fmt.Errorf("wire accounts: %w", err)
+	}
+	var sender interface {
+		Send(ctx context.Context, m mailer.Message) error
+	}
+	web := cfg.Mail.WebBaseURL
+	if cfg.Mail.SMTPHost == "" {
+		sender = droppedMail{logger: logger}
+		if web == "" {
+			web = localWebBaseURL
+		}
+	} else {
+		s, err := smtp.New(smtpConfig(cfg))
+		if err != nil {
+			return nil, fmt.Errorf("wire accounts: %w", err)
+		}
+		sender = s
+	}
+	accounts, err := authn.NewAccounts(users, queue, sender, web, cfg.Mail.RegistrationsPerHour)
+	if err != nil {
+		return nil, fmt.Errorf("wire accounts: %w", err)
+	}
+	return accounts, nil
+}
+
+// smtpConfig is the relay configuration of cfg. Encryption is required
+// everywhere but local and test (ADR-0032 Karar 4).
+func smtpConfig(cfg config.Config) smtp.Config {
+	return smtp.Config{
+		Host: cfg.Mail.SMTPHost, Port: cfg.Mail.SMTPPort,
+		Username: cfg.Mail.SMTPUsername, Password: cfg.Mail.SMTPPassword.Reveal(),
+		From: cfg.Mail.From, RequireTLS: cfg.Env != config.EnvLocal && cfg.Env != config.EnvTest,
+	}
+}
+
+// droppedMail stands in for the relay in local and test without one. It
+// logs that a mail was dropped and its subject, never the recipient or the
+// body: the body holds a live token.
+type droppedMail struct {
+	logger *slog.Logger
+}
+
+func (d droppedMail) Send(ctx context.Context, m mailer.Message) error {
+	d.logger.WarnContext(ctx, "no SMTP relay configured; mail dropped", slog.String("subject", m.Subject))
+	return nil
 }
 
 func keyRing(ctx context.Context, aud string, secret config.Secret, logger *slog.Logger) (tokenkeys.Ring, error) {

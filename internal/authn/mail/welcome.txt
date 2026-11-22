@@ -1,0 +1,20 @@
+{{define "welcome.subject"}}Koala'ya Hoş Geldin {{.FirstName}}!{{end}}
+{{define "welcome.text"}}
+Merhaba {{.FirstName}}!
+
+Koala ailesine katıldığın için çok mutluyuz. Kariyerinde yeni bir sayfa açmaya hazır mısın?
+
+Kayıt bilgilerin
+Ad Soyad: {{.FirstName}} {{.LastName}}
+E-posta: {{.Email}}
+
+Koala ile neler yapabilirsin?
+- İş ilanları: sana uygun pozisyonları keşfet ve hemen başvur.
+- Akıllı eşleştirme: yeteneklerine uygun işler sana önerilir.
+- Kariyer takibi: başvurularını takip et ve ilerlemeni gör.
+- Profesyonel ağ: sektöründeki profesyonellerle bağlantı kur.
+
+İpucu: Profilini tamamlayarak daha fazla iş fırsatına ulaşabilir ve işverenlerin dikkatini çekebilirsin.
+
+Bir sorun olursa destek ekibimize yaz: info@iskoala.com
+{{end}}
