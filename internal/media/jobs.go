@@ -376,7 +376,8 @@ func (s *Service) Sweep(ctx context.Context) (Swept, error) {
 			return out, err
 		}
 		out.Expired += expired
-		for _, m := range taken {
+		for i := range taken {
+			m := &taken[i]
 			seen[m.ID] = true
 			if s.store != nil {
 				if err := s.deleteAll(ctx, m.Kind, m.ID, m.UploadKey); err != nil {

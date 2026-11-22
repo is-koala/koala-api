@@ -125,10 +125,10 @@ func (a *app) queued(t *testing.T, kind string, id uuid.UUID) int {
 	return n
 }
 
-// finalKey is the final key of id under prefix with ext.
-func finalKey(t *testing.T, prefix storage.Prefix, id uuid.UUID, ext storage.Ext) storage.Key {
+// finalKey is the final key of the image id with ext.
+func finalKey(t *testing.T, id uuid.UUID, ext storage.Ext) storage.Key {
 	t.Helper()
-	k, err := storage.NewKey(prefix, id, ext)
+	k, err := storage.NewKey(storage.PrefixImages, id, ext)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestUploadIsStartedCompletedAndSwept(t *testing.T) {
 	if m.Status != media.StatusReady || m.ContentType != imaging.TypeJPEG {
 		t.Fatalf("MED-001: completed media = %+v, want a READY JPEG", m)
 	}
-	want := finalKey(t, storage.PrefixImages, s.Media.ID, storage.ExtJPEG)
+	want := finalKey(t, s.Media.ID, storage.ExtJPEG)
 	if m.ObjectKey != want {
 		t.Errorf("MED-001: object key %s, want %s", m.ObjectKey, want)
 	}
@@ -224,7 +224,7 @@ func TestKeysAreTheServersAndCarryTheRowsID(t *testing.T) {
 	}
 	a.put(s, pngBytes(t, 8, 8))
 	m := a.complete(t, owner, s.Media.ID)
-	if want := finalKey(t, storage.PrefixImages, s.Media.ID, storage.ExtPNG); m.ObjectKey != want {
+	if want := finalKey(t, s.Media.ID, storage.ExtPNG); m.ObjectKey != want {
 		t.Errorf("MED-002: final key %s, want %s (the detected type names it)", m.ObjectKey, want)
 	}
 
@@ -268,7 +268,7 @@ func TestCompletionGateHoldsForADecidedUpload(t *testing.T) {
 	}
 	png := func(t *testing.T, id uuid.UUID) string {
 		t.Helper()
-		return finalKey(t, storage.PrefixImages, id, storage.ExtPNG).String()
+		return finalKey(t, id, storage.ExtPNG).String()
 	}
 
 	t.Run("request", func(t *testing.T) {
@@ -340,7 +340,7 @@ func TestCompletionKeepsAnObjectItCouldNotRecord(t *testing.T) {
 	if _, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID); err != nil {
 		t.Fatal(err)
 	}
-	final := finalKey(t, storage.PrefixImages, s.Media.ID, storage.ExtPNG).String()
+	final := finalKey(t, s.Media.ID, storage.ExtPNG).String()
 
 	// The context ends after the object is written and before the
 	// outcome is recorded: the recording transaction cannot begin.
@@ -381,7 +381,7 @@ func TestOrphanedFinalObjectsAreSwept(t *testing.T) {
 		a := newApp(t)
 		owner := a.user(t)
 		s := a.start(t, owner, media.KindProfilePicture)
-		left := finalKey(t, storage.PrefixImages, s.Media.ID, storage.ExtJPEG).String()
+		left := finalKey(t, s.Media.ID, storage.ExtJPEG).String()
 		a.fake.Seed(left, fakes.S3Object{Body: []byte("written, never recorded"), ContentType: "image/jpeg"})
 		a.clock.Advance(media.UploadRetention + time.Minute)
 		if _, err := a.svc.Sweep(t.Context()); err != nil {
@@ -396,7 +396,7 @@ func TestOrphanedFinalObjectsAreSwept(t *testing.T) {
 		a := newApp(t)
 		owner := a.user(t)
 		s := a.start(t, owner, media.KindProfilePicture)
-		left := finalKey(t, storage.PrefixImages, s.Media.ID, storage.ExtPNG).String()
+		left := finalKey(t, s.Media.ID, storage.ExtPNG).String()
 		a.fake.Seed(left, fakes.S3Object{Body: []byte("an earlier run's PNG"), ContentType: "image/png"})
 		body, _ := jpegWithGPS(t, 1)
 		a.put(s, body)
@@ -414,7 +414,7 @@ func TestOrphanedFinalObjectsAreSwept(t *testing.T) {
 		a := newApp(t)
 		owner := a.user(t)
 		s := a.start(t, owner, media.KindProfilePicture)
-		left := finalKey(t, storage.PrefixImages, s.Media.ID, storage.ExtJPEG).String()
+		left := finalKey(t, s.Media.ID, storage.ExtJPEG).String()
 		a.fake.Seed(left, fakes.S3Object{Body: []byte("written, never recorded"), ContentType: "image/jpeg"})
 		if m := a.complete(t, owner, s.Media.ID); m.Status != media.StatusReady || m.ObjectKey.String() != left {
 			t.Fatalf("MED-006: %+v, want READY at %s", m, left)
