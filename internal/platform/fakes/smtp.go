@@ -29,11 +29,12 @@ type SMTPMessage struct {
 // proves that a mandatory TLS policy is not skipped silently. Every
 // accepted message is recorded; an unknown command gets 502.
 type SMTP struct {
-	tb   testing.TB
-	ln   net.Listener
-	wg   sync.WaitGroup
-	mu   sync.Mutex
-	msgs []SMTPMessage
+	tb       testing.TB
+	ln       net.Listener
+	wg       sync.WaitGroup
+	mu       sync.Mutex
+	msgs     []SMTPMessage
+	rejected map[string]bool
 }
 
 // NewSMTP starts the fake; it stops at the end of the test.
@@ -62,6 +63,22 @@ func (s *SMTP) Port() int {
 		s.tb.Fatalf("fakes: SMTP listener address %v is not TCP", s.ln.Addr())
 	}
 	return addr.Port
+}
+
+// RejectRecipient makes the relay refuse addr for good: RCPT TO gets 550.
+func (s *SMTP) RejectRecipient(addr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rejected == nil {
+		s.rejected = map[string]bool{}
+	}
+	s.rejected[addr] = true
+}
+
+func (s *SMTP) refuses(addr string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rejected[addr]
 }
 
 // Messages returns the accepted messages in arrival order.
@@ -117,8 +134,12 @@ func (s *SMTP) serve(conn net.Conn) {
 			cur = SMTPMessage{From: address(arg)}
 			ok = reply("250 OK")
 		case "RCPT":
-			cur.To = append(cur.To, address(arg))
-			ok = reply("250 OK")
+			if to := address(arg); s.refuses(to) {
+				ok = reply("550 5.1.1 Mailbox unavailable")
+			} else {
+				cur.To = append(cur.To, to)
+				ok = reply("250 OK")
+			}
 		case "DATA":
 			if !reply("354 End data with <CR><LF>.<CR><LF>") {
 				return

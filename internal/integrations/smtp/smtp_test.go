@@ -1,6 +1,7 @@
 package smtp_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -63,6 +64,34 @@ func TestRequiredTLSIsNotSkipped(t *testing.T) {
 	}
 	if n := len(relay.Messages()); n != 0 {
 		t.Errorf("relay got %d messages in plain text", n)
+	}
+}
+
+// A recipient the relay refuses for good, and one that is no address,
+// are undeliverable: the account mail job stops retrying them.
+func TestUndeliverableRecipients(t *testing.T) {
+	t.Parallel()
+
+	relay := fakes.NewSMTP(t)
+	relay.RejectRecipient("gone@example.com")
+	s, err := smtp.New(smtp.Config{Host: relay.Host(), Port: relay.Port(), From: "no-reply@iskoala.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, to := range []string{"gone@example.com", "not an address"} {
+		m := message()
+		m.To = to
+		err := s.Send(t.Context(), m)
+		if !errors.Is(err, mailer.ErrUndeliverable) {
+			t.Errorf("Send to %q = %v, want ErrUndeliverable", to, err)
+		}
+		if err != nil && strings.Contains(err.Error(), "gone@example.com") {
+			t.Errorf("error %q echoes the recipient", err)
+		}
+	}
+	// A deliverable recipient is not marked: a transient failure is retried.
+	if err := s.Send(t.Context(), message()); err != nil {
+		t.Errorf("Send to a deliverable recipient = %v", err)
 	}
 }
 

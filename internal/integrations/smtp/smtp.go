@@ -92,7 +92,7 @@ func (s *Sender) Send(ctx context.Context, m mailer.Message) error {
 		return fmt.Errorf("smtp: sender address: %w", err)
 	}
 	if err := msg.To(m.To); err != nil {
-		return errors.New("smtp: the recipient is not a valid address")
+		return fmt.Errorf("%w: the recipient is not a valid address", mailer.ErrUndeliverable)
 	}
 	msg.Subject(m.Subject)
 	msg.SetDate()
@@ -108,8 +108,13 @@ func (s *Sender) Send(ctx context.Context, m mailer.Message) error {
 		// error is stored and logged: keep only the relay's verdict.
 		var se *mail.SendError
 		if errors.As(err, &se) {
-			return fmt.Errorf("smtp: send: %s (reply %d %s, temporary %t)",
-				se.Reason, se.ErrorCode(), se.EnhancedStatusCode(), se.IsTemp())
+			verdict := fmt.Sprintf("%s (reply %d %s, temporary %t)", se.Reason, se.ErrorCode(), se.EnhancedStatusCode(), se.IsTemp())
+			// A recipient the relay refused for good (5xx to RCPT TO)
+			// stays refused; another attempt only repeats the refusal.
+			if se.Reason == mail.ErrSMTPRcptTo && !se.IsTemp() {
+				return fmt.Errorf("%w: smtp: send: %s", mailer.ErrUndeliverable, verdict)
+			}
+			return fmt.Errorf("smtp: send: %s", verdict)
 		}
 		return fmt.Errorf("smtp: send: %w", err)
 	}

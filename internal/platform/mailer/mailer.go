@@ -20,6 +20,11 @@ import (
 	texttemplate "text/template"
 )
 
+// ErrUndeliverable marks a send that cannot succeed on a retry: the
+// recipient is not an address, or the relay refused it for good. A sender
+// wraps it; a job that sees it stops retrying.
+var ErrUndeliverable = errors.New("mailer: undeliverable")
+
 // Message is one mail: a recipient, a subject and the body as plain text
 // with an HTML alternative.
 type Message struct {

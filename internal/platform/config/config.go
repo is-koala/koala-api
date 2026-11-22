@@ -61,6 +61,9 @@ const (
 	VarSMTPPassword = Prefix + "SMTP_PASSWORD"
 	VarMailFrom     = "KOALA_MAIL_FROM"
 	VarWebBaseURL   = "KOALA_WEB_BASE_URL"
+	// VarRegistrationMailsPerHour overrides the global hourly cap of
+	// registration mails (ADR-0032 Karar 6).
+	VarRegistrationMailsPerHour = "KOALA_REGISTRATION_MAILS_PER_HOUR"
 )
 
 // known lists every variable Load understands. A KOALA_* variable outside
@@ -73,6 +76,7 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarObjectEndpoint, VarObjectRegion, VarObjectBucket,
 	VarObjectAccessKeyID, VarObjectSecretKey, VarObjectPathStyle, VarObjectPublicBaseURL,
 	VarSMTPHost, VarSMTPPort, VarSMTPUsername, VarSMTPPassword, VarMailFrom, VarWebBaseURL,
+	VarRegistrationMailsPerHour,
 }
 
 // Variables returns every KOALA_* variable Load understands, in the
@@ -176,6 +180,10 @@ type Mail struct {
 	// WebBaseURL is the web origin of the links in mail
 	// (<origin>/hesap-dogrula, <origin>/sifre-sifirla).
 	WebBaseURL string
+	// RegistrationsPerHour is the global hourly cap of registration mails;
+	// 0 when unset, and the account flows then use their default. It is not
+	// part of the relay's configuration (Configured).
+	RegistrationsPerHour int
 }
 
 // Configured reports whether any mail variable was set.
@@ -779,6 +787,14 @@ func loadMail(vars map[string]string, cfg *Config) []error {
 	if v, ok := vars[VarSMTPPassword]; ok {
 		cfg.Mail.SMTPPassword = Secret(v)
 	}
+	if v, ok := vars[VarRegistrationMailsPerHour]; ok {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 || n > maxRegistrationsPerHour {
+			errs = append(errs, fmt.Errorf("%s: %w: want 1-%d", VarRegistrationMailsPerHour, errInvalidValue, maxRegistrationsPerHour))
+		} else {
+			cfg.Mail.RegistrationsPerHour = n
+		}
+	}
 	if v, ok := vars[VarSMTPPort]; ok {
 		n, err := strconv.Atoi(strings.TrimSpace(v))
 		if err != nil || n < 1 || n > 65535 {
@@ -800,6 +816,10 @@ func loadMail(vars map[string]string, cfg *Config) []error {
 	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
 	return errs
 }
+
+// maxRegistrationsPerHour bounds the global registration mail cap: a
+// larger value is no cap.
+const maxRegistrationsPerHour = 100000
 
 // ServeMailErrors reports what serve needs of the mail configuration
 // (ADR-0032), fail closed like ServeStorageErrors: staging and production

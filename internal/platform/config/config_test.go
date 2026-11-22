@@ -648,6 +648,15 @@ func TestLoadRejectsBadMailValues(t *testing.T) {
 			}
 		})
 	}
+	for _, v := range []string{"0", "-1", "100001", "many"} {
+		if _, err := config.Load([]string{"KOALA_ENV=test", config.VarRegistrationMailsPerHour + "=" + v}); err == nil {
+			t.Errorf("Load(%s=%s) succeeded", config.VarRegistrationMailsPerHour, v)
+		}
+	}
+	cfg, err := config.Load([]string{"KOALA_ENV=production", config.VarRegistrationMailsPerHour + "=50"})
+	if err != nil || cfg.Mail.RegistrationsPerHour != 50 || cfg.Mail.Configured() {
+		t.Errorf("Load(cap 50) = %+v, %v; want the cap, and no relay configured", cfg.Mail, err)
+	}
 	// Plain http is fine where nothing is live (a local web client).
 	if _, err := config.Load([]string{"KOALA_ENV=local", config.VarWebBaseURL + "=http://localhost:3000"}); err != nil {
 		t.Errorf("Load(local http origin) = %v", err)
