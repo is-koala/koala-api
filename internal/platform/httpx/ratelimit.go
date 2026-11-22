@@ -304,8 +304,15 @@ func (l *RateLimiter) ByIdentity(logger *slog.Logger) func(http.Handler) http.Ha
 // RateLimitedError returns the 429 error and sets Retry-After on w, for a
 // module that limits with Allow and KeyCustom.
 func RateLimitedError(w http.ResponseWriter, wait time.Duration) error {
-	w.Header().Set("Retry-After", retryAfter(wait))
+	SetRetryAfter(w, wait)
 	return apperr.New(apperr.KindRateLimited, CodeRateLimited)
+}
+
+// SetRetryAfter sets Retry-After on w to wait, in whole seconds rounded
+// up and at least 1, for a module whose own 429 asks the client to wait
+// (a verification's resend budget, ADR-0033).
+func SetRetryAfter(w http.ResponseWriter, wait time.Duration) {
+	w.Header().Set("Retry-After", retryAfter(wait))
 }
 
 func writeRateLimited(w http.ResponseWriter, r *http.Request, logger *slog.Logger, wait time.Duration) {

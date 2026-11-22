@@ -758,3 +758,131 @@ func TestServeMailErrors(t *testing.T) {
 		})
 	}
 }
+
+func smsEnviron(env string) []string {
+	return []string{
+		"KOALA_ENV=" + env,
+		config.VarSMSAPIKey + "=test-sms-key",
+		config.VarSMSAPIHash + "=test-sms-hash-secret",
+		config.VarSMSSender + "=KOALA",
+	}
+}
+
+func TestLoadReadsTheSMSSettings(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(append(smsEnviron("production"), config.VarSMSPerHour+"=300"))
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	want := config.SMS{APIKey: "test-sms-key", APIHash: "test-sms-hash-secret", Sender: "KOALA", PerHour: 300}
+	if cfg.SMS != want {
+		t.Errorf("SMS = %+v, want %+v", cfg.SMS, want)
+	}
+	if s := fmt.Sprintf("%v %+v", cfg.SMS, cfg); strings.Contains(s, "test-sms-hash-secret") || strings.Contains(s, "test-sms-key") {
+		t.Errorf("the SMS credentials print: %s", s)
+	}
+	cfg, err = config.Load([]string{"KOALA_ENV=test", config.VarSMSPerHour + "=5"})
+	if err != nil || cfg.SMS.PerHour != 5 || cfg.SMS.Configured() {
+		t.Errorf("Load(cap 5) = %+v, %v; want the cap, and no account configured", cfg.SMS, err)
+	}
+}
+
+func TestLoadRejectsBadSMSValues(t *testing.T) {
+	t.Parallel()
+
+	for name, kv := range map[string]string{
+		"cap zero":         config.VarSMSPerHour + "=0",
+		"cap over":         config.VarSMSPerHour + "=100001",
+		"cap text":         config.VarSMSPerHour + "=many",
+		"sender too short": config.VarSMSSender + "=KO",
+		"sender too long":  config.VarSMSSender + "=KOALAKOALAKO",
+		"sender not ASCII": config.VarSMSSender + "=KOALAİŞ",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := config.Load([]string{"KOALA_ENV=production", kv}); err == nil {
+				t.Errorf("Load(%s) succeeded", kv)
+			}
+		})
+	}
+}
+
+// TestServeSMSErrors: serve refuses to start in staging and production
+// without the İleti Merkezi account, since a phone verification would
+// answer 201 and send nothing; a partly configured account fails
+// everywhere (ADR-0033).
+func TestServeSMSErrors(t *testing.T) {
+	t.Parallel()
+
+	without := func(env, drop string) []string {
+		var out []string
+		for _, kv := range smsEnviron(env) {
+			if name, _, _ := strings.Cut(kv, "="); name != drop {
+				out = append(out, kv)
+			}
+		}
+		return out
+	}
+	tests := []struct {
+		name    string
+		environ []string
+		want    []string
+	}{
+		{"complete in production", smsEnviron("production"), nil},
+		{"complete in local", smsEnviron("local"), nil},
+		{"nothing set in test", []string{"KOALA_ENV=test"}, nil},
+		{
+			"nothing set in staging",
+			[]string{"KOALA_ENV=staging"},
+			[]string{
+				config.VarSMSAPIKey + ": required by serve in staging",
+				config.VarSMSAPIHash + ": required by serve in staging",
+				config.VarSMSSender + ": required by serve in staging",
+			},
+		},
+		{
+			"nothing set in production",
+			[]string{"KOALA_ENV=production"},
+			[]string{config.VarSMSAPIHash + ": required by serve in production"},
+		},
+		{
+			"hash missing in production",
+			without("production", config.VarSMSAPIHash),
+			[]string{config.VarSMSAPIHash + ": required by serve in production"},
+		},
+		{
+			"sender missing in local",
+			without("local", config.VarSMSSender),
+			[]string{config.VarSMSSender + ": required once any text message variable is set"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(tt.environ)
+			if err != nil {
+				t.Fatalf("Load() = %v", err)
+			}
+			err = cfg.ServeSMSErrors()
+			if len(tt.want) == 0 {
+				if err != nil {
+					t.Fatalf("ServeSMSErrors() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("ServeSMSErrors() = nil, want an error")
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("ServeSMSErrors() = %v, want it to mention %q", err, w)
+				}
+			}
+			if strings.Contains(err.Error(), "test-sms-hash-secret") || strings.Contains(err.Error(), "test-sms-key") {
+				t.Errorf("ServeSMSErrors() echoes a credential: %v", err)
+			}
+		})
+	}
+}
