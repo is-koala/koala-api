@@ -683,10 +683,12 @@ paths:
         bekleyen kayıt vardır (USR-002). Yeniden göndermenin sınırı vardır: bir posta
         kutusu (alt adresler ve Gmail'de noktalar tek kutu sayılır) son postasından sonraki
         60 saniye içinde ve bir saat içinde 5'ten fazla posta almaz; ayrıca bütün adresler
-        için saatlik bir tavan vardır. Sınıra takılan istek aynı yanıtı alır ve posta
-        sessizce düşer (ADR-0032 Karar 6). Bağlantının token'ı opaktır, posta gönderilirken
-        üretilir, özetlenerek saklanır ve bir saat yaşar (USR-003). Oran sınırı `auth`
-        grubu, adres ve posta kutusunun özeti başına.
+        için saatlik bir tavan vardır. Tavanı her istek, adres kayıtlı olsun olmasın, aynı
+        biçimde tüketir. Sınıra takılan istek aynı yanıtı alır ve posta sessizce düşer
+        (ADR-0032 Karar 6). Bağlantının token'ı opaktır, posta gönderilirken üretilir,
+        özetlenerek saklanır ve bir saat yaşar (USR-003). Oran sınırı `auth` grubu, adres ve
+        posta kutusunun özeti başına; ayrıca istemci adresi başına saatlik düşük bir kayıt
+        bütçesi vardır (öntanım saatte 10), aşılırsa 429 döner.
       security: []
       x-rate-limit: auth
       x-body-limit: 4096

@@ -32,11 +32,19 @@ Faz 2'nin ilk handler PR'ı altı operasyonu uygular: `startRegistration`, `veri
 - modülün fonksiyonları: düz, paket nitelikli ya da generic (`F[T](…)`);
 - metotlar: alıcıda, parametrede, yerel değişkende, alan zincirinde ya da bir çağrının sonucunda. Her birinin tipi bildiriminden ya da onu atayan çağrının sonuç tipinden çıkarılır. Aynı adlı iki metot (`Service.Login`, `StaffService.Login`) bu yüzden karışmaz;
 - arayüz metodu: modülde arayüzün bütün metotlarını taşıyan her tipe;
-- argüman olarak geçen fonksiyon değerleri (metot değeri, paket fonksiyonu) çağrılmış gibi ziyaret edilir.
+- argüman olarak geçen fonksiyon değerleri çağrılmış gibi ziyaret edilir: paket fonksiyonu, bir tipin metot değeri ve bir arayüzün metot değeri (`run(h.hasher.Hash)`; arayüzün modüldeki uygulamalarına). Çağrılan taraf parametresini çağırdığında yürüyüş onu izlemez, çünkü kodu çağıranın argümanından gelir;
+- `m[k]()` biçiminde indeksli çağrılan: elemanı hata döndürmeyen bir fonksiyonsa geçer.
 
 Yalnız **`*apperr.Error` kurabilen** paketlere girilir: `apperr`'ı import edenler ve böyle bir paketi import edenler. Başka bir modül paketine ya da modül dışına giden çağrı bir modül kodu üretemez, izlenmez. `authndb`, `db`, `clock`, `tokenkeys` ve `authz` bu yüzden yürüyüşe girmez.
 
-**Çözülemeyen çağrı kırmızıdır, sessizce atlanmaz.** Bunlar: tipi bilinmeyen alıcı, indeksli ya da hesaplanmış çağrılan, modülde hiçbir tipin uygulamadığı bir arayüz, fonksiyon tipli bir alan. Son ikisi yalnız imza `error` döndürüyorsa bulgudur. Her biri yalnız gerekçeli bir muafiyetle (`unresolvedCalls`, en az 20 karakter) açılır. Bugün tek muafiyet `internal/authn.jobQueue`'dur: River'ın istemcisi onu modül dışında uygular. Kullanılmayan muafiyet bayattır ve kırmızıdır.
+**Çözülemeyen çağrı kırmızıdır, sessizce atlanmaz.** Bunlar:
+
+- tipi bilinmeyen alıcı: tipi bir tip parametresi olan parametre (`func f[T doer](v T) { v.Do() }`), elemanının tipi çıkarılamayan indeksli erişim (`s[0].Do()`);
+- hata döndüren bir fonksiyonu tutan indeksli çağrılan (`h.fns[k]()`) ve hesaplanmış çağrılan;
+- hata döndüren yerel fonksiyon değerinin çağrısı (`f := h.passer.Pass; f()`) ve argüman olarak geçirilmesi (`run(f)`). Bu adla bağlanmış bir fonksiyon literali ya da parametre değilse değerin nereden geldiği izlenmez;
+- modülde hiçbir tipin uygulamadığı bir arayüz ve fonksiyon tipli bir alan, çağrılsın ya da argüman olarak geçsin.
+
+Son üç madde yalnız imza `error` döndürüyorsa bulgudur. Argüman olarak geçen ve çözülemeyen bir seçici, çağrılan taraf o parametreyi `error` döndüren bir fonksiyon olarak alıyorsa da kırmızıdır. Her biri yalnız gerekçeli bir muafiyetle (`unresolvedCalls`, en az 20 karakter) açılır. Bugün tek muafiyet `internal/authn.jobQueue`'dur: River'ın istemcisi onu modül dışında uygular. Kullanılmayan muafiyet bayattır ve kırmızıdır.
 
 Hata yeri, `kind`'ı bir `apperr.Kind` sabiti ve kodu bir sabit olan `apperr.New(kind, code)` ya da `apperr.Wrap(cause, kind, code)`'dur. Kod, bir yerel ada bağlanmış fonksiyon literalinin parametresiyse (`end := func(reason string, code apperr.Code) …`, refresh yollarının biçimi) o adın her çağrısında geçen sabit okunur. Paket düzeyi `var errX = apperr.New(…)` adının geçtiği her yerde hata yeri sayılır. **Ulaşılıp okunamayan yer kırmızıdır.**
 
@@ -55,7 +63,11 @@ Muafiyet listeleri de denetlenir: gerekçesi 20 karakterden kısa olan, var olma
   - `refreshUserSession` → `AUTH_REFRESH_TOKEN_REUSED` yalnız literal-parametre çözümüyle görülür;
   - `getStaffMe` → `STAFF_SESSION_ENDED` `staff`'ın `accounts` arayüzü üzerinden görülür;
   - listesi boş iki operasyon (`startRegistration`, `requestPasswordReset`) → `REQUEST_INVALID`, `invalidField` yardımcısı üzerinden görülür.
-- `TestErrorTraceOnADemoModule` bir demo modülde şunları kanıtlar: neyi izlediğini (alan zinciri, arayüz uygulaması, paket değişkeni, yerel değişkenin metodu, generic çağrı, closure), iki aynı adlı metodu ayırdığını, kuramayan pakete girmediğini, uygulamasız arayüzü, fonksiyon tipli alanı ve okunamayan yeri bildirdiğini. `TestBindingFindings` ve `TestExemptionFindings` karşılaştırmanın ve muafiyet denetiminin kırmızı ve yeşilini, `TestKindStatusesCoverEveryKind` ise `apperr`'a eklenen bir `Kind`'ın tabloya girmeden geçemediğini kanıtlar.
+- `TestErrorTraceOnADemoModule` bir demo modülde şunları kanıtlar:
+  - neyi izlediğini: alan zinciri, arayüz uygulaması, paket değişkeni, yerel değişkenin metodu, generic çağrı, closure, argüman olarak geçen arayüz metot değeri ve elemanı bilinen indeksli erişim;
+  - iki aynı adlı metodu ayırdığını ve kuramayan pakete girmediğini;
+  - uygulamasız arayüzü, fonksiyon tipli alanı ve okunamayan yeri bildirdiğini;
+  - `GetBlind`'da her körlüğün kendi gerekçesiyle kırmızı olduğunu: tip parametresi tipli parametre alıcı, elemanı bilinmeyen indeksli erişim, indeksli çağrılan, yerel fonksiyon değerinin çağrısı ve argüman olarak geçmesi. `TestBindingFindings` ve `TestExemptionFindings` karşılaştırmanın ve muafiyet denetiminin kırmızı ve yeşilini, `TestKindStatusesCoverEveryKind` ise `apperr`'a eklenen bir `Kind`'ın tabloya girmeden geçemediğini kanıtlar.
 - **Faz 1'in handler'larında gerçek bir bulgu:** `refreshStaffSession`'ın `x-error-codes`'unda `STAFF_LOGIN_FAILED` yazıyordu. Handler bu kodu hiç döndürmüyor; döndürdüğü üç refresh token kodu (`AUTH_REFRESH_TOKEN_INVALID`, `_EXPIRED`, `_REUSED`) ise listede yoktu. Durumların üçü de 401 olduğu için ADR-0029'un durum kümesi testi yeşil kalmıştı. Liste bu PR'da düzeltildi; yanıt kümesi değişmediği için bu uyumlu bir düzeltmedir.
 
 Statik izleme yapısı gereği aşırıdır: handler'dan ulaşılan her `apperr.New`'i sayar, o dalın gerçekte koşup koşmadığına bakmaz.
@@ -64,11 +76,13 @@ Statik izleme yapısı gereği aşırıdır: handler'dan ulaşılan her `apperr.
 
 `startRegistration` ve `requestPasswordReset` adresin kayıtlı olup olmadığını **istek içinde sormaz.** İstek biçimi denetler (adres, isimler) ve tek bir River işini bir transaction'da kuyruğa yazar; kararı iş verir:
 
-- **Kayıt:** adres kayıtlıysa hiçbir şey yazılmaz ve posta gitmez (USR-001). Değilse adresin açık kaydı iptal edilir, yenisi yazılır ve bağlantı postasının işi **aynı transaction'da** kuyruğa girer (USR-002).
+- **Kayıt:** iş önce, adrese bakmadan, küresel tavanın defterine (`registration_requests`) bir satır yazar ve son bir saatin isteklerini sayar. Tavan aşılmışsa başka bir şey olmaz (Karar 6). Sonra adres kayıtlıysa hiçbir şey yazılmaz ve posta gitmez (USR-001). Değilse adresin açık kaydı iptal edilir, yenisi yazılır ve bağlantı postasının işi **aynı transaction'da** kuyruğa girer (USR-002).
 - **Sıfırlama:** adresin **etkin** bir hesabı yoksa hiçbir şey olmaz. Askıya alınmış ya da silinmiş hesap, kayıtsız adresle aynı muameleyi görür; istek yolu üçünde de aynı işi yaptığı için numaralandırma eşitliği korunur. Etkin hesapta kullanıcının açık token'ı iptal edilir, yeni istek satırı yazılır ve postasının işi aynı transaction'da kuyruğa girer (USR-017). Satır `users`'ın çocuğudur; transaction önce `softdelete.LockActiveParent` ile kullanıcıyı kilitler.
 - **Parolasız (yalnız OTP) hesap** bugün yok, çünkü kayıt her zaman parola yazar. Olursa Java'nın davranışı izlenir: sıfırlama postası gider ve sıfırlama bir parola belirler (`AuthManager#requestPasswordReset` parolaya bakmıyor).
 
 ADR-0029 "aynı gövde, aynı maliyet" diyor. Senkron yolda bu, kayıtlı dalda yazılmayan satırın ve atılmayan posta işinin maliyetini taklit etmek demekti (commit'in WAL yazımı dahil). Taklit her zaman bir ölçüde ayrışır. Asenkron yolda iki dal **aynı işi yapar**, taklide gerek kalmaz. `202` yanıtı sözleşmede zaten "istek kuyruğa girdi" diyor.
+
+İşin içinde de, dışarıdan gözlenebilen tek ortak kaynak olan küresel tavanı iki dal **aynı biçimde tüketir**: defter satırı adrese bakılmadan yazılır. İlk sürümde tavan yalnız yazılan bekleyen kayıtları sayıyordu, kayıtlı adresin isteği ise tavandan yer harcamıyordu. Saldırgan tavanı doldurup, pencere boşalırken önce hedefi sonra kendi kutusunu isteyerek hedefin kayıtlı olup olmadığını kendi postasından okuyabilirdi. `TestRegistrationCapCountsEveryAddress` bu kanalın kapandığını iki hedefle sınar: kayıtlı ve kayıtsız hedefin isteği tavanda aynı yeri tutar ve istekte bulunanın kendi kutusu ikisinde de posta almaz. Posta kutusu bütçesi kayıtlı adreste sayılmaz, ama o yalnız hedefin kutusuna giden postayı etkiler; saldırgan onu gözleyemez.
 
 Bedeli: iş, adresi ve isimleri taşır. `river_job` bu yüzden katalogda `pii: true`'dur. River biten işi saklama süresinden sonra siler (tamamlanan ve iptal edilen 24 saat, atılan 7 gün). Postanın işi ise yalnız satırın kimliğini taşır, ne adresi ne token'ı.
 
@@ -90,7 +104,7 @@ Bedeli: iş, adresi ve isimleri taşır. `river_job` bu yüzden katalogda `pii: 
   - Her gönderim bağlanır, tek mesaj gönderir ve kapanır.
   - `local` ve `test` dışında şifreleme zorunludur: 465'te örtük TLS, diğer portlarda STARTTLS. STARTTLS sunmayan aktarıcıya gönderim düşer, düz metne inmez (RFC 8314). Bu bağ uygulama yapılandırmasından okunur ve `TestSMTPConfigRequiresTLSWhereLive` onu sınar.
   - go-mail'in gönderim hatası metninde alıcıları taşır, River da işin hatasını saklar. Hata bu yüzden yalnız aktarıcının kararıyla sarılır.
-- **Yapılandırma:** `KOALA_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `KOALA_MAIL_FROM`, `KOALA_WEB_BASE_URL` ve `KOALA_REGISTRATION_MAILS_PER_HOUR`. `config.ServeMailErrors` `ServeStorageErrors` kalıbındadır. Staging ve production'da eksikse `serve` açılmaz, çünkü yoksa kayıt ve sıfırlama `202` döner, posta gitmez ve bunu hiçbir şey bildirmez. Yarım yapılandırma her ortamda hatadır. `local` ve `test`'te aktarıcı yoksa posta düşürülür ve yalnız konusu log'a yazılır.
+- **Yapılandırma:** `KOALA_SMTP_HOST`, `_PORT`, `_USERNAME`, `_PASSWORD`, `KOALA_MAIL_FROM`, `KOALA_WEB_BASE_URL`, `KOALA_REGISTRATION_MAILS_PER_HOUR` ve `KOALA_REGISTRATION_STARTS_PER_IP_HOUR`. `config.ServeMailErrors` `ServeStorageErrors` kalıbındadır. Staging ve production'da eksikse `serve` açılmaz, çünkü yoksa kayıt ve sıfırlama `202` döner, posta gitmez ve bunu hiçbir şey bildirmez. Yarım yapılandırma her ortamda hatadır. `local` ve `test`'te aktarıcı yoksa posta düşürülür ve yalnız konusu log'a yazılır.
 - **Test:** gerçek SMTP yoktur. `fakes.SMTP` geri döngü adresinde düz SMTP konuşan bir aktarıcıdır. STARTTLS sunmadığı için zorunlu TLS'nin sessizce atlanmadığını kanıtlar; bir alıcıyı kalıcı olarak reddederek teslim edilemezliği de sınar.
 - **Bağlantılar** Java'nın web yollarını kullanır (`<origin>/hesap-dogrula?token=…`, `<origin>/sifre-sifirla?token=…`).
 
@@ -112,12 +126,23 @@ Harita katalogda değil test kodundadır, çünkü ADR-0029'un gerekçesi (senar
 E-posta bombası üç katmanla sınırlanır:
 
 1. **HTTP kovası** (ADR-0021, ADR-0025 §8): kayıt başlatma ve sıfırlama isteği, **posta kutusu anahtarının** HMAC hedefinin iki kovasından jeton alır. (Hedef, adres) kovası `auth` grubunda, hedef geneli kova `auth_account` grubundadır. Girişten farkı, bilinen kaynak kaçışının olmamasıdır. Token sunan adımlar (kayıt doğrulama ve tamamlama, sıfırlama tamamlama) token özetinin kovasından, uygulama içi değişim kullanıcınınkinden jeton alır. Üretim kovalarıyla `TestAccountRateLimitKeys` sınar.
+   - **İstemci adresi başına kayıt bütçesi.** Kayıt başlatma ayrıca, posta kutusu kovalarından önce, istemci adresinin (IPv6'da /64) `registration_address` grubundaki kovasından jeton alır: **saatte 10, burst 10** (`KOALA_REGISTRATION_STARTS_PER_IP_HOUR`, 1–1000). Bu kova reddederse posta kutusu kovalarından jeton harcanmaz. Kenarın `auth` grubunun dakikada 30'luk adres sınırı her istek içindir. Bu bütçe ise yalnız kayıt başlatmanın ve saatliktir: tek bir adres her seferinde başka bir kutu yazarak küresel tavanı tek başına dolduramaz. Sektörde yerleşik kalıp budur: kayıt başlatma, girişten ayrı ve daha sıkı bir IP sınırıyla korunur. Değer neden 10: meşru bir kişi bir kez kayıt olur; bir hane ya da ofisin NAT'ı birkaç kişidir; yazım hatası ve yeniden gönderme posta kutusu bütçesine ayrıca takılır. Mobil operatörün NAT'ı arkasında bir saatte on kayıttan fazlası, gerçek trafik olmadığı için ölçülemedi. Değer yapılandırılabilir ve 429 oranı `koala_http_rate_limited_total{group="registration_address"}` ile izlenir. Sıfırlama isteği bu kovaya girmez. Test: `TestRegistrationStartsPerAddress`, `TestRegistrationStartsPerIPIsConfigurable`.
+   - Grubun route'u yoktur; ADR-0021 §5'in tablosuna bu ADR'nin satırı eklenir (`TestRateLimitGroups` üç tabloyu birlikte okur, saatlik oran "N/sa / burst" yazılır):
+
+<!-- rate-limit-groups: internal/app TestRateLimitGroups bu tabloyu ADR-0021 ve ADR-0025'inkilerle birlikte okur; ilk dört sütunun biçimi "dk / burst", "N/sa / burst" ya da "—". -->
+| Grup | Adres başına | Kimlik başına | Özel anahtar | Java karşılığı (IP başına) | Java'ya oran |
+|---|---|---|---|---|---|
+| `registration_address` | — | — | 10/sa / 10 | yok (Java'da kayıt AUTH kovasındaydı, 10/dk) | yeni, saatlik |
+
 2. **İşteki bütçe:** bir posta kutusu (kayıt) ya da bir hesap (sıfırlama) son postasından sonraki **60 saniye** içinde ve bir saat içinde **5**'ten fazla bağlantı postası almaz. Bu, ADR-0029 Karar 3'ün OTP yeniden gönderme kuralının bağlantılara uygulanmasıdır. Bütçeyi aşan istek diğerleriyle aynı `202`'yi alır ve posta sessizce düşer.
-3. **Küresel tavan:** bütün adresler için saatte en çok `KOALA_REGISTRATION_MAILS_PER_HOUR` (öntanım **500**) kayıt postası gider. Çok sayıda farklı adrese yayılmış bir sel aktarıcının itibarını yakmasın diye vardır. Tutulan posta `koala_account_mails_held_total{reason}` metriğinde sayılır (`mailbox`, `account`, `global`). `KoalaRegistrationMailCapReached` uyarısı tavan doldu diye çalar.
+3. **Küresel tavan:** bütün adresler için saatte en çok `KOALA_REGISTRATION_MAILS_PER_HOUR` (öntanım **500**) kayıt isteği işlenir, dolayısıyla en çok o kadar kayıt postası gider. Çok sayıda farklı adrese yayılmış bir sel aktarıcının itibarını yakmasın diye vardır. Tavan, iş adrese bakmadan önce yazdığı `registration_requests` defter satırlarını sayar; kayıtlı ve kayıtsız adres onu aynı biçimde tüketir (Karar 2). Sayım transaction içindedir ve aynı anda koşan işler birbirinin satırını görmez, bu yüzden tavan birkaç istek aşılabilen yumuşak bir sınırdır. Tutulan istek `koala_account_mails_held_total{reason}` metriğinde sayılır (`mailbox`, `account`, `global`). `KoalaRegistrationMailCapReached` uyarısı tavan doldu diye çalar.
 
-**Posta kutusu anahtarı:** saklanan adres değişmez, yalnız sınır anahtarı türetilir. `+`'dan sonrası atılır, `googlemail.com` `gmail.com` sayılır ve Gmail'de yerel kısmın noktaları silinir. Böylece `kurban+1@…`, `kurban+2@…` ve `k.urban@gmail.com` tek kutudur.
+**Posta kutusu anahtarı:** saklanan adres değişmez, yalnız sınır anahtarı türetilir. `+`'dan sonrası atılır, `googlemail.com` `gmail.com` sayılır ve Gmail'de yerel kısmın noktaları silinir. Böylece `kurban+1@…`, `kurban+2@…` ve `k.urban@gmail.com` tek kutudur. `pending_registrations.mailbox_key` bu kutunun kendisi değil, **giriş biberiyle HMAC-SHA256'sıdır** (`login_attempts` hedefinin kalıbı, ADR-0025 §5). Bütçe yalnız eşitlik arar, adres gerekmez. Sızan bir tablo da adres listesiyle eşleştirilemez. Testler anahtarı adresle değil, servisin aynı fonksiyonuyla (`MailboxTarget`) üretip arar.
 
-**Kabul edilen risk:** bütçe hedef başınadır. Bir saldırgan kurbanın adresine bir saatte beş istek atarak o saat boyunca **kurbanın kendi kayıt ya da sıfırlama postasını engelleyebilir**. Hedef başına sınırın doğası budur; posta bombasına karşı korumanın bedeli olarak kabul edildi. Kurban bir saat sonra yeniden ister.
+**Kabul edilen riskler:**
+
+- **Hedefin postası engellenebilir.** Bütçe hedef başınadır. Bir saldırgan kurbanın adresine bir saatte beş istek atarak o saat boyunca **kurbanın kendi kayıt ya da sıfırlama postasını engelleyebilir**. Hedef başına sınırın doğası budur; posta bombasına karşı korumanın bedeli olarak kabul edildi. Kurban bir saat sonra yeniden ister.
+- **Dağıtık saldırı küresel tavanı doldurabilir.** Çok sayıda istemci adresinden (bir botnet) gelen kayıt istekleri, adres başına bütçeye takılmadan tavanı doldurabilir. O saat boyunca meşru kayıtlar da posta almaz, ama yanıt yine `202` olur. Tavanın varlık nedeni budur: aktarıcının itibarını ve posta faturasını korur, kaydın sürekliliğini değil. Azaltmalar: adres başına bütçe tek kaynağı sınırlar; tavan dolunca `KoalaRegistrationMailCapReached` çalar ve nöbetçi trafiğe bakar; tavan `KOALA_REGISTRATION_MAILS_PER_HOUR` ile yeniden başlatmadan önce ayarlanabilir (runbook). CAPTCHA ya da itibar tabanlı bir engel bu PR'ın kapsamında değil.
 
 ### 7. Oturumlar, kimlik bilgisi dönemi ve bildirim
 
@@ -128,6 +153,7 @@ E-posta bombası üç katmanla sınırlanır:
 - **Sıfırlamayı tamamlayan cihaz** posta kutusunun sahibi olduğunu kanıtlamıştır. O cihaz bilinen kaynak sayılır (`devices.credentials_proven_at`) ve hedef için bir `SUCCEEDED` deneme satırı yazılır. Kilit altındaki kullanıcı sıfırladıktan sonra hemen girer, hem o cihazdan hem başkasından (`TestResetLiftsTheLock`). **Sıfırlama oturum açmaz** (USR-019 kalıyor).
 - Sıfırlama ve değişim, kullanıcının açık sıfırlama token'ını iptal eder (USR-017). Silinmiş ya da askıya alınmış hesabın sıfırlaması geçersiz token gibi reddedilir.
 - **Uygulama içi değişimde yanlış mevcut parola** girişin deneme kaydına yazılır: hesabın giriş hedefinde `FAILED` sayılır ve aynı yüz denemelik kilide katkıda bulunur. Hedef kilitliyken değişim incelenmeden reddedilir (OWASP ASVS 4.0.3 V2.2.1). Ayrı bir sayaç yerine giriş kilidi seçildi, çünkü tahmin edilen şey aynı parola ve iki yüzey arasında bölünmüş iki bütçe saldırgana iki katını verirdi. Girişteki bilinen cihaz istisnası burada uygulanmaz, çünkü oturumu tutan cihaz çağıranın kendisidir. Başarılı değişim bir `SUCCEEDED` yazar (`TestPasswordChangeCountsFailures`).
+- **Değişimi yapan cihaz da bilinen kaynak olur.** Mevcut parolayı o cihazdan kanıtlamıştır; değişim de dönemi ileri aldığı için, işaretlenmeseydi değişimden sonra kullanıcının hiçbir cihazı bilinen kaynak kalmazdı. Değişimin oturumunun cihazı `credentials_proven_at` ile işaretlenir. Değişimden sonra hesabı kilitleyen bir saldırgan, kullanıcıyı o cihazdan dışarıda tutamaz; değişimden önce açılmış başka bir cihaz ise kilide takılır (`TestPasswordChangeProvesTheDevice`).
 - İkisi de "parolan değişti" bildirimini aynı transaction'da kuyruğa yazar: bildirim yalnız commit olan değişiklik için gider (AUTH-006). Java bildirimi yalnız sıfırlamada gönderiyor; Go uygulama içi değişimde de gönderir (ASVS V2.2.3). **Java'dan bilinçli ayrılık.**
 - Değişimde denetimlerin sırası: onay eşleşmesi → parola kuralı → yeni parola verilen mevcut parolayla aynı mı → kilit → mevcut parolanın doğrulanması.
 
@@ -135,7 +161,8 @@ E-posta bombası üç katmanla sınırlanır:
 
 | Tablo | Sınıf | Gerekçe |
 |---|---|---|
-| `pending_registrations` | M2, `pii` | Adres, isim, posta kutusu anahtarı, iki token'ın özeti. **Kayıt tüketilince ya da iptal edilince adres ve isimler hemen silinir** (KVKK veri en aza indirme). 30 gün yalnız bütçenin saydığı alanlarla (anahtar, zaman) kalır, sonra hard delete (USR-007). Adres başına tek açık satır, kısmi tekil indeksle. |
+| `pending_registrations` | M2, `pii` | Adres, isim, posta kutusu anahtarının HMAC'i, iki token'ın özeti. **Kayıt tüketilince ya da iptal edilince adres ve isimler hemen silinir** (KVKK veri en aza indirme). 30 gün yalnız bütçenin saydığı alanlarla kalır: anahtarın HMAC'i ve zaman, yani adres değil. Sonra hard delete (USR-007). Adres başına tek açık satır, kısmi tekil indeksle. |
+| `registration_requests` | M2 | Küresel tavanın defteri: işlenen her kayıt isteği için yalnız zamanı. Adres, anahtar ya da kullanıcı yok. Bir gün sonra hard delete. |
 | `password_reset_tokens` | M2 | Token özeti; kullanıcı başına tek açık satır, kısmi tekil indeksle. 30 gün sonra hard delete. `users`'a giden kenar `detach`'tir. |
 | `agreement_versions` | M4 | Belge başına tek güncel sürüm, Java'nın tohumu ve meta verisiyle: `locale`, `content_url` ve `content_hash`. Rızanın hangi metne verildiğinin kanıtı bunlardır. Java'nın tohumunda içerik özeti yoktur, alan boştur. `DISTANCE_SERVICE_CONTRACT` da gelir; Java onu kayıtta değil işlemle istediği için kayıtta zorunlu değildir. |
 | `consent_records` | M1, `pii` | Kim, hangi sürüme, ne zaman, **hangi istemci adresi ve User-Agent'tan** (Yusuf'un kararı, Java gibi). Uygulama yalnız ekler, okumaz, güncellemez. |
@@ -184,3 +211,4 @@ Bu uçlar personel uçları değildir; ADR-0026'nın denetim kaydı onlara uygul
 
 1. **Rıza IP/UA'sının 3 yıllık saklama süresi** Ticari İletişim Yönetmeliği'ne dayanıyor; **hukuk teyidi bekliyor.**
 2. **Küresel kayıt postası tavanının öntanımı** (saatte 500) ölçülmedi; trafik görüldüğünde gözden geçirilir.
+3. **İstemci adresi başına kayıt bütçesinin öntanımı** (saatte 10) da ölçülmedi. Mobil operatör NAT'ı arkasındaki gerçek oran ilk trafikte `koala_http_rate_limited_total{group="registration_address"}` ile görülür.

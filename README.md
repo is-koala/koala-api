@@ -120,7 +120,8 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_SMTP_USERNAME` | staging ve production'da `serve` için | — | Aktarıcı kimliği; parolayla birlikte verilir |
 | `KOALA_SMTP_PASSWORD` | staging ve production'da `serve` için | — | Aktarıcı parolası. **Sırdır**: log'a ve hata mesajına yazılmaz |
 | `KOALA_MAIL_FROM` | staging ve production'da `serve` için | — | Gönderen, RFC 5322 adresi (`Koala <no-reply@iskoala.com>`) |
-| `KOALA_REGISTRATION_MAILS_PER_HOUR` | hayır | `500` | Bütün adresler için saatlik kayıt postası tavanı (ADR-0032 Karar 6). Aşılırsa yeni kayıt postaları tutulur, `koala_account_mails_held_total{reason="global"}` artar ve `KoalaRegistrationMailCapReached` uyarısı çalar. 1–100000 |
+| `KOALA_REGISTRATION_MAILS_PER_HOUR` | hayır | `500` | Bütün adresler için saatlik kayıt isteği, dolayısıyla kayıt postası tavanı (ADR-0032 Karar 6). Kayıtlı ve kayıtsız adres tavanı aynı biçimde tüketir. Aşılırsa yeni kayıt postaları tutulur, `koala_account_mails_held_total{reason="global"}` artar ve `KoalaRegistrationMailCapReached` uyarısı çalar. 1–100000 |
+| `KOALA_REGISTRATION_STARTS_PER_IP_HOUR` | hayır | `10` | Bir istemci adresinden (IPv6'da /64) saatlik kayıt başlatma bütçesi, burst da aynı değer (ADR-0032 Karar 6). Aşılırsa `429 RATE_LIMITED`; `koala_http_rate_limited_total{group="registration_address"}` artar. 1–1000 |
 | `KOALA_WEB_BASE_URL` | staging ve production'da `serve` için | `local`/`test`'te `http://localhost:3000` | Postadaki bağlantıların açtığı web origin'i (`<origin>/hesap-dogrula?token=…`, `<origin>/sifre-sifirla?token=…`). `local` ve `test` dışında `https` |
 
 `KOALA_SMTP_*`, `KOALA_MAIL_FROM` ve `KOALA_WEB_BASE_URL` de yarım verilemez: biri verildiyse aktarıcı, gönderen ve web origin'i de verilir; kullanıcı adı ve parola birlikte verilir. `staging` ve `production`'da hiçbiri verilmemişse `serve` açılmaz, çünkü kayıt ve sıfırlama `202` döner ama hiçbir posta gitmez ve bunu hiçbir şey bildirmez (ADR-0032).
