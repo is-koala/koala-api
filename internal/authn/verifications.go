@@ -1,6 +1,7 @@
 package authn
 
 import (
+	"bytes"
 	"context"
 	"crypto/hkdf"
 	"crypto/hmac"
@@ -31,7 +32,12 @@ import (
 const (
 	mailVerificationCode = "verification_code"
 	mailContactChanged   = "contact_changed"
+	mailPhoneReleased    = "phone_released"
 )
+
+// phoneClaimClass is the first key of the two-key advisory lock of a
+// number's confirmations (LockPhoneClaim): "KP".
+const phoneClaimClass = 0x4b50
 
 // textCode is the text message of a code (Java's
 // verification.phone.code.sms, with a warning): one segment even in the
@@ -63,14 +69,20 @@ type Verifications struct {
 	mails *mailer.Templates
 	// codeKey keys the stored digest of a code.
 	codeKey []byte
-	// textsPerHour is the global hourly cap of codes by text message.
-	textsPerHour int64
+	// perHour is the global hourly cap of codes, by channel.
+	perHour map[string]int64
+}
+
+// VerificationCaps are the global hourly caps of codes per channel; a
+// zero field is the default (DefaultTextsPerHour, DefaultMailCodesPerHour).
+type VerificationCaps struct {
+	TextsPerHour int
+	MailsPerHour int
 }
 
 // NewVerifications returns the verification flows on users' database,
-// clock and pepper. textsPerHour is the global hourly cap of text
-// messages, 0 for DefaultTextsPerHour.
-func NewVerifications(users *Service, queue jobQueue, mail mailSender, texts textSender, textsPerHour int) (*Verifications, error) {
+// clock and pepper, with the global hourly caps of caps.
+func NewVerifications(users *Service, queue jobQueue, mail mailSender, texts textSender, caps VerificationCaps) (*Verifications, error) {
 	if users == nil || queue == nil || mail == nil || texts == nil {
 		return nil, errors.New("authn: verifications need the user service, a job queue, a mail sender and a text sender")
 	}
@@ -78,15 +90,18 @@ func NewVerifications(users *Service, queue jobQueue, mail mailSender, texts tex
 	if err != nil {
 		return nil, fmt.Errorf("authn: derive the code key: %w", err)
 	}
-	mails, err := parseMailTemplates(mailVerificationCode, mailContactChanged)
+	mails, err := parseMailTemplates(mailVerificationCode, mailContactChanged, mailPhoneReleased)
 	if err != nil {
 		return nil, err
 	}
-	limit := int64(DefaultTextsPerHour)
-	if textsPerHour > 0 {
-		limit = int64(textsPerHour)
+	perHour := map[string]int64{ChannelPhone: DefaultTextsPerHour, ChannelEmail: DefaultMailCodesPerHour}
+	if caps.TextsPerHour > 0 {
+		perHour[ChannelPhone] = int64(caps.TextsPerHour)
 	}
-	return &Verifications{users: users, queue: queue, mail: mail, texts: texts, mails: mails, codeKey: key, textsPerHour: limit}, nil
+	if caps.MailsPerHour > 0 {
+		perHour[ChannelEmail] = int64(caps.MailsPerHour)
+	}
+	return &Verifications{users: users, queue: queue, mail: mail, texts: texts, mails: mails, codeKey: key, perHour: perHour}, nil
 }
 
 // resendError is VERIFICATION_RESEND_TOO_SOON with the wait the answer's
@@ -163,17 +178,37 @@ func targetLock(key []byte) int64 {
 	return k
 }
 
+// claimLock is the second key of a number's claim lock: the keyed
+// target's first four bytes, big-endian.
+func claimLock(key []byte) int32 {
+	var k int32
+	for _, b := range key[:4] {
+		k = k<<8 | int32(b)
+	}
+	return k
+}
+
 // Start opens a verification of a new address or number for the caller
 // and queues its code (USR-008). The caller's open verification of the
 // same channel and target is canceled (USR-010). The resend cooldown,
 // the target's hourly budget (over every user) and the caller's daily cap
 // per channel answer VERIFICATION_RESEND_TOO_SOON with the wait.
 //
+// The caller re-authenticates with the current password first (OWASP ASVS
+// 4.0.3 V3.7.1, ADR-0033 Karar 1b): a stolen session cannot move the
+// account's address and then reset its password. A wrong password counts
+// on the account's sign-in target and its lock, like an in-app password
+// change.
+//
 // The answer does not say whether the target is another account's: that
 // is told only on confirmation, to the caller who entered the code sent
 // to it (ADR-0033).
-func (v *Verifications) Start(ctx context.Context, p UserPrincipal, channel, raw string) (Verification, error) {
+func (v *Verifications) Start(ctx context.Context, p UserPrincipal, channel, raw, currentPassword string) (Verification, error) {
 	target, budget, err := verificationTarget(channel, raw)
+	if err != nil {
+		return Verification{}, err
+	}
+	_, signIn, err := v.users.confirmPassword(ctx, p.UserID, currentPassword)
 	if err != nil {
 		return Verification{}, err
 	}
@@ -220,6 +255,9 @@ func (v *Verifications) Start(ctx context.Context, p UserPrincipal, channel, raw
 		})
 		if err != nil {
 			return fmt.Errorf("authn: insert the verification: %w", err)
+		}
+		if err := insertAttempt(ctx, q, principalUser, signIn, outcomeSucceeded, now); err != nil {
+			return err
 		}
 		return v.enqueueTx(ctx, tx, verificationCodeArgs{Ref: id, Channel: channel})
 	})
@@ -268,35 +306,62 @@ func (v *Verifications) budgetWait(ctx context.Context, q *authndb.Queries, user
 
 // Confirm checks a code against one of the caller's verifications and,
 // when it is right, writes the new address or number as verified
-// (USR-014). The checks run in ADR-0029 Karar 3's order: the record and
-// its owner (another user's is the 404 of a missing one, USR-011), its
-// state (a confirmed one is a conflict whatever the code, USR-013; a
-// burned one is exhausted, USR-009), its end before the code (USR-012),
-// and the code. A wrong code is counted under the row lock and the
-// fifth burns the verification, so five holds under concurrency.
+// (USR-014). The checks run in ADR-0029 Karar 3's order, with the state
+// ahead of the expiry (ADR-0033 Karar 2): the record and its owner
+// (another user's is the 404 of a missing one, USR-011), its state (a
+// confirmed one is a conflict whatever the code, USR-013; a burned one is
+// exhausted, USR-009), its end before the code (USR-012), and the code. A
+// wrong code is counted under the row lock and the fifth burns the
+// verification, so five holds under concurrency.
 //
-// A target another active account holds is VERIFICATION_TARGET_IN_USE:
+// An address another active account holds is VERIFICATION_TARGET_IN_USE:
 // the transaction rolls back and the verification is not consumed. Only
-// the caller who entered the right code, the target's owner, learns it.
-// The change is told by mail to the address on file before it; an
-// address change also revokes the open password reset, mailed to the old
-// address.
+// the caller who entered the right code, the address's owner, learns it.
+// A number another account holds moves to the caller, who proved it is
+// theirs (a recycled number, ADR-0033 Karar 10): the other account loses
+// it and is told by mail.
+//
+// Lock order (ADR-0033 Karar 5): a number's claim lock, then the user rows
+// in id order (the caller's and the number's holder's), then the
+// verification, then the password reset rows.
 func (v *Verifications) Confirm(ctx context.Context, p UserPrincipal, id uuid.UUID, code string) (Verification, error) {
 	now := v.users.clock.Now()
 	notFound := apperr.New(apperr.KindNotFound, CodeVerificationNotFound)
+	// The channel and target never change; a number's claim is taken
+	// before any row lock.
+	peek, err := v.users.reads.GetVerification(ctx, authndb.GetVerificationParams{ID: id, UserID: p.UserID})
+	claim := err == nil && peek.Channel == ChannelPhone
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return Verification{}, fmt.Errorf("authn: load the verification: %w", err)
+	}
 	var out Verification
 	var outcome error
-	err := v.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
+	err = v.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := authndb.New(tx)
-		// The user's row first, then the verification's: Start takes them
-		// in the same order.
-		u, err := q.LockUserForSignIn(ctx, p.UserID)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && u.Status != UserActive) {
+		users := []uuid.UUID{p.UserID}
+		if claim {
+			err := q.LockPhoneClaim(ctx, authndb.LockPhoneClaimParams{
+				LockClass: phoneClaimClass, LockKey: claimLock(v.users.targets.of(peek.Target)),
+			})
+			if err != nil {
+				return fmt.Errorf("authn: lock the number's claim: %w", err)
+			}
+			holder, err := q.GetPhoneHolder(ctx, authndb.GetPhoneHolderParams{Phone: peek.Target, UserID: p.UserID})
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return fmt.Errorf("authn: find the number's holder: %w", err)
+			}
+			if err == nil {
+				users = append(users, holder)
+			}
+		}
+		locked, err := lockUsers(ctx, q, users)
+		if err != nil {
+			return err
+		}
+		u, ok := locked[p.UserID]
+		if !ok || u.Status != UserActive {
 			outcome = apperr.New(apperr.KindUnauthenticated, CodeSessionInactive)
 			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("authn: lock user: %w", err)
 		}
 		row, err := q.LockVerification(ctx, authndb.LockVerificationParams{ID: id, UserID: p.UserID})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -332,7 +397,8 @@ func (v *Verifications) Confirm(ctx context.Context, p UserPrincipal, id uuid.UU
 		if err := q.ConfirmVerification(ctx, authndb.ConfirmVerificationParams{Now: now, ID: row.ID}); err != nil {
 			return fmt.Errorf("authn: confirm the verification: %w", err)
 		}
-		if err := v.apply(ctx, tx, q, u, row.Channel, row.Target, now); err != nil {
+		delete(locked, p.UserID)
+		if err := v.apply(ctx, tx, q, u, locked, row.Channel, row.Target, now); err != nil {
 			return err
 		}
 		confirmed := now
@@ -352,11 +418,32 @@ func (v *Verifications) Confirm(ctx context.Context, p UserPrincipal, id uuid.UU
 	return out, nil
 }
 
-// apply writes a confirmed target on the locked user and queues the
-// notice. A target another active account holds is a conflict, and the
-// error rolls the confirmation back with the rest.
+// lockUsers locks the active rows of ids in id order, the one order every
+// path that locks two users takes, so two confirmations that each move a
+// number from the other's account cannot deadlock. A deleted user is
+// left out.
+func lockUsers(ctx context.Context, q *authndb.Queries, ids []uuid.UUID) (map[uuid.UUID]authndb.LockUserForSignInRow, error) {
+	slices.SortFunc(ids, func(a, b uuid.UUID) int { return bytes.Compare(a[:], b[:]) })
+	locked := make(map[uuid.UUID]authndb.LockUserForSignInRow, len(ids))
+	for _, id := range ids {
+		u, err := q.LockUserForSignIn(ctx, id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("authn: lock user: %w", err)
+		}
+		locked[id] = u
+	}
+	return locked, nil
+}
+
+// apply writes a confirmed target on the locked user u and queues the
+// notices. others are the other locked users: the number's holder, if
+// any. An address another active account holds is a conflict, and the
+// error rolls the confirmation back with the rest; a number moves.
 func (v *Verifications) apply(ctx context.Context, tx db.Querier, q *authndb.Queries, u authndb.LockUserForSignInRow,
-	channel, target string, now time.Time,
+	others map[uuid.UUID]authndb.LockUserForSignInRow, channel, target string, now time.Time,
 ) error {
 	inUse := apperr.New(apperr.KindConflict, CodeVerificationTargetInUse)
 	notice := contactChangedArgs{User: u.ID, Channel: channel}
@@ -379,12 +466,27 @@ func (v *Verifications) apply(ctx context.Context, tx db.Querier, q *authndb.Que
 		}
 		notice.Previous = u.Email
 	case ChannelPhone:
+		for _, holder := range others {
+			if holder.Phone == nil || *holder.Phone != target {
+				continue
+			}
+			if err := q.ClearUserPhone(ctx, holder.ID); err != nil {
+				return fmt.Errorf("authn: take the number from its holder: %w", err)
+			}
+			if err := v.enqueueTx(ctx, tx, contactChangedArgs{User: holder.ID, Channel: ChannelPhone, Released: true}); err != nil {
+				return err
+			}
+		}
 		err := q.SetUserPhone(ctx, authndb.SetUserPhoneParams{Phone: target, ID: u.ID})
 		if phoneTaken(err) {
+			// Only a writer outside the claim lock gets here.
 			return inUse
 		}
 		if err != nil {
 			return fmt.Errorf("authn: write the number: %w", err)
+		}
+		if u.Phone != nil && *u.Phone == target {
+			return nil // the number on file, now verified: nothing changed
 		}
 	default:
 		return fmt.Errorf("authn: unknown verification channel %q", channel)

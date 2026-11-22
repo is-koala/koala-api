@@ -32,6 +32,12 @@ const (
 	// defaultRegistrationStartsPerIP is that budget an hour, and its burst;
 	// KOALA_REGISTRATION_STARTS_PER_IP_HOUR overrides it.
 	defaultRegistrationStartsPerIP = 10
+	// groupVerificationAddress holds the per-client-address budget of
+	// verification starts (ADR-0033 Karar 4). No route is in it.
+	groupVerificationAddress = "verification_address"
+	// defaultVerificationStartsPerIP is that budget an hour, and its burst;
+	// KOALA_VERIFICATION_STARTS_PER_IP_HOUR overrides it.
+	defaultVerificationStartsPerIP = 20
 )
 
 // perMinute is a bucket of burst requests that refills n per minute.
@@ -45,11 +51,15 @@ func perHour(n, burst int) httpx.Rate {
 }
 
 // serveRateLimitGroups are rateLimitGroups with cfg's overrides: the
-// per-address budget of registration starts is configurable.
+// per-address budgets of registration and verification starts are
+// configurable.
 func serveRateLimitGroups(cfg config.Config) map[string]httpx.GroupLimits {
 	groups := rateLimitGroups()
 	if n := cfg.Mail.RegistrationStartsPerIP; n > 0 {
 		groups[groupRegistrationAddress] = httpx.GroupLimits{PerCustom: perHour(n, n)}
+	}
+	if n := cfg.Verification.StartsPerIP; n > 0 {
+		groups[groupVerificationAddress] = httpx.GroupLimits{PerCustom: perHour(n, n)}
 	}
 	return groups
 }
@@ -74,5 +84,8 @@ func rateLimitGroups() map[string]httpx.GroupLimits {
 		// Registration starts from one client address (an IPv6 /64), on
 		// top of auth's per-address limit (ADR-0032 Karar 6).
 		groupRegistrationAddress: {PerCustom: perHour(defaultRegistrationStartsPerIP, defaultRegistrationStartsPerIP)},
+		// Verification starts from one client address, on top of auth's
+		// per-address limit (ADR-0033 Karar 4).
+		groupVerificationAddress: {PerCustom: perHour(defaultVerificationStartsPerIP, defaultVerificationStartsPerIP)},
 	}
 }

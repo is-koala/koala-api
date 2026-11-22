@@ -34,7 +34,7 @@ func newClient(t *testing.T, f *fakes.IletiMerkezi) *iletimerkezi.Client {
 // the credentials in the body only.
 func TestSendDeliversThroughTheProvider(t *testing.T) {
 	t.Parallel()
-	f := fakes.NewIletiMerkezi(t, testKey, testHash)
+	f := fakes.NewIletiMerkezi(t, testKey, testHash, "KOALA")
 	if err := newClient(t, f).Send(t.Context(), sms.Message{To: phone, Text: "Koala doğrulama kodunuz: 042913"}); err != nil {
 		t.Fatal(err)
 	}
@@ -60,16 +60,23 @@ func TestSendDeliversThroughTheProvider(t *testing.T) {
 	}
 	var body struct {
 		Request struct {
-			Order struct {
-				Message map[string]json.RawMessage `json:"message"`
-			} `json:"order"`
+			Order map[string]json.RawMessage `json:"order"`
 		} `json:"request"`
 	}
 	if err := json.Unmarshal(r.Body, &body); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := body.Request.Order.Message[iletimerkezi.RecipientsKey]; !ok || iletimerkezi.RecipientsKey != "rece"+"ipents" {
-		t.Errorf("message keys %v lack the provider's recipients key", body.Request.Order.Message)
+	var msg map[string]json.RawMessage
+	if err := json.Unmarshal(body.Request.Order["message"], &msg); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := msg[iletimerkezi.RecipientsKey]; !ok || iletimerkezi.RecipientsKey != "rece"+"ipents" {
+		t.Errorf("message keys %v lack the provider's recipients key", msg)
+	}
+	// The order goes at once: no sendDateTime, which an empty list would
+	// make a 457 (the provider's documentation; Java sends none either).
+	if _, ok := body.Request.Order["sendDateTime"]; ok {
+		t.Errorf("the order carries sendDateTime: %s", body.Request.Order["sendDateTime"])
 	}
 }
 
@@ -87,7 +94,8 @@ func TestSendClassifiesTheAnswer(t *testing.T) {
 		"accepted, numeric code":    {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziOK, true), ok: true},
 		"recipient refused":         {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziRecipients, false), undelivered: true},
 		"recipient refused numeric": {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziRecipients, true), undelivered: true},
-		"text too long":             {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziTooLong, false), undelivered: true},
+		"order over the size limit": {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziOrderSize, false), undelivered: true},
+		"invalid number":            {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziBadNumber, false), undelivered: true},
 		"empty text":                {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziEmptyText, false), undelivered: true},
 		"no balance":                {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziNoBalance, false)},
 		"sender not approved":       {answer: fakes.IletiMerkeziStatus(fakes.IletiMerkeziBadSender, false)},
@@ -96,7 +104,7 @@ func TestSendClassifiesTheAnswer(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			f := fakes.NewIletiMerkezi(t, testKey, testHash)
+			f := fakes.NewIletiMerkezi(t, testKey, testHash, "KOALA")
 			f.Enqueue(http.MethodPost, f.SendPath(), tc.answer)
 			err := newClient(t, f).Send(t.Context(), sms.Message{To: phone, Text: "Koala doğrulama kodunuz: 042913"})
 			if tc.ok {
@@ -120,11 +128,31 @@ func TestSendClassifiesTheAnswer(t *testing.T) {
 	}
 }
 
+// A redirect is not followed: a 307 or 308 would carry the credentials in
+// the body to another host.
+func TestSendRefusesRedirects(t *testing.T) {
+	t.Parallel()
+	f := fakes.NewIletiMerkezi(t, testKey, testHash, "KOALA")
+	elsewhere := fakes.NewIletiMerkezi(t, testKey, testHash, "KOALA")
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		f.Enqueue(http.MethodPost, f.SendPath(), fakes.Response{
+			Status: status, Header: http.Header{"Location": {elsewhere.URL() + elsewhere.SendPath()}},
+		})
+		err := newClient(t, f).Send(t.Context(), sms.Message{To: phone, Text: "x"})
+		if err == nil || errors.Is(err, sms.ErrUndeliverable) {
+			t.Errorf("Send answered %d = %v, want a retried error", status, err)
+		}
+	}
+	if n := len(elsewhere.Requests()); n != 0 {
+		t.Errorf("the redirect target got %d requests", n)
+	}
+}
+
 // Wrong credentials are an operational fault, retried, not a refused
 // recipient.
 func TestSendWithForeignCredentials(t *testing.T) {
 	t.Parallel()
-	f := fakes.NewIletiMerkezi(t, testKey, "another-hash")
+	f := fakes.NewIletiMerkezi(t, testKey, "another-hash", "KOALA")
 	err := newClient(t, f).Send(t.Context(), sms.Message{To: phone, Text: "x"})
 	if err == nil || errors.Is(err, sms.ErrUndeliverable) {
 		t.Fatalf("Send with foreign credentials = %v, want a retried error", err)
@@ -134,7 +162,7 @@ func TestSendWithForeignCredentials(t *testing.T) {
 // A number outside Türkiye never reaches the provider.
 func TestSendOnlyToTurkishNumbers(t *testing.T) {
 	t.Parallel()
-	f := fakes.NewIletiMerkezi(t, testKey, testHash)
+	f := fakes.NewIletiMerkezi(t, testKey, testHash, "KOALA")
 	for _, to := range []string{"+447700900123", "+9053212345", "05321234567", ""} {
 		err := newClient(t, f).Send(t.Context(), sms.Message{To: to, Text: "x"})
 		if !errors.Is(err, sms.ErrUndeliverable) {

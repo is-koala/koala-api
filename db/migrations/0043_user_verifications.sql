@@ -4,7 +4,8 @@
 -- users gains phone: the verified number in E.164, NULL until one is
 -- confirmed. Like users.email it is written only by a confirmed
 -- verification (USR-014), and like it at most one active account holds a
--- number. phone_verified (0042) is its flag.
+-- number; a number confirmed on another account moves to it (a recycled
+-- number, ADR-0033 Karar 10). phone_verified (0042) is its flag.
 --
 -- user_verifications: short-lived (M2). One row is one code sent to one
 -- target for one user. The code is six decimal digits over the whole
@@ -51,6 +52,11 @@ CREATE TABLE user_verifications (
     -- ended. Each send mints a new code and replaces the digest.
     code_digest bytea,
     code_sent_at timestamptz,
+    -- When the job last held the code back unsent: the global hourly cap
+    -- of the channel was full, or too little of the ten minutes was left
+    -- (ADR-0033 Karar 4). A held, unsent verification spends no resend
+    -- budget.
+    held_at timestamptz,
     failed_attempts integer NOT NULL,
     confirmed_at timestamptz,
     canceled_at timestamptz,
@@ -82,8 +88,8 @@ CREATE UNIQUE INDEX user_verifications_open_key ON user_verifications (user_id, 
 CREATE INDEX user_verifications_target_created_idx ON user_verifications (target_key, created_at);
 -- The caller's list and its daily cap per channel.
 CREATE INDEX user_verifications_user_created_idx ON user_verifications (user_id, created_at);
--- The global hourly cap of text messages.
-CREATE INDEX user_verifications_sms_sent_idx ON user_verifications (code_sent_at) WHERE channel = 'PHONE';
+-- The global hourly cap of each channel.
+CREATE INDEX user_verifications_channel_sent_idx ON user_verifications (channel, code_sent_at);
 CREATE INDEX user_verifications_created_at_idx ON user_verifications (created_at);
 
 -- Written and purged by the application (purge job, koala_app).

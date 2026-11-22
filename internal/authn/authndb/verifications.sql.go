@@ -62,6 +62,17 @@ func (q *Queries) CancelVerification(ctx context.Context, arg CancelVerification
 	return result.RowsAffected(), nil
 }
 
+const clearUserPhone = `-- name: ClearUserPhone :exec
+UPDATE active_users SET phone = NULL, phone_verified = false WHERE id = $1
+`
+
+// ClearUserPhone takes a number away from the account that held it: the
+// number was confirmed on another account (ADR-0033 Karar 10).
+func (q *Queries) ClearUserPhone(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, clearUserPhone, id)
+	return err
+}
+
 const confirmVerification = `-- name: ConfirmVerification :exec
 UPDATE user_verifications
 SET confirmed_at = $1::timestamptz, code_digest = NULL
@@ -80,19 +91,43 @@ func (q *Queries) ConfirmVerification(ctx context.Context, arg ConfirmVerificati
 	return err
 }
 
-const countRecentTextMessages = `-- name: CountRecentTextMessages :one
+const countRecentCodes = `-- name: CountRecentCodes :one
 SELECT count(*)
 FROM user_verifications
-WHERE channel = 'PHONE' AND code_sent_at > $1::timestamptz
+WHERE channel = $1::text AND code_sent_at > $2::timestamptz
 `
 
-// CountRecentTextMessages counts the codes sent by text message after
-// since, over every user: the global hourly cap (ADR-0033).
-func (q *Queries) CountRecentTextMessages(ctx context.Context, since time.Time) (int64, error) {
-	row := q.db.QueryRow(ctx, countRecentTextMessages, since)
+type CountRecentCodesParams struct {
+	Channel string
+	Since   time.Time
+}
+
+// CountRecentCodes counts the codes a channel sent after since, over every
+// user: the channel's global hourly cap (ADR-0033 Karar 4).
+func (q *Queries) CountRecentCodes(ctx context.Context, arg CountRecentCodesParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentCodes, arg.Channel, arg.Since)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const getPhoneHolder = `-- name: GetPhoneHolder :one
+SELECT id
+FROM active_users
+WHERE phone = $1::text AND id <> $2
+`
+
+type GetPhoneHolderParams struct {
+	Phone  string
+	UserID uuid.UUID
+}
+
+// GetPhoneHolder is the other active account that holds a number.
+func (q *Queries) GetPhoneHolder(ctx context.Context, arg GetPhoneHolderParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getPhoneHolder, arg.Phone, arg.UserID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const getVerification = `-- name: GetVerification :one
@@ -132,6 +167,29 @@ func (q *Queries) GetVerification(ctx context.Context, arg GetVerificationParams
 		&i.ConfirmedAt,
 	)
 	return i, err
+}
+
+const holdVerificationCode = `-- name: HoldVerificationCode :one
+UPDATE user_verifications
+SET held_at = $1::timestamptz
+WHERE id = $2 AND code_digest IS NULL
+  AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
+RETURNING expires_at
+`
+
+type HoldVerificationCodeParams struct {
+	Now time.Time
+	ID  uuid.UUID
+}
+
+// HoldVerificationCode marks an open verification whose code the job
+// holds back unsent, and returns its end. No row: it ended, or its code
+// was sent.
+func (q *Queries) HoldVerificationCode(ctx context.Context, arg HoldVerificationCodeParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, holdVerificationCode, arg.Now, arg.ID)
+	var expires_at time.Time
+	err := row.Scan(&expires_at)
+	return expires_at, err
 }
 
 const insertVerification = `-- name: InsertVerification :exec
@@ -294,6 +352,24 @@ func (q *Queries) ListOpenVerificationsNewer(ctx context.Context, arg ListOpenVe
 	return items, nil
 }
 
+const lockPhoneClaim = `-- name: LockPhoneClaim :exec
+SELECT pg_advisory_xact_lock($1::integer, $2::integer)
+`
+
+type LockPhoneClaimParams struct {
+	LockClass int32
+	LockKey   int32
+}
+
+// LockPhoneClaim serializes the confirmations of one number until the
+// transaction ends, so the number's holder read under it stays the holder
+// (ADR-0033 Karar 10). The two-key form keeps it apart from the
+// single-key start lock of the same target.
+func (q *Queries) LockPhoneClaim(ctx context.Context, arg LockPhoneClaimParams) error {
+	_, err := q.db.Exec(ctx, lockPhoneClaim, arg.LockClass, arg.LockKey)
+	return err
+}
+
 const lockVerification = `-- name: LockVerification :one
 SELECT id, channel, target, created_at, expires_at, code_digest, failed_attempts,
        confirmed_at, canceled_at, burned_at
@@ -342,6 +418,37 @@ func (q *Queries) LockVerification(ctx context.Context, arg LockVerificationPara
 	return i, err
 }
 
+const lockVerificationForCode = `-- name: LockVerificationForCode :one
+SELECT v.channel, v.target
+FROM user_verifications v
+LEFT JOIN active_users u ON u.id = v.user_id
+WHERE v.id = $1 AND v.confirmed_at IS NULL AND v.canceled_at IS NULL AND v.burned_at IS NULL
+  AND v.expires_at > $2::timestamptz AND u.id IS NOT NULL AND u.status = 'ACTIVE'
+FOR UPDATE OF v
+`
+
+type LockVerificationForCodeParams struct {
+	ID         uuid.UUID
+	SendBefore time.Time
+}
+
+type LockVerificationForCodeRow struct {
+	Channel string
+	Target  string
+}
+
+// LockVerificationForCode locks an open verification that has at least
+// the sending window of its life left and whose user is active, and
+// returns where its code goes. No row: none of that holds, and no code is
+// minted.
+// softdelete:inner-by-design users: a code goes only to a verification whose user is still active; a deleted user's verification is dead and its target must get nothing (ADR-0033)
+func (q *Queries) LockVerificationForCode(ctx context.Context, arg LockVerificationForCodeParams) (LockVerificationForCodeRow, error) {
+	row := q.db.QueryRow(ctx, lockVerificationForCode, arg.ID, arg.SendBefore)
+	var i LockVerificationForCodeRow
+	err := row.Scan(&i.Channel, &i.Target)
+	return i, err
+}
+
 const lockVerificationTarget = `-- name: LockVerificationTarget :exec
 SELECT pg_advisory_xact_lock($1::bigint)
 `
@@ -356,12 +463,10 @@ func (q *Queries) LockVerificationTarget(ctx context.Context, lockKey int64) err
 	return err
 }
 
-const mintVerificationCode = `-- name: MintVerificationCode :one
+const mintVerificationCode = `-- name: MintVerificationCode :exec
 UPDATE user_verifications
 SET code_digest = $1::bytea, code_sent_at = $2::timestamptz
-WHERE id = $3 AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
-  AND expires_at > $2::timestamptz
-RETURNING user_id, channel, target
+WHERE id = $3
 `
 
 type MintVerificationCodeParams struct {
@@ -370,22 +475,13 @@ type MintVerificationCodeParams struct {
 	ID         uuid.UUID
 }
 
-type MintVerificationCodeRow struct {
-	UserID  uuid.UUID
-	Channel string
-	Target  string
-}
-
-// MintVerificationCode stores the digest of a new code on an open,
-// unexpired verification, replacing any earlier one, and returns where
-// the code goes. No row: the verification ended or expired before its
-// code was sent. The statement commits on its own, before the code
-// leaves (no transaction is open during the send).
-func (q *Queries) MintVerificationCode(ctx context.Context, arg MintVerificationCodeParams) (MintVerificationCodeRow, error) {
-	row := q.db.QueryRow(ctx, mintVerificationCode, arg.CodeDigest, arg.Now, arg.ID)
-	var i MintVerificationCodeRow
-	err := row.Scan(&i.UserID, &i.Channel, &i.Target)
-	return i, err
+// MintVerificationCode stores the digest of a new code on the
+// verification LockVerificationForCode locked, replacing any earlier one.
+// The transaction commits before the code leaves (no transaction is open
+// during the send).
+func (q *Queries) MintVerificationCode(ctx context.Context, arg MintVerificationCodeParams) error {
+	_, err := q.db.Exec(ctx, mintVerificationCode, arg.CodeDigest, arg.Now, arg.ID)
+	return err
 }
 
 const purgeVerifications = `-- name: PurgeVerifications :execrows
@@ -465,6 +561,7 @@ SELECT count(*) AS sends,
        COALESCE(max(created_at), $1::timestamptz)::timestamptz AS last_at
 FROM user_verifications
 WHERE target_key = $2::bytea AND created_at > $1::timestamptz
+  AND (code_sent_at IS NOT NULL OR held_at IS NULL)
 `
 
 type TargetSendsSinceParams struct {
@@ -481,7 +578,8 @@ type TargetSendsSinceRow struct {
 // TargetSendsSince counts the verifications started for a keyed target,
 // by any user, after since, with the first and the last of them (since
 // itself when there is none). The resend cooldown and the target's hourly
-// budget read it (USR-010).
+// budget read it (USR-010). A verification whose code the job held back
+// unsent does not count (ADR-0033 Karar 4).
 func (q *Queries) TargetSendsSince(ctx context.Context, arg TargetSendsSinceParams) (TargetSendsSinceRow, error) {
 	row := q.db.QueryRow(ctx, targetSendsSince, arg.Since, arg.TargetKey)
 	var i TargetSendsSinceRow
@@ -495,6 +593,7 @@ SELECT count(*) AS sends,
 FROM user_verifications
 WHERE user_id = $2 AND channel = $3::text
   AND created_at > $1::timestamptz
+  AND (code_sent_at IS NOT NULL OR held_at IS NULL)
 `
 
 type UserSendsSinceParams struct {
@@ -510,6 +609,7 @@ type UserSendsSinceRow struct {
 
 // UserSendsSince counts the verifications a user started on a channel
 // after since, with the first of them: the user's daily cap (ADR-0033).
+// A verification whose code was held back unsent does not count.
 func (q *Queries) UserSendsSince(ctx context.Context, arg UserSendsSinceParams) (UserSendsSinceRow, error) {
 	row := q.db.QueryRow(ctx, userSendsSince, arg.Since, arg.UserID, arg.Channel)
 	var i UserSendsSinceRow

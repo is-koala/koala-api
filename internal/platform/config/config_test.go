@@ -31,6 +31,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 		ShutdownDrainDelay: config.DefaultShutdownDrainDelay,
 		ShutdownTimeout:    config.DefaultShutdownTimeout,
 		MetricsAddr:        config.DefaultMetricsAddr,
+		SMS:                config.SMS{Driver: config.SMSDriverIletiMerkezi},
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %+v, want %+v", cfg, want)
@@ -95,6 +96,7 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		JWTStaffKeys:       config.Secret(staffKeys),
 		RealtimeOrigins:    "https://iskoala.com",
 		LoginPepper:        config.Secret(pepper),
+		SMS:                config.SMS{Driver: config.SMSDriverIletiMerkezi},
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %+v, want %+v", cfg, want)
@@ -775,7 +777,9 @@ func TestLoadReadsTheSMSSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load() = %v", err)
 	}
-	want := config.SMS{APIKey: "test-sms-key", APIHash: "test-sms-hash-secret", Sender: "KOALA", PerHour: 300}
+	want := config.SMS{
+		Driver: config.SMSDriverIletiMerkezi, APIKey: "test-sms-key", APIHash: "test-sms-hash-secret", Sender: "KOALA", PerHour: 300,
+	}
 	if cfg.SMS != want {
 		t.Errorf("SMS = %+v, want %+v", cfg.SMS, want)
 	}
@@ -792,12 +796,18 @@ func TestLoadRejectsBadSMSValues(t *testing.T) {
 	t.Parallel()
 
 	for name, kv := range map[string]string{
-		"cap zero":         config.VarSMSPerHour + "=0",
-		"cap over":         config.VarSMSPerHour + "=100001",
-		"cap text":         config.VarSMSPerHour + "=many",
-		"sender too short": config.VarSMSSender + "=KO",
-		"sender too long":  config.VarSMSSender + "=KOALAKOALAKO",
-		"sender not ASCII": config.VarSMSSender + "=KOALAİŞ",
+		"cap zero":          config.VarSMSPerHour + "=0",
+		"cap over":          config.VarSMSPerHour + "=100001",
+		"cap text":          config.VarSMSPerHour + "=many",
+		"sender too short":  config.VarSMSSender + "=KO",
+		"sender too long":   config.VarSMSSender + "=KOALAKOALAKO",
+		"sender not ASCII":  config.VarSMSSender + "=KOALAİŞ",
+		"driver unknown":    config.VarSMSDriver + "=twilio",
+		"log in production": config.VarSMSDriver + "=" + config.SMSDriverLog,
+		"mail cap zero":     config.VarVerificationMailsPerHour + "=0",
+		"mail cap over":     config.VarVerificationMailsPerHour + "=100001",
+		"per address zero":  config.VarVerificationStartsPerIPHour + "=0",
+		"per address over":  config.VarVerificationStartsPerIPHour + "=1001",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -884,5 +894,52 @@ func TestServeSMSErrors(t *testing.T) {
 				t.Errorf("ServeSMSErrors() echoes a credential: %v", err)
 			}
 		})
+	}
+}
+
+// The log driver sends nothing: it is accepted in local, test and staging,
+// where it needs no account, and refused in production at load and by
+// serve (ADR-0033).
+func TestSMSLogDriver(t *testing.T) {
+	t.Parallel()
+
+	for _, env := range []string{"local", "test", "staging"} {
+		cfg, err := config.Load([]string{"KOALA_ENV=" + env, config.VarSMSDriver + "=" + config.SMSDriverLog})
+		if err != nil {
+			t.Fatalf("%s: Load(log driver) = %v", env, err)
+		}
+		if cfg.SMS.Driver != config.SMSDriverLog {
+			t.Errorf("%s: driver %q", env, cfg.SMS.Driver)
+		}
+		if err := cfg.ServeSMSErrors(); err != nil {
+			t.Errorf("%s: ServeSMSErrors() with the log driver = %v, want nil", env, err)
+		}
+	}
+	_, err := config.Load([]string{"KOALA_ENV=production", config.VarSMSDriver + "=" + config.SMSDriverLog})
+	if err == nil || !strings.Contains(err.Error(), config.VarSMSDriver) {
+		t.Errorf("Load(production, log driver) = %v, want a refusal naming %s", err, config.VarSMSDriver)
+	}
+	// Serve refuses it too, should a configuration reach it some other way.
+	prod := config.Config{Env: config.EnvProduction, SMS: config.SMS{Driver: config.SMSDriverLog}}
+	if err := prod.ServeSMSErrors(); err == nil {
+		t.Error("ServeSMSErrors() in production with the log driver = nil")
+	}
+	// Without the log driver, staging still needs the account.
+	cfg, err := config.Load([]string{"KOALA_ENV=staging", config.VarSMSDriver + "=" + config.SMSDriverIletiMerkezi})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ServeSMSErrors(); err == nil {
+		t.Error("ServeSMSErrors() in staging with the provider driver and no account = nil")
+	}
+}
+
+func TestLoadReadsTheVerificationBounds(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load([]string{"KOALA_ENV=test", config.VarVerificationMailsPerHour + "=50",
+		config.VarVerificationStartsPerIPHour + "=7"})
+	if err != nil || cfg.Verification != (config.Verification{MailsPerHour: 50, StartsPerIP: 7}) {
+		t.Errorf("Load(verification bounds) = %+v, %v", cfg.Verification, err)
 	}
 }

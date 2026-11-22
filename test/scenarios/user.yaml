@@ -179,8 +179,8 @@ scenarios:
     error: VERIFICATION_CODE_EXPIRED
     decision: "Java hatası (kod düz metin saklanıyor; uzay baştaki sıfırı dışlıyor; ömür on beş dakika)"
     target: >
-      Kod SHA-256 özeti olarak saklanır, uzay 000000-999999'dur ve ömür on dakikadır
-      (NIST SP 800-63B; ADR-0029 Karar 3). Java kodu düz metin saklıyor ve 100000-999999 üretiyor.
+      Kod anahtarlı özet (HMAC-SHA256) olarak saklanır, uzay 000000-999999'dur ve ömür on
+      dakikadır (NIST SP 800-63B; ADR-0029 Karar 3, ADR-0033 Karar 1). Java kodu düz metin saklıyor ve 100000-999999 üretiyor.
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/EmailVerificationManager.java#startEmailVerification"
       - "src/main/java/com/exskylab/koala/business/concretes/PhoneVerificationManager.java#startPhoneVerification"

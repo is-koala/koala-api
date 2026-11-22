@@ -10,21 +10,25 @@ SELECT pg_advisory_xact_lock(sqlc.arg(lock_key)::bigint);
 -- TargetSendsSince counts the verifications started for a keyed target,
 -- by any user, after since, with the first and the last of them (since
 -- itself when there is none). The resend cooldown and the target's hourly
--- budget read it (USR-010).
+-- budget read it (USR-010). A verification whose code the job held back
+-- unsent does not count (ADR-0033 Karar 4).
 SELECT count(*) AS sends,
        COALESCE(min(created_at), sqlc.arg(since)::timestamptz)::timestamptz AS first_at,
        COALESCE(max(created_at), sqlc.arg(since)::timestamptz)::timestamptz AS last_at
 FROM user_verifications
-WHERE target_key = sqlc.arg(target_key)::bytea AND created_at > sqlc.arg(since)::timestamptz;
+WHERE target_key = sqlc.arg(target_key)::bytea AND created_at > sqlc.arg(since)::timestamptz
+  AND (code_sent_at IS NOT NULL OR held_at IS NULL);
 
 -- name: UserSendsSince :one
 -- UserSendsSince counts the verifications a user started on a channel
 -- after since, with the first of them: the user's daily cap (ADR-0033).
+-- A verification whose code was held back unsent does not count.
 SELECT count(*) AS sends,
        COALESCE(min(created_at), sqlc.arg(since)::timestamptz)::timestamptz AS first_at
 FROM user_verifications
 WHERE user_id = sqlc.arg(user_id) AND channel = sqlc.arg(channel)::text
-  AND created_at > sqlc.arg(since)::timestamptz;
+  AND created_at > sqlc.arg(since)::timestamptz
+  AND (code_sent_at IS NOT NULL OR held_at IS NULL);
 
 -- name: CancelOpenVerifications :exec
 -- CancelOpenVerifications ends the user's open verification of a channel
@@ -39,24 +43,44 @@ WHERE user_id = sqlc.arg(user_id) AND channel = sqlc.arg(channel)::text AND targ
 INSERT INTO user_verifications (id, user_id, channel, target, target_key, created_at, expires_at, failed_attempts)
 VALUES ($1, $2, $3, $4, $5, $6, $7, 0);
 
--- name: CountRecentTextMessages :one
--- CountRecentTextMessages counts the codes sent by text message after
--- since, over every user: the global hourly cap (ADR-0033).
+-- name: CountRecentCodes :one
+-- CountRecentCodes counts the codes a channel sent after since, over every
+-- user: the channel's global hourly cap (ADR-0033 Karar 4).
 SELECT count(*)
 FROM user_verifications
-WHERE channel = 'PHONE' AND code_sent_at > sqlc.arg(since)::timestamptz;
+WHERE channel = sqlc.arg(channel)::text AND code_sent_at > sqlc.arg(since)::timestamptz;
 
--- name: MintVerificationCode :one
--- MintVerificationCode stores the digest of a new code on an open,
--- unexpired verification, replacing any earlier one, and returns where
--- the code goes. No row: the verification ended or expired before its
--- code was sent. The statement commits on its own, before the code
--- leaves (no transaction is open during the send).
+-- name: HoldVerificationCode :one
+-- HoldVerificationCode marks an open verification whose code the job
+-- holds back unsent, and returns its end. No row: it ended, or its code
+-- was sent.
+UPDATE user_verifications
+SET held_at = sqlc.arg(now)::timestamptz
+WHERE id = sqlc.arg(id) AND code_digest IS NULL
+  AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
+RETURNING expires_at;
+
+-- name: LockVerificationForCode :one
+-- LockVerificationForCode locks an open verification that has at least
+-- the sending window of its life left and whose user is active, and
+-- returns where its code goes. No row: none of that holds, and no code is
+-- minted.
+-- softdelete:inner-by-design users: a code goes only to a verification whose user is still active; a deleted user's verification is dead and its target must get nothing (ADR-0033)
+SELECT v.channel, v.target
+FROM user_verifications v
+LEFT JOIN active_users u ON u.id = v.user_id
+WHERE v.id = sqlc.arg(id) AND v.confirmed_at IS NULL AND v.canceled_at IS NULL AND v.burned_at IS NULL
+  AND v.expires_at > sqlc.arg(send_before)::timestamptz AND u.id IS NOT NULL AND u.status = 'ACTIVE'
+FOR UPDATE OF v;
+
+-- name: MintVerificationCode :exec
+-- MintVerificationCode stores the digest of a new code on the
+-- verification LockVerificationForCode locked, replacing any earlier one.
+-- The transaction commits before the code leaves (no transaction is open
+-- during the send).
 UPDATE user_verifications
 SET code_digest = sqlc.arg(code_digest)::bytea, code_sent_at = sqlc.arg(now)::timestamptz
-WHERE id = sqlc.arg(id) AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
-  AND expires_at > sqlc.arg(now)::timestamptz
-RETURNING user_id, channel, target;
+WHERE id = sqlc.arg(id);
 
 -- name: LockVerification :one
 -- LockVerification locks one of the user's verifications. Another user's
@@ -133,6 +157,24 @@ LIMIT sqlc.arg(max_rows)::integer;
 -- SetUserEmail writes a confirmed address (USR-014). An address another
 -- active account holds fails users_email_key.
 UPDATE active_users SET email = sqlc.arg(email)::text, email_verified = true WHERE id = sqlc.arg(id);
+
+-- name: LockPhoneClaim :exec
+-- LockPhoneClaim serializes the confirmations of one number until the
+-- transaction ends, so the number's holder read under it stays the holder
+-- (ADR-0033 Karar 10). The two-key form keeps it apart from the
+-- single-key start lock of the same target.
+SELECT pg_advisory_xact_lock(sqlc.arg(lock_class)::integer, sqlc.arg(lock_key)::integer);
+
+-- name: GetPhoneHolder :one
+-- GetPhoneHolder is the other active account that holds a number.
+SELECT id
+FROM active_users
+WHERE phone = sqlc.arg(phone)::text AND id <> sqlc.arg(user_id);
+
+-- name: ClearUserPhone :exec
+-- ClearUserPhone takes a number away from the account that held it: the
+-- number was confirmed on another account (ADR-0033 Karar 10).
+UPDATE active_users SET phone = NULL, phone_verified = false WHERE id = $1;
 
 -- name: SetUserPhone :exec
 -- SetUserPhone writes a confirmed number (USR-014). A number another

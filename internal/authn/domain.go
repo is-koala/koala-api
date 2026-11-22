@@ -157,6 +157,17 @@ const (
 	// message (KOALA_SMS_PER_HOUR overrides it): what a spread-out abuse
 	// can cost in an hour. A held code is counted and alerted on.
 	DefaultTextsPerHour = 200
+	// DefaultMailCodesPerHour is the global hourly cap of codes sent by
+	// mail (KOALA_VERIFICATION_MAILS_PER_HOUR overrides it): the relay's
+	// reputation, as the registration mail cap (ADR-0032 Karar 6).
+	DefaultMailCodesPerHour = 500
+	// VerificationSendWindow is the least of a verification's life that
+	// must be left for its code to be sent: a code that arrives with
+	// seconds to live only fails (ADR-0033 Karar 4).
+	VerificationSendWindow = 2 * time.Minute
+	// CapSnooze is how long a code held back by a global cap waits before
+	// its job tries again.
+	CapSnooze = 30 * time.Second
 	// VerificationRetention is how long a verification is kept before the
 	// purge hard-deletes it (M2): the longest budget window and a margin.
 	VerificationRetention = 48 * time.Hour

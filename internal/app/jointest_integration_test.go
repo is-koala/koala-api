@@ -214,7 +214,7 @@ func TestJoinTestOnTheContract(t *testing.T) {
 				}
 				verificationToken = pair.AccessToken
 				ver, err := a.mods.verifications.Start(ctx, authn.UserPrincipal{UserID: user, SessionID: pair.SessionID},
-					authn.ChannelPhone, "+905321234567")
+					authn.ChannelPhone, "+905321234567", userPw)
 				if err != nil {
 					return softdeletetest.Row{}, fmt.Errorf("start a verification: %w", err)
 				}

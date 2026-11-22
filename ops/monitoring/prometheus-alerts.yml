@@ -39,6 +39,13 @@ groups:
         for: 1m
         labels: { severity: warning, owner: backend }
         annotations: { summary: "Saatlik küresel doğrulama SMS'i tavanı doldu; yeni kodlar tutuluyor (ADR-0033)" }
+      # The global hourly cap of verification code mails (ADR-0033): the
+      # relay's reputation, like the registration mail cap.
+      - alert: KoalaVerificationMailCapReached
+        expr: increase(koala_verification_codes_total{channel="EMAIL",outcome="held"}[15m]) > 0
+        for: 1m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Saatlik küresel doğrulama postası tavanı doldu; yeni kodlar tutuluyor (ADR-0033)" }
       # SMS pumping shows as volume before the cap: half the default cap in
       # an hour is far above what the user base sends (ADR-0033).
       - alert: KoalaVerificationTextVolumeHigh

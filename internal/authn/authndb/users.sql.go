@@ -248,7 +248,7 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 }
 
 const lockUserForSignIn = `-- name: LockUserForSignIn :one
-SELECT id, status, password_hash, email
+SELECT id, status, password_hash, email, phone
 FROM active_users
 WHERE id = $1
 FOR UPDATE
@@ -259,6 +259,7 @@ type LockUserForSignInRow struct {
 	Status       string
 	PasswordHash *string
 	Email        string
+	Phone        *string
 }
 
 // LockUserForSignIn locks the active user row FOR UPDATE. It serializes
@@ -268,7 +269,8 @@ type LockUserForSignInRow struct {
 // sign-in inserts: the user cannot be soft-deleted until it commits. The
 // hash comes back so the caller can see whether it changed since the
 // password was verified outside the lock. The address is the sign-in
-// target of the account flows that record attempts.
+// target of the account flows that record attempts. The number is what a
+// verification compares a confirmed one with (ADR-0033).
 func (q *Queries) LockUserForSignIn(ctx context.Context, id uuid.UUID) (LockUserForSignInRow, error) {
 	row := q.db.QueryRow(ctx, lockUserForSignIn, id)
 	var i LockUserForSignInRow
@@ -277,6 +279,7 @@ func (q *Queries) LockUserForSignIn(ctx context.Context, id uuid.UUID) (LockUser
 		&i.Status,
 		&i.PasswordHash,
 		&i.Email,
+		&i.Phone,
 	)
 	return i, err
 }

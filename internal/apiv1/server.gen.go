@@ -2137,6 +2137,14 @@ type StartVerificationRequest struct {
 	// Channel Doğrulamanın kanalı.
 	Channel VerificationChannel `json:"channel"`
 
+	// CurrentPassword Çağıranın mevcut parolası; hassas iletişim bilgisi değişikliği yeniden kimlik
+	// doğrulaması ister (ADR-0033). Parolası olmayan hesap önce sıfırlamayla parola
+	// belirler.
+	//
+	//
+	// Examples: eski parola cümlesi
+	CurrentPassword string `json:"currentPassword"`
+
 	// Target Doğrulanacak yeni e-posta adresi ya da telefon numarası.
 	//
 	// Examples: ayse.yeni@example.com
@@ -2472,7 +2480,9 @@ type VerificationPage struct {
 }
 
 // VerificationStatus Doğrulamanın durumu. `BURNED` deneme sınırı dolduğu için yakılmış doğrulamadır:
-// doğru kodla bile onaylanamaz (USR-009).
+// doğru kodla bile onaylanamaz (USR-009). `BURNED` ve `CANCELLED` bugün hiçbir
+// yanıtta dönmez: yakılmış ve iptal edilmiş doğrulama yok sayılır (404), liste
+// yalnız açık doğrulamaları gösterir (ADR-0033).
 type VerificationStatus string
 
 // VerifyRegistrationRequest E-postadaki bağlantının token'ı; tüketilmez.
@@ -16257,6 +16267,22 @@ func (response StartMyVerification401ApplicationProblemPlusJSONResponse) VisitSt
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartMyVerification403ApplicationProblemPlusJSONResponse struct {
+	ForbiddenApplicationProblemPlusJSONResponse
+}
+
+func (response StartMyVerification403ApplicationProblemPlusJSONResponse) VisitStartMyVerificationResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(403)
 	_, err := buf.WriteTo(w)
 	return err
 }

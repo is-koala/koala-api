@@ -48,10 +48,14 @@ const (
 	statusOK = 200
 	// statusRecipients: the recipients are missing, invalid or blocked.
 	statusRecipients = 452
-	// statusTooLong: the text is over the provider's length limit.
-	statusTooLong = 453
+	// statusOrderSize: the order is over the provider's maximum size
+	// (seven message parts).
+	statusOrderSize = 453
 	// statusEmpty: the text is empty.
 	statusEmpty = 454
+	// statusBadNumber: an invalid number, usually a wrong Turkish
+	// carrier prefix.
+	statusBadNumber = 466
 )
 
 // permanent are the answers a retry cannot change: the recipient or the
@@ -59,7 +63,7 @@ const (
 // sender name, a malformed request, the provider busy) is an operational
 // fault a retry may outlive once it is fixed.
 func permanent(code int) bool {
-	return code == statusRecipients || code == statusTooLong || code == statusEmpty
+	return code == statusRecipients || code == statusOrderSize || code == statusEmpty || code == statusBadNumber
 }
 
 // Config is the provider account and where its API is.
@@ -84,6 +88,9 @@ type Client struct {
 	http     *http.Client
 }
 
+// errRedirect refuses every redirect of the provider's answer.
+var errRedirect = errors.New("iletimerkezi: the provider answered with a redirect, which is not followed")
+
 // New checks cfg and returns the client. Nothing is sent until Send.
 func New(cfg Config) (*Client, error) {
 	if cfg.Key == "" || cfg.Hash == "" || cfg.Sender == "" {
@@ -97,10 +104,14 @@ func New(cfg Config) (*Client, error) {
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return nil, errors.New("iletimerkezi: the base URL must be an absolute http or https URL")
 	}
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: timeout}
+	if cfg.HTTPClient != nil {
+		c := *cfg.HTTPClient
+		client = &c
 	}
+	// A redirect is refused: a 307 or 308 would carry the credentials in
+	// the body to wherever it points.
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errRedirect }
 	return &Client{
 		endpoint: strings.TrimSuffix(u.String(), "/") + SendPath,
 		key:      cfg.Key, hash: cfg.Hash, sender: cfg.Sender, http: client,
@@ -122,9 +133,11 @@ type authentication struct {
 	Hash string `json:"hash"`
 }
 
+// order is the order of one message. sendDateTime is left out: the
+// message goes at once (the field is an optional "dd/MM/yyyy HH:mm"
+// string; Java does not send it either).
 type order struct {
-	Sender       string   `json:"sender"`
-	SendDateTime []string `json:"sendDateTime"`
+	Sender string `json:"sender"`
 	// IYS is "0": a verification code is not a commercial message, so
 	// the İYS consent query does not apply (Java sends the same).
 	IYS     string  `json:"iys"`
@@ -190,7 +203,7 @@ func (c *Client) Send(ctx context.Context, m sms.Message) error {
 	body, err := json.Marshal(envelope{Request: request{
 		Authentication: authentication{Key: c.key, Hash: c.hash},
 		Order: order{
-			Sender: c.sender, SendDateTime: []string{}, IYS: "0", IYSList: "",
+			Sender: c.sender, IYS: "0", IYSList: "",
 			Message: message{Text: m.Text, Recipients: recipients{Number: []string{number}}},
 		},
 	}})

@@ -173,7 +173,10 @@ func wireAccounts(cfg config.Config, database *db.DB, users *authn.Service, logg
 	var texts interface {
 		Send(ctx context.Context, m sms.Message) error
 	}
-	if cfg.SMS.Configured() {
+	switch {
+	case cfg.SMS.Driver == config.SMSDriverLog:
+		texts = loggedText{logger: logger}
+	case cfg.SMS.Configured():
 		c, err := iletimerkezi.New(iletimerkezi.Config{
 			Key: cfg.SMS.APIKey.Reveal(), Hash: cfg.SMS.APIHash.Reveal(), Sender: cfg.SMS.Sender,
 		})
@@ -181,10 +184,12 @@ func wireAccounts(cfg config.Config, database *db.DB, users *authn.Service, logg
 			return nil, nil, fmt.Errorf("wire verifications: %w", err)
 		}
 		texts = c
-	} else {
+	default:
 		texts = droppedText{logger: logger}
 	}
-	verifications, err := authn.NewVerifications(users, queue, sender, texts, cfg.SMS.PerHour)
+	verifications, err := authn.NewVerifications(users, queue, sender, texts, authn.VerificationCaps{
+		TextsPerHour: cfg.SMS.PerHour, MailsPerHour: cfg.Verification.MailsPerHour,
+	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("wire verifications: %w", err)
 	}
@@ -222,6 +227,19 @@ type droppedText struct {
 
 func (d droppedText) Send(ctx context.Context, _ sms.Message) error {
 	d.logger.WarnContext(ctx, "no SMS provider configured; text message dropped")
+	return nil
+}
+
+// loggedText is the log driver of KOALA_SMS_DRIVER (local, test and
+// staging; config refuses it in production, ADR-0033): it sends nothing
+// and logs only that a message went, never the number or the text, which
+// holds a live code.
+type loggedText struct {
+	logger *slog.Logger
+}
+
+func (l loggedText) Send(ctx context.Context, _ sms.Message) error {
+	l.logger.InfoContext(ctx, "text message sent by the log driver; nothing left the service")
 	return nil
 }
 

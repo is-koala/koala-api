@@ -294,7 +294,7 @@ func (h *HTTP) StartMyVerification(ctx context.Context, req apiv1.StartMyVerific
 	if !ok {
 		return nil, errNoPrincipal
 	}
-	v, err := h.verifications.Start(ctx, p, string(req.Body.Channel), req.Body.Target)
+	v, err := h.verifications.Start(ctx, p, string(req.Body.Channel), req.Body.Target, req.Body.CurrentPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -415,11 +415,16 @@ type TargetLimiter interface {
 //     verify and complete, reset complete) take one from the bucket of the
 //     hashed token, an in-app password change from the user's; all in
 //     the pair group.
-//   - A verification start takes a token from the two buckets of its
-//     keyed target (every spelling of one mailbox or number is one
-//     target), like a registration start; a confirmation from the bucket
-//     of its verification, in the pair group (ADR-0033). A refusal of the
-//     verification's own resend budget carries Retry-After.
+//   - A verification start takes a token from its client address's
+//     bucket in the verification address group (a low hourly budget, the
+//     registration start's pattern), then from the caller's bucket and the
+//     (keyed target, address) bucket in the pair group. There is no
+//     target-wide bucket: one anybody could drain would keep the target's
+//     owner from verifying it for as long as the drain goes on; the
+//     target's resend budget in the database bounds the codes it gets. A
+//     confirmation takes one from the bucket of its verification, in the
+//     pair group (ADR-0033 Karar 4). A refusal of the verification's own
+//     resend budget carries Retry-After.
 //   - Token responses are not cached (RFC 6749 §5.1).
 //
 // The address bucket of the root chain applies on top.
@@ -479,6 +484,9 @@ type LimitGroups struct {
 	// RegistrationAddress holds the per-address budget of registration
 	// starts.
 	RegistrationAddress string
+	// VerificationAddress holds the per-address budget of verification
+	// starts.
+	VerificationAddress string
 }
 
 // bucketKind says which of LimitGroups a key's bucket is in.
@@ -488,6 +496,7 @@ const (
 	pairBucket bucketKind = iota
 	accountBucket
 	registrationAddressBucket
+	verificationAddressBucket
 )
 
 func (g LimitGroups) of(kind bucketKind) string {
@@ -498,6 +507,8 @@ func (g LimitGroups) of(kind bucketKind) string {
 		return g.Account
 	case registrationAddressBucket:
 		return g.RegistrationAddress
+	case verificationAddressBucket:
+		return g.VerificationAddress
 	}
 	return g.Pair
 }
@@ -555,7 +566,14 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 			return []limitKey{{key: "password:user:" + p.UserID.String()}}, false
 		}
 	case apiv1.StartMyVerificationRequestObject:
-		return signIn("verification:", h.verifications.TargetKey(string(req.Body.Channel), req.Body.Target), nil), false
+		// The address's own budget first: a request it refuses spends
+		// nothing of the caller's and the target's buckets.
+		keys := []limitKey{{key: "verification:address:" + addr, bucket: verificationAddressBucket}}
+		if p, ok := UserFrom(ctx); ok {
+			keys = append(keys, limitKey{key: "verification:user:" + p.UserID.String()})
+		}
+		target := hex.EncodeToString(h.verifications.TargetKey(string(req.Body.Channel), req.Body.Target))
+		return append(keys, limitKey{key: "verification:" + target + "@" + addr}), false
 	case apiv1.ConfirmMyVerificationRequestObject:
 		return []limitKey{{key: "verification-confirm:" + req.VerificationID.String()}}, false
 	}

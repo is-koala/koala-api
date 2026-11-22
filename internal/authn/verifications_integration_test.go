@@ -20,11 +20,15 @@ import (
 	"github.com/riverqueue/river/rivertype"
 
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/authn/authndb"
 	"github.com/is-koala/koala-api/internal/platform/apperr"
+	"github.com/is-koala/koala-api/internal/platform/db"
+	"github.com/is-koala/koala-api/internal/platform/dbtest"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/jobs"
 	"github.com/is-koala/koala-api/internal/platform/mailer"
 	"github.com/is-koala/koala-api/internal/platform/sms"
+	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
 const (
@@ -76,7 +80,7 @@ type verificationsEnv struct {
 	texts         *textbox
 }
 
-func newVerificationsEnv(t *testing.T, textsPerHour int) *verificationsEnv {
+func newVerificationsEnv(t *testing.T, caps authn.VerificationCaps) *verificationsEnv {
 	t.Helper()
 	a := newAccountsEnv(t)
 	queue, err := jobs.NewClient(a.db.Pool(), jobs.Config{Logger: discard()})
@@ -84,7 +88,7 @@ func newVerificationsEnv(t *testing.T, textsPerHour int) *verificationsEnv {
 		t.Fatal(err)
 	}
 	box := &textbox{}
-	v, err := authn.NewVerifications(a.users, queue, a.mail, box, textsPerHour)
+	v, err := authn.NewVerifications(a.users, queue, a.mail, box, caps)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +123,7 @@ func (v *verificationsEnv) workCodes(t *testing.T) error {
 			Channel  string    `json:"channel"`
 			User     uuid.UUID `json:"user"`
 			Previous string    `json:"previous"`
+			Released bool      `json:"released"`
 		}
 		if err := json.Unmarshal(j.Args, &args); err != nil {
 			t.Fatal(err)
@@ -126,7 +131,7 @@ func (v *verificationsEnv) workCodes(t *testing.T) error {
 		if j.Kind == "verification_code" {
 			err = v.verifications.SendCode(ctx, args.Ref, args.Channel)
 		} else {
-			err = v.verifications.SendContactNotice(ctx, args.User, args.Channel, args.Previous)
+			err = v.verifications.SendContactNotice(ctx, args.User, args.Channel, args.Previous, args.Released)
 		}
 		if _, e := v.db.Pool().Exec(ctx, "UPDATE river_job SET state = 'completed', finalized_at = now() WHERE id = $1", j.ID); e != nil {
 			t.Fatal(e)
@@ -154,7 +159,7 @@ func codeIn(t *testing.T, body string) string {
 // the verification and the code that arrived.
 func (v *verificationsEnv) start(t *testing.T, user uuid.UUID, channel, target string) (authn.Verification, string) {
 	t.Helper()
-	ver, err := v.verifications.Start(t.Context(), principal(user), channel, target)
+	ver, err := v.verifications.Start(t.Context(), principal(user), channel, target, goodPw)
 	if err != nil {
 		t.Fatalf("Start(%s, %s) = %v", channel, target, err)
 	}
@@ -250,7 +255,7 @@ func (v *verificationsEnv) textCounter(t *testing.T, outcome string) float64 {
 // TestCodeUsesTheWholeSpace.
 func TestVerificationCodeIsDigestedAndLivesTenMinutes(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 
 	ver, code := v.start(t, user, authn.ChannelPhone, "0532 123 45 67")
@@ -305,7 +310,7 @@ func TestVerificationCodeIsDigestedAndLivesTenMinutes(t *testing.T) {
 // can be started (USR-009).
 func TestVerificationBurnsAfterFiveWrongCodes(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	ver, code := v.start(t, user, authn.ChannelPhone, phoneN1)
 
@@ -340,7 +345,7 @@ func TestVerificationBurnsAfterFiveWrongCodes(t *testing.T) {
 // five attempts; the rest find the verification burned (USR-009).
 func TestAttemptLimitHoldsUnderConcurrency(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	ver, code := v.start(t, user, authn.ChannelPhone, phoneN1)
 
@@ -381,7 +386,7 @@ func TestAttemptLimitHoldsUnderConcurrency(t *testing.T) {
 // spelling of the target (USR-010).
 func TestOneOpenVerificationPerTarget(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	other := v.addUser(t, newcomer, goodPw)
 
@@ -391,7 +396,7 @@ func TestOneOpenVerificationPerTarget(t *testing.T) {
 		who    uuid.UUID
 		target string
 	}{{user, phoneN1}, {user, "0532-123-45-67"}, {other, "5321234567"}} {
-		_, err := v.verifications.Start(t.Context(), principal(tc.who), authn.ChannelPhone, tc.target)
+		_, err := v.verifications.Start(t.Context(), principal(tc.who), authn.ChannelPhone, tc.target, goodPw)
 		wantErr(t, err, apperr.KindRateLimited, authn.CodeVerificationResendTooSoon)
 		if wait, ok := authn.RetryAfter(err); !ok || wait <= 0 || wait > authn.VerificationCooldown {
 			t.Errorf("USR-010: the cooldown's wait = %v, %v", wait, ok)
@@ -424,7 +429,7 @@ func TestOneOpenVerificationPerTarget(t *testing.T) {
 		v.start(t, other, authn.ChannelPhone, phoneN1)
 	}
 	v.clock.Advance(authn.VerificationCooldown)
-	_, err = v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, phoneN1)
+	_, err = v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, phoneN1, goodPw)
 	wantErr(t, err, apperr.KindRateLimited, authn.CodeVerificationResendTooSoon)
 	if wait, ok := authn.RetryAfter(err); !ok || wait <= authn.VerificationCooldown {
 		t.Errorf("USR-010: the hourly budget's wait = %v, want more than the cooldown", wait)
@@ -441,7 +446,7 @@ func TestOneOpenVerificationPerTarget(t *testing.T) {
 // every operation, and it is neither touched nor spent (USR-011).
 func TestAnotherUsersVerificationIsNotFound(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	owner := v.addUser(t, member, goodPw)
 	intruder := v.addUser(t, newcomer, goodPw)
 	ver, code := v.start(t, owner, authn.ChannelPhone, phoneN1)
@@ -469,7 +474,7 @@ func TestAnotherUsersVerificationIsNotFound(t *testing.T) {
 // alike, and spends nothing: the expiry comes before the code (USR-012).
 func TestExpiryComesBeforeTheCode(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	ver, code := v.start(t, user, authn.ChannelPhone, phoneN1)
 	v.clock.Advance(authn.VerificationTTL + time.Second)
@@ -496,7 +501,7 @@ func TestExpiryComesBeforeTheCode(t *testing.T) {
 // second write or notice (USR-013).
 func TestConfirmConsumesTheVerification(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	ver, code := v.start(t, user, authn.ChannelPhone, phoneN1)
 
@@ -534,7 +539,7 @@ func TestConfirmConsumesTheVerification(t *testing.T) {
 // account's address.
 func TestConfirmedValueIsWrittenOnlyOnConfirmation(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 
 	ver, code := v.start(t, user, authn.ChannelPhone, phoneN1)
@@ -585,49 +590,162 @@ func TestConfirmedValueIsWrittenOnlyOnConfirmation(t *testing.T) {
 	v.login(t, changed, goodPw, deviceW1)
 }
 
-// A target another account holds is told only to the caller who entered
-// the code sent to it: the start answers as for a free target, a wrong
-// code is a wrong code, and the right one is VERIFICATION_TARGET_IN_USE
-// with nothing written and the verification still open (ADR-0033).
+// An address another account holds is told only to the caller who
+// entered the code sent to it: the start answers as for a free address,
+// a wrong code is a wrong code, and the right one is
+// VERIFICATION_TARGET_IN_USE with nothing written and the verification
+// still open (ADR-0033 Karar 3).
 func TestTargetInUseIsToldOnlyAfterTheCode(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
+	user := v.addUser(t, member, goodPw)
+	v.addUser(t, newcomer, goodPw)
+
+	taken, code := v.start(t, user, authn.ChannelEmail, newcomer)
+	free, _ := v.start(t, user, authn.ChannelEmail, "bos@example.com")
+	if taken.Status != free.Status || taken.RemainingAttempts != free.RemainingAttempts {
+		t.Errorf("the start of a taken address answers %+v, of a free one %+v", taken, free)
+	}
+	_, err := v.verifications.Confirm(t.Context(), principal(user), taken.ID, wrong(code))
+	wantErr(t, err, apperr.KindInvalid, authn.CodeVerificationWrong)
+	_, err = v.verifications.Confirm(t.Context(), principal(user), taken.ID, code)
+	wantErr(t, err, apperr.KindConflict, authn.CodeVerificationTargetInUse)
+	if r := v.row(t, taken.ID); r.ConfirmedAt != nil || r.CodeDigest == nil {
+		t.Errorf("a taken address consumed the verification: %+v", r)
+	}
+	if email, _, _, _ := v.contact(t, user); email != member {
+		t.Errorf("a taken address was written: %s", email)
+	}
+}
+
+// A number confirmed on another account moves to the caller, who proved
+// it is theirs (a recycled number, ADR-0033 Karar 10): the holder loses
+// the number and its flag in the same transaction and is told by mail.
+func TestRecycledNumberMovesToTheNewOwner(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	holder := v.addUser(t, newcomer, goodPw)
-	if _, err := v.db.Pool().Exec(t.Context(), "UPDATE active_users SET phone = $1, phone_verified = true WHERE id = $2", phoneN1, holder); err != nil {
+	v.setPhone(t, holder, phoneN1)
+
+	ver, code := v.start(t, user, authn.ChannelPhone, phoneN1)
+	if _, err := v.verifications.Confirm(t.Context(), principal(user), ver.ID, code); err != nil {
+		t.Fatalf("confirming a number another account holds = %v, want it moved", err)
+	}
+	if _, _, phone, verified := v.contact(t, user); phone == nil || *phone != phoneN1 || !verified {
+		t.Errorf("the new owner's number is %v (verified %v)", phone, verified)
+	}
+	if _, _, phone, verified := v.contact(t, holder); phone != nil || verified {
+		t.Errorf("the old holder keeps %v (verified %v)", phone, verified)
+	}
+	if err := v.workCodes(t); err != nil {
 		t.Fatal(err)
 	}
+	if msgs := v.mail.to(newcomer); len(msgs) != 1 || !strings.Contains(msgs[0].Subject, "kaldırıldı") {
+		t.Errorf("the old holder's notice: %+v", msgs)
+	}
+}
 
-	for _, tc := range []struct{ channel, target string }{
-		{authn.ChannelEmail, newcomer},
-		{authn.ChannelPhone, phoneN1},
-	} {
-		taken, code := v.start(t, user, tc.channel, tc.target)
-		free, _ := v.start(t, user, tc.channel, map[string]string{authn.ChannelEmail: "bos@example.com", authn.ChannelPhone: phoneN2}[tc.channel])
-		if taken.Status != free.Status || taken.RemainingAttempts != free.RemainingAttempts {
-			t.Errorf("%s: the start of a taken target answers %+v, of a free one %+v", tc.channel, taken, free)
-		}
-		_, err := v.verifications.Confirm(t.Context(), principal(user), taken.ID, wrong(code))
-		wantErr(t, err, apperr.KindInvalid, authn.CodeVerificationWrong)
-		_, err = v.verifications.Confirm(t.Context(), principal(user), taken.ID, code)
-		wantErr(t, err, apperr.KindConflict, authn.CodeVerificationTargetInUse)
-		if r := v.row(t, taken.ID); r.ConfirmedAt != nil || r.CodeDigest == nil {
-			t.Errorf("%s: a taken target consumed the verification: %+v", tc.channel, r)
+// Two confirmations of one number at once both succeed, one after the
+// other under the number's claim, and the number ends on exactly one
+// account; two confirmations that each take the other's number neither
+// deadlock nor fail (ADR-0033 Karar 5 and 10).
+func TestNumberClaimsUnderConcurrency(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
+	a := v.addUser(t, member, goodPw)
+	b := v.addUser(t, newcomer, goodPw)
+
+	verA, codeA := v.start(t, a, authn.ChannelPhone, phoneN1)
+	v.clock.Advance(authn.VerificationCooldown)
+	verB, codeB := v.start(t, b, authn.ChannelPhone, phoneN1)
+	errs := v.together(t, func() error {
+		_, err := v.verifications.Confirm(t.Context(), principal(a), verA.ID, codeA)
+		return err
+	}, func() error {
+		_, err := v.verifications.Confirm(t.Context(), principal(b), verB.ID, codeB)
+		return err
+	})
+	for _, err := range errs {
+		if err != nil {
+			t.Fatalf("a concurrent claim of one number = %v", err)
 		}
 	}
-	if email, _, phone, _ := v.contact(t, user); email != member || phone != nil {
-		t.Errorf("a taken target was written: %s, %v", email, phone)
+	_, _, pa, _ := v.contact(t, a)
+	_, _, pb, _ := v.contact(t, b)
+	if (pa == nil) == (pb == nil) {
+		t.Errorf("after two claims the number is on %v and %v, want exactly one account", pa, pb)
 	}
+
+	// Crossing claims: each confirms the number the other holds.
+	if _, err := v.db.Pool().Exec(t.Context(),
+		"UPDATE active_users SET phone = NULL, phone_verified = false WHERE id IN ($1, $2)", a, b); err != nil {
+		t.Fatal(err)
+	}
+	v.setPhone(t, a, phoneN1)
+	v.setPhone(t, b, phoneN2)
+	v.clock.Advance(time.Hour)
+	verA, codeA = v.start(t, a, authn.ChannelPhone, phoneN2)
+	verB, codeB = v.start(t, b, authn.ChannelPhone, phoneN1)
+	errs = v.together(t, func() error {
+		_, err := v.verifications.Confirm(t.Context(), principal(a), verA.ID, codeA)
+		return err
+	}, func() error {
+		_, err := v.verifications.Confirm(t.Context(), principal(b), verB.ID, codeB)
+		return err
+	})
+	for _, err := range errs {
+		if err != nil {
+			t.Fatalf("crossing claims = %v", err)
+		}
+	}
+	if _, _, p, _ := v.contact(t, a); p == nil || *p != phoneN2 {
+		t.Errorf("after crossing claims a holds %v, want %s", p, phoneN2)
+	}
+	if _, _, p, _ := v.contact(t, b); p == nil || *p != phoneN1 {
+		t.Errorf("after crossing claims b holds %v, want %s", p, phoneN1)
+	}
+}
+
+// setPhone gives a user a verified number directly.
+func (v *verificationsEnv) setPhone(t *testing.T, user uuid.UUID, number string) {
+	t.Helper()
+	if _, err := v.db.Pool().Exec(t.Context(),
+		"UPDATE active_users SET phone = $1, phone_verified = true WHERE id = $2", number, user); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// together runs fns at once and returns their errors.
+func (v *verificationsEnv) together(t *testing.T, fns ...func() error) []error {
+	t.Helper()
+	errs := make([]error, len(fns))
+	var wg, ready sync.WaitGroup
+	ready.Add(len(fns))
+	gate := make(chan struct{})
+	for i, fn := range fns {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ready.Done()
+			<-gate
+			errs[i] = fn()
+		}()
+	}
+	ready.Wait()
+	close(gate)
+	wg.Wait()
+	return errs
 }
 
 // SMS pumping (ADR-0033): only Turkish mobile numbers get a code; any
 // other number is refused before anything is written or queued.
 func TestOnlyTextableNumbersGetACode(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	for _, n := range []string{"+447700900123", "+882123456789", "0850 123 45 67", "0900 123 45 67", "0212 123 45 67", "abc"} {
-		_, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, n)
+		_, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, n, goodPw)
 		wantErr(t, err, apperr.KindInvalid, httpx.CodeRequestInvalid)
 	}
 	var rows int
@@ -643,37 +761,44 @@ func TestOnlyTextableNumbersGetACode(t *testing.T) {
 // of an account (ADR-0033).
 func TestDailyTextCapPerUser(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	for i := range authn.TextsPerUserDay {
-		if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, fmt.Sprintf("+90532000%04d", i)); err != nil {
+		if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, fmt.Sprintf("+90532000%04d", i), goodPw); err != nil {
 			t.Fatalf("start %d = %v", i, err)
 		}
 	}
-	_, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, "+905329999999")
+	_, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, "+905329999999", goodPw)
 	wantErr(t, err, apperr.KindRateLimited, authn.CodeVerificationResendTooSoon)
 	if wait, ok := authn.RetryAfter(err); !ok || wait < 23*time.Hour {
 		t.Errorf("the daily cap's wait = %v", wait)
 	}
 	// The mail channel has its own cap.
-	if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelEmail, "yeni@example.com"); err != nil {
+	if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelEmail, "yeni@example.com", goodPw); err != nil {
 		t.Errorf("an address after the text cap = %v", err)
 	}
 }
 
-// The global hourly cap of texts holds a code back, counts it, and sends
-// nothing; every user spends it alike (ADR-0033).
+// The global hourly cap of texts holds a code back: the job snoozes
+// while enough of the ten minutes is left, nothing is sent, the hold is
+// counted, and the held verification spends no resend budget, so its
+// owner can start again at once. Every user spends the cap alike
+// (ADR-0033 Karar 4).
 func TestGlobalTextCap(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 2)
+	v := newVerificationsEnv(t, authn.VerificationCaps{TextsPerHour: 2})
+	var last uuid.UUID
+	var lastErr error
 	for i, n := range []string{phoneN1, phoneN2, "+905051112233"} {
-		user := v.addUser(t, fmt.Sprintf("u%d@example.com", i), goodPw)
-		if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, n); err != nil {
+		last = v.addUser(t, fmt.Sprintf("u%d@example.com", i), goodPw)
+		if _, err := v.verifications.Start(t.Context(), principal(last), authn.ChannelPhone, n, goodPw); err != nil {
 			t.Fatal(err)
 		}
-		if err := v.workCodes(t); err != nil {
-			t.Fatal(err)
-		}
+		lastErr = v.workCodes(t)
+	}
+	var snooze *rivertype.JobSnoozeError
+	if !errors.As(lastErr, &snooze) || snooze.Duration != authn.CapSnooze {
+		t.Errorf("the held code's job = %v, want a snooze of %v", lastErr, authn.CapSnooze)
 	}
 	if n := v.texts.count(); n != 2 {
 		t.Errorf("%d texts under a cap of 2", n)
@@ -684,13 +809,201 @@ func TestGlobalTextCap(t *testing.T) {
 	if got := v.textCounter(t, "sent"); got != 2 {
 		t.Errorf("%s{PHONE,sent} = %v, want 2", authn.MetricVerificationCodes, got)
 	}
+	// The held verification spends no budget: no cooldown holds its owner.
+	if _, err := v.verifications.Start(t.Context(), principal(last), authn.ChannelPhone, "+905051112233", goodPw); err != nil {
+		t.Errorf("a start after a held code = %v, want it accepted", err)
+	}
+	// Too late to wait: the job gives up instead of snoozing.
+	v.clock.Advance(authn.VerificationTTL - authn.VerificationSendWindow)
+	if err := v.workCodes(t); err != nil {
+		t.Errorf("a held code with too little life left = %v, want the job to end", err)
+	}
+}
+
+// The global hourly cap of code mails holds like the text one.
+func TestGlobalMailCap(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{MailsPerHour: 1})
+	user := v.addUser(t, member, goodPw)
+	v.start(t, user, authn.ChannelEmail, "bir@example.com")
+	if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelEmail, "iki@example.com", goodPw); err != nil {
+		t.Fatal(err)
+	}
+	var snooze *rivertype.JobSnoozeError
+	if err := v.workCodes(t); !errors.As(err, &snooze) {
+		t.Errorf("the second code mail under a cap of 1 = %v, want a snooze", err)
+	}
+	if n := len(v.mail.to("iki@example.com")); n != 0 {
+		t.Errorf("%d mails over the cap", n)
+	}
+}
+
+// A code goes only to a verification whose user is active and with at
+// least VerificationSendWindow of its life left; otherwise nothing is
+// sent and the verification spends no budget (ADR-0033 Karar 4).
+func TestNoCodeForADeletedUserOrTooLate(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
+	user := v.addUser(t, member, goodPw)
+	if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, phoneN1, goodPw); err != nil {
+		t.Fatal(err)
+	}
+	v.clock.Advance(authn.VerificationTTL - authn.VerificationSendWindow)
+	if err := v.workCodes(t); err != nil {
+		t.Fatal(err)
+	}
+	if n := v.texts.count(); n != 0 {
+		t.Errorf("a code with less than the sending window left went out: %d texts", n)
+	}
+
+	other := v.addUser(t, newcomer, goodPw)
+	if _, err := v.verifications.Start(t.Context(), principal(other), authn.ChannelPhone, phoneN2, goodPw); err != nil {
+		t.Fatal(err)
+	}
+	err := v.db.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		_, err := softdelete.New(dbtest.SoftDeleteCatalog(t)).Delete(ctx, q, softdelete.DeleteRequest{
+			Table: "users", ID: other, Actor: softdelete.Actor{Kind: softdelete.ActorSystem},
+			Reason: softdelete.ReasonRetention, At: v.clock.Now(),
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.workCodes(t); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(v.texts.to(phoneN2)); n != 0 {
+		t.Errorf("a deleted user's verification got %d texts", n)
+	}
+}
+
+// The current password comes first (OWASP ASVS 4.0.3 V3.7.1, ADR-0033
+// Karar 1b): a wrong one is PASSWORD_MISMATCH, writes nothing and counts
+// on the account's sign-in target; while the target is locked even the
+// right one is refused, checked against a decoy; an account without a
+// password is refused against the dummy; the right one records a
+// success.
+func TestStartNeedsThePassword(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
+	user := v.addUser(t, member, goodPw)
+
+	_, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelEmail, "yeni.adres@example.com", otherPw)
+	wantErr(t, err, apperr.KindForbidden, authn.CodeCurrentMismatch)
+	if got := v.attempts(t, "USER", member); got.Failed != 1 {
+		t.Errorf("a wrong password counted %d failures, want 1", got.Failed)
+	}
+	if v.queued(t, "verification_code") != 0 {
+		t.Error("a wrong password queued a code")
+	}
+	if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelEmail, "yeni.adres@example.com", goodPw); err != nil {
+		t.Fatal(err)
+	}
+	if got := v.attempts(t, "USER", member); got.Succeeded != 1 {
+		t.Errorf("the right password recorded %d successes, want 1", got.Succeeded)
+	}
+
+	// The lock counts the failures after the last success.
+	v.clock.Advance(time.Second)
+	v.lockOut(t)
+	c := v.passwords.costOf(func() {
+		_, err = v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, phoneN1, goodPw)
+	})
+	wantErr(t, err, apperr.KindForbidden, authn.CodeCurrentMismatch)
+	if c.decoys != 1 || c.verifies != 0 {
+		t.Errorf("a locked target's start cost %+v, want one decoy verification", c)
+	}
+
+	// An account without a password cannot start one: it sets a
+	// password with a reset first.
+	id := uuid.Must(uuid.NewV7())
+	if err := v.q.InsertUser(t.Context(), authndb.InsertUserParams{
+		ID: id, Email: "parolasiz@example.com", Status: authn.UserActive, CreatedAt: v.clock.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c = v.passwords.costOf(func() {
+		_, err = v.verifications.Start(t.Context(), principal(id), authn.ChannelPhone, phoneN2, "herhangi bir parola")
+	})
+	wantErr(t, err, apperr.KindForbidden, authn.CodeCurrentMismatch)
+	if c.dummies != 1 {
+		t.Errorf("a passwordless start cost %+v, want one dummy verification", c)
+	}
+}
+
+// Concurrent starts of one target by many users write one verification:
+// the target lock makes the budget's count and write one step (ADR-0033
+// Karar 4). Without LockVerificationTarget they all count none and all
+// write.
+func TestConcurrentStartsKeepTheTargetBudget(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
+	const n = 8
+	fns := make([]func() error, n)
+	for i := range n {
+		user := v.addUser(t, fmt.Sprintf("yaris%d@example.com", i), goodPw)
+		fns[i] = func() error {
+			_, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, phoneN1, goodPw)
+			return err
+		}
+	}
+	accepted := 0
+	for _, err := range v.together(t, fns...) {
+		switch {
+		case err == nil:
+			accepted++
+		case apperr.From(err).Code != authn.CodeVerificationResendTooSoon:
+			t.Errorf("a concurrent start = %v", err)
+		}
+	}
+	var rows int
+	if err := v.db.Pool().QueryRow(t.Context(), "SELECT count(*) FROM user_verifications").Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if accepted != 1 || rows != 1 {
+		t.Errorf("USR-010: %d concurrent starts of one number accepted %d and wrote %d, want 1 and 1", n, accepted, rows)
+	}
+}
+
+// One user's daily cap of code mails, over every address (ADR-0033).
+func TestDailyMailCapPerUser(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
+	user := v.addUser(t, member, goodPw)
+	for i := range authn.MailCodesPerUserDay {
+		if _, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelEmail, fmt.Sprintf("kutu%d@example.com", i), goodPw); err != nil {
+			t.Fatalf("start %d = %v", i, err)
+		}
+	}
+	_, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelEmail, "fazla@example.com", goodPw)
+	wantErr(t, err, apperr.KindRateLimited, authn.CodeVerificationResendTooSoon)
+	if wait, ok := authn.RetryAfter(err); !ok || wait < 23*time.Hour {
+		t.Errorf("the daily mail cap's wait = %v", wait)
+	}
+}
+
+// Verifying the number already on file sets its flag and tells nobody,
+// like the address on file (ADR-0033 Karar 8).
+func TestReverifyingTheNumberOnFileSendsNoNotice(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
+	user := v.addUser(t, member, goodPw)
+	v.setPhone(t, user, phoneN1)
+	ver, code := v.start(t, user, authn.ChannelPhone, phoneN1)
+	if _, err := v.verifications.Confirm(t.Context(), principal(user), ver.ID, code); err != nil {
+		t.Fatal(err)
+	}
+	if n := v.queued(t, "contact_changed"); n != 0 {
+		t.Errorf("re-verifying the number on file queued %d notices", n)
+	}
 }
 
 // A refused recipient cancels the code job instead of retrying it; a
 // passing failure is retried. Both channels (ADR-0033).
 func TestUndeliverableCodeIsCanceled(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	var cancel *rivertype.JobCancelError
 	for _, tc := range []struct {
@@ -705,7 +1018,7 @@ func TestUndeliverableCodeIsCanceled(t *testing.T) {
 			undeliverable = mailer.ErrUndeliverable
 		}
 		tc.refuse(fmt.Errorf("%w: refused by the provider", undeliverable))
-		if _, err := v.verifications.Start(t.Context(), principal(user), tc.channel, tc.target); err != nil {
+		if _, err := v.verifications.Start(t.Context(), principal(user), tc.channel, tc.target, goodPw); err != nil {
 			t.Fatal(err)
 		}
 		if err := v.workCodes(t); !errors.As(err, &cancel) {
@@ -713,7 +1026,7 @@ func TestUndeliverableCodeIsCanceled(t *testing.T) {
 		}
 		tc.refuse(errors.New("a passing failure"))
 		v.clock.Advance(authn.VerificationCooldown)
-		if _, err := v.verifications.Start(t.Context(), principal(user), tc.channel, tc.target); err != nil {
+		if _, err := v.verifications.Start(t.Context(), principal(user), tc.channel, tc.target, goodPw); err != nil {
 			t.Fatal(err)
 		}
 		if err := v.workCodes(t); err == nil || errors.As(err, &cancel) {
@@ -730,7 +1043,7 @@ func TestUndeliverableCodeIsCanceled(t *testing.T) {
 // pages both ways; a canceled one leaves it and reads as missing.
 func TestVerificationListAndCancel(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	var ids []uuid.UUID
 	for _, n := range []string{phoneN1, phoneN2, "+905051112233"} {
@@ -776,7 +1089,7 @@ func TestVerificationListAndCancel(t *testing.T) {
 // Verifications are hard-deleted after their retention (M2).
 func TestVerificationsArePurged(t *testing.T) {
 	t.Parallel()
-	v := newVerificationsEnv(t, 0)
+	v := newVerificationsEnv(t, authn.VerificationCaps{})
 	user := v.addUser(t, member, goodPw)
 	v.start(t, user, authn.ChannelPhone, phoneN1)
 	v.clock.Advance(authn.VerificationRetention + time.Minute)
