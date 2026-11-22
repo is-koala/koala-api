@@ -25,7 +25,7 @@ import (
 
 // TestReadTestOnTheContract is the generated read test (ADR-0020 §11) on
 // the real contract and router: every GET's x-resource that names a
-// soft-deleted table (users, staff_members, media) gets a fixture; user_sessions,
+// soft-deleted table (users, staff_members, media, educations) gets a fixture; user_sessions,
 // realtime_tickets, staff_role_assignments and user_verifications are
 // exempt and have nothing to hide. /v1/me and /v1/admin/me read the caller itself
 // (x-resource-self): after the soft delete the caller no longer
@@ -46,11 +46,16 @@ func TestReadTestOnTheContract(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Education records point at reference rows (M4), which the
+	// application cannot write.
+	ref := a.seedReference(t)
+
 	var mu sync.Mutex
 	emails := map[uuid.UUID]string{}
 	tokens := map[uuid.UUID]string{}
-	// owners maps a media fixture to its owner: getMedia reads the
-	// caller's own media, so the owner is the caller that may read it.
+	// owners maps a media or education fixture to its owner: getMedia and
+	// listMyEducations read the caller's own rows, so the owner is the
+	// caller that may read them.
 	owners := map[uuid.UUID]uuid.UUID{}
 	insertUser := func(ctx context.Context, q db.Querier) (uuid.UUID, error) {
 		id := uuid.Must(uuid.NewV7())
@@ -86,6 +91,24 @@ func TestReadTestOnTheContract(t *testing.T) {
 			mu.Unlock()
 			return id, nil
 		},
+		// An education record of a fresh user (ADR-0036).
+		"educations": func(ctx context.Context, q db.Querier) (uuid.UUID, error) {
+			owner, err := insertUser(ctx, q)
+			if err != nil {
+				return uuid.Nil, err
+			}
+			id := uuid.Must(uuid.NewV7())
+			_, err = q.Exec(ctx, `
+				INSERT INTO active_educations (id, user_id, university_id, degree, start_year, created_at)
+				VALUES ($1, $2, $3, 'BACHELOR', 2014, $4)`, id, owner, ref.university, a.clock.Now())
+			if err != nil {
+				return uuid.Nil, fmt.Errorf("insert education: %w", err)
+			}
+			mu.Lock()
+			owners[id] = owner
+			mu.Unlock()
+			return id, nil
+		},
 		"users": insertUser,
 		// The application cannot create staff (ADR-0025): the fixture
 		// writes as koala_maint.
@@ -107,7 +130,7 @@ func TestReadTestOnTheContract(t *testing.T) {
 	authorize := func(ctx context.Context, table string, id uuid.UUID, r *http.Request) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if table == "media" {
+		if table == "media" || table == "educations" {
 			// The owner reads it, as a user.
 			id, table = owners[id], "users"
 		}

@@ -113,7 +113,7 @@ func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, r
 	middlewares := []apiv1.StrictMiddlewareFunc{
 		mods.authHTTP.StrictMiddleware(limiter, groups), mods.mediaHTTP.StrictMiddleware(),
 	}
-	server := strictServer{HTTP: mods.authHTTP, admin: mods.admin.http, media: mods.mediaHTTP}
+	server := strictServer{HTTP: mods.authHTTP, admin: mods.admin.http, media: mods.mediaHTTP, users: mods.usersHTTP}
 	strict := apiv1.NewStrictHandlerWithOptions(server, middlewares, apiv1.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: bindError(logger),
 		ResponseErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -191,14 +191,16 @@ func bindError(logger *slog.Logger) func(http.ResponseWriter, *http.Request, err
 
 // strictServer composes the modules' handlers into the generated strict
 // server interface: authentication (authn, embedded), the staff surface
-// and media uploads (forwarded; every handler type is named HTTP) and the
-// operations whose contract is frozen but whose handler has not landed
-// (pending, embedded; they answer 501, ADR-0029 §1).
+// media uploads and the profile and education operations (forwarded;
+// every handler type is named HTTP) and the operations whose contract is
+// frozen but whose handler has not landed (pending, embedded; they answer
+// 501, ADR-0029 §1).
 type strictServer struct {
 	*authn.HTTP
 	pending.Server
 	admin *staff.HTTP
 	media *media.HTTP
+	users *usersHandlers
 }
 
 func (s strictServer) StartMediaUpload(ctx context.Context, req apiv1.StartMediaUploadRequestObject) (apiv1.StartMediaUploadResponseObject, error) {

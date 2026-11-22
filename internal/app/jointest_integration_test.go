@@ -228,6 +228,9 @@ func TestJoinTestOnTheContract(t *testing.T) {
 		"password_reset_tokens.user_id": {
 			Unread: "no GET operation reads password_reset_tokens: a reset token is only presented, once, by the reset itself (ADR-0029 Karar 4)",
 		},
+		"user_profile_sync_intents.user_id": {
+			Unread: "no GET operation reads user_profile_sync_intents: the outbox is written by profile changes and read only by the dispatcher of Faz 6 (ADR-0036)",
+		},
 		"consent_records.user_id": {
 			Unread: "no GET operation reads consent_records: consent evidence is written at registration and no endpoint reads it back (ADR-0032)",
 		},

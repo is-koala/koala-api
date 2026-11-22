@@ -340,10 +340,9 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/UserPatchRulesTest.java#aNewPhoneNumberStartsAVerificationInsteadOfBeingSwallowed"
       - "src/test/java/com/exskylab/koala/business/concretes/UserPatchRulesTest.java#theNumberIsNotAppliedUntilTheCodeIsConfirmed"
       - "src/test/java/com/exskylab/koala/business/concretes/UserPatchRulesTest.java#resendingTheSameNumberStartsNothing"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; profil handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/app.TestProfileContactChangeWaitsForConfirmation
+      - internal/authn.TestConfirmedValueIsWrittenOnlyOnConfirmation
 
   - id: USR-015
     priority: P0
@@ -527,10 +526,14 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncOutboxAtomicityIT.java#callerSuccessMeansTheProfileChangeAndExactPublishIntentWereDurablyAcceptedTogether"
       - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncOutboxAtomicityIT.java#theOriginatingRequestContextIsPersistedWithTheOutboxIntent"
       - "src/main/java/com/exskylab/koala/business/concretes/UserProfileSyncManager.java#enqueue"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; profil senkronu Faz 2'nin uygulama PR'ında gelir; yayın tarafı Faz 6'nın Iyzico istemcisine bağlanır."
+    target: >
+      Niyet yük taşımaz: gönderici profili yayın anında okur, bu yüzden niyet bayatlamaz ve kendine
+      ait kişisel veri tutmaz; "yükün yerinde güncellenmesi" açık niyetin zamanının ve kaynağının
+      tazelenmesidir (ADR-0036 Karar 8).
+    go_test:
+      - internal/app.TestProfileChangeRecordsTheSyncIntent
+      - internal/app.TestProfilePatchSharesTheStartBudget
+      - internal/app.TestProfileContactChangeWaitsForConfirmation
 
   - id: USR-023
     priority: P0
@@ -554,8 +557,8 @@ scenarios:
       - "src/test/java/com/exskylab/koala/business/concretes/UserProfileSyncDispatchIT.java#aBrokerFailureIsRetriedThenTerminalizedWithASanitizedReason"
     go_test: null
     deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; gönderim döngüsü River işine taşınır ve Faz 2'nin uygulama PR'ında gelir."
+      phase: 6
+      reason: "Gönderim döngüsü ve sağlayıcı çağrısı Faz 6'nın Iyzico istemcisiyle gelir (ADR-0029 Sonuçlar); giden kaydın yazımı Faz 2'de bağlandı (USR-022, ADR-0036 Karar 8)."
 
   - id: USR-024
     priority: P1
@@ -575,7 +578,8 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/UserManager.java#patchCurrentUser"
       - "src/test/java/com/exskylab/koala/business/concretes/UserPatchRulesTest.java#aJobTitleIsStoredOnTheProfile"
-    go_test: null
+    go_test:
+      - internal/users.TestPatchApply
 
   - id: USR-025
     priority: P1
@@ -635,7 +639,11 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/core/helpers/LogMasks.java:1-60"
       - "src/main/java/com/exskylab/koala/core/mappers/UserMapper.java:1-60"
-    go_test: null
+    go_test:
+      - internal/users.TestMaskedIdentityNumber
+    partial:
+      phase: 6
+      reason: "IBAN'ın maskesi banka hesabıyla Faz 6'da gelir; bugün alan null (ADR-0036 Karar 5). Kimlik numarası ve telefon maskesi bağlı."
 
   - id: USR-028
     priority: P1
@@ -661,7 +669,10 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/webAPI/UserProfileController.java:1-120"
       - "docs/faz0/authz-envanteri.csv:AZ-098"
-    go_test: null
+    go_test:
+      - internal/users.TestEducationPeriod
+      - internal/app.TestEducationsOverHTTP
+      - internal/app.TestEducationsOfAnotherUserAreMissing
 
   - id: USR-029
     priority: P2
@@ -685,4 +696,5 @@ scenarios:
       gözlenebilir davranış aynı, fark kararın yazılı olmasıdır.
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/UserManager.java:210"
-    go_test: null
+    go_test:
+      - internal/users.TestPatchApply
