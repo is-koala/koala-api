@@ -307,11 +307,8 @@ func (m *Middleware) finish(ctx context.Context, header http.Header, cw *capture
 // permanent reports a 4xx the same request would get again. 408, 425 and
 // 429 are transient: a retry may succeed.
 func permanent(status int) bool {
-	switch status {
-	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests:
-		return false
-	}
-	return status >= 400 && status <= 499
+	transient := status == http.StatusRequestTimeout || status == http.StatusTooEarly || status == http.StatusTooManyRequests
+	return !transient && status >= 400 && status <= 499
 }
 
 func (m *Middleware) storeAfter(ctx context.Context, header http.Header, cw *captureWriter, c *claim) {

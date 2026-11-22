@@ -96,13 +96,13 @@ func writeCanonical(b *bytes.Buffer, v any) error {
 	case int64:
 		b.WriteString(strconv.FormatInt(x, 10))
 	case map[string]any:
-		keys := make([]string, 0, len(x))
+		names := make([]string, 0, len(x))
 		for k := range x {
-			keys = append(keys, k)
+			names = append(names, k)
 		}
-		slices.Sort(keys)
+		slices.Sort(names)
 		b.WriteByte('{')
-		for i, k := range keys {
+		for i, k := range names {
 			if i > 0 {
 				b.WriteByte(',')
 			}

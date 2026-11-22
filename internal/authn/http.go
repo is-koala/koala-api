@@ -225,7 +225,7 @@ func (h *HTTP) CompleteRegistration(ctx context.Context, req apiv1.CompleteRegis
 			Body:    tokenPair(pair),
 			Headers: apiv1.CompleteRegistration201ResponseHeaders{Location: &location},
 		}
-		return idempotency.Commit(ctx, q, resp.VisitCompleteRegistrationResponse) //nolint:wrapcheck // its 409 reaches the response as it is; the service wraps it once
+		return idempotency.Commit(ctx, q, resp.VisitCompleteRegistrationResponse)
 	})
 	if err != nil {
 		return nil, err
