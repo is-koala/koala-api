@@ -30,7 +30,7 @@ Plan belgesi: [`docs/plan/go-gecis-degerlendirme.md`](docs/plan/go-gecis-degerle
 
 ## Gereksinimler
 
-- Go: `go.mod`'daki `toolchain` sürümü (go1.27.3). Eski bir Go kuruluysa `GOTOOLCHAIN=auto` ile doğru sürüm kendiliğinden iner.
+- Go: `go.mod`'daki `toolchain` sürümü (go1.27.4). Eski bir Go kuruluysa `GOTOOLCHAIN=auto` ile doğru sürüm kendiliğinden iner.
 - `make`.
 
 ## Kalite kapısı: CI'da
@@ -137,7 +137,7 @@ Konteynerin durdurma süresi (Docker `--stop-timeout`, Swarm/Dokploy `stop_grace
 
 ## Docker ve yayın
 
-`Dockerfile` çok aşamalıdır: `golang:1.27.3` → `distroless/static:nonroot`. İki taban imaj da etiket ve digest ile sabitlenmiştir. İmaj nonroot kullanıcıyla çalışır; sağlık kontrolü ikilinin kendisidir. İmaj paylaşılan Mac'te build edilmez.
+`Dockerfile` çok aşamalıdır: `golang:1.27.4` → `distroless/static:nonroot`. İki taban imaj da etiket ve digest ile sabitlenmiştir. İmaj nonroot kullanıcıyla çalışır; sağlık kontrolü ikilinin kendisidir. İmaj paylaşılan Mac'te build edilmez.
 
 **Her PR'da** `verify.yml`'nin `image` job'ı `scripts/image.sh` ile imajı build eder ve Postgres'e karşı çalıştırır. İmaj GHCR'ye basılmaz; yalnız job'ın kendi geçici registry'sine basılır ve yayının basma yolu orada aynen koşar. Job şunlardan biri sağlanmazsa kırmızıdır (ADR-0023):
 - imaj nonroot ve shell'siz;
