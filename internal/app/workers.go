@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/media"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/idempotency"
@@ -119,6 +120,9 @@ func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.
 	if err := mods.verifications.AddWorkers(workers); err != nil {
 		return nil, fmt.Errorf("workers: %w", err)
 	}
+	if err := mods.media.AddWorkers(workers); err != nil {
+		return nil, fmt.Errorf("workers: %w", err)
+	}
 	client, err := jobs.NewClient(database.Pool(), jobs.Config{
 		Logger:  logger,
 		Queues:  map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 2}},
@@ -130,6 +134,11 @@ func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.
 			river.NewPeriodicJob(river.PeriodicInterval(idempotencyPurgeInterval),
 				func() (river.JobArgs, *river.InsertOpts) { return idempotencyPurgeArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "idempotency_purge", RunOnStart: true}),
+			// Unfinished uploads and the upload budget's ledger (ADR-0035
+			// Karar 4 and 6).
+			river.NewPeriodicJob(river.PeriodicInterval(mediaSweepInterval),
+				func() (river.JobArgs, *river.InsertOpts) { return media.SweepArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "media_sweep", RunOnStart: true}),
 		},
 	})
 	if err != nil {

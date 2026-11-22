@@ -1,21 +1,54 @@
 // Package media is the upload pipeline: the quarantine flow of ADR-0019
-// §9 and ADR-0029 Karar 6, and the rules that say which prefix, which
-// types and which limits a kind of upload gets.
+// §9 and ADR-0029 Karar 6, the rules that say which prefix, which types
+// and which limits a kind of upload gets, and the four operations of
+// /v1/me/media (ADR-0035): start, complete, read and delete.
 //
 // This package carries the decisions; the object store client and the
 // metadata stripper are platform (internal/platform/storage,
-// internal/platform/imaging). There are no HTTP handlers here and no
-// database access yet: the media table, its soft-delete classification
-// and its queries come with Faz 2's data PR, and the three endpoints of
-// the frozen contract (ADR-0029 Karar 6) get their handlers after it.
+// internal/platform/imaging). The layers are the module's usual ones:
+// domain.go (kinds, states, the state machine, the rejection codes),
+// pipeline.go (the object flow), service.go and jobs.go (the media table
+// and the River jobs that validate, delete and sweep), store.go (the
+// sqlc wrapper) and http.go (the handlers).
 package media
 
 import (
 	"slices"
 
+	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/imaging"
 	"github.com/is-koala/koala-api/internal/platform/storage"
 )
+
+// Error codes of this package (api/components/problem.yaml ErrorCode).
+const (
+	// CodeNotFound: no such media, or not the caller's; the two are one
+	// answer (ADR-0014).
+	CodeNotFound apperr.Code = "MEDIA_NOT_FOUND"
+	// CodeTooLarge: the declared size is over the kind's limit at the
+	// start, or the object is over it at the completion (rejectionCode).
+	CodeTooLarge apperr.Code = "MEDIA_TOO_LARGE"
+	// CodeTypeUnsupported is a rejection's code (rejectionCode only).
+	CodeTypeUnsupported apperr.Code = "MEDIA_TYPE_UNSUPPORTED"
+	// CodeUploadIncomplete is a rejection's code (rejectionCode only).
+	CodeUploadIncomplete apperr.Code = "MEDIA_UPLOAD_INCOMPLETE"
+	// CodePendingLimit: the caller holds MaxOpenUploads unfinished uploads.
+	CodePendingLimit apperr.Code = "MEDIA_UPLOAD_PENDING_LIMIT"
+	// CodeDailyLimit: the caller started DailyUploads uploads in the last
+	// UploadBudgetWindow.
+	CodeDailyLimit apperr.Code = "MEDIA_UPLOAD_DAILY_LIMIT"
+)
+
+// Codes lists the error codes of this package; the contract test holds it
+// against api/components/problem.yaml (ADR-0028). Three of them never
+// leave as a problem: they are the codes a rejected media row renders in
+// rejectionCode (Rejection.Code).
+func Codes() []apperr.Code {
+	return []apperr.Code{
+		CodeNotFound, CodeTooLarge, CodeTypeUnsupported, CodeUploadIncomplete,
+		CodePendingLimit, CodeDailyLimit,
+	}
+}
 
 // Kind is the kind of an upload: the contract's MediaKind. It decides
 // the storage prefix, the accepted types and the limits, which is why
@@ -62,6 +95,9 @@ func transitions() map[Status][]Status {
 	}
 }
 
+// Statuses lists every status.
+func Statuses() []Status { return []Status{StatusPending, StatusReady, StatusRejected} }
+
 // CanTransition reports whether from may become to. A state may not
 // transition to itself: completing a READY media changes nothing, which
 // the caller answers from the row instead of writing it again.
@@ -76,22 +112,12 @@ func CanTransition(from, to Status) bool {
 // response (ADR-0030 Karar 7).
 //
 // The mapping from a Rejection to the contract's stable error code is
-// the handler's, in the PR that implements the endpoints. ADR-0029 is
-// merged, so those codes are in the contract now, and the mapping is not
-// one to one: MEDIA_UPLOAD_INCOMPLETE, MEDIA_TYPE_UNSUPPORTED and
-// MEDIA_TOO_LARGE line up with three of the four rejections, and
-// RejectionCorrupt has no code of its own.
-//
-// That gap is real, not an oversight to be papered over at the call
-// site: Media.rejectionCode is an ErrorCode, so a row that is REJECTED
-// because the bytes did not decode cannot be rendered today. The handler
-// PR has to close it one of two ways -- fold CORRUPT into
-// MEDIA_TYPE_UNSUPPORTED, which is defensible because bytes that do not
-// decode are not a valid image of the type they claim, or add a code,
-// which is a compatible change to the enum. ADR-0030 carries that as an
-// obligation; this package keeps the distinction because the pipeline
-// genuinely tells the two apart and throwing it away here would lose
-// information the row could have recorded.
+// Rejection.Code (ADR-0035 Karar 3). It is not one to one:
+// MEDIA_UPLOAD_INCOMPLETE, MEDIA_TYPE_UNSUPPORTED and MEDIA_TOO_LARGE
+// line up with three of the four rejections, and RejectionCorrupt folds
+// into MEDIA_TYPE_UNSUPPORTED. The media row stores the Rejection, not
+// the code, so the distinction the pipeline makes survives in the
+// database; only the response narrows it.
 type Rejection string
 
 // The rejections.
@@ -112,6 +138,39 @@ const (
 	// do not decode as that format.
 	RejectionCorrupt Rejection = "CORRUPT"
 )
+
+// Code is the contract's code of a rejection, which Media.rejectionCode
+// renders (ADR-0035 Karar 3). It is not one to one: CORRUPT folds into
+// MEDIA_TYPE_UNSUPPORTED. Bytes that carry an accepted magic number and
+// do not decode as that format are not a valid file of the type they
+// claim, and the client's next step is the same as for an unaccepted
+// type: send a valid JPEG or PNG. The fold is the industry's usual answer
+// (an image API reports "invalid image" for both), and it costs the row
+// nothing: the media row stores the Rejection itself, so the distinction
+// the pipeline makes is kept where it is evidence, and only the response
+// narrows it. The alternative, a fifth code, would tell a client apart
+// two failures it cannot act on differently.
+//
+// RejectionNone has no code: the second result is false.
+func (r Rejection) Code() (apperr.Code, bool) {
+	switch r {
+	case RejectionNotUploaded:
+		return CodeUploadIncomplete, true
+	case RejectionTypeUnsupported, RejectionCorrupt:
+		return CodeTypeUnsupported, true
+	case RejectionTooLarge:
+		return CodeTooLarge, true
+	case RejectionNone:
+		return "", false
+	default:
+		return "", false
+	}
+}
+
+// Rejections lists every rejection a row may record.
+func Rejections() []Rejection {
+	return []Rejection{RejectionNotUploaded, RejectionTypeUnsupported, RejectionTooLarge, RejectionCorrupt}
+}
 
 // Prefix is where a finished object of this kind lives (ADR-0029 Karar
 // 6). An unknown kind gets no prefix, so it can reach no object.
@@ -179,9 +238,16 @@ func (k Kind) Attachment() bool {
 // PublicReadable reports whether a finished object of this kind gets a
 // public address. An identity document never does, in any state
 // (ADR-0029 Karar 6, IDN-007).
+//
+// The rule is the prefix's (storage.Prefix.Public), the same one
+// Store.PublicURL resolves a key with: a kind is public exactly when its
+// prefix is. Before ADR-0035 the two were written separately, this one
+// as "the prefix is images/" and the store's as "images/ or public/",
+// and agreed only because no kind went to public/ (ADR-0030, "İki liste,
+// bir kural").
 func (k Kind) PublicReadable() bool {
 	prefix, ok := k.Prefix()
-	return ok && prefix == storage.PrefixImages
+	return ok && prefix.Public()
 }
 
 // CacheControl is what a finished object is stored with. A public image
