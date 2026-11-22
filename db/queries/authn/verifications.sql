@@ -52,21 +52,37 @@ WHERE channel = sqlc.arg(channel)::text AND code_sent_at > sqlc.arg(since)::time
 
 -- name: HoldVerificationCode :one
 -- HoldVerificationCode marks an open verification whose code the job
--- holds back unsent, and returns its end. No row: it ended, or its code
--- was sent.
+-- holds back unsent, and returns its end and whether this is its first
+-- hold. A code minted by an earlier attempt whose send failed is dropped
+-- with it: the job runs again only after a failed attempt, so that code
+-- is taken as never delivered, and the verification spends no budget
+-- until a code goes out (ADR-0033 Karar 4). No row: it ended.
 UPDATE user_verifications
-SET held_at = sqlc.arg(now)::timestamptz
-WHERE id = sqlc.arg(id) AND code_digest IS NULL
-  AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
-RETURNING expires_at;
+SET held_at = COALESCE(held_at, sqlc.arg(now)::timestamptz), code_digest = NULL, code_sent_at = NULL
+WHERE id = sqlc.arg(id) AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
+RETURNING expires_at, (held_at = sqlc.arg(now)::timestamptz)::boolean AS first_hold;
+
+-- name: GetVerificationTargetKey :one
+-- GetVerificationTargetKey is the keyed target of a verification: the
+-- code job takes the target's lock before it locks the row (ADR-0033
+-- Karar 5).
+SELECT target_key FROM user_verifications WHERE id = $1;
+
+-- name: AbandonVerificationCode :exec
+-- AbandonVerificationCode ends a held verification unsent: when its code
+-- was finally due, the target's or the user's budget no longer allowed it
+-- (ADR-0033 Karar 4). It reads as canceled and spends no budget.
+UPDATE user_verifications
+SET canceled_at = sqlc.arg(now)::timestamptz, held_at = COALESCE(held_at, sqlc.arg(now)::timestamptz), code_digest = NULL
+WHERE id = sqlc.arg(id) AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL;
 
 -- name: LockVerificationForCode :one
 -- LockVerificationForCode locks an open verification that has at least
 -- the sending window of its life left and whose user is active, and
--- returns where its code goes. No row: none of that holds, and no code is
--- minted.
+-- returns where its code goes, and what the resend budget of a held one
+-- needs. No row: none of that holds, and no code is minted.
 -- softdelete:inner-by-design users: a code goes only to a verification whose user is still active; a deleted user's verification is dead and its target must get nothing (ADR-0033)
-SELECT v.channel, v.target
+SELECT v.user_id, v.channel, v.target, v.target_key, v.held_at, v.code_sent_at
 FROM user_verifications v
 LEFT JOIN active_users u ON u.id = v.user_id
 WHERE v.id = sqlc.arg(id) AND v.confirmed_at IS NULL AND v.canceled_at IS NULL AND v.burned_at IS NULL

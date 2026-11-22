@@ -415,10 +415,12 @@ type TargetLimiter interface {
 //     verify and complete, reset complete) take one from the bucket of the
 //     hashed token, an in-app password change from the user's; all in
 //     the pair group.
-//   - A verification start takes a token from its client address's
-//     bucket in the verification address group (a low hourly budget, the
-//     registration start's pattern), then from the caller's bucket and the
-//     (keyed target, address) bucket in the pair group. There is no
+//   - A verification start takes a token from the caller's bucket in the
+//     pair group, then from its client address's bucket in the
+//     verification address group (an hourly budget, the registration
+//     start's pattern, behind the caller's so one caller cannot spend a
+//     carrier NAT's budget), then from the (keyed target, address) bucket
+//     in the pair group. There is no
 //     target-wide bucket: one anybody could drain would keep the target's
 //     owner from verifying it for as long as the drain goes on; the
 //     target's resend budget in the database bounds the codes it gets. A
@@ -566,12 +568,14 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 			return []limitKey{{key: "password:user:" + p.UserID.String()}}, false
 		}
 	case apiv1.StartMyVerificationRequestObject:
-		// The address's own budget first: a request it refuses spends
-		// nothing of the caller's and the target's buckets.
-		keys := []limitKey{{key: "verification:address:" + addr, bucket: verificationAddressBucket}}
+		// The caller's own bucket first: a caller over it spends nothing
+		// of the address's budget, which a carrier NAT shares among many
+		// users (ADR-0033 Karar 4).
+		var keys []limitKey
 		if p, ok := UserFrom(ctx); ok {
 			keys = append(keys, limitKey{key: "verification:user:" + p.UserID.String()})
 		}
+		keys = append(keys, limitKey{key: "verification:address:" + addr, bucket: verificationAddressBucket})
 		target := hex.EncodeToString(h.verifications.TargetKey(string(req.Body.Channel), req.Body.Target))
 		return append(keys, limitKey{key: "verification:" + target + "@" + addr}), false
 	case apiv1.ConfirmMyVerificationRequestObject:

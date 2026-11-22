@@ -80,7 +80,7 @@ func TestIletiMerkeziRefuses(t *testing.T) {
 		"the English key": {
 			body: smsBody("hash-1", smsOrder("KOALA", iys, okText, `"recipients":{"number":["5321234567"]}`)), want: "452",
 		},
-		"a malformed number": {body: smsBody("hash-1", smsOrder("KOALA", iys, okText, recipientsOf("02121234567"))), want: "452"},
+		"a malformed number": {body: smsBody("hash-1", smsOrder("KOALA", iys, okText, recipientsOf("02121234567"))), want: "466"},
 		"rejected number": {
 			body: smsBody("hash-1", smsOrder("KOALA", iys, okText, recipientsOf("5329999999"))), reject: "5329999999", want: "452",
 		},

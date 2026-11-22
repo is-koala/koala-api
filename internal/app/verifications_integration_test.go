@@ -235,9 +235,10 @@ func (a *authApp) addSignedIn(t *testing.T, email string) string {
 func TestVerificationRateLimitKeys(t *testing.T) {
 	t.Parallel()
 	groups := rateLimitGroups()
-	auth := groups[groupAuth]
-	auth.PerCustom = httpx.Rate{Every: time.Hour, Burst: auth.PerCustom.Burst}
-	groups[groupAuth] = auth
+	slow := func(r httpx.Rate) httpx.Rate { return httpx.Rate{Every: time.Hour, Burst: r.Burst} }
+	auth, account := groups[groupAuth], groups[groupAuthAccount]
+	auth.PerCustom, account.PerCustom = slow(auth.PerCustom), slow(account.PerCustom)
+	groups[groupAuth], groups[groupAuthAccount] = auth, account
 	a := newAuthApp(t, groups)
 	start := func(addr, token, number string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -257,9 +258,14 @@ func TestVerificationRateLimitKeys(t *testing.T) {
 	// The (target, address) bucket: another caller, same number and
 	// address.
 	wantStatus(t, start("192.0.2.10", u2, "5321234567"), http.StatusTooManyRequests, httpx.CodeRateLimited)
-	// No target-wide bucket: the number's next caller from elsewhere
-	// reaches the database budget, not a drained bucket.
-	wantStatus(t, start("192.0.2.12", u3, "+905321234567"), http.StatusTooManyRequests, string(authn.CodeVerificationResendTooSoon))
+	// No target-wide bucket: more callers of the number than any bucket's
+	// burst (the account-wide bucket of sign-ins holds 10), each from its
+	// own address, all reach the database budget, none a drained bucket.
+	for i := range account.PerCustom.Burst + 2 {
+		caller := a.addSignedIn(t, "kuyruk"+strconv.Itoa(i)+"@example.com")
+		wantStatus(t, start("198.18.0."+strconv.Itoa(1+i), caller, "+905321234567"),
+			http.StatusTooManyRequests, string(authn.CodeVerificationResendTooSoon))
+	}
 
 	// A confirmation: its verification's bucket, whatever the address.
 	path := "/v1/me/verifications/" + uuid.NewString() + "/confirm"
@@ -289,4 +295,30 @@ func TestVerificationStartsPerAddress(t *testing.T) {
 	wantStatus(t, start("198.51.100.7", 1), http.StatusCreated, "")
 	wantStatus(t, start("198.51.100.7", 2), http.StatusTooManyRequests, httpx.CodeRateLimited)
 	wantStatus(t, start("198.51.100.8", 2), http.StatusCreated, "")
+}
+
+// The caller's own bucket is asked before the address's budget: behind a
+// carrier NAT one caller over their bucket spends nothing of the budget
+// the others share, so another caller at the address still starts
+// (ADR-0033 Karar 4). Were the address asked first, the refused request
+// would have taken its last token.
+func TestVerificationCallerBucketComesFirst(t *testing.T) {
+	t.Parallel()
+	var cfg config.Config
+	cfg.Verification.StartsPerIP = 6
+	groups := serveRateLimitGroups(cfg)
+	auth := groups[groupAuth]
+	auth.PerCustom = httpx.Rate{Every: time.Hour, Burst: 5}
+	groups[groupAuth] = auth
+	a := newAuthApp(t, groups)
+	busy, other := a.addSignedIn(t, "yogun@example.com"), a.addSignedIn(t, "komsu@example.com")
+	start := func(token, number string) *httptest.ResponseRecorder {
+		t.Helper()
+		return a.callFrom(t, "100.64.0.1", http.MethodPost, "/v1/me/verifications", token, startBody(number, userPw))
+	}
+	for i := range 5 {
+		wantStatus(t, start(busy, "+90532111220"+strconv.Itoa(i)), http.StatusCreated, "")
+	}
+	wantStatus(t, start(busy, "+905321112209"), http.StatusTooManyRequests, httpx.CodeRateLimited)
+	wantStatus(t, start(other, "+905321112208"), http.StatusCreated, "")
 }

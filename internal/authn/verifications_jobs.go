@@ -111,16 +111,21 @@ type noticeMailData struct {
 // SendCode is the job of one code (ADR-0033 Karar 1 and 4).
 //
 //   - The code first takes its place under the channel's global hourly
-//     cap. Over it the code is held back: the verification is marked held,
-//     which takes it out of the resend budget, the hold is counted, and the
-//     job snoozes while enough of the ten minutes is left; otherwise it
-//     ends without a code.
-//   - The code is then minted in a transaction of its own that locks the
-//     verification, finds it open, its user active and at least
-//     VerificationSendWindow of its life left, and stores only the code's
-//     digest; it commits before the provider is called, and the code lives
-//     only in this call and in the message. A verification that fails any
-//     of that gets no code and is marked held.
+//     cap. Over it the code is held back: the verification is marked held
+//     (a code an earlier, failed attempt minted is dropped), which takes
+//     it out of the resend budget, its first hold is counted, and the job
+//     snoozes while enough of the ten minutes is left; otherwise it ends
+//     without a code.
+//   - The code is then minted in a transaction of its own that takes the
+//     target's lock, locks the verification, and finds it open, its user
+//     active and at least VerificationSendWindow of its life left. A held
+//     verification spent no budget when it was held, so the resend budget
+//     is checked again here, as a start checks it: when it no longer
+//     allows the code, the verification ends unsent (canceled). Only the
+//     code's digest is stored; the transaction commits before the provider
+//     is called, and the code lives only in this call and in the message.
+//     A verification that fails the other checks gets no code and is
+//     marked held.
 //   - An undeliverable recipient cancels the job instead of retrying it.
 func (v *Verifications) SendCode(ctx context.Context, ref uuid.UUID, channel string) error {
 	now := v.users.clock.Now()
@@ -135,10 +140,22 @@ func (v *Verifications) SendCode(ctx context.Context, ref uuid.UUID, channel str
 	if err != nil {
 		return err
 	}
+	key, err := v.users.reads.GetVerificationTargetKey(ctx, ref)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // purged
+	}
+	if err != nil {
+		return fmt.Errorf("authn: load the verification's target: %w", err)
+	}
 	var target string
-	var found bool
+	var found, abandoned bool
 	err = v.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := authndb.New(tx)
+		// The target's lock first, then the row (ADR-0033 Karar 5): the
+		// budget is counted and spent as one step, as at a start.
+		if err := q.LockVerificationTarget(ctx, targetLock(key)); err != nil {
+			return fmt.Errorf("authn: lock the target: %w", err)
+		}
 		row, err := q.LockVerificationForCode(ctx, authndb.LockVerificationForCodeParams{
 			ID: ref, SendBefore: now.Add(VerificationSendWindow),
 		})
@@ -151,6 +168,19 @@ func (v *Verifications) SendCode(ctx context.Context, ref uuid.UUID, channel str
 		if row.Channel != channel {
 			return fmt.Errorf("authn: the job of a %s code found a %s verification", channel, row.Channel)
 		}
+		if row.HeldAt != nil && row.CodeSentAt == nil {
+			wait, err := v.budgetWait(ctx, q, row.UserID, channel, row.TargetKey, now)
+			if err != nil {
+				return err
+			}
+			if wait > 0 {
+				if err := q.AbandonVerificationCode(ctx, authndb.AbandonVerificationCodeParams{Now: now, ID: ref}); err != nil {
+					return fmt.Errorf("authn: end the held verification: %w", err)
+				}
+				abandoned = true
+				return nil
+			}
+		}
 		err = q.MintVerificationCode(ctx, authndb.MintVerificationCodeParams{CodeDigest: v.codeDigest(ref, code), Now: now, ID: ref})
 		if err != nil {
 			return fmt.Errorf("authn: mint the code: %w", err)
@@ -160,6 +190,12 @@ func (v *Verifications) SendCode(ctx context.Context, ref uuid.UUID, channel str
 	})
 	if err != nil {
 		return fmt.Errorf("authn: code job: %w", err)
+	}
+	if abandoned {
+		v.users.metrics.verificationCode(channel, codeThrottled)
+		v.users.logger.InfoContext(ctx, "held verification code ended unsent: the resend budget no longer allows it",
+			slog.String("channel", channel))
+		return nil
 	}
 	if !found {
 		// Ended, its user gone, or too late to be worth sending: no
@@ -201,19 +237,23 @@ func (v *Verifications) SendCode(ctx context.Context, ref uuid.UUID, channel str
 }
 
 // hold holds a code back under its channel's global cap: the
-// verification is marked held, the hold counted, and the job snoozes for
+// verification is marked held, its first hold counted (a snooze is not a
+// new hold), and the job snoozes for
 // CapSnooze while VerificationSendWindow of the verification's life is
 // left after it. Otherwise the job ends; the verification stays open,
 // without a code, until it expires.
 func (v *Verifications) hold(ctx context.Context, ref uuid.UUID, channel string, now time.Time) error {
-	expires, err := v.users.reads.HoldVerificationCode(ctx, authndb.HoldVerificationCodeParams{Now: now, ID: ref})
+	held, err := v.users.reads.HoldVerificationCode(ctx, authndb.HoldVerificationCodeParams{Now: now, ID: ref})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // ended, or its code went out
+		return nil // ended
 	}
 	if err != nil {
 		return fmt.Errorf("authn: mark the verification held: %w", err)
 	}
-	v.users.metrics.verificationCode(channel, codeHeld)
+	if held.FirstHold {
+		v.users.metrics.verificationCode(channel, codeHeld)
+	}
+	expires := held.ExpiresAt
 	if expires.Sub(now) >= CapSnooze+VerificationSendWindow {
 		v.users.logger.WarnContext(ctx, "verification code held back by the global hourly cap; snoozed",
 			slog.String("channel", channel))

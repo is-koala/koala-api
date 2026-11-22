@@ -37,7 +37,7 @@ const (
 	groupVerificationAddress = "verification_address"
 	// defaultVerificationStartsPerIP is that budget an hour, and its burst;
 	// KOALA_VERIFICATION_STARTS_PER_IP_HOUR overrides it.
-	defaultVerificationStartsPerIP = 20
+	defaultVerificationStartsPerIP = 60
 )
 
 // perMinute is a bucket of burst requests that refills n per minute.

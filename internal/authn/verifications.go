@@ -207,7 +207,7 @@ func (v *Verifications) Start(ctx context.Context, p UserPrincipal, channel, raw
 	if err != nil {
 		return Verification{}, err
 	}
-	_, signIn, err := v.users.confirmPassword(ctx, p.UserID, currentPassword)
+	cur, signIn, err := v.users.confirmPassword(ctx, p.UserID, currentPassword)
 	if err != nil {
 		return Verification{}, err
 	}
@@ -227,6 +227,13 @@ func (v *Verifications) Start(ctx context.Context, p UserPrincipal, channel, raw
 		}
 		if err != nil {
 			return fmt.Errorf("authn: lock user: %w", err)
+		}
+		if u.PasswordHash == nil || cur.PasswordHash == nil || *u.PasswordHash != *cur.PasswordHash {
+			// Changed since it was verified above, like an in-app
+			// change checks: the password given is not the account's
+			// any more.
+			outcome = apperr.New(apperr.KindForbidden, CodeCurrentMismatch)
+			return nil
 		}
 		// Every start of the target, from any user, counts and then
 		// writes under this lock.

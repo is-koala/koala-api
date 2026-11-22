@@ -12,6 +12,25 @@ import (
 	"github.com/google/uuid"
 )
 
+const abandonVerificationCode = `-- name: AbandonVerificationCode :exec
+UPDATE user_verifications
+SET canceled_at = $1::timestamptz, held_at = COALESCE(held_at, $1::timestamptz), code_digest = NULL
+WHERE id = $2 AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
+`
+
+type AbandonVerificationCodeParams struct {
+	Now time.Time
+	ID  uuid.UUID
+}
+
+// AbandonVerificationCode ends a held verification unsent: when its code
+// was finally due, the target's or the user's budget no longer allowed it
+// (ADR-0033 Karar 4). It reads as canceled and spends no budget.
+func (q *Queries) AbandonVerificationCode(ctx context.Context, arg AbandonVerificationCodeParams) error {
+	_, err := q.db.Exec(ctx, abandonVerificationCode, arg.Now, arg.ID)
+	return err
+}
+
 const cancelOpenVerifications = `-- name: CancelOpenVerifications :exec
 UPDATE user_verifications
 SET canceled_at = $1::timestamptz, code_digest = NULL
@@ -169,12 +188,25 @@ func (q *Queries) GetVerification(ctx context.Context, arg GetVerificationParams
 	return i, err
 }
 
+const getVerificationTargetKey = `-- name: GetVerificationTargetKey :one
+SELECT target_key FROM user_verifications WHERE id = $1
+`
+
+// GetVerificationTargetKey is the keyed target of a verification: the
+// code job takes the target's lock before it locks the row (ADR-0033
+// Karar 5).
+func (q *Queries) GetVerificationTargetKey(ctx context.Context, id uuid.UUID) ([]byte, error) {
+	row := q.db.QueryRow(ctx, getVerificationTargetKey, id)
+	var target_key []byte
+	err := row.Scan(&target_key)
+	return target_key, err
+}
+
 const holdVerificationCode = `-- name: HoldVerificationCode :one
 UPDATE user_verifications
-SET held_at = $1::timestamptz
-WHERE id = $2 AND code_digest IS NULL
-  AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
-RETURNING expires_at
+SET held_at = COALESCE(held_at, $1::timestamptz), code_digest = NULL, code_sent_at = NULL
+WHERE id = $2 AND confirmed_at IS NULL AND canceled_at IS NULL AND burned_at IS NULL
+RETURNING expires_at, (held_at = $1::timestamptz)::boolean AS first_hold
 `
 
 type HoldVerificationCodeParams struct {
@@ -182,14 +214,22 @@ type HoldVerificationCodeParams struct {
 	ID  uuid.UUID
 }
 
+type HoldVerificationCodeRow struct {
+	ExpiresAt time.Time
+	FirstHold bool
+}
+
 // HoldVerificationCode marks an open verification whose code the job
-// holds back unsent, and returns its end. No row: it ended, or its code
-// was sent.
-func (q *Queries) HoldVerificationCode(ctx context.Context, arg HoldVerificationCodeParams) (time.Time, error) {
+// holds back unsent, and returns its end and whether this is its first
+// hold. A code minted by an earlier attempt whose send failed is dropped
+// with it: the job runs again only after a failed attempt, so that code
+// is taken as never delivered, and the verification spends no budget
+// until a code goes out (ADR-0033 Karar 4). No row: it ended.
+func (q *Queries) HoldVerificationCode(ctx context.Context, arg HoldVerificationCodeParams) (HoldVerificationCodeRow, error) {
 	row := q.db.QueryRow(ctx, holdVerificationCode, arg.Now, arg.ID)
-	var expires_at time.Time
-	err := row.Scan(&expires_at)
-	return expires_at, err
+	var i HoldVerificationCodeRow
+	err := row.Scan(&i.ExpiresAt, &i.FirstHold)
+	return i, err
 }
 
 const insertVerification = `-- name: InsertVerification :exec
@@ -419,7 +459,7 @@ func (q *Queries) LockVerification(ctx context.Context, arg LockVerificationPara
 }
 
 const lockVerificationForCode = `-- name: LockVerificationForCode :one
-SELECT v.channel, v.target
+SELECT v.user_id, v.channel, v.target, v.target_key, v.held_at, v.code_sent_at
 FROM user_verifications v
 LEFT JOIN active_users u ON u.id = v.user_id
 WHERE v.id = $1 AND v.confirmed_at IS NULL AND v.canceled_at IS NULL AND v.burned_at IS NULL
@@ -433,19 +473,30 @@ type LockVerificationForCodeParams struct {
 }
 
 type LockVerificationForCodeRow struct {
-	Channel string
-	Target  string
+	UserID     uuid.UUID
+	Channel    string
+	Target     string
+	TargetKey  []byte
+	HeldAt     *time.Time
+	CodeSentAt *time.Time
 }
 
 // LockVerificationForCode locks an open verification that has at least
 // the sending window of its life left and whose user is active, and
-// returns where its code goes. No row: none of that holds, and no code is
-// minted.
+// returns where its code goes, and what the resend budget of a held one
+// needs. No row: none of that holds, and no code is minted.
 // softdelete:inner-by-design users: a code goes only to a verification whose user is still active; a deleted user's verification is dead and its target must get nothing (ADR-0033)
 func (q *Queries) LockVerificationForCode(ctx context.Context, arg LockVerificationForCodeParams) (LockVerificationForCodeRow, error) {
 	row := q.db.QueryRow(ctx, lockVerificationForCode, arg.ID, arg.SendBefore)
 	var i LockVerificationForCodeRow
-	err := row.Scan(&i.Channel, &i.Target)
+	err := row.Scan(
+		&i.UserID,
+		&i.Channel,
+		&i.Target,
+		&i.TargetKey,
+		&i.HeldAt,
+		&i.CodeSentAt,
+	)
 	return i, err
 }
 

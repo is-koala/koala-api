@@ -57,11 +57,11 @@ type IletiMerkeziMessage struct {
 //     over 11 characters or with Turkish letters 460, a sender other than
 //     the approved one 450, an empty text 454, a text over seven parts
 //     453, a missing recipients member (the correct spelling of the key
-//     included), no number or a number that is not 905XXXXXXXXX,
-//     +905XXXXXXXXX or 5XXXXXXXXX 452. A number set with RejectNumber gets
-//     452 too; 466 (an invalid carrier prefix) is the blacklist API's,
-//     and IletiMerkeziBadNumber lets a test enqueue it. Anything else is
-//     accepted and gets an order id; its code is the string "200".
+//     included) or no number 452, a number that is not 905XXXXXXXXX,
+//     +905XXXXXXXXX or 5XXXXXXXXX 466 (an invalid number, usually a wrong
+//     carrier prefix). A number set with RejectNumber gets 452, as a
+//     blocked one does. Anything else is accepted and gets an order id;
+//     its code is the string "200".
 //
 // Responses enqueued for SendPath() come after the credential check and
 // before this default behavior.
@@ -174,7 +174,7 @@ func (f *IletiMerkezi) fallback(r Request) (Response, bool) {
 	}
 	for _, n := range to.Number {
 		if !iletiMerkeziNumber.MatchString(n) {
-			return IletiMerkeziStatus(IletiMerkeziRecipients, false), true
+			return IletiMerkeziStatus(IletiMerkeziBadNumber, false), true
 		}
 	}
 	f.mu.Lock()

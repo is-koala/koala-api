@@ -787,13 +787,15 @@ func TestDailyTextCapPerUser(t *testing.T) {
 func TestGlobalTextCap(t *testing.T) {
 	t.Parallel()
 	v := newVerificationsEnv(t, authn.VerificationCaps{TextsPerHour: 2})
-	var last uuid.UUID
+	var last, held uuid.UUID
 	var lastErr error
 	for i, n := range []string{phoneN1, phoneN2, "+905051112233"} {
 		last = v.addUser(t, fmt.Sprintf("u%d@example.com", i), goodPw)
-		if _, err := v.verifications.Start(t.Context(), principal(last), authn.ChannelPhone, n, goodPw); err != nil {
+		ver, err := v.verifications.Start(t.Context(), principal(last), authn.ChannelPhone, n, goodPw)
+		if err != nil {
 			t.Fatal(err)
 		}
+		held = ver.ID
 		lastErr = v.workCodes(t)
 	}
 	var snooze *rivertype.JobSnoozeError
@@ -809,6 +811,13 @@ func TestGlobalTextCap(t *testing.T) {
 	if got := v.textCounter(t, "sent"); got != 2 {
 		t.Errorf("%s{PHONE,sent} = %v, want 2", authn.MetricVerificationCodes, got)
 	}
+	// A snooze is not a new hold: the metric counts the code once.
+	if err := v.verifications.SendCode(t.Context(), held, authn.ChannelPhone); !errors.As(err, &snooze) {
+		t.Errorf("the held code's next try = %v, want another snooze", err)
+	}
+	if got := v.textCounter(t, "held"); got != 1 {
+		t.Errorf("after a second snooze %s{PHONE,held} = %v, want 1", authn.MetricVerificationCodes, got)
+	}
 	// The held verification spends no budget: no cooldown holds its owner.
 	if _, err := v.verifications.Start(t.Context(), principal(last), authn.ChannelPhone, "+905051112233", goodPw); err != nil {
 		t.Errorf("a start after a held code = %v, want it accepted", err)
@@ -817,6 +826,117 @@ func TestGlobalTextCap(t *testing.T) {
 	v.clock.Advance(authn.VerificationTTL - authn.VerificationSendWindow)
 	if err := v.workCodes(t); err != nil {
 		t.Errorf("a held code with too little life left = %v, want the job to end", err)
+	}
+}
+
+// freeCap moves every sent code two hours back: the global hourly cap is
+// free again, while the daily caps, which count by start, still see them.
+func (v *verificationsEnv) freeCap(t *testing.T) {
+	t.Helper()
+	if _, err := v.db.Pool().Exec(t.Context(),
+		"UPDATE user_verifications SET code_sent_at = code_sent_at - interval '2 hours' WHERE code_sent_at IS NOT NULL"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// heldStart starts a verification under a full text cap and runs its
+// job, which holds the code; it returns the verification.
+func (v *verificationsEnv) heldStart(t *testing.T, user uuid.UUID, number string) uuid.UUID {
+	t.Helper()
+	ver, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, number, goodPw)
+	if err != nil {
+		t.Fatalf("start %s = %v", number, err)
+	}
+	var snooze *rivertype.JobSnoozeError
+	if err := v.workCodes(t); !errors.As(err, &snooze) {
+		t.Fatalf("the code job under a full cap = %v, want a snooze", err)
+	}
+	return ver.ID
+}
+
+// A held verification spent no budget, so when its code is finally due
+// the budget is checked again: two accounts that started one number while
+// the cap was full get one code between them once it frees, not two; the
+// other verification ends unsent (ADR-0033 Karar 4).
+func TestHeldCodesRecheckTheTargetBudget(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{TextsPerHour: 1})
+	v.start(t, v.addUser(t, "dolgu@example.com", goodPw), authn.ChannelPhone, phoneN2) // fills the cap
+	first := v.heldStart(t, v.addUser(t, member, goodPw), phoneN1)
+	second := v.heldStart(t, v.addUser(t, newcomer, goodPw), phoneN1)
+
+	v.freeCap(t)
+	for _, id := range []uuid.UUID{first, second} {
+		if err := v.verifications.SendCode(t.Context(), id, authn.ChannelPhone); err != nil {
+			t.Fatalf("the held code's job once the cap freed = %v", err)
+		}
+	}
+	if n := len(v.texts.to(phoneN1)); n != 1 {
+		t.Errorf("USR-010: the number got %d codes from two held verifications, want 1 (the cooldown)", n)
+	}
+	if r := v.row(t, second); r.CanceledAt == nil || r.CodeDigest != nil {
+		t.Errorf("the held verification the budget refused is %+v, want it ended unsent", r)
+	}
+}
+
+// The same holds for one user's daily cap: a user who starts more held
+// verifications than the cap allows gets only the cap's worth of codes.
+func TestHeldCodesRecheckTheDailyCap(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{TextsPerHour: 1})
+	v.start(t, v.addUser(t, "dolgu@example.com", goodPw), authn.ChannelPhone, phoneN2) // fills the cap
+	user := v.addUser(t, member, goodPw)
+	var ids []uuid.UUID
+	for i := range authn.TextsPerUserDay + 1 {
+		ids = append(ids, v.heldStart(t, user, fmt.Sprintf("+90532000%04d", i)))
+	}
+	for _, id := range ids {
+		v.freeCap(t)
+		if err := v.verifications.SendCode(t.Context(), id, authn.ChannelPhone); err != nil {
+			t.Fatalf("a held code's job = %v", err)
+		}
+	}
+	if n := v.texts.count() - 1; n != authn.TextsPerUserDay {
+		t.Errorf("one user's held verifications sent %d codes, want the daily cap %d", n, authn.TextsPerUserDay)
+	}
+	if r := v.row(t, ids[len(ids)-1]); r.CanceledAt == nil {
+		t.Errorf("the verification over the daily cap is %+v, want it ended unsent", r)
+	}
+}
+
+// A retry after a failed send meets a full cap: the code it minted is
+// dropped and the verification held, not left without a code, and it is
+// sent once the cap frees (ADR-0033 Karar 4).
+func TestRetriedCodeIsHeldNotDropped(t *testing.T) {
+	t.Parallel()
+	v := newVerificationsEnv(t, authn.VerificationCaps{TextsPerHour: 1})
+	user := v.addUser(t, member, goodPw)
+	ver, err := v.verifications.Start(t.Context(), principal(user), authn.ChannelPhone, phoneN1, goodPw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.texts.mu.Lock()
+	v.texts.refuse = errors.New("a passing provider failure")
+	v.texts.mu.Unlock()
+	if err := v.workCodes(t); err == nil {
+		t.Fatal("the failed send succeeded")
+	}
+	v.texts.mu.Lock()
+	v.texts.refuse = nil
+	v.texts.mu.Unlock()
+	// The failed attempt's code counts in the cap: the retry finds it full.
+	var snooze *rivertype.JobSnoozeError
+	if err := v.verifications.SendCode(t.Context(), ver.ID, authn.ChannelPhone); !errors.As(err, &snooze) {
+		t.Fatalf("the retry under a full cap = %v, want a snooze", err)
+	}
+	if r := v.row(t, ver.ID); r.CodeDigest != nil {
+		t.Error("the held verification keeps the failed attempt's code")
+	}
+	if err := v.verifications.SendCode(t.Context(), ver.ID, authn.ChannelPhone); err != nil {
+		t.Fatalf("the snoozed job = %v", err)
+	}
+	if n := len(v.texts.to(phoneN1)); n != 1 {
+		t.Errorf("the held code was sent %d times, want once", n)
 	}
 }
 
