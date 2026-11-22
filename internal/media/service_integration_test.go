@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/prometheus/client_golang/prometheus"
 
 	dbsrc "github.com/is-koala/koala-api/db"
 	"github.com/is-koala/koala-api/internal/authn"
@@ -46,6 +47,8 @@ type app struct {
 	fake    *fakes.S3
 	clock   *fakeclock.Fake
 	catalog *softdelete.Catalog
+	// reg is the registry of the current service's metrics.
+	reg *prometheus.Registry
 }
 
 func newApp(t *testing.T) *app {
@@ -78,11 +81,12 @@ func (a *app) reopen(t *testing.T) {
 	t.Helper()
 	database := a.dbt.Open(t, db.RoleApp)
 	logger := log.New(&bytes.Buffer{}, slog.LevelDebug)
+	a.reg = prometheus.NewRegistry()
 	queue, err := jobs.NewClient(database.Pool(), jobs.Config{Logger: logger})
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc, err := media.NewService(database, queue, a.store, softdelete.New(a.catalog), a.clock, logger)
+	svc, err := media.NewService(database, queue, a.store, softdelete.New(a.catalog), a.clock, logger, a.reg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,11 +200,12 @@ func (a *app) runDeleteJobs(ctx context.Context) error {
 			Media     uuid.UUID `json:"media"`
 			Kind      string    `json:"kind"`
 			UploadKey string    `json:"upload_key"`
+			Keep      string    `json:"keep"`
 		}
 		if err := json.Unmarshal(j.args, &args); err != nil {
 			return err
 		}
-		if err := a.svc.DeleteObjects(ctx, args.Media, media.Kind(args.Kind), args.UploadKey); err != nil {
+		if err := a.svc.DeleteObjects(ctx, args.Media, media.Kind(args.Kind), args.UploadKey, args.Keep); err != nil {
 			return err
 		}
 		if _, err := a.db.Pool().Exec(ctx, "UPDATE river_job SET state = 'completed', finalized_at = now() WHERE id = $1", j.id); err != nil {
@@ -657,7 +662,7 @@ func TestDeletionTakesTheObjectsOfItsMediaOnly(t *testing.T) {
 	wantCode(t, err, media.CodeNotFound)
 
 	// A job for the still active media keeps the object its row names.
-	if err := a.svc.DeleteObjects(t.Context(), second.ID, media.KindCompanyImage, second.UploadKey.String()); err != nil {
+	if err := a.svc.DeleteObjects(t.Context(), second.ID, media.KindCompanyImage, second.UploadKey.String(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := a.fake.Object(second.ObjectKey.String()); !ok {
@@ -858,7 +863,7 @@ func TestWithoutAnObjectStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bare, err := media.NewService(a.db, queue, nil, softdelete.New(a.catalog), a.clock, logger)
+	bare, err := media.NewService(a.db, queue, nil, softdelete.New(a.catalog), a.clock, logger, prometheus.NewRegistry())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1120,4 +1125,166 @@ func TestAddressesAndRejectionsByKind(t *testing.T) {
 			t.Errorf("CORRUPT renders %q, want MEDIA_TYPE_UNSUPPORTED", code)
 		}
 	})
+}
+
+// ADR-0035 Karar 7: an account deletion keeps its media's objects for a
+// restore. The object deletion a recorded completion queues names that
+// object as Keep, so it stays even when the account's cascade removed the
+// row before the job ran. Without Keep the job finds no active row, keeps
+// nothing and deletes the photo, and the restore brings back a READY row
+// with no object: red here.
+func TestRecordedObjectSurvivesAccountDeletion(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	owner := a.user(t)
+	s := a.start(t, owner, media.KindProfilePicture)
+	body, _ := jpegWithGPS(t, 1)
+	a.put(s, body)
+	m, err := a.svc.RequestCompletion(t.Context(), owner, s.Media.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.run(t.Context(), m); err != nil {
+		t.Fatal(err)
+	}
+	final := finalKey(t, s.Media.ID, storage.ExtJPEG).String()
+
+	// The account is deleted before the completion's deletion job runs.
+	err = a.db.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		_, err := softdelete.New(a.catalog).Delete(ctx, q, softdelete.DeleteRequest{
+			Table: "users", ID: owner, Actor: softdelete.Actor{Kind: softdelete.ActorSystem},
+			Reason: softdelete.ReasonAccountDeletion, At: a.clock.Now(),
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.deleteObjects(t)
+	if _, ok := a.fake.Object(final); !ok {
+		t.Fatal("the recorded object of a media whose account was deleted is gone; a restore would bring back a READY row with no object")
+	}
+	if _, ok := a.fake.Object(s.Media.UploadKey.String()); ok {
+		t.Error("the quarantine key was kept along with the recorded object")
+	}
+}
+
+// RetryFloor (ADR-0035 Karar 6): the oldest open upload is past its
+// retention and the hourly sweep has not taken it yet, so the computed
+// wait is negative; the answer still asks for a minute. Without the floor
+// Retry-After would be zero or less: red.
+func TestUploadCapWaitHasAFloor(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	owner := a.user(t)
+	for range media.MaxOpenUploads {
+		a.start(t, owner, media.KindCompanyImage)
+	}
+	a.clock.Advance(media.UploadRetention + time.Hour)
+	_, err := a.svc.Start(t.Context(), owner, media.KindCompanyImage, 1024, noCommit)
+	wantCode(t, err, media.CodePendingLimit)
+	if wait, ok := media.RetryAfter(err); !ok || wait != media.RetryFloor {
+		t.Errorf("RetryAfter = %v, %v, want the floor %v", wait, ok, media.RetryFloor)
+	}
+}
+
+// Release (ADR-0035 Karar 8): a consumer that replaces a media lets go of
+// the old one in its own transaction; the old media is deleted and its
+// objects' deletion queued. Another user's media is not found.
+func TestRelease(t *testing.T) {
+	t.Parallel()
+	a := newApp(t)
+	owner := a.user(t)
+	old := a.ready(t, owner, media.KindProfilePicture)
+	release := func(who, id uuid.UUID) error {
+		return a.db.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+			if err := media.Bind(ctx, q, a.clock.Now(), owner, old.ID); err != nil {
+				return err
+			}
+			return a.svc.Release(ctx, q, a.clock.Now(), who, id)
+		})
+	}
+	wantCode(t, release(a.user(t), old.ID), media.CodeNotFound)
+	if err := release(owner, old.ID); err != nil {
+		t.Fatalf("Release() = %v", err)
+	}
+	_, err := a.svc.Get(t.Context(), owner, old.ID)
+	wantCode(t, err, media.CodeNotFound)
+	a.deleteObjects(t)
+	if _, ok := a.fake.Object(old.ObjectKey.String()); ok {
+		t.Error("a released media's object is still in the store")
+	}
+}
+
+// ADR-0035 Karar 8: a READY media a consumer points at on a restrict edge
+// without having called Bind cannot be retired. The sweep adopts it: it
+// binds it through BindMedia and counts it, so the next run does not list
+// it again; without the adoption every run would list, fail and count it,
+// and enough of them would spend the runs' pages. Here the budget ledger
+// plays the consumer (every started upload has a ledger row with its id).
+func TestSweepAdoptsMediaAConsumerForgotToBind(t *testing.T) {
+	t.Parallel()
+	catalog, err := softdelete.ParseCatalog(dbsrc.SoftDeleteCatalog(), []byte(
+		"edges:\n  - child: media_upload_starts\n    column: id\n    parent: media\n    policy: restrict\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newAppWith(t, catalog)
+	owner := a.user(t)
+	m := a.ready(t, owner, media.KindCompanyImage)
+	// Past the unbound retention, and the ledger row written inside the
+	// budget window so the sweep's purge keeps it.
+	a.clock.Advance(media.UnboundRetention + time.Hour)
+	if _, err := a.db.Pool().Exec(t.Context(), "DELETE FROM media_upload_starts WHERE id = $1", m.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := mediadb.New(a.db.Pool()).InsertUploadStart(t.Context(), mediadb.InsertUploadStartParams{
+		ID: m.ID, UserID: owner, CreatedAt: a.clock.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := a.svc.Sweep(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Adopted != 1 || first.Kept != 0 {
+		t.Fatalf("first sweep = %+v, want the media adopted", first)
+	}
+	second, err := a.svc.Sweep(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Adopted != 0 || second.Kept != 0 || second.Deleted != 0 {
+		t.Errorf("second sweep = %+v, want the adopted media no longer listed", second)
+	}
+	if got, err := a.svc.Get(t.Context(), owner, m.ID); err != nil || got.Status != media.StatusReady {
+		t.Errorf("the adopted media: %+v, %v", got, err)
+	}
+	if v := counted(t, a.reg, "adopted"); v != 1 {
+		t.Errorf("%s{result=adopted} = %v, want 1", media.MetricSwept, v)
+	}
+}
+
+// counted reads the media sweep counter of result on reg.
+func counted(t *testing.T, reg *prometheus.Registry, result string) float64 {
+	t.Helper()
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != media.MetricSwept {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, l := range m.GetLabel() {
+				if l.GetName() == "result" && l.GetValue() == result {
+					return m.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	t.Fatalf("%s{result=%s} is not registered", media.MetricSwept, result)
+	return 0
 }

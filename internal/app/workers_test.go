@@ -86,15 +86,23 @@ func TestWorkersStartFailuresAreCountedAndStopReturns(t *testing.T) {
 
 // The River client of serve runs the media queue with its own worker
 // count, next to the default queue (ADR-0035 Karar 2): a job on a queue
-// the client does not run waits forever.
+// the client does not run waits forever. The configuration read here is
+// the one newWorkerClient hands to River (workerConfig), so a client built
+// with another queue map is red.
 func TestWorkersRunTheMediaQueue(t *testing.T) {
 	t.Parallel()
 
-	queues := workerQueues()
-	if q, ok := queues[media.Queue]; !ok || q.MaxWorkers != media.QueueWorkers {
+	cfg, err := workerConfig(testModules(t), log.New(&bytes.Buffer{}, slog.LevelInfo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q, ok := cfg.Queues[media.Queue]; !ok || q.MaxWorkers != media.QueueWorkers {
 		t.Errorf("media queue = %+v, %v, want %d workers", q, ok, media.QueueWorkers)
 	}
-	if q, ok := queues[river.QueueDefault]; !ok || q.MaxWorkers < 1 {
+	if q, ok := cfg.Queues[river.QueueDefault]; !ok || q.MaxWorkers < 1 {
 		t.Errorf("default queue = %+v, %v", q, ok)
+	}
+	if cfg.Workers == nil {
+		t.Error("the configuration carries no workers")
 	}
 }
