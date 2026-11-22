@@ -163,10 +163,20 @@ tables:
       A registration between its first and third step (ADR-0029 Karar 2):
       address, names and the SHA-256 digests of its two tokens. The address
       and the names are cleared the moment the registration is consumed or
-      revoked (KVKK data minimization); the row stays, with the mailbox key
-      and its time only, until it is hard-deleted 30 days after it was
-      written (USR-007), so the mail budget can count it (ADR-0032 Karar 6).
-      Not soft-deleted: a registration never comes back.
+      revoked (KVKK data minimization); the row stays, with the keyed
+      mailbox and its times only, until it is hard-deleted 30 days after it
+      was written (USR-007), so the mail budget can count it (ADR-0032
+      Karar 6). The mailbox key is an HMAC-SHA256 under the login pepper,
+      not an address: the budget only compares keys, and a leaked table
+      cannot be matched against a list of addresses (the login_attempts
+      target's scheme). Not soft-deleted: a registration never comes back.
+  registration_requests:
+    class: M2
+    reason: >-
+      The global registration mail cap's ledger (ADR-0032 Karar 6): one row
+      per handled registration request, written before the address is
+      looked up, with its time only. No address, no key, no user.
+      Hard-deleted a day after.
   password_reset_tokens:
     class: M2
     reason: >-

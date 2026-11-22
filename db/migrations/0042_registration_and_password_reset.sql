@@ -62,17 +62,19 @@ ALTER TABLE user_sessions ADD CONSTRAINT user_sessions_revoke_reason_check CHECK
 -- (step 1, one hour) and the registration token (step 2, fifteen minutes)
 -- are SHA-256 digests; a NULL link means its mail has not been sent yet.
 -- At most one open registration per address; a new start revokes the open
--- one. mailbox_key is the address without its sub-address and, at Gmail,
--- without dots: the mail budget counts mailboxes, not spellings (ADR-0032
--- Karar 6). Once a registration ends (consumed or revoked) its address and
--- names are cleared at once; only what the budget counts stays until the
--- row is hard-deleted 30 days after it was written (USR-007; KVKK data
--- minimization).
+-- one. mailbox_key is the HMAC-SHA256, under the login pepper, of the
+-- address without its sub-address and, at Gmail, without dots: the mail
+-- budget counts mailboxes, not spellings, and only compares keys, so no
+-- address is stored for it (ADR-0032 Karar 6 and 8; the login_attempts
+-- target's scheme, ADR-0025 §5). Once a registration ends (consumed or
+-- revoked) its address and names are cleared at once; only the keyed
+-- mailbox and the times stay until the row is hard-deleted 30 days after
+-- it was written (USR-007; KVKK data minimization).
 CREATE TABLE pending_registrations (
     id uuid PRIMARY KEY,
     -- Trimmed and lower-cased by the application, like users.email.
     email text,
-    mailbox_key text NOT NULL,
+    mailbox_key bytea NOT NULL,
     first_name text,
     last_name text,
     employer boolean NOT NULL,
@@ -84,7 +86,7 @@ CREATE TABLE pending_registrations (
     consumed_at timestamptz,
     revoked_at timestamptz,
     CONSTRAINT pending_registrations_email_check CHECK (email = lower(btrim(email)) AND length(email) BETWEEN 3 AND 254),
-    CONSTRAINT pending_registrations_mailbox_key_check CHECK (length(mailbox_key) BETWEEN 1 AND 254),
+    CONSTRAINT pending_registrations_mailbox_key_check CHECK (octet_length(mailbox_key) = 32),
     CONSTRAINT pending_registrations_names_check CHECK (
         length(first_name) BETWEEN 1 AND 100 AND length(last_name) BETWEEN 1 AND 100),
     -- An open registration has its address and names; an ended one has
@@ -106,10 +108,21 @@ CREATE TABLE pending_registrations (
 
 CREATE UNIQUE INDEX pending_registrations_open_email_key ON pending_registrations (email)
     WHERE consumed_at IS NULL AND revoked_at IS NULL;
--- The mail budget counts a mailbox's recent rows; the global cap counts
--- every recent row.
+-- The mail budget counts a mailbox's recent rows; the purge goes by time.
 CREATE INDEX pending_registrations_mailbox_created_idx ON pending_registrations (mailbox_key, created_at);
 CREATE INDEX pending_registrations_created_at_idx ON pending_registrations (created_at);
+
+-- One row per registration request the job handles, written before the
+-- address is looked up: the global hourly cap counts these rows, so a
+-- registered address spends the cap exactly like an unknown one and the
+-- cap tells nothing about which addresses exist (ADR-0032 Karar 2 and 6).
+-- Only the time is kept; rows are hard-deleted a day after (M2).
+CREATE TABLE registration_requests (
+    id uuid PRIMARY KEY,
+    requested_at timestamptz NOT NULL
+);
+
+CREATE INDEX registration_requests_requested_at_idx ON registration_requests (requested_at);
 
 -- One password reset request of a user. The token is a SHA-256 digest of
 -- 32 random bytes, minted when the mail is sent (NULL until then), and
@@ -200,6 +213,8 @@ CREATE INDEX consent_records_user_idx ON consent_records (user_id);
 -- Written and purged by the application (purge job, koala_app).
 GRANT SELECT, INSERT, UPDATE, DELETE ON pending_registrations TO koala_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON password_reset_tokens TO koala_app;
+-- The cap's ledger: appended, counted and purged, never updated.
+GRANT SELECT, INSERT, DELETE ON registration_requests TO koala_app;
 -- Read-only reference data; a new version comes by migration.
 GRANT SELECT ON agreement_versions TO koala_app;
 -- Evidence: appended, never read back, updated or deleted.
@@ -209,6 +224,7 @@ GRANT INSERT ON consent_records TO koala_app;
 DROP TABLE consent_records;
 DROP TABLE agreement_versions;
 DROP TABLE password_reset_tokens;
+DROP TABLE registration_requests;
 DROP TABLE pending_registrations;
 ALTER TABLE user_sessions DROP CONSTRAINT user_sessions_revoke_reason_check;
 ALTER TABLE user_sessions ADD CONSTRAINT user_sessions_revoke_reason_check CHECK (revoke_reason IN (

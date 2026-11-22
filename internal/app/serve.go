@@ -158,7 +158,7 @@ func wireService(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, nil, nil, err
 	}
-	router, err := newRouter(ctx, cfg, logger, health, reg, rateLimitGroups(), mods)
+	router, err := newRouter(ctx, cfg, logger, health, reg, serveRateLimitGroups(cfg), mods)
 	if err != nil {
 		return modules{}, nil, nil, err
 	}

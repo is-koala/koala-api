@@ -17,7 +17,7 @@ const MetricAccountMailsHeld = "koala_account_mails_held_total"
 const (
 	heldMailbox = "mailbox" // one mailbox's cooldown or hourly budget (registration)
 	heldAccount = "account" // one account's cooldown or hourly budget (reset)
-	heldGlobal  = "global"  // the hourly cap of registration mails over every address
+	heldGlobal  = "global"  // the hourly cap of registration requests over every address, registered or not
 )
 
 // Lock scopes, the values of the scope label.

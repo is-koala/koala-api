@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/is-koala/koala-api/internal/authn"
+	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 )
 
@@ -133,4 +134,27 @@ func TestAccountRateLimitKeys(t *testing.T) {
 	}
 	wantStatus(t, a.callFrom(t, "192.0.2.30", http.MethodPost, "/v1/auth/registrations/verify", "", token),
 		http.StatusTooManyRequests, httpx.CodeRateLimited)
+}
+
+// One client address has its own low hourly budget of registration
+// starts, whatever the mailboxes, so it cannot fill the global hourly cap
+// on its own; another address is not held by it, and a reset request does
+// not spend it (ADR-0032 Karar 6).
+func TestRegistrationStartsPerAddress(t *testing.T) {
+	t.Parallel()
+	var cfg config.Config
+	cfg.Mail.RegistrationStartsPerIP = 3
+	a := newAuthApp(t, serveRateLimitGroups(cfg))
+	start := func(addr, email string) *httptest.ResponseRecorder {
+		t.Helper()
+		return a.callFrom(t, addr, http.MethodPost, "/v1/auth/registrations", "",
+			`{"firstName":"A","lastName":"B","employer":false,"email":"`+email+`"}`)
+	}
+	for i := range 3 {
+		wantStatus(t, start("198.51.100.7", "kutu"+strconv.Itoa(i)+"@example.com"), http.StatusAccepted, "")
+	}
+	wantStatus(t, start("198.51.100.7", "kutu9@example.com"), http.StatusTooManyRequests, httpx.CodeRateLimited)
+	wantStatus(t, start("198.51.100.8", "kutu9@example.com"), http.StatusAccepted, "")
+	wantStatus(t, a.callFrom(t, "198.51.100.7", http.MethodPost, "/v1/auth/password-reset", "", `{"email":"kutu9@example.com"}`),
+		http.StatusAccepted, "")
 }

@@ -299,6 +299,26 @@ func (q *Queries) MarkDeviceProven(ctx context.Context, arg MarkDeviceProvenPara
 	return err
 }
 
+const markSessionDeviceProven = `-- name: MarkSessionDeviceProven :exec
+UPDATE active_devices
+SET credentials_proven_at = $1::timestamptz
+WHERE id = (SELECT s.device_id FROM user_sessions s WHERE s.id = $2 AND s.user_id = $3)
+`
+
+type MarkSessionDeviceProvenParams struct {
+	Now       time.Time
+	SessionID uuid.UUID
+	UserID    uuid.UUID
+}
+
+// MarkSessionDeviceProven records that the current password was proven
+// from the device of the user's session: an in-app password change
+// (ADR-0032 Karar 7). The caller holds the user's row lock.
+func (q *Queries) MarkSessionDeviceProven(ctx context.Context, arg MarkSessionDeviceProvenParams) error {
+	_, err := q.db.Exec(ctx, markSessionDeviceProven, arg.Now, arg.SessionID, arg.UserID)
+	return err
+}
+
 const nthFailureSinceSuccess = `-- name: NthFailureSinceSuccess :one
 SELECT f.created_at
 FROM login_attempts f

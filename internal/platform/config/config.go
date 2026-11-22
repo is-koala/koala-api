@@ -64,6 +64,9 @@ const (
 	// VarRegistrationMailsPerHour overrides the global hourly cap of
 	// registration mails (ADR-0032 Karar 6).
 	VarRegistrationMailsPerHour = "KOALA_REGISTRATION_MAILS_PER_HOUR"
+	// VarRegistrationStartsPerIPHour overrides the per-client-address
+	// hourly budget of registration starts (ADR-0032 Karar 6).
+	VarRegistrationStartsPerIPHour = "KOALA_REGISTRATION_STARTS_PER_IP_HOUR"
 )
 
 // known lists every variable Load understands. A KOALA_* variable outside
@@ -76,7 +79,7 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarObjectEndpoint, VarObjectRegion, VarObjectBucket,
 	VarObjectAccessKeyID, VarObjectSecretKey, VarObjectPathStyle, VarObjectPublicBaseURL,
 	VarSMTPHost, VarSMTPPort, VarSMTPUsername, VarSMTPPassword, VarMailFrom, VarWebBaseURL,
-	VarRegistrationMailsPerHour,
+	VarRegistrationMailsPerHour, VarRegistrationStartsPerIPHour,
 }
 
 // Variables returns every KOALA_* variable Load understands, in the
@@ -184,6 +187,10 @@ type Mail struct {
 	// 0 when unset, and the account flows then use their default. It is not
 	// part of the relay's configuration (Configured).
 	RegistrationsPerHour int
+	// RegistrationStartsPerIP is the hourly budget of registration starts
+	// from one client address (an IPv6 /64); 0 when unset, and the edge
+	// then uses its default. Not part of the relay's configuration either.
+	RegistrationStartsPerIP int
 }
 
 // Configured reports whether any mail variable was set.
@@ -787,12 +794,22 @@ func loadMail(vars map[string]string, cfg *Config) []error {
 	if v, ok := vars[VarSMTPPassword]; ok {
 		cfg.Mail.SMTPPassword = Secret(v)
 	}
-	if v, ok := vars[VarRegistrationMailsPerHour]; ok {
+	for name, limit := range map[string]struct {
+		dst *int
+		max int
+	}{
+		VarRegistrationMailsPerHour:    {&cfg.Mail.RegistrationsPerHour, maxRegistrationsPerHour},
+		VarRegistrationStartsPerIPHour: {&cfg.Mail.RegistrationStartsPerIP, maxRegistrationStartsPerIP},
+	} {
+		v, ok := vars[name]
+		if !ok {
+			continue
+		}
 		n, err := strconv.Atoi(strings.TrimSpace(v))
-		if err != nil || n < 1 || n > maxRegistrationsPerHour {
-			errs = append(errs, fmt.Errorf("%s: %w: want 1-%d", VarRegistrationMailsPerHour, errInvalidValue, maxRegistrationsPerHour))
+		if err != nil || n < 1 || n > limit.max {
+			errs = append(errs, fmt.Errorf("%s: %w: want 1-%d", name, errInvalidValue, limit.max))
 		} else {
-			cfg.Mail.RegistrationsPerHour = n
+			*limit.dst = n
 		}
 	}
 	if v, ok := vars[VarSMTPPort]; ok {
@@ -820,6 +837,10 @@ func loadMail(vars map[string]string, cfg *Config) []error {
 // maxRegistrationsPerHour bounds the global registration mail cap: a
 // larger value is no cap.
 const maxRegistrationsPerHour = 100000
+
+// maxRegistrationStartsPerIP bounds the per-address registration budget:
+// a larger value is the global cap's business, not an address's.
+const maxRegistrationStartsPerIP = 1000
 
 // ServeMailErrors reports what serve needs of the mail configuration
 // (ADR-0032), fail closed like ServeStorageErrors: staging and production

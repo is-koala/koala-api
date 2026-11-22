@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -74,7 +75,8 @@ type Accounts struct {
 	sender mailSender
 	mails  *mailer.Templates
 	web    *url.URL
-	// registrationsPerHour is the global hourly cap of registration mails.
+	// registrationsPerHour is the global hourly cap of handled
+	// registration requests, and so of registration mails.
 	registrationsPerHour int64
 }
 
@@ -144,17 +146,31 @@ func (a *Accounts) StartRegistration(ctx context.Context, in RegistrationRequest
 	return a.enqueue(ctx, registrationRequestedArgs{Email: email, FirstName: first, LastName: last, Employer: in.Employer})
 }
 
-// HandleRegistrationRequest is the job of a registration start. A
-// registered address gets nothing: no pending registration, no mail
-// (USR-001). Otherwise the address's open registration is revoked and a
-// new one written (USR-002), and its link mail queued in the same
-// transaction, unless the mailbox's budget or the global hourly cap is
-// spent (ADR-0032 Karar 6); a held mail is counted, never reported to the
-// requester.
+// HandleRegistrationRequest is the job of a registration start. Every
+// request first takes its place in the global hourly cap's ledger, before
+// the address is looked up, so a registered address spends the cap
+// exactly like an unknown one (ADR-0032 Karar 2 and 6); over the cap
+// nothing else happens. A registered address gets nothing: no pending
+// registration, no mail (USR-001). Otherwise the address's open
+// registration is revoked and a new one written (USR-002), and its link
+// mail queued in the same transaction, unless the mailbox's budget is
+// spent; a held mail is counted, never reported to the requester.
 func (a *Accounts) HandleRegistrationRequest(ctx context.Context, in RegistrationRequest) error {
 	now := a.users.clock.Now()
 	err := a.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := authndb.New(tx)
+		if err := q.TakeRegistrationRequest(ctx, authndb.TakeRegistrationRequestParams{ID: newID(), RequestedAt: now}); err != nil {
+			return fmt.Errorf("authn: record the registration request: %w", err)
+		}
+		everyone, err := q.CountRecentRegistrationRequests(ctx, now.Add(-time.Hour))
+		if err != nil {
+			return fmt.Errorf("authn: count registration requests: %w", err)
+		}
+		if everyone > a.registrationsPerHour {
+			a.users.metrics.mailHeld(heldGlobal)
+			a.users.logger.WarnContext(ctx, "registration request held back by the global hourly cap")
+			return nil
+		}
 		registered, err := q.EmailRegistered(ctx, in.Email)
 		if err != nil {
 			return fmt.Errorf("authn: look up the address: %w", err)
@@ -162,21 +178,16 @@ func (a *Accounts) HandleRegistrationRequest(ctx context.Context, in Registratio
 		if registered {
 			return nil
 		}
-		mailbox := mailboxKey(in.Email)
+		mailbox := a.users.MailboxTarget(in.Email)
 		recent, err := q.CountRecentRegistrationMails(ctx, authndb.CountRecentRegistrationMailsParams{
 			MailboxKey: mailbox, WindowStart: now.Add(-time.Hour), CooldownStart: now.Add(-LinkMailCooldown),
 		})
 		if err != nil {
 			return fmt.Errorf("authn: count registration mails: %w", err)
 		}
-		switch {
-		case recent.InCooldown > 0 || recent.InWindow >= LinkMailsPerHour:
+		if recent.InCooldown > 0 || recent.InWindow >= LinkMailsPerHour {
 			a.users.metrics.mailHeld(heldMailbox)
 			a.users.logger.InfoContext(ctx, "registration mail held back by the mailbox's budget")
-			return nil
-		case recent.Everyone >= a.registrationsPerHour:
-			a.users.metrics.mailHeld(heldGlobal)
-			a.users.logger.WarnContext(ctx, "registration mail held back by the global hourly cap")
 			return nil
 		}
 		err = q.RevokeOpenPendingRegistrations(ctx, authndb.RevokeOpenPendingRegistrationsParams{Now: now, Email: in.Email})
@@ -378,14 +389,22 @@ func (a *Accounts) CompleteRegistration(ctx context.Context, in RegistrationComp
 }
 
 // consentClient is the client address and User-Agent a consent record
-// keeps: the address as the edge resolved it, the User-Agent cut to
-// maxUserAgentBytes on a character boundary; nil when absent.
+// keeps: the address as the edge resolved it, the User-Agent without its
+// control characters (a NUL would fail the text column: Postgres refuses
+// it) and cut to maxUserAgentBytes on a character boundary; nil when
+// absent.
 func consentClient(addr netip.Addr, userAgent string) (ip, agent *string) {
 	if addr.IsValid() {
 		s := addr.Unmap().String()
 		ip = &s
 	}
-	userAgent = strings.ToValidUTF8(strings.TrimSpace(userAgent), "")
+	userAgent = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, strings.ToValidUTF8(userAgent, ""))
+	userAgent = strings.TrimSpace(userAgent)
 	if len(userAgent) > maxUserAgentBytes {
 		end := 0
 		for i, r := range userAgent {
@@ -599,7 +618,9 @@ type PasswordChange struct {
 // refused unexamined (ADR-0032 Karar 7): a stolen session cannot guess the
 // password here without limit. The known-device exemption of sign-in does
 // not apply, since the caller's own device is the one that holds the
-// session.
+// session. A change that succeeds proved the current password from the
+// caller's device, so that device stays a known-good source past the new
+// credential epoch, like the device a reset is completed from.
 func (a *Accounts) ChangePassword(ctx context.Context, p UserPrincipal, in PasswordChange) error {
 	if in.New != in.Confirmation {
 		return apperr.New(apperr.KindInvalid, CodeConfirmationMismatch)
@@ -662,6 +683,10 @@ func (a *Accounts) ChangePassword(ctx context.Context, p UserPrincipal, in Passw
 		if err := a.writePassword(ctx, tx, q, p.UserID, hash, reasonChanged, p.SessionID, now); err != nil {
 			return err
 		}
+		err = q.MarkSessionDeviceProven(ctx, authndb.MarkSessionDeviceProvenParams{Now: now, SessionID: p.SessionID, UserID: p.UserID})
+		if err != nil {
+			return fmt.Errorf("authn: mark the device proven: %w", err)
+		}
 		return insertAttempt(ctx, q, principalUser, target, outcomeSucceeded, now)
 	})
 	if err != nil {
@@ -720,15 +745,19 @@ func (a *Accounts) writePassword(ctx context.Context, tx db.Querier, q *authndb.
 
 // Purge hard-deletes pending registrations and reset requests older than
 // AccountRowRetention (M2). The authentication purge job calls it.
-func (a *Accounts) Purge(ctx context.Context) (pending, resets int64, err error) {
-	before := a.users.clock.Now().Add(-AccountRowRetention)
+func (a *Accounts) Purge(ctx context.Context) (pending, resets, requests int64, err error) {
+	now := a.users.clock.Now()
+	before := now.Add(-AccountRowRetention)
 	if pending, err = a.users.reads.PurgePendingRegistrations(ctx, before); err != nil {
-		return 0, 0, fmt.Errorf("authn: purge pending registrations: %w", err)
+		return 0, 0, 0, fmt.Errorf("authn: purge pending registrations: %w", err)
 	}
 	if resets, err = a.users.reads.PurgePasswordResets(ctx, before); err != nil {
-		return pending, 0, fmt.Errorf("authn: purge reset requests: %w", err)
+		return pending, 0, 0, fmt.Errorf("authn: purge reset requests: %w", err)
 	}
-	return pending, resets, nil
+	if requests, err = a.users.reads.PurgeRegistrationRequests(ctx, now.Add(-RegistrationLedgerRetention)); err != nil {
+		return pending, resets, 0, fmt.Errorf("authn: purge the registration ledger: %w", err)
+	}
+	return pending, resets, requests, nil
 }
 
 // enqueue inserts a job in a transaction of its own.

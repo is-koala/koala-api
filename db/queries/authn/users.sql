@@ -52,6 +52,14 @@ UPDATE active_devices
 SET credentials_proven_at = sqlc.arg(now)::timestamptz
 WHERE id = sqlc.arg(id);
 
+-- name: MarkSessionDeviceProven :exec
+-- MarkSessionDeviceProven records that the current password was proven
+-- from the device of the user's session: an in-app password change
+-- (ADR-0032 Karar 7). The caller holds the user's row lock.
+UPDATE active_devices
+SET credentials_proven_at = sqlc.arg(now)::timestamptz
+WHERE id = (SELECT s.device_id FROM user_sessions s WHERE s.id = sqlc.arg(session_id) AND s.user_id = sqlc.arg(user_id));
+
 -- name: DeviceProvenSince :one
 -- DeviceProvenSince reports whether a password reset was completed from
 -- the user's device since the bound: such a device is known-good although

@@ -67,7 +67,8 @@ func TestRegistrationMailNamesNobody(t *testing.T) {
 }
 
 // The consent record keeps the resolved client address and a User-Agent
-// bounded to 512 bytes, cut on a character boundary.
+// without control characters, bounded to 512 bytes, cut on a character
+// boundary.
 func TestConsentClient(t *testing.T) {
 	t.Parallel()
 
@@ -78,6 +79,15 @@ func TestConsentClient(t *testing.T) {
 	ip, agent = consentClient(netip.Addr{}, "")
 	if ip != nil || agent != nil {
 		t.Errorf("an absent address and agent = %v, %v; want nil", ip, agent)
+	}
+	// Control characters go, NUL above all: Postgres refuses it in text.
+	_, agent = consentClient(netip.Addr{}, "Koala/1.0\x00 iOS\x7f\u0085\tx")
+	if agent == nil || *agent != "Koala/1.0 iOSx" {
+		t.Errorf("a User-Agent with control characters became %q, want them dropped", deref(agent))
+	}
+	_, agent = consentClient(netip.Addr{}, "\x00\x01")
+	if agent != nil {
+		t.Errorf("a User-Agent of control characters only = %q, want none", *agent)
 	}
 	long := strings.Repeat("ş", 300) // 600 bytes
 	_, agent = consentClient(netip.Addr{}, long)

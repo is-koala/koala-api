@@ -240,13 +240,14 @@ type pendingRow struct {
 	LastName      *string
 }
 
-// pendings reads the registrations of a mailbox (for these addresses, the
-// address itself), ended ones included.
+// pendings reads the registrations of addr's mailbox, ended ones
+// included. The stored key is the keyed hash of the mailbox, so it is
+// derived the way the service derives it, not compared with the address.
 func (a *accountsEnv) pendings(t *testing.T, addr string) []pendingRow {
 	t.Helper()
 	rows, err := a.db.Pool().Query(t.Context(), `
 		SELECT link_token_hash, consumed_at, revoked_at, email, first_name, last_name
-		FROM pending_registrations WHERE mailbox_key = $1 ORDER BY created_at`, addr)
+		FROM pending_registrations WHERE mailbox_key = $1 ORDER BY created_at`, a.users.MailboxTarget(addr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,7 +547,7 @@ func TestPendingRegistrationsArePurged(t *testing.T) {
 
 	a.register(t, newcomer)
 	a.clock.Advance(authn.AccountRowRetention + time.Hour)
-	pending, _, err := a.accounts.Purge(t.Context())
+	pending, _, _, err := a.accounts.Purge(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -926,6 +927,38 @@ func TestResetLiftsTheLock(t *testing.T) {
 	a.login(t, member, goodPw, devicePhone)
 }
 
+// The device an in-app change was made from proved the current password
+// there, so it stays known-good past the credential epoch the change
+// moves: an attacker who locks the account out afterwards does not keep
+// the user out of it. A device signed in on before the change, and not
+// the one it was made from, is held by the lock (ADR-0032 Karar 7).
+func TestPasswordChangeProvesTheDevice(t *testing.T) {
+	t.Parallel()
+	a := newAccountsEnv(t)
+	a.addUser(t, member, otherPw)
+	pair := a.login(t, member, otherPw, deviceW1)
+	a.login(t, member, otherPw, deviceW2)
+	p, err := a.users.Authenticate(t.Context(), pair.AccessToken, deviceW1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.clock.Advance(time.Second)
+	if err := a.accounts.ChangePassword(t.Context(), p, authn.PasswordChange{Current: otherPw, New: goodPw, Confirmation: goodPw}); err != nil {
+		t.Fatal(err)
+	}
+	if !a.known(t, deviceW1) {
+		t.Error("the device the change was made from is not known")
+	}
+	if a.known(t, deviceW2) {
+		t.Error("a device signed in on before the change is still known")
+	}
+	a.clock.Advance(time.Second)
+	a.lockOut(t)
+	_, err = a.users.Login(t.Context(), authn.LoginInput{Email: member, Password: goodPw, DeviceKey: deviceW2, Platform: "web"})
+	wantErr(t, err, apperr.KindUnauthenticated, authn.CodeEmailOrPasswordMismatch)
+	a.login(t, member, goodPw, deviceW1)
+}
+
 // A wrong current password counts on the account's target like a wrong
 // sign-in, and while the target is locked the change is refused
 // unexamined, the right password included (ADR-0032 Karar 7).
@@ -1032,6 +1065,38 @@ func TestGlobalRegistrationCap(t *testing.T) {
 	}
 }
 
+// The global cap is spent before the address is looked up, so a
+// registered address takes the same place in it as an unknown one: with
+// the cap full of a request for the target, the requester's own mailbox
+// gets nothing either way, and the cap does not tell whether the target
+// is registered (ADR-0032 Karar 2 and 6).
+func TestRegistrationCapCountsEveryAddress(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{member, newcomer} {
+		a := newAccountsEnvCap(t, 1)
+		a.addUser(t, member, goodPw)
+		for _, addr := range []string{target, "saldirgan@example.com"} {
+			if err := a.accounts.StartRegistration(t.Context(), authn.RegistrationRequest{Email: addr, FirstName: "A", LastName: "B"}); err != nil {
+				t.Fatal(err)
+			}
+			a.work(t)
+		}
+		var ledger int
+		if err := a.db.Pool().QueryRow(t.Context(), "SELECT count(*) FROM registration_requests").Scan(&ledger); err != nil {
+			t.Fatal(err)
+		}
+		if ledger != 2 {
+			t.Errorf("target %s: the ledger has %d requests, want both", target, ledger)
+		}
+		if n := len(a.mail.to("saldirgan@example.com")); n != 0 {
+			t.Errorf("target %s: the requester's own mailbox got %d mails over a cap the target's request filled", target, n)
+		}
+		if got := a.held(t, "global"); got != 1 {
+			t.Errorf("target %s: %s{reason=global} = %v, want 1", target, authn.MetricAccountMailsHeld, got)
+		}
+	}
+}
+
 // held reads koala_account_mails_held_total for a reason.
 func (a *accountsEnv) held(t *testing.T, reason string) float64 {
 	t.Helper()
@@ -1093,7 +1158,8 @@ func TestUndeliverableMailIsCancelled(t *testing.T) {
 	a := newAccountsEnv(t)
 	a.register(t, newcomer)
 	var id uuid.UUID
-	if err := a.db.Pool().QueryRow(t.Context(), "SELECT id FROM pending_registrations WHERE mailbox_key = $1", newcomer).Scan(&id); err != nil {
+	if err := a.db.Pool().QueryRow(t.Context(), "SELECT id FROM pending_registrations WHERE mailbox_key = $1",
+		a.users.MailboxTarget(newcomer)).Scan(&id); err != nil {
 		t.Fatal(err)
 	}
 	a.mail.mu.Lock()

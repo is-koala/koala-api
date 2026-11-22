@@ -290,8 +290,10 @@ func (s *Service) knownDevice(ctx context.Context, userID uuid.UUID, deviceKey s
 }
 
 // MailboxTarget is the keyed hash that stands for an address's mailbox in
-// the rate limit keys of the account requests (ADR-0032 Karar 6): every
-// sub-address and, at Gmail, every dotting of one mailbox is one target.
+// the rate limit keys of the account requests and in
+// pending_registrations.mailbox_key, the registration mail budget's key
+// (ADR-0032 Karar 6 and 8): every sub-address and, at Gmail, every dotting
+// of one mailbox is one target, and no address is stored for the budget.
 func (s *Service) MailboxTarget(email string) []byte {
 	return s.targets.of(mailboxKey(normalizeEmail(email)))
 }

@@ -108,36 +108,44 @@ func (q *Queries) CountRecentPasswordResets(ctx context.Context, arg CountRecent
 }
 
 const countRecentRegistrationMails = `-- name: CountRecentRegistrationMails :one
-SELECT count(*) FILTER (WHERE mailbox_key = $1::text
-                          AND created_at > $2::timestamptz) AS in_window,
-       count(*) FILTER (WHERE mailbox_key = $1::text
-                          AND created_at > $3::timestamptz) AS in_cooldown,
-       count(*) AS everyone
+SELECT count(*) FILTER (WHERE created_at > $1::timestamptz) AS in_window,
+       count(*) FILTER (WHERE created_at > $2::timestamptz) AS in_cooldown
 FROM pending_registrations
-WHERE created_at > $2::timestamptz
+WHERE mailbox_key = $3::bytea AND created_at > $1::timestamptz
 `
 
 type CountRecentRegistrationMailsParams struct {
-	MailboxKey    string
 	WindowStart   time.Time
 	CooldownStart time.Time
+	MailboxKey    []byte
 }
 
 type CountRecentRegistrationMailsRow struct {
 	InWindow   int64
 	InCooldown int64
-	Everyone   int64
 }
 
 // CountRecentRegistrationMails counts the pending registrations, and so
-// the link mails, written for a mailbox within the budget window and
-// within the cooldown, and those written for any address within the
-// window: the global cap (ADR-0032 Karar 6).
+// the link mails, written for a keyed mailbox within the budget window
+// and within the cooldown (ADR-0032 Karar 6).
 func (q *Queries) CountRecentRegistrationMails(ctx context.Context, arg CountRecentRegistrationMailsParams) (CountRecentRegistrationMailsRow, error) {
-	row := q.db.QueryRow(ctx, countRecentRegistrationMails, arg.MailboxKey, arg.WindowStart, arg.CooldownStart)
+	row := q.db.QueryRow(ctx, countRecentRegistrationMails, arg.WindowStart, arg.CooldownStart, arg.MailboxKey)
 	var i CountRecentRegistrationMailsRow
-	err := row.Scan(&i.InWindow, &i.InCooldown, &i.Everyone)
+	err := row.Scan(&i.InWindow, &i.InCooldown)
 	return i, err
+}
+
+const countRecentRegistrationRequests = `-- name: CountRecentRegistrationRequests :one
+SELECT count(*) FROM registration_requests WHERE requested_at > $1::timestamptz
+`
+
+// CountRecentRegistrationRequests counts the ledger's requests within the
+// window, the transaction's own included.
+func (q *Queries) CountRecentRegistrationRequests(ctx context.Context, windowStart time.Time) (int64, error) {
+	row := q.db.QueryRow(ctx, countRecentRegistrationRequests, windowStart)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const emailRegistered = `-- name: EmailRegistered :one
@@ -283,7 +291,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 type InsertPendingRegistrationParams struct {
 	ID         uuid.UUID
 	Email      *string
-	MailboxKey string
+	MailboxKey []byte
 	FirstName  *string
 	LastName   *string
 	Employer   bool
@@ -455,6 +463,20 @@ func (q *Queries) PurgePendingRegistrations(ctx context.Context, createdAt time.
 	return result.RowsAffected(), nil
 }
 
+const purgeRegistrationRequests = `-- name: PurgeRegistrationRequests :execrows
+DELETE FROM registration_requests WHERE requested_at < $1
+`
+
+// PurgeRegistrationRequests hard-deletes ledger rows written before the
+// bound (M2, a day).
+func (q *Queries) PurgeRegistrationRequests(ctx context.Context, requestedAt time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeRegistrationRequests, requestedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const revokeOpenPasswordResets = `-- name: RevokeOpenPasswordResets :exec
 UPDATE password_reset_tokens
 SET revoked_at = $1::timestamptz
@@ -566,5 +588,22 @@ type SetRegistrationTokenParams struct {
 // replaces the one an earlier verification handed out.
 func (q *Queries) SetRegistrationToken(ctx context.Context, arg SetRegistrationTokenParams) error {
 	_, err := q.db.Exec(ctx, setRegistrationToken, arg.TokenHash, arg.ExpiresAt, arg.ID)
+	return err
+}
+
+const takeRegistrationRequest = `-- name: TakeRegistrationRequest :exec
+INSERT INTO registration_requests (id, requested_at) VALUES ($1, $2)
+`
+
+type TakeRegistrationRequestParams struct {
+	ID          uuid.UUID
+	RequestedAt time.Time
+}
+
+// TakeRegistrationRequest records a registration request in the global
+// cap's ledger. The job takes it before it looks the address up, so every
+// request spends the cap alike (ADR-0032 Karar 2 and 6).
+func (q *Queries) TakeRegistrationRequest(ctx context.Context, arg TakeRegistrationRequestParams) error {
+	_, err := q.db.Exec(ctx, takeRegistrationRequest, arg.ID, arg.RequestedAt)
 	return err
 }

@@ -2,18 +2,30 @@
 -- EmailRegistered reports whether an active user has the address.
 SELECT EXISTS (SELECT 1 FROM active_users WHERE email = $1) AS registered;
 
+-- name: TakeRegistrationRequest :exec
+-- TakeRegistrationRequest records a registration request in the global
+-- cap's ledger. The job takes it before it looks the address up, so every
+-- request spends the cap alike (ADR-0032 Karar 2 and 6).
+INSERT INTO registration_requests (id, requested_at) VALUES ($1, $2);
+
+-- name: CountRecentRegistrationRequests :one
+-- CountRecentRegistrationRequests counts the ledger's requests within the
+-- window, the transaction's own included.
+SELECT count(*) FROM registration_requests WHERE requested_at > sqlc.arg(window_start)::timestamptz;
+
+-- name: PurgeRegistrationRequests :execrows
+-- PurgeRegistrationRequests hard-deletes ledger rows written before the
+-- bound (M2, a day).
+DELETE FROM registration_requests WHERE requested_at < $1;
+
 -- name: CountRecentRegistrationMails :one
 -- CountRecentRegistrationMails counts the pending registrations, and so
--- the link mails, written for a mailbox within the budget window and
--- within the cooldown, and those written for any address within the
--- window: the global cap (ADR-0032 Karar 6).
-SELECT count(*) FILTER (WHERE mailbox_key = sqlc.arg(mailbox_key)::text
-                          AND created_at > sqlc.arg(window_start)::timestamptz) AS in_window,
-       count(*) FILTER (WHERE mailbox_key = sqlc.arg(mailbox_key)::text
-                          AND created_at > sqlc.arg(cooldown_start)::timestamptz) AS in_cooldown,
-       count(*) AS everyone
+-- the link mails, written for a keyed mailbox within the budget window
+-- and within the cooldown (ADR-0032 Karar 6).
+SELECT count(*) FILTER (WHERE created_at > sqlc.arg(window_start)::timestamptz) AS in_window,
+       count(*) FILTER (WHERE created_at > sqlc.arg(cooldown_start)::timestamptz) AS in_cooldown
 FROM pending_registrations
-WHERE created_at > sqlc.arg(window_start)::timestamptz;
+WHERE mailbox_key = sqlc.arg(mailbox_key)::bytea AND created_at > sqlc.arg(window_start)::timestamptz;
 
 -- name: RevokeOpenPendingRegistrations :exec
 -- RevokeOpenPendingRegistrations ends the open registration of an

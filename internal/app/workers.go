@@ -55,7 +55,7 @@ func (w *authPurgeWorker) Work(ctx context.Context, _ *river.Job[authPurgeArgs])
 	sessions, attempts, errUsers := w.users.Purge(ctx)
 	staffSessions, sources, errStaff := w.staff.Purge(ctx)
 	tickets, errTickets := w.tickets.Purge(ctx, w.clock.Now())
-	pending, resets, errAccounts := w.accounts.Purge(ctx)
+	pending, resets, requests, errAccounts := w.accounts.Purge(ctx)
 	if err := errors.Join(errUsers, errStaff, errTickets, errAccounts); err != nil {
 		return fmt.Errorf("auth purge: %w", err)
 	}
@@ -63,7 +63,7 @@ func (w *authPurgeWorker) Work(ctx context.Context, _ *river.Job[authPurgeArgs])
 		slog.Int64("user_sessions", sessions), slog.Int64("login_attempts", attempts),
 		slog.Int64("staff_sessions", staffSessions), slog.Int64("staff_login_sources", sources),
 		slog.Int64("realtime_tickets", tickets), slog.Int64("pending_registrations", pending),
-		slog.Int64("password_reset_tokens", resets))
+		slog.Int64("password_reset_tokens", resets), slog.Int64("registration_requests", requests))
 	return nil
 }
 

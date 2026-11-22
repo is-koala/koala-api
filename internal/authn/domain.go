@@ -125,13 +125,18 @@ const (
 	LinkMailCooldown = time.Minute
 	LinkMailsPerHour = 5
 	// DefaultRegistrationMailsPerHour is the global cap of registration
-	// link mails an hour, over every address (KOALA_REGISTRATION_MAILS_PER_HOUR
-	// overrides it). It bounds what a spread-out flood can send through the
-	// relay; a held mail is counted and alerted on (ADR-0032 Karar 6).
+	// requests handled an hour, over every address, and so of registration
+	// link mails (KOALA_REGISTRATION_MAILS_PER_HOUR overrides it). It
+	// bounds what a spread-out flood can send through the relay; every
+	// request spends it alike, registered address or not, and a held
+	// request is counted and alerted on (ADR-0032 Karar 6).
 	DefaultRegistrationMailsPerHour = 500
 	// AccountRowRetention is how long pending registrations and reset
 	// requests are kept before the purge hard-deletes them (M2; USR-007).
 	AccountRowRetention = 30 * 24 * time.Hour
+	// RegistrationLedgerRetention is how long the global cap's ledger
+	// keeps a request: its hour and a margin (M2).
+	RegistrationLedgerRetention = 24 * time.Hour
 )
 
 // Lifetimes (ADR-0025). Access tokens are short (K12); a refresh token's

@@ -295,8 +295,8 @@ type TargetLimiter interface {
 // authentication operations (ADR-0025 §5, AUTH-018):
 //
 //   - A sign-in takes a token from two KeyCustom buckets: one per (target,
-//     client address) in pairGroup and one per target from any address in
-//     accountGroup. The target is the keyed hash of the address, so one
+//     client address) in the pair group and one per target from any address
+//     in the account group (LimitGroups). The target is the keyed hash of the address, so one
 //     account hammered behind an office NAT does not lock out the next,
 //     and many addresses together cannot try one account fast. A
 //     known-good source of the account (a marketplace device it signed in
@@ -304,20 +304,23 @@ type TargetLimiter interface {
 //     account bucket, so an attacker cannot keep the user out by draining
 //     it; its own (target, address) bucket still applies.
 //   - A refresh takes one from the bucket of its hashed token, a staff
-//     password change from the member's, both in pairGroup.
+//     password change from the member's, both in the pair group.
 //   - A registration start and a password reset request take a token from
 //     the two buckets of their target mailbox (the address without its
 //     sub-address, ADR-0032 Karar 6), like a sign-in but without the
 //     known-source escape: the e-mail bomb defense (the mail budget of the
-//     job is the second line).
+//     job is the second line). A registration start first takes one from
+//     its client address's bucket in the registration address group, a
+//     low hourly budget, so one address cannot fill the global hourly
+//     cap of registration mails on its own (ADR-0032 Karar 6).
 //   - The steps that present a mailed or issued token (registration
 //     verify and complete, reset complete) take one from the bucket of the
 //     hashed token, an in-app password change from the user's; all in
-//     pairGroup.
+//     the pair group.
 //   - Token responses are not cached (RFC 6749 §5.1).
 //
 // The address bucket of the root chain applies on top.
-func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup string) apiv1.StrictMiddlewareFunc {
+func (h *HTTP) StrictMiddleware(limiter TargetLimiter, groups LimitGroups) apiv1.StrictMiddlewareFunc {
 	return func(f apiv1.StrictHandlerFunc, _ string) apiv1.StrictHandlerFunc {
 		return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 			keys, tokens := h.rateLimitKeys(ctx, request)
@@ -329,11 +332,7 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup s
 				ctx = context.WithValue(ctx, userAgentKey{}, r.UserAgent())
 			}
 			for _, k := range keys {
-				group := pairGroup
-				if k.account {
-					group = accountGroup
-				}
-				ok, wait := limiter.Allow(group, httpx.KeyCustom, k.key)
+				ok, wait := limiter.Allow(groups.of(k.bucket), httpx.KeyCustom, k.key)
 				if ok {
 					continue
 				}
@@ -363,9 +362,42 @@ func userAgentFrom(ctx context.Context) string {
 	return ua
 }
 
+// LimitGroups name the rate limit groups of the module's KeyCustom
+// buckets.
+type LimitGroups struct {
+	// Pair holds the (target, address) and presented-token buckets.
+	Pair string
+	// Account holds the account-wide target buckets.
+	Account string
+	// RegistrationAddress holds the per-address budget of registration
+	// starts.
+	RegistrationAddress string
+}
+
+// bucketKind says which of LimitGroups a key's bucket is in.
+type bucketKind int
+
+const (
+	pairBucket bucketKind = iota
+	accountBucket
+	registrationAddressBucket
+)
+
+func (g LimitGroups) of(kind bucketKind) string {
+	switch kind {
+	case pairBucket:
+		return g.Pair
+	case accountBucket:
+		return g.Account
+	case registrationAddressBucket:
+		return g.RegistrationAddress
+	}
+	return g.Pair
+}
+
 type limitKey struct {
-	key     string
-	account bool
+	key    string
+	bucket bucketKind
 	// known, on an account bucket, reports whether the request comes from
 	// a known-good source of the account, which an empty bucket lets past.
 	known func(context.Context) (bool, error)
@@ -377,7 +409,7 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 	addr := ClientKey(httpx.ClientIPFrom(ctx))
 	signIn := func(prefix string, target []byte, known func(context.Context) (bool, error)) []limitKey {
 		t := prefix + hex.EncodeToString(target)
-		return []limitKey{{key: t + "@" + addr}, {key: t, account: true, known: known}}
+		return []limitKey{{key: t + "@" + addr}, {key: t, bucket: accountBucket, known: known}}
 	}
 	switch req := request.(type) {
 	case apiv1.LoginUserRequestObject:
@@ -399,7 +431,10 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 			return []limitKey{{key: "password:staff:" + p.StaffID.String()}}, false
 		}
 	case apiv1.StartRegistrationRequestObject:
-		return signIn("registration:", h.users.MailboxTarget(req.Body.Email), nil), true
+		// The address's own budget first: a request it refuses spends
+		// nothing of the mailbox's buckets.
+		own := limitKey{key: "registration:address:" + addr, bucket: registrationAddressBucket}
+		return append([]limitKey{own}, signIn("registration:", h.users.MailboxTarget(req.Body.Email), nil)...), true
 	case apiv1.RequestPasswordResetRequestObject:
 		return signIn("password-reset:", h.users.MailboxTarget(req.Body.Email), nil), true
 	case apiv1.VerifyRegistrationRequestObject:
