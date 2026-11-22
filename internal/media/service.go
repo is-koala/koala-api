@@ -328,7 +328,7 @@ func (s *Service) Delete(ctx context.Context, owner, id uuid.UUID) error {
 		}); err != nil {
 			return fmt.Errorf("media: soft-delete: %w", err)
 		}
-		args := deleteObjectsArgs{Media: id, Kind: r.Kind, UploadKey: r.UploadKey}
+		args := deleteObjectsArgs{Media: id, MediaKind: r.Kind, UploadKey: r.UploadKey}
 		if _, err := s.queue.InsertTx(ctx, q.PgxTx(), args, nil); err != nil {
 			return fmt.Errorf("media: queue the deletion of the objects: %w", err)
 		}

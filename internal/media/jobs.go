@@ -49,7 +49,7 @@ func (completeArgs) InsertOpts() river.InsertOpts {
 // readable through active_media when the job runs.
 type deleteObjectsArgs struct {
 	Media     uuid.UUID `json:"media"`
-	Kind      string    `json:"kind"`
+	MediaKind string    `json:"kind"`
 	UploadKey string    `json:"upload_key"`
 }
 
@@ -98,7 +98,7 @@ type deleteObjectsWorker struct {
 }
 
 func (w *deleteObjectsWorker) Work(ctx context.Context, job *river.Job[deleteObjectsArgs]) error {
-	return w.service.DeleteObjects(ctx, job.Args.Media, Kind(job.Args.Kind), job.Args.UploadKey)
+	return w.service.DeleteObjects(ctx, job.Args.Media, Kind(job.Args.MediaKind), job.Args.UploadKey)
 }
 
 type sweepWorker struct {

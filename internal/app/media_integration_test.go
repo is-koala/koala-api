@@ -30,8 +30,8 @@ type mediaBody struct {
 	RejectionCode *string   `json:"rejectionCode"`
 }
 
-// startOverHTTP starts an upload of kind with key and returns the answer.
-func (a *authApp) startOverHTTP(t *testing.T, bearer, kind, key string) *httptest.ResponseRecorder {
+// startUploadOverHTTP starts an upload of kind with key and returns the answer.
+func (a *authApp) startUploadOverHTTP(t *testing.T, bearer, kind, key string) *httptest.ResponseRecorder {
 	t.Helper()
 	return a.postKeyedAs(t, "/v1/me/media", key, `{"kind":"`+kind+`","sizeBytes":1024}`, bearer)
 }
@@ -61,7 +61,7 @@ func TestMediaOverHTTP(t *testing.T) {
 	a := newAuthApp(t, unlimitedGroups())
 	bearer := a.addSignedIn(t, "medya@example.com")
 
-	rec := a.startOverHTTP(t, bearer, "PROFILE_PICTURE", "start-0001")
+	rec := a.startUploadOverHTTP(t, bearer, "PROFILE_PICTURE", "start-0001")
 	wantStatus(t, rec, http.StatusCreated, "")
 	var up struct {
 		Media     mediaBody `json:"media"`
@@ -129,7 +129,7 @@ func TestRejectedMediaRendersItsCode(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
 	bearer := a.addSignedIn(t, "bozuk@example.com")
-	rec := a.startOverHTTP(t, bearer, "COMPANY_LOGO", "start-corrupt")
+	rec := a.startUploadOverHTTP(t, bearer, "COMPANY_LOGO", "start-corrupt")
 	wantStatus(t, rec, http.StatusCreated, "")
 	id := decodeBody[struct {
 		Media mediaBody `json:"media"`
@@ -162,14 +162,14 @@ func TestDailyUploadLimitAnswersRetryAfter(t *testing.T) {
 	a := newAuthApp(t, unlimitedGroups())
 	bearer := a.addSignedIn(t, "cok@example.com")
 	for i := range media.DailyUploads {
-		rec := a.startOverHTTP(t, bearer, "COMPANY_IMAGE", "budget-"+strconv.Itoa(i)+"-key")
+		rec := a.startUploadOverHTTP(t, bearer, "COMPANY_IMAGE", "budget-"+strconv.Itoa(i)+"-key")
 		wantStatus(t, rec, http.StatusCreated, "")
 		id := decodeBody[struct {
 			Media mediaBody `json:"media"`
 		}](t, rec).Media.ID
 		wantStatus(t, a.call(t, http.MethodDelete, "/v1/me/media/"+id.String(), bearer, ""), http.StatusNoContent, "")
 	}
-	rec := a.startOverHTTP(t, bearer, "COMPANY_IMAGE", "budget-over-key")
+	rec := a.startUploadOverHTTP(t, bearer, "COMPANY_IMAGE", "budget-over-key")
 	wantStatus(t, rec, http.StatusTooManyRequests, string(media.CodeDailyLimit))
 	if wait, err := strconv.Atoi(rec.Header().Get("Retry-After")); err != nil || wait <= 0 {
 		t.Errorf("Retry-After = %q, want the seconds until the oldest start leaves the window", rec.Header().Get("Retry-After"))
