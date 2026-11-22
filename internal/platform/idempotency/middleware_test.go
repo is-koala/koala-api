@@ -153,14 +153,22 @@ func TestCommitWithoutAClaimDoesNothing(t *testing.T) {
 // A bound operation reached without a request deadline shorter than the
 // lease (a Stream route, a route outside httpx.Timeout) is refused before
 // it takes a key: the lease assumes the request cannot outlive it
-// (ADR-0034 Karar 4). The store's pool never connects, so a refusal that
-// came after the claim would fail differently.
+// (ADR-0034 Karar 4).
 func TestUnboundedRequestIsRefused(t *testing.T) {
 	t.Parallel()
 
+	var logs bytes.Buffer
+	called := false
 	m, err := idempotency.NewMiddleware(loadSpec(t), idempotency.Config{
-		Store: lazyStore(t), Caller: caller, Public: map[string]idempotency.PublicOperation{"redeemNote": redeem()},
-		Metrics: prometheus.NewRegistry(), Logger: slog.New(slog.DiscardHandler),
+		Store: lazyStore(t),
+		// The caller is named after the deadline check, before the
+		// claim: a request that gets this far was not refused by it.
+		Caller: func(context.Context) (string, bool) {
+			called = true
+			return "user:test", true
+		},
+		Public:  map[string]idempotency.PublicOperation{"redeemNote": redeem()},
+		Metrics: prometheus.NewRegistry(), Logger: slog.New(slog.NewTextHandler(&logs, nil)),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -184,5 +192,14 @@ func TestUnboundedRequestIsRefused(t *testing.T) {
 		if rec.Code != http.StatusInternalServerError || ran {
 			t.Errorf("%s: status %d, handler ran %v; want 500 before the handler", name, rec.Code, ran)
 		}
+	}
+	// A 500 alone does not tell the deadline check from the claim failing
+	// on the pool that never connects: the check refuses before the caller
+	// is named, and says why.
+	if called {
+		t.Error("the request reached the caller: the deadline check did not refuse it")
+	}
+	if got := strings.Count(logs.String(), "without a request deadline shorter than the lease"); got != 2 {
+		t.Errorf("the deadline refusal is logged %d times, want 2: %s", got, logs.String())
 	}
 }

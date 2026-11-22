@@ -34,6 +34,15 @@ UPDATE idempotency_keys
 SET state = 'COMPLETED', response = $5, completed_at = $6
 WHERE actor = $1 AND operation = $2 AND key = $3 AND attempt = $4 AND state = 'IN_PROGRESS';
 
+-- name: FenceKey :execrows
+-- FenceKey checks, in the operation's transaction, that its attempt still
+-- holds the key, and locks the row until that transaction ends, without
+-- storing a response: the fence of a success too large to keep. Zero
+-- rows: another attempt took the key over.
+UPDATE idempotency_keys
+SET locked_until = locked_until
+WHERE actor = $1 AND operation = $2 AND key = $3 AND attempt = $4 AND state = 'IN_PROGRESS';
+
 -- name: ReleaseKey :execrows
 -- ReleaseKey frees the key of an attempt that has no outcome to keep (a
 -- 5xx, a transient 4xx). A row its transaction completed after all stays.

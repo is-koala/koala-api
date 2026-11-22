@@ -40,8 +40,8 @@ func commitSite(s errorSite) bool {
 //
 // The walk cannot tell whether Commit runs inside the operation's
 // transaction; the integration test TestIdempotentOperationsReplay in
-// internal/app checks that on the database, through the counter of
-// commits made in a transaction.
+// internal/app measures that on the database: the key's row and a
+// business row the operation wrote carry the same xmin.
 func TestIdempotentHandlersCommitTheirKey(t *testing.T) {
 	t.Parallel()
 
@@ -124,29 +124,43 @@ func keyedCodes() map[string]string {
 func TestIdempotencyCodesStayInTheStore(t *testing.T) {
 	t.Parallel()
 
-	names := map[string]bool{"CodeIdempotencyKeyReused": true, "CodeIdempotencyKeyInUse": true}
+	// The store's constants, and the generated client constants of the
+	// same codes (apiv1.ErrorCode, which converts to an apperr.Code).
+	names := map[string]map[string]bool{
+		idempotencyPath: {"CodeIdempotencyKeyReused": true, "CodeIdempotencyKeyInUse": true},
+		apiv1Path:       {"ErrorCodeIDEMPOTENCYKEYREUSED": true, "ErrorCodeIDEMPOTENCYKEYINUSE": true},
+	}
 	values := map[string]bool{}
 	for _, c := range idempotency.Codes() {
 		values[strconv.Quote(string(c))] = true
 	}
-	if len(names) != len(values) {
-		t.Fatalf("idempotency.Codes() lists %d codes, this check names %d; name the new one here", len(values), len(names))
+	for path, set := range names {
+		if len(set) != len(values) {
+			t.Fatalf("idempotency.Codes() lists %d codes, this check names %d of %s; name the new one here", len(values), len(set), path)
+		}
 	}
-	importers := 0
+	importers := map[string]int{}
 	goFiles(t, func(fset *token.FileSet, path string, f *ast.File) {
 		if strings.Contains(filepath.ToSlash(path), "internal/platform/idempotency/") {
 			return
 		}
-		local := importName(f, idempotencyPath)
-		if local != "" {
-			importers++
+		locals := map[string]string{} // local name → import path
+		for pkg := range names {
+			if local := importName(f, pkg); local != "" {
+				locals[local] = pkg
+				importers[pkg]++
+			}
 		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			switch x := n.(type) {
 			case *ast.SelectorExpr:
-				if id, ok := x.X.(*ast.Ident); ok && local != "" && id.Name == local && names[x.Sel.Name] {
+				id, ok := x.X.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				if pkg, imported := locals[id.Name]; imported && names[pkg][x.Sel.Name] {
 					t.Errorf("%s: %s.%s is the Idempotency-Key store's code; only the store returns it",
-						fset.Position(x.Pos()), local, x.Sel.Name)
+						fset.Position(x.Pos()), id.Name, x.Sel.Name)
 				}
 			case *ast.BasicLit:
 				if x.Kind == token.STRING && values[x.Value] {
@@ -156,8 +170,10 @@ func TestIdempotencyCodesStayInTheStore(t *testing.T) {
 			return true
 		})
 	})
-	// The walk saw the packages that use the store (authn, app).
-	if importers < 2 {
-		t.Errorf("%d files import the store; the walk no longer sees them", importers)
+	// The walk saw the packages that use the store (authn, app) and the
+	// handlers that use the generated package.
+	if importers[idempotencyPath] < 2 || importers[apiv1Path] < 3 {
+		t.Errorf("files importing the store: %d, the generated package: %d; the walk no longer sees them",
+			importers[idempotencyPath], importers[apiv1Path])
 	}
 }

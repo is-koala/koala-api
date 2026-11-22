@@ -94,8 +94,18 @@ func (c *claim) commit(ctx context.Context, q db.Querier, render func(http.Respo
 		return fmt.Errorf("idempotency: a %d response cannot commit; only a success is stored in the operation's transaction", resp.Status)
 	}
 	if rec.overflow {
-		// Too large to keep: the operation commits, the key keeps no
-		// response and the middleware frees it (ADR-0034 Karar 5).
+		// Too large to keep: the key keeps no response and the
+		// middleware frees it (ADR-0034 Karar 5c). The fence still holds:
+		// an attempt another one took over must not commit.
+		n, err := idempotencydb.New(q).FenceKey(ctx, idempotencydb.FenceKeyParams{
+			Actor: c.id.actor, Operation: c.id.operation, Key: c.id.key, Attempt: c.attempt,
+		})
+		if err != nil {
+			return fmt.Errorf("idempotency: fence the attempt: %w", err)
+		}
+		if n == 0 {
+			return apperr.New(apperr.KindConflict, CodeIdempotencyKeyInUse)
+		}
 		c.oversized = true
 		return nil
 	}

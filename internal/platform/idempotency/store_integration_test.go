@@ -713,6 +713,12 @@ func TestLargeResponseIsNotKept(t *testing.T) {
 	if h.keyRows(t, "key-large-1") != 0 || h.counted(t, idempotency.ResultTooLarge) != 1 || h.counted(t, idempotency.ResultCommitted) != 0 {
 		t.Fatal("the large response was kept")
 	}
+	// Commit's oversized path, not the after-handler one: an operation
+	// that committed in its transaction is not reported as unbound (which
+	// would fire KoalaIdempotencyUnbound for nothing).
+	if h.counted(t, idempotency.ResultUnbound) != 0 {
+		t.Fatal("the oversized commit was counted as unbound")
+	}
 	logs := h.logs.String()
 	if !strings.Contains(logs, "too large to keep") || strings.Contains(logs, "differs") {
 		t.Fatalf("logs = %s", logs)
@@ -721,5 +727,33 @@ func TestLargeResponseIsNotKept(t *testing.T) {
 	wantStatus(t, again, http.StatusCreated, "")
 	if replayed(again) || h.notes(t, "large") != 2 {
 		t.Fatal("the retry of a response that was not kept did not run")
+	}
+}
+
+// The fence holds on Commit's oversized path too: an old attempt whose
+// response is too large to keep, committing while the attempt that took
+// the key over runs, is refused with 409 and rolled back. Without the
+// fence there (FenceKey) it would commit its write: the side effect twice.
+func TestOversizedOldAttemptIsFenced(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t)
+
+	oldDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { oldDone <- h.postAt(t, "old", "ayse", "key-fence-3", `{"body":"fenced-large"}`, modeLarge) }()
+	h.reached("old")
+	h.clock.Advance(idempotency.Lease + time.Second)
+	newDone := make(chan *httptest.ResponseRecorder, 1)
+	go func() { newDone <- h.postAt(t, "new", "ayse", "key-fence-3", `{"body":"fenced-large"}`, "") }()
+	h.reached("new")
+
+	h.open("old")
+	wantStatus(t, <-oldDone, http.StatusConflict, string(idempotency.CodeIdempotencyKeyInUse))
+	if n := h.notes(t, "fenced-large"); n != 0 {
+		t.Fatalf("the fenced oversized attempt committed %d notes", n)
+	}
+	h.open("new")
+	wantStatus(t, <-newDone, http.StatusCreated, "")
+	if n := h.notes(t, "fenced-large"); n != 1 {
+		t.Fatalf("%d notes, want the new attempt's", n)
 	}
 }

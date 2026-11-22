@@ -44,6 +44,36 @@ func (q *Queries) CompleteKey(ctx context.Context, arg CompleteKeyParams) (int64
 	return result.RowsAffected(), nil
 }
 
+const fenceKey = `-- name: FenceKey :execrows
+UPDATE idempotency_keys
+SET locked_until = locked_until
+WHERE actor = $1 AND operation = $2 AND key = $3 AND attempt = $4 AND state = 'IN_PROGRESS'
+`
+
+type FenceKeyParams struct {
+	Actor     string
+	Operation string
+	Key       string
+	Attempt   uuid.UUID
+}
+
+// FenceKey checks, in the operation's transaction, that its attempt still
+// holds the key, and locks the row until that transaction ends, without
+// storing a response: the fence of a success too large to keep. Zero
+// rows: another attempt took the key over.
+func (q *Queries) FenceKey(ctx context.Context, arg FenceKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, fenceKey,
+		arg.Actor,
+		arg.Operation,
+		arg.Key,
+		arg.Attempt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const insertKey = `-- name: InsertKey :execrows
 INSERT INTO idempotency_keys (actor, operation, key, request_hash, attempt, state, locked_until, created_at, expires_at)
 VALUES ($1, $2, $3, $4, $5, 'IN_PROGRESS', $6, $7, $8)
