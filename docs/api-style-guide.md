@@ -143,7 +143,9 @@ Metotlar RFC 9110'a göre kullanılır. Tablo öneridir; dayanağı yalnız alt 
   - 8–255 karakterdir ve `[A-Za-z0-9_.:-]` kümesinden oluşur. İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede aynısını gönderir.
   - Çıplak değer (Stripe) ve taslaktaki tırnaklı structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur ve ikisi aynı anahtardır (ADR-0019) **[test: httpx TestIdempotencyKey]**.
 - Aynı anahtar farklı gövdeyle gelirse 422 `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409 `IDEMPOTENCY_KEY_IN_USE` döner (ADR-0005 madde 6; kod adları öneri).
-- Anahtar aktör ve operasyonla saklanır (`idempotency_keys`, plan §4.1-6). Gövdenin parmak izi doğrulanmış değerin kanonik JSON'undan alınır (§4). **Depo henüz uygulanmadı** (issue #22): başlık bugün yalnız biçim olarak doğrulanır, 422/409 dönmez. Başlığı isteyen operasyon, depo gelene kadarki davranışını açıklamasında yazar (ilk örnek `completeRegistration`, ADR-0032).
+- Anahtar aktör ve operasyonla 24 saat saklanır (`idempotency_keys`, plan §4.1-6, ADR-0034). İsteğin parmak izi doğrulanmış değerin kanonik JSON'undan (§4), yol ve sorgu parametrelerinden ve istemci başlıklarından alınır. Aynı istek saklanan yanıtı bayt bayt aynen alır (`Idempotent-Replayed: true`). Başarı ve kalıcı 4xx saklanır; 5xx, 408, 425 ve 429 anahtarı serbest bırakır.
+- Depo platform katmanındadır (`internal/platform/idempotency`) ve sözleşmeden bağlanır: parametreyi alan ve `x-not-implemented` taşımayan her operasyon kendiliğinden bağlıdır. Çağıranı olmayan operasyonun aktörü isteğin sunduğu yetkidir (`completeRegistration`'da kayıt token'ı); aktörü yazılmamış böyle bir operasyonla sunucu açılmaz **[test]**. Handler başarı yanıtını kendi tx'inde `idempotency.Commit` ile saklar **[test: archtest TestIdempotentHandlersCommitTheirKey, app TestIdempotentOperationsReplay]**.
+- Parametreyi alan her operasyon 409 ve 422 yanıtlarını tanımlar **[test: app TestIdempotentOperationsDeclareTheirRefusals]**.
 
 ## 8. Hata kodları
 

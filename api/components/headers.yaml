@@ -21,10 +21,14 @@ components:
         İstemci her mantıksal işlem için yeni bir UUID üretir ve yeniden denemede
         aynısını gönderir. Çıplak değer (Stripe) ve taslaktaki tırnaklı
         structured-field string (`"…"`) ikisi de kabul edilir; tırnaklar soyulur
-        (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Aynı anahtar farklı gövdeyle gelirse 422
-        `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken gelirse 409
-        `IDEMPOTENCY_KEY_IN_USE` döner. Anahtar aktör ve operasyonla birlikte
-        saklanır.
+        (httpx.IdempotencyKey). 8–255 karakter `[A-Za-z0-9_.:-]` (öneri). Anahtar aktör
+        (çağıran; çağıranı olmayan operasyonda isteğin sunduğu yetki) ve operasyonla
+        birlikte 24 saat saklanır (ADR-0034). Aynı anahtarla aynı istek gelirse ilk
+        yanıt bayt bayt aynen döner ve `Idempotent-Replayed: true` taşır. Aynı anahtar
+        farklı bir istekle gelirse 422 `IDEMPOTENCY_KEY_REUSED`, ilk istek sürerken
+        gelirse 409 `IDEMPOTENCY_KEY_IN_USE` döner. Başarı ve kalıcı 4xx saklanır;
+        5xx, 408, 425 ve 429 anahtarı serbest bırakır, istemci aynı anahtarla yeniden
+        dener. Doğrulamada reddedilen istek anahtarı hiç almaz.
       schema:
         type: string
         pattern: '^([A-Za-z0-9_.:-]{8,255}|"[A-Za-z0-9_.:-]{8,255}")$'

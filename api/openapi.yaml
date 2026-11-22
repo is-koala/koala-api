@@ -773,12 +773,10 @@ paths:
         tüketilir ve cihaza bağlı bir oturum açılır (USR-006). Parola en az 15, en çok 128
         karakterdir (USR-021).
 
-        **Bugünkü `Idempotency-Key` davranışı:** başlık zorunludur ve biçimi doğrulanır,
-        ama tekrar deposu henüz yoktur (issue #22). Yanıtı kaybolan bir tekrar
-        `REGISTRATION_TOKEN_INVALID` alır; kayıt token'ı tek kullanımlık olduğu için yan
-        etki iki kez olmaz ve kullanıcı belirlediği parolayla giriş yapar. Depo gelince
-        aynı anahtarın tekrarı saklanan yanıtı alır, ve parametrenin 422/409 vaadi
-        karşılanır.
+        `Idempotency-Key` deposu bu operasyona bağlıdır (ADR-0032, ADR-0034). Çağıranı
+        olmadığı için anahtarın sahibi gövdedeki kayıt token'ıdır: başkasının anahtarıyla
+        gelen istek o anahtarın saklanan yanıtına ulaşamaz. Yanıtı kaybolan tekrar aynı
+        token çiftini alır.
       security: []
       x-rate-limit: auth
       x-body-limit: 8192
@@ -2368,6 +2366,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
@@ -2574,6 +2574,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
@@ -3711,6 +3713,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
