@@ -2,7 +2,6 @@ package api
 
 import (
 	"maps"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,10 +15,6 @@ import (
 // idempotency codes are universal: they ride on the common responses and
 // are not listed per operation.
 const extErrorCodes = "x-error-codes"
-
-// documentedStatus is the shape ErrorCode's description uses to give a
-// code's HTTP status: "- `COMPANY_NOT_FOUND` (404): …".
-var documentedStatus = regexp.MustCompile("(?m)^\\s*-\\s+`([A-Z][A-Z0-9_]*)`\\s+\\((\\d{3})\\)")
 
 // statusFreeCodes are the ErrorCode members that carry no HTTP status, with
 // the reason. Everything else must document one, so a new code cannot be
@@ -54,14 +49,8 @@ func codeStatuses(t *testing.T) (statuses map[string]int, enum []string) {
 	if schema == nil || schema.Value == nil {
 		t.Fatal("components/problem.yaml has no ErrorCode schema")
 	}
-	statuses = map[string]int{}
-	for _, m := range documentedStatus.FindAllStringSubmatch(schema.Value.Description, -1) {
-		status, err := strconv.Atoi(m[2])
-		if err != nil {
-			t.Fatalf("%s: %v", m[1], err)
-		}
-		statuses[m[1]] = status
-	}
+	// The shape is "- `COMPANY_NOT_FOUND` (404): …" (DocumentedStatuses).
+	statuses = DocumentedStatuses(schema.Value.Description)
 	free := statusFreeCodes()
 	for _, v := range schema.Value.Enum {
 		code, ok := v.(string)
