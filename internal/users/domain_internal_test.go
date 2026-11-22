@@ -43,7 +43,8 @@ func TestPatchApply(t *testing.T) {
 		{"frozen, the gender is free", frozen, Patch{Gender: Field[string]{Set: true, Value: ptr("FEMALE")}},
 			func(p Profile) bool { return p.Gender != nil && *p.Gender == "FEMALE" }, ""},
 	}
-	for _, tt := range tests {
+	for i := range tests {
+		tt := &tests[i]
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := tt.patch.apply(tt.cur)

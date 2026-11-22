@@ -254,6 +254,9 @@ func TestProfileContactChangeNeedsThePassword(t *testing.T) {
 		t.Fatalf("a refused number: %s, %d failures", rec.Body, failures())
 	}
 
+	// The failure counter counts what comes after the last success, and
+	// the sign-in of addSignedIn was one: a second later.
+	a.clock.Advance(time.Second)
 	rec = a.patchProfile(t, tok, `{"firstName":"Yeni","phoneNumber":"+905321110003","currentPassword":"yanlış ama uzun bir parola"}`)
 	wantStatus(t, rec, http.StatusForbidden, string(authn.CodeCurrentMismatch))
 	if failures() != 1 {
@@ -262,8 +265,9 @@ func TestProfileContactChangeNeedsThePassword(t *testing.T) {
 	if a.text(t, "SELECT first_name FROM active_users WHERE email = $1", email) == "Yeni" {
 		t.Fatal("a refused patch wrote its other fields")
 	}
-	// The sign-in lock holds the patch too (ADR-0033 Karar 1b).
-	for range authn.UserLockThreshold {
+	// The sign-in lock holds the patch too (ADR-0033 Karar 1b): with the
+	// wrong one above, UserLockThreshold failures after the last success.
+	for range authn.UserLockThreshold - 1 {
 		err := a.q.InsertLoginAttempt(t.Context(), authndb.InsertLoginAttemptParams{
 			ID: uuid.Must(uuid.NewV7()), PrincipalKind: "USER", TargetHash: target, Outcome: "FAILED", CreatedAt: a.clock.Now(),
 		})

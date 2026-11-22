@@ -268,8 +268,8 @@ func (s *Service) Educations(ctx context.Context, p authn.UserPrincipal, limit i
 		return EducationPage{}, fmt.Errorf("users: list the educations: %w", err)
 	}
 	all := make([]Education, 0, len(rows))
-	for _, r := range rows {
-		all = append(all, educationOf(usersdb.GetEducationRow(r)))
+	for i := range rows {
+		all = append(all, educationOf(usersdb.GetEducationRow(rows[i])))
 	}
 	return pageOf(all, int(limit), at), nil
 }
