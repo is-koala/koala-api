@@ -13,22 +13,27 @@ FROM active_educations
 WHERE user_id = $1;
 
 -- name: GetUniversity :one
--- GetUniversity finds a university that may be chosen: not retired.
+-- GetUniversity finds a university that may be chosen: not retired, or
+-- retired but kept (allow_retired: the record already names it).
 SELECT id
 FROM universities
-WHERE id = $1 AND retired_at IS NULL;
+WHERE id = sqlc.arg(id) AND (retired_at IS NULL OR sqlc.arg(allow_retired)::boolean);
 
 -- name: GetFacultyOf :one
--- GetFacultyOf finds a faculty of the university that may be chosen.
+-- GetFacultyOf finds a faculty of the university that may be chosen
+-- (allow_retired as GetUniversity).
 SELECT id
 FROM faculties
-WHERE id = sqlc.arg(id) AND university_id = sqlc.arg(university_id) AND retired_at IS NULL;
+WHERE id = sqlc.arg(id) AND university_id = sqlc.arg(university_id)
+  AND (retired_at IS NULL OR sqlc.arg(allow_retired)::boolean);
 
 -- name: GetDepartmentOf :one
--- GetDepartmentOf finds a department of the faculty that may be chosen.
+-- GetDepartmentOf finds a department of the faculty that may be chosen
+-- (allow_retired as GetUniversity).
 SELECT id
 FROM departments
-WHERE id = sqlc.arg(id) AND faculty_id = sqlc.arg(faculty_id) AND retired_at IS NULL;
+WHERE id = sqlc.arg(id) AND faculty_id = sqlc.arg(faculty_id)
+  AND (retired_at IS NULL OR sqlc.arg(allow_retired)::boolean);
 
 -- name: InsertEducation :exec
 -- InsertEducation adds an education record. The caller holds the user's
@@ -52,8 +57,9 @@ WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id);
 
 -- name: LockEducation :one
 -- LockEducation locks one of the user's active education records; another
--- user's is not found.
-SELECT id
+-- user's is not found. The references it names come back: a retired one
+-- the record keeps may stay (ADR-0036).
+SELECT id, university_id, faculty_id, department_id
 FROM active_educations
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
 FOR UPDATE;

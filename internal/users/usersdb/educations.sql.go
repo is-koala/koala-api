@@ -29,17 +29,20 @@ func (q *Queries) CountEducations(ctx context.Context, userID uuid.UUID) (int64,
 const getDepartmentOf = `-- name: GetDepartmentOf :one
 SELECT id
 FROM departments
-WHERE id = $1 AND faculty_id = $2 AND retired_at IS NULL
+WHERE id = $1 AND faculty_id = $2
+  AND (retired_at IS NULL OR $3::boolean)
 `
 
 type GetDepartmentOfParams struct {
-	ID        uuid.UUID
-	FacultyID uuid.UUID
+	ID           uuid.UUID
+	FacultyID    uuid.UUID
+	AllowRetired bool
 }
 
-// GetDepartmentOf finds a department of the faculty that may be chosen.
+// GetDepartmentOf finds a department of the faculty that may be chosen
+// (allow_retired as GetUniversity).
 func (q *Queries) GetDepartmentOf(ctx context.Context, arg GetDepartmentOfParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getDepartmentOf, arg.ID, arg.FacultyID)
+	row := q.db.QueryRow(ctx, getDepartmentOf, arg.ID, arg.FacultyID, arg.AllowRetired)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -100,17 +103,20 @@ func (q *Queries) GetEducation(ctx context.Context, arg GetEducationParams) (Get
 const getFacultyOf = `-- name: GetFacultyOf :one
 SELECT id
 FROM faculties
-WHERE id = $1 AND university_id = $2 AND retired_at IS NULL
+WHERE id = $1 AND university_id = $2
+  AND (retired_at IS NULL OR $3::boolean)
 `
 
 type GetFacultyOfParams struct {
 	ID           uuid.UUID
 	UniversityID uuid.UUID
+	AllowRetired bool
 }
 
-// GetFacultyOf finds a faculty of the university that may be chosen.
+// GetFacultyOf finds a faculty of the university that may be chosen
+// (allow_retired as GetUniversity).
 func (q *Queries) GetFacultyOf(ctx context.Context, arg GetFacultyOfParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getFacultyOf, arg.ID, arg.UniversityID)
+	row := q.db.QueryRow(ctx, getFacultyOf, arg.ID, arg.UniversityID, arg.AllowRetired)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
@@ -119,15 +125,21 @@ func (q *Queries) GetFacultyOf(ctx context.Context, arg GetFacultyOfParams) (uui
 const getUniversity = `-- name: GetUniversity :one
 SELECT id
 FROM universities
-WHERE id = $1 AND retired_at IS NULL
+WHERE id = $1 AND (retired_at IS NULL OR $2::boolean)
 `
 
-// GetUniversity finds a university that may be chosen: not retired.
-func (q *Queries) GetUniversity(ctx context.Context, id uuid.UUID) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getUniversity, id)
-	var id_2 uuid.UUID
-	err := row.Scan(&id_2)
-	return id_2, err
+type GetUniversityParams struct {
+	ID           uuid.UUID
+	AllowRetired bool
+}
+
+// GetUniversity finds a university that may be chosen: not retired, or
+// retired but kept (allow_retired: the record already names it).
+func (q *Queries) GetUniversity(ctx context.Context, arg GetUniversityParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, getUniversity, arg.ID, arg.AllowRetired)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
 }
 
 const insertEducation = `-- name: InsertEducation :exec
@@ -230,7 +242,7 @@ func (q *Queries) ListEducations(ctx context.Context, userID uuid.UUID) ([]ListE
 }
 
 const lockEducation = `-- name: LockEducation :one
-SELECT id
+SELECT id, university_id, faculty_id, department_id
 FROM active_educations
 WHERE id = $1 AND user_id = $2
 FOR UPDATE
@@ -241,13 +253,26 @@ type LockEducationParams struct {
 	UserID uuid.UUID
 }
 
+type LockEducationRow struct {
+	ID           uuid.UUID
+	UniversityID uuid.UUID
+	FacultyID    uuid.NullUUID
+	DepartmentID uuid.NullUUID
+}
+
 // LockEducation locks one of the user's active education records; another
-// user's is not found.
-func (q *Queries) LockEducation(ctx context.Context, arg LockEducationParams) (uuid.UUID, error) {
+// user's is not found. The references it names come back: a retired one
+// the record keeps may stay (ADR-0036).
+func (q *Queries) LockEducation(ctx context.Context, arg LockEducationParams) (LockEducationRow, error) {
 	row := q.db.QueryRow(ctx, lockEducation, arg.ID, arg.UserID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var i LockEducationRow
+	err := row.Scan(
+		&i.ID,
+		&i.UniversityID,
+		&i.FacultyID,
+		&i.DepartmentID,
+	)
+	return i, err
 }
 
 const lockEducationWrites = `-- name: LockEducationWrites :exec

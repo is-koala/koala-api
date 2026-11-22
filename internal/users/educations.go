@@ -22,11 +22,14 @@ import (
 // user's education writes (LockEducationWrites): "KE".
 const educationLockClass = 0x4b45
 
-// educationLock is the second key of the lock: the user id's first four
-// bytes, big-endian. Two users that share it only wait for each other.
+// educationLock is the second key of the lock: four of the user id's
+// random bytes (12–15), big-endian. A UUIDv7 begins with its creation
+// time, so its first bytes are shared by every user created in the same
+// minute; the tail is random. Two users that share the key only wait for
+// each other.
 func educationLock(userID uuid.UUID) int32 {
 	var k int32
-	for _, b := range userID[:4] {
+	for _, b := range userID[12:16] {
 		k = k<<8 | int32(b)
 	}
 	return k
@@ -43,11 +46,12 @@ func educationNotFound() error {
 // last in the transaction with the new record: the handler stores its
 // answer for the Idempotency-Key there (ADR-0034 Karar 4).
 //
-// The record is a child of the user: the user's active row is locked first
-// (softdelete.LockActiveParent), so a concurrent deletion of the account
-// cannot leave an active record of a deleted user. The cap
-// (EducationsPerUser) is counted under the user's education write lock, so
-// concurrent creates cannot pass it together (ADR-0036 Karar 6).
+// Lock order: the user's education write lock first, so concurrent creates
+// cannot pass the cap (EducationsPerUser) together; then the user's active
+// row (softdelete.LockActiveParent, FOR SHARE), since the record is a child
+// of the user and a concurrent deletion of the account must not leave an
+// active record of a deleted user (ADR-0036 Karar 6). No path takes the
+// two the other way round.
 func (s *Service) CreateEducation(ctx context.Context, p authn.UserPrincipal, in EducationInput,
 	commit func(ctx context.Context, q db.Querier, e Education) error,
 ) (Education, error) {
@@ -78,7 +82,7 @@ func (s *Service) CreateEducation(ctx context.Context, p authn.UserPrincipal, in
 		if n >= EducationsPerUser {
 			return apperr.New(apperr.KindConflict, CodeEducationLimitReached)
 		}
-		if err := checkReferences(ctx, q, in); err != nil {
+		if err := checkReferences(ctx, q, in, references{}); err != nil {
 			return err
 		}
 		err = q.InsertEducation(ctx, usersdb.InsertEducationParams{
@@ -113,14 +117,15 @@ func (s *Service) ReplaceEducation(ctx context.Context, p authn.UserPrincipal, i
 	var out Education
 	err := s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := usersdb.New(tx)
-		_, err := q.LockEducation(ctx, usersdb.LockEducationParams{ID: id, UserID: p.UserID})
+		cur, err := q.LockEducation(ctx, usersdb.LockEducationParams{ID: id, UserID: p.UserID})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return educationNotFound()
 		}
 		if err != nil {
 			return fmt.Errorf("users: lock the education: %w", err)
 		}
-		if err := checkReferences(ctx, q, in); err != nil {
+		kept := references{university: cur.UniversityID, faculty: cur.FacultyID, department: cur.DepartmentID}
+		if err := checkReferences(ctx, q, in, kept); err != nil {
 			return err
 		}
 		_, err = q.ReplaceEducation(ctx, usersdb.ReplaceEducationParams{
@@ -175,17 +180,35 @@ func (s *Service) DeleteEducation(ctx context.Context, p authn.UserPrincipal, id
 	return nil
 }
 
+// references are the reference rows a record names already: a retired
+// one it keeps may stay (ADR-0036). The zero value is a new record's.
+type references struct {
+	university uuid.UUID
+	faculty    uuid.NullUUID
+	department uuid.NullUUID
+}
+
+// keeps reports whether id is the reference the record names already.
+func keeps(kept uuid.NullUUID, id uuid.UUID) bool {
+	return kept.Valid && kept.UUID == id
+}
+
 // checkReferences finds the university, the faculty under it and the
-// department under the faculty. The reference rows are never deleted
-// (M4), so what is found here stays; the composite foreign keys hold the
-// same in the database.
-func checkReferences(ctx context.Context, q *usersdb.Queries, in EducationInput) error {
-	_, err := q.GetUniversity(ctx, in.UniversityID)
+// department under the faculty. A retired row cannot be chosen anew, but a
+// record keeps the one it names already (M4, ADR-0036). The reference rows
+// are never deleted, so what is found here stays; the composite foreign
+// keys hold the same in the database.
+func checkReferences(ctx context.Context, q *usersdb.Queries, in EducationInput, kept references) error {
+	_, err := q.GetUniversity(ctx, usersdb.GetUniversityParams{
+		ID: in.UniversityID, AllowRetired: keeps(uuid.NullUUID{UUID: kept.university, Valid: kept.university != uuid.Nil}, in.UniversityID),
+	})
 	if err != nil {
 		return referenceError(err)
 	}
 	if in.FacultyID != nil {
-		_, err := q.GetFacultyOf(ctx, usersdb.GetFacultyOfParams{ID: *in.FacultyID, UniversityID: in.UniversityID})
+		_, err := q.GetFacultyOf(ctx, usersdb.GetFacultyOfParams{
+			ID: *in.FacultyID, UniversityID: in.UniversityID, AllowRetired: keeps(kept.faculty, *in.FacultyID),
+		})
 		if err != nil {
 			return referenceError(err)
 		}
@@ -196,7 +219,9 @@ func checkReferences(ctx context.Context, q *usersdb.Queries, in EducationInput)
 			// keeps the rule should the schema ever drop it.
 			return apperr.New(apperr.KindNotFound, CodeReferenceNotFound)
 		}
-		_, err := q.GetDepartmentOf(ctx, usersdb.GetDepartmentOfParams{ID: *in.DepartmentID, FacultyID: *in.FacultyID})
+		_, err := q.GetDepartmentOf(ctx, usersdb.GetDepartmentOfParams{
+			ID: *in.DepartmentID, FacultyID: *in.FacultyID, AllowRetired: keeps(kept.department, *in.DepartmentID),
+		})
 		if err != nil {
 			return referenceError(err)
 		}

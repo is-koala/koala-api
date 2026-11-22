@@ -636,6 +636,11 @@ scenarios:
       - "IBAN'ın yalnız ilk ve son dört hanesi görünür"
       - "Telefonun yalnız son dört hanesi görünür"
       - "Parola özeti ve kimlik belgesi numarası yanıtta hiç bulunmaz"
+    target: >
+      Telefon doğrulamanın maskesiyle döner: ülke öneki ve son dört hane (+90******4567;
+      ADR-0033 Karar 7). Ülke öneki numaranın abone kısmından bir hane göstermez, bu yüzden
+      "abonenin yalnız son dört hanesi görünür" kuralı korunur; tek maske, kullanıcının
+      doğrulamada ve profilde aynı biçimi görmesini sağlar (ADR-0036).
     source:
       - "src/main/java/com/exskylab/koala/core/helpers/LogMasks.java:1-60"
       - "src/main/java/com/exskylab/koala/core/mappers/UserMapper.java:1-60"

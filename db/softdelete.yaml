@@ -351,7 +351,7 @@ edges:
     parent: users
     policy: cascade
   # A deleted user's open sync intent is left to the dispatcher, which
-  # reads the user by LEFT JOIN when it publishes. The rows are M3 and
+  # reads the user by LEFT JOIN when it publishes. The rows are M2 and
   # cannot cascade.
   - child: user_profile_sync_intents
     column: user_id

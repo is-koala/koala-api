@@ -153,9 +153,11 @@ func TestEducationPages(t *testing.T) {
 }
 
 // The profile answers its links to later modules with null and an empty
-// list (ADR-0036 Karar 5). The day one of those tables lands, this is red:
-// the PR that brings it wires the profile to it in the same change, so a
-// live link is never answered as absent.
+// list (ADR-0036 Karar 5), and two later changes owe the profile sync an
+// intent, as Java publishes after them (Karar 8). The day one of those
+// tables lands, this is red: the PR that brings it wires the profile to it
+// in the same change, so a live link is never answered as absent and a
+// change the provider must hear of is never silent.
 func TestProfileLinksWaitForTheirTables(t *testing.T) {
 	t.Parallel()
 	cat, err := softdelete.ParseCatalog(dbsrc.SoftDeleteCatalog())
@@ -163,15 +165,35 @@ func TestProfileLinksWaitForTheirTables(t *testing.T) {
 		t.Fatal(err)
 	}
 	for table, link := range map[string]string{
-		"media":     "profilePictureId and cvId (PATCH answers 501 for an id, GET answers null)",
-		"addresses": "addressId (PATCH answers 501 for an id, GET answers null)",
-		"companies": "companies (GET answers an empty list)",
+		"media": "profilePictureId and cvId (PATCH answers 501 for an id, GET answers null)",
+		"addresses": "addressId (PATCH answers 501 for an id, GET answers null); and a change of the " +
+			"primary address records the profile sync intent (profilesync.Record), Java's UserManager.java:536",
+		"companies":     "companies (GET answers an empty list)",
+		"bank_accounts": "maskedIban (GET answers null; the first and last four characters show, USR-027)",
+		"identity_verifications": "nothing in the answer, but an approved identity verification records the " +
+			"profile sync intent (profilesync.Record), Java's UserManager.java:393 and IdentityVerificationManager.java:151",
 	} {
 		if _, ok := cat.Table(table); ok {
-			t.Errorf("the %s table landed: wire the profile's %s to it (ADR-0036 Karar 5)", table, link)
+			t.Errorf("the %s table landed: wire the profile's %s (ADR-0036 Karar 5 and 8)", table, link)
 		}
 	}
 	if _, ok := cat.Table("users"); !ok {
 		t.Fatal("the catalog has no users table; the check reads the wrong catalog")
+	}
+}
+
+// The education write lock keys on the random tail of a UUIDv7, not on its
+// time prefix: users created in the same minute share the prefix and
+// would all wait for each other.
+func TestEducationLockKeysOnTheRandomBytes(t *testing.T) {
+	t.Parallel()
+	a := uuid.MustParse("0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10")
+	b := uuid.MustParse("0192f3c4-7b1a-7cc0-9a51-3f2b11112222")
+	if educationLock(a) == educationLock(b) {
+		t.Error("two ids of the same moment, different random tails, share the lock")
+	}
+	c := uuid.MustParse("01aaaaaa-7b1a-7cc0-9a51-3f2b8e4d6a10")
+	if educationLock(a) != educationLock(c) {
+		t.Error("the lock key reads more than the random tail")
 	}
 }

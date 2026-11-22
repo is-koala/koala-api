@@ -241,11 +241,13 @@ func (v *Verifications) Start(ctx context.Context, p UserPrincipal, channel, raw
 // Reauthentication is the caller's current password, proved outside any
 // transaction by Reauthenticate (argon2's cost holds no lock). StartTx
 // takes it and checks under the user's row lock that the password did
-// not change in between. Only Reauthenticate makes one.
+// not change in between, and that the proof is fresh
+// (ReauthenticationTTL). Only Reauthenticate makes one.
 type Reauthentication struct {
 	user   uuid.UUID
 	hash   *string
 	signIn []byte
+	at     time.Time
 }
 
 // Reauthenticate checks the caller's current password for a change of
@@ -260,7 +262,7 @@ func (v *Verifications) Reauthenticate(ctx context.Context, p UserPrincipal, cur
 	if err != nil {
 		return Reauthentication{}, err
 	}
-	return Reauthentication{user: p.UserID, hash: cur.PasswordHash, signIn: signIn}, nil
+	return Reauthentication{user: p.UserID, hash: cur.PasswordHash, signIn: signIn, at: v.users.clock.Now()}, nil
 }
 
 // errForeignReauthentication means StartTx got another user's
@@ -269,7 +271,8 @@ var errForeignReauthentication = errors.New("authn: a verification start with an
 
 // StartTx opens a verification in tx, the caller's transaction, under
 // every rule of a start: the target rule (a refusal names the body member
-// at pointer), the password r proved, unchanged under the user's row lock,
+// at pointer), the password r proved within ReauthenticationTTL and
+// unchanged under the user's row lock,
 // the target's start lock, the resend budget (cooldown, the target's
 // hourly budget, the caller's daily cap), the one open verification per
 // target, and the code job queued in tx. A refusal is returned as an
@@ -290,6 +293,10 @@ func (v *Verifications) StartTx(ctx context.Context, tx db.Querier, p UserPrinci
 	}
 	key := v.users.targets.of(budget)
 	now := v.users.clock.Now()
+	if now.Sub(r.at) > ReauthenticationTTL {
+		// A proof that outlived its request: the password is asked again.
+		return Verification{}, apperr.New(apperr.KindForbidden, CodeCurrentMismatch)
+	}
 	id := newID()
 	q := authndb.New(tx)
 	// The verification is a child of the user: the user's row lock keeps
@@ -557,7 +564,10 @@ func (v *Verifications) apply(ctx context.Context, tx db.Querier, q *authndb.Que
 			if err := q.ClearUserPhone(ctx, holder.ID); err != nil {
 				return fmt.Errorf("authn: take the number from its holder: %w", err)
 			}
-			if err := profilesync.Record(ctx, tx, holder.ID, origin, now); err != nil {
+			// The holder did not make this change: its intent carries no
+			// session or device of the caller, only the request that
+			// moved the number (ADR-0036).
+			if err := profilesync.Record(ctx, tx, holder.ID, profilesync.Origin{RequestID: origin.RequestID}, now); err != nil {
 				return fmt.Errorf("authn: record the holder's profile change: %w", err)
 			}
 			if err := v.enqueueTx(ctx, tx, contactChangedArgs{User: holder.ID, Channel: ChannelPhone, Released: true}); err != nil {

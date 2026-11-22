@@ -10,7 +10,8 @@
 --
 -- universities, faculties, departments: the academic reference data (M4,
 -- ADR-0029 Karar 8), read-only for the application. A row is retired
--- (retired_at), never deleted, and a retired one cannot be chosen anew.
+-- (retired_at), never deleted; a retired one cannot be chosen anew, but a
+-- record that already names it keeps it.
 -- Their rows come with the reference data PR, which also serves
 -- /v1/reference (ADR-0036 Karar 7); this migration brings the tables the
 -- education records point at.
@@ -94,7 +95,7 @@ CREATE TABLE educations (
     start_year integer NOT NULL,
     end_year integer,
     created_at timestamptz NOT NULL,
-    CONSTRAINT educations_degree_check CHECK (degree IN ('HIGH_SCHOOL', 'ASSOCIATE', 'BACHELOR', 'MASTER', 'DOCTORATE')),
+    CONSTRAINT educations_degree_check CHECK (degree IN ('ASSOCIATE', 'BACHELOR', 'MASTER', 'DOCTORATE')),
     CONSTRAINT educations_years_check CHECK (
         start_year BETWEEN 1950 AND 2100 AND (end_year IS NULL OR end_year BETWEEN start_year AND 2100)),
     -- A department is chosen under a faculty, a faculty under the

@@ -19,8 +19,8 @@ Bu PR'ın en büyük riski deponun baskın kusur sınıfıdır: sonradan eklenen
 
 ADR-0033'te `Verifications.Start` hem parolayı doğruluyor hem başlatmanın kurallarını kendi transaction'ında uyguluyordu. Profil yaması alanları ve başlattığı doğrulamaları **tek transaction'da** yazmak zorunda (Karar 9); bu yüzden `Start` ikiye bölündü ve iki yüzey de aynı iki parçayı kullanır:
 
-- **`Reauthenticate(p, currentPassword)`**: `confirmPassword`'ün kendisi (uygulama içi parola değişimiyle ortak). Transaction dışında koşar (argon2 kilit tutmaz), yanlış parolayı hesabın giriş hedefinde `FAILED` sayar, kilitli hedefi incelemeden reddeder. Dönen `Reauthentication`'ın dışa açık alanı yoktur; yalnız bu metot kurar.
-- **`StartTx(tx, p, r, channel, raw, pointer)`**: başlatmanın bütün kuralları, çağıranın transaction'ında: hedef kuralı (`targetAt`), kullanıcının satır kilidi altında parolanın değişmediği, hedefin başlatma kilidi, yeniden gönderme bütçesi (bekleme, hedefin saatlik bütçesi, kullanıcının günlük tavanı), hedef başına tek açık doğrulama, `SUCCEEDED` denemesi ve kod işinin aynı transaction'da kuyruğa girmesi. Ret hata olarak döner ve çağıranın transaction'ı geri alınır.
+- **`Reauthenticate(p, currentPassword)`**: `confirmPassword`'ün kendisi (uygulama içi parola değişimiyle ortak). Transaction dışında koşar (argon2 kilit tutmaz), yanlış parolayı hesabın giriş hedefinde `FAILED` sayar, kilitli hedefi incelemeden reddeder. Dönen `Reauthentication`'ın dışa açık alanı yoktur; yalnız bu metot kurar. Kanıtın zamanını taşır ve **bir dakika** (`ReauthenticationTTL`) geçerlidir: bir istek en çok `httpx.RequestTimeout` (25 sn) yaşar, daha eski bir kanıt onu kullanan istekten gelmemiştir. Bayat kanıt yanlış parola gibi `403 PASSWORD_MISMATCH` alır, çünkü çare aynıdır: parola yeniden girilir (`TestStartTxRechecksThePassword`).
+- **`StartTx(tx, p, r, channel, raw, pointer)`**: başlatmanın bütün kuralları, çağıranın transaction'ında: hedef kuralı (`targetAt`), kanıtın tazeliği, kullanıcının satır kilidi altında parolanın değişmediği (`TestStartTxRechecksThePassword`: kanıttan sonra değişen parola reddedilir, satır ve iş yazılmaz), hedefin başlatma kilidi, yeniden gönderme bütçesi (bekleme, hedefin saatlik bütçesi, kullanıcının günlük tavanı), hedef başına tek açık doğrulama, `SUCCEEDED` denemesi ve kod işinin aynı transaction'da kuyruğa girmesi. Ret hata olarak döner ve çağıranın transaction'ı geri alınır.
 - `Start` artık yalnız `Reauthenticate` + kendi transaction'ında `StartTx`'tir. Profil yaması (`users.Service.Update`) aynı ikisini çağırır. Kural ikinci bir yerde yazılmadı; `users` paketi doğrulama tablolarına, bütçe sorgularına ya da kilitlere hiç dokunmaz.
 - `authn.CheckTarget(channel, raw, pointer)` hedef kuralını dışa açar: yama, parolayı sormadan önce e-postayı ve numarayı aynı kuralla biçim denetiminden geçirir ve hesaptaki değerle karşılaştıracağı saklanan biçimi alır. Ret `REQUEST_INVALID`'dir ve yamanın üyesini adlandırır (`/email`, `/phoneNumber`).
 
@@ -59,18 +59,19 @@ Profilin beş alanı bu PR'da karşılığı olmayan tablolara bağlanır: `prof
 ### 6. Eğitim kayıtları
 
 - **Sahiplik:** kayıt `(id, user_id)` ile bulunur ve kilitlenir. Başkasının kaydı hiç olmamış bir kaydın `404 EDUCATION_NOT_FOUND` gövdesini bayt bayt alır (ADR-0014). Değiştirmede sıra dönem kuralı → kayıt → referans: başkasının kaydı için referans denetimi hiç koşmaz, gövde ne olursa olsun yanıt aynıdır.
-- **Kullanıcı başına sınır: 20 kayıt** (`EducationsPerUser`). Java'da sınır yok; LinkedIn benzeri profillerde birkaç kayıt olağandır ve sınır bir hesabın yazabileceğini ve listenin yükünü bağlar. Aşımı yeni `409 EDUCATION_LIMIT_REACHED` (`COMPANY_GALLERY_LIMIT_REACHED`'in kalıbı). Sayım ve ekleme kullanıcının eğitim yazma kilidi altında olur (`pg_advisory_xact_lock("KE", kullanıcı kimliğinin ilk dört baytı)`): eşzamanlı eklemeler sınırı birlikte aşamaz (`TestEducationLimitHoldsUnderConcurrency`).
+- **Kullanıcı başına sınır: 20 kayıt** (`EducationsPerUser`). Java'da sınır yok; LinkedIn benzeri profillerde birkaç kayıt olağandır ve sınır bir hesabın yazabileceğini ve listenin yükünü bağlar. Aşımı yeni `409 EDUCATION_LIMIT_REACHED` (`COMPANY_GALLERY_LIMIT_REACHED`'in kalıbı). Sayım ve ekleme kullanıcının eğitim yazma kilidi altında olur (`pg_advisory_xact_lock("KE", kullanıcı kimliğinin 12–15. baytları)`): eşzamanlı eklemeler sınırı birlikte aşamaz (`TestEducationLimitHoldsUnderConcurrency`). Anahtar UUIDv7'nin rastgele kuyruğundan alınır: ilk baytlar oluşturma zamanıdır ve aynı dakikada açılan hesaplar onları paylaşır (`TestEducationLockKeysOnTheRandomBytes`).
 - **Ebeveyn:** kayıt `users`'ın çocuğudur ve kullanıcıyla birlikte silinir (`cascade`). Ekleme kullanıcının etkin satırını `softdelete.LockActiveParent` ile kilitler; `ErrNotActive` oturumun kendi koduna (`401 AUTH_SESSION_NOT_FOUND_OR_INACTIVE`) çevrilir, çünkü ebeveyn çağıranın kendisidir (`TestEducationNeedsAnActiveUser`). Kilit sırası: eğitim yazma kilidi → kullanıcı satırı (`FOR SHARE`). Kullanıcı satırını `FOR UPDATE` kilitleyen yollar (başlatma, profil yaması) eğitim kilidini hiç almaz; döngü kurulamaz.
 - **Silme** `softdelete.Delete` ile yapılır. Eğitime bugün `restrict` kenarıyla bağlı çocuk yok, ama `Delete`'in `409 SOFT_DELETE_RESTRICTED` yeri izlemede ulaşılabilir; bu yüzden kod `deleteMyEducation`'ın listesine ve `409` yanıtı sözleşmeye eklendi. Böyle bir kenar eklendiği gün yanıt zaten sözleşmededir.
 - **Liste:** süren eğitim (bitiş yılı boş) başta, sonra bitiş yılı, başlangıç yılı ve kimlik, hepsi azalan. Bir kullanıcının kaydı en çok 20 olduğu için hepsi okunur ve sayfa serviste aynı keyset üzerinde kesilir; cursor sorgudakiyle aynı sıralama anahtarını taşır (`edu1|yön|bitiş|başlangıç|kimlik`, base64url). Bozuk cursor `400 CURSOR_INVALID` (`listMyEducations`'ın listesine eklendi, ADR-0033 Karar 13'ün kalıbı).
+- **Lise derecesi yok:** sözleşmenin `EducationDegree`'sinden `HIGH_SCHOOL` çıkarıldı (ürün kararı, 22.11.2026). Kayıt zorunlu bir `universityId` ile yükseköğretim kurumuna bağlanır ve YÖK verisinde lise yoktur; değer hiçbir geçerli kayıtta kullanılamazdı. Uç bir istemcide yok, bu yüzden en ucuz an şimdiydi. `ASSOCIATE` kalır: önlisans programları üniversite altındadır. Önlisans kaydı meslek yüksekokullarının referans verisinde (fakülte düzeyinde) bulunmasını ister; Java'nın CSV'sinin onları eksiksiz taşıyıp taşımadığı bu PR'da denetlenmedi ve referans PR'ına devredildi (Karar 7).
 - **Bölüm fakülte ister:** sözleşme fakülteyi ve bölümü isteğe bağlı tutuyor (Java üçünü de zorunlu tutuyordu). Bölüm bir fakültenin altında seçilir: `EducationInput`'a `dependentRequired: {departmentId: [facultyId]}` eklendi; veritabanında `CHECK` ve iki bileşik FK (`(faculty_id, university_id)` → `faculties`, `(department_id, faculty_id)` → `departments`) aynı kuralı tutar. Başka üniversitenin fakültesi ve başka fakültenin bölümü `404 REFERENCE_ITEM_NOT_FOUND` alır (Java'nın `FACULTY_NOT_IN_UNIVERSITY`/`DEPARTMENT_NOT_IN_FACULTY` ayrımı tek koda indi: ikisi de "bu üniversitede böyle bir fakülte yok"tur).
 
 ### 7. Referans verisi: tablolar bu PR'da, tohum referans PR'ında
 
 Eğitim kaydı üniversite, fakülte ve bölüme FK ile bağlanır (ADR-0029 Karar 8: referans verisi M4); tablolar yoktu ve referans uçları `501`.
 
-- **Tablolar bu PR'da:** `universities`, `faculties`, `departments`; M4, uygulamaya yalnız `SELECT`; satır silinmez, `retired_at` ile emekliye ayrılır (ADR-0013'ün M4 tanımı) ve emekli satır yeni kayıtta seçilemez. Kayıtların FK'si için gerekli olan budur.
-- **Tohum ve uçlar referans PR'ında:** Java'nın verisi `db/changelog/data/*.csv` (223 üniversite, 2.326 fakülte, 11.250 bölüm; 2025-08 tarihli bir YÖK anlık görüntüsü). Tohumu bu PR'a koymak işe yaramazdı: istemci kimlikleri ancak `/v1/reference` uçlarından öğrenir ve onlar `501`. Verinin kaynağı ve güncelleme politikası (YÖK Atlas, yıllık yenileme, emekliye ayırma) uçlarla birlikte karar verilecek bir konudur. O PR gelene kadar `createMyEducation` her kimlikte `REFERENCE_ITEM_NOT_FOUND` döner; prod yok, gerçek kullanıcı yok.
+- **Tablolar bu PR'da:** `universities`, `faculties`, `departments`; M4, uygulamaya yalnız `SELECT`; satır silinmez, `retired_at` ile emekliye ayrılır (ADR-0013'ün M4 tanımı). **Emekli satır yeni seçilemez, ama kaydın zaten taşıdığı emekli satır kalır** (ürün kararı, 22.11.2026): ekleme ve başka bir referansa geçen değiştirme `404 REFERENCE_ITEM_NOT_FOUND` alır; referansı aynı bırakan değiştirme kabul edilir (`TestEducationRetiredReferences`). Sorgu emekli satırı yalnız kaydın kilit altında okunan kendi referansıysa geçirir (`allow_retired`). Kayıtların FK'si için gerekli olan budur.
+- **Tohum ve uçlar referans PR'ında:** Java'nın verisi `db/changelog/data/*.csv` (223 üniversite, 2.326 fakülte, 11.250 bölüm; 2025-08 tarihli bir YÖK anlık görüntüsü). Tohumu bu PR'a koymak işe yaramazdı: istemci kimlikleri ancak `/v1/reference` uçlarından öğrenir ve onlar `501`. Verinin kaynağı ve güncelleme politikası (YÖK Atlas, yıllık yenileme, emekliye ayırma) ve meslek yüksekokullarının (önlisans) eksiksiz gelmesi uçlarla birlikte karar verilecek konulardır. O PR gelene kadar `createMyEducation` her kimlikte `REFERENCE_ITEM_NOT_FOUND` döner; prod yok, gerçek kullanıcı yok.
 - **Serbest metin seçilmedi:** sözleşme kimlik ve `ReferenceItem` istiyor (ADR-0029 donmuş sözleşmesi) ve serbest metin aynı üniversitenin onlarca yazımını üretirdi.
 
 ### 8. Profil senkronu giden kaydı (USR-022)
@@ -79,8 +80,10 @@ ADR-0029 *Sonuçlar* ve ADR-0033 Karar 8 giden kaydın **yazımını** profil PR
 
 - **`user_profile_sync_intents`** (M2, `pii`): kullanıcı başına **bir açık niyet** (`published_at IS NULL` üzerinde kısmi tekil indeks). Profil değişikliği kendi transaction'ında niyeti yazar ya da açık olanı tazeler (`INSERT … ON CONFLICT … DO UPDATE`): zamanı ve son değişikliğin kaynağı (istek kimliği, oturum, cihaz). Değişiklik ve niyet birlikte işlenir ya da hiçbiri (`TestProfilePatchSharesTheStartBudget` geri alma yarısını, `TestProfileChangeRecordsTheSyncIntent` işlenme ve tazeleme yarısını bağlar).
 - **Yük yok:** Java niyete profilin JSON'unu yazıyor. Go yazmaz: gönderici profili **yayın anında** okur. Niyet bu yüzden bayatlamaz ("yükün yerinde güncellenmesi" niyetin tazelenmesine iner) ve kendine ait kişisel veri tutmaz; tabloda yalnız kim ve nereden olduğu durur. USR-022'nin `target`'ı bunu yazar.
-- **Yazanlar:** profil yaması (saklanan profil alanlarından biri değiştiyse; yalnız doğrulama başlatan ya da hiçbir şey değiştirmeyen yama niyet yazmaz) ve doğrulama onayı (e-posta ya da numara değiştiyse; numara devralındıysa eski sahibin profili de değiştiği için onun niyeti de).
-- **River işi değil:** CLAUDE.md garantili yan etkiyi River `InsertTx`'e koyar. Burada tüketici Faz 6'ya kadar yoktur: işçisi olmayan bir iş River'da hata alıp yeniden denenir ve atılır (niyet kaybolur); hiçbir şey yapmayan bir işçi niyeti sessizce yutar. Ayrıca River'ın tekil işleri `running` durumunu kapsamak zorunda: yayın sürerken gelen ikinci değişiklik atlanırdı. Kalıcı kayıt bu yüzden bir tablodur; Faz 6'nın göndericisi niyeti sahiplenir, yayımlar ve isterse River'a taşır.
+- **Yazanlar:** profil yaması (saklanan profil alanlarından biri değiştiyse; yalnız doğrulama başlatan ya da hiçbir şey değiştirmeyen yama niyet yazmaz) ve doğrulama onayı (e-posta ya da numara değiştiyse; aynı değerin yeniden onayı yazmaz). Numara devralındıysa eski sahibin profili de değişir ve onun niyeti de yazılır, ama **sistem kaynağıyla**: oturum ve cihaz `NULL`, yalnız numarayı taşıyan isteğin kimliği (ürün kararı, 22.11.2026). Değişikliği eski sahibin oturumu ve cihazı yapmadı; yeni sahibinkileri onun niyetine yazmak onları başkasının hesabına bağlardı (`TestConfirmationRecordsTheSyncIntents`, `TestProfileEmailChangeWaitsForConfirmation`).
+- **Henüz yazmayanlar:** Java iki yerde daha yayımlıyor: kimlik doğrulama onayı (`UserManager.java:393`, `IdentityVerificationManager.java:151`) ve birincil adres güncellemesi (`UserManager.java:536`). İkisinin de tablosu yok; kimlik ve adres PR'larının yükümlülüğüdür. `TestProfileLinksWaitForTheirTables`, katalogda `identity_verifications` ya da `addresses` belirdiği gün kırmızıdır ve `profilesync.Record` yükümlülüğünü yazar.
+- **River işi değil:** CLAUDE.md garantili yan etkiyi River `InsertTx`'e koyar. Burada tüketici Faz 6'ya kadar yoktur: işçisi olmayan bir iş River'da hata alıp yeniden denenir ve atılır (niyet kaybolur); hiçbir şey yapmayan bir işçi niyeti sessizce yutar. Ayrıca River'ın tekil işleri `running` durumunu kapsamak zorunda: yayın sürerken gelen ikinci değişiklik atlanırdı. Kalıcı kayıt bu yüzden bir tablodur: planın K3 satırının yedeği olan "elle yazılmış outbox" (K3-c) bu tek tüketici için seçildi, River (K3-b) değişmedi. Faz 6'nın göndericisi niyeti sahiplenir, yayımlar ve isterse River'a taşır.
+- **Uyarılar:** ADR-0021 `KoalaUserProfileSyncBacklog` ve `…OldestAge`'in karşılığını "River kuyruk birikimi" diye yazıyor. Karşılık artık bu tablodur: açık niyetlerin sayısı ve en eskinin yaşı. Metrik ve kural **Faz 6'nın göndericisiyle** gelir: gönderici yokken her niyet tasarım gereği açık kalır ve bugün yazılacak bir birikim kuralı ilk profil değişikliğinden bir saat sonra çalar ve hiç susmazdı; hep çalan bir uyarı uyarıları görmezden gelmeyi öğretir.
 - **USR-023** (iki işçi aynı niyeti iki kez yayımlayamaz) gönderici olmadan sınanamaz: `deferred: phase 6`. Katalogdaki eski gerekçe ("gönderim döngüsü Faz 2'nin uygulama PR'ında") ADR-0029 *Sonuçlar*'ıyla çelişiyordu; ADR'nin dediği geçerlidir.
 
 ### 9. Yama atomiktir
@@ -96,12 +99,13 @@ Kimlik doğrulanmışsa ad, soyad ve doğum tarihi **değişemez**; hesaptaki de
 | Mevcut parola (Karar 1b) | `Reauthenticate` | Tek uygulama `confirmPassword`; yama `StartTx`'e ancak bir `Reauthentication` ile ulaşır ve onu yalnız `Reauthenticate` kurar | `TestProfileContactChangeNeedsThePassword` |
 | Yanlış parolanın kilide sayılması | `confirmPassword` | Aynı fonksiyon `FAILED` yazar | aynı test (`FAILED` sayısı) |
 | Kilitliyken ret | `lockState` | Aynı fonksiyon | aynı test (100 `FAILED` sonrası doğru parolaya 403) |
-| Parolanın kilit altında değişmemesi | `StartTx` | Tek yer | ADR-0033'ün testi; yama aynı fonksiyonu çağırır |
+| Parolanın kilit altında değişmemesi | `StartTx` | Tek yer | `TestStartTxRechecksThePassword` (ADR-0033'te bu kuralı bağlayan test yoktu) |
+| Kanıtın tazeliği (`ReauthenticationTTL`) | `StartTx` | Tek yer | `TestStartTxRechecksThePassword` |
 | Hedef kuralı (ülke, biçim) | `CheckTarget` → `targetAt` | Tek yer | `TestProfileContactChangeNeedsThePassword` (`+44…` 400, deneme harcanmaz) |
 | Bekleme ve hedef bütçesi | `StartTx` → `budgetWait` | Tek yer | `TestProfilePatchSharesTheStartBudget` |
 | Günlük tavan | `StartTx` → `budgetWait` | Tek yer, iki yüzey birlikte sayılır | aynı test (9 yama + 1 başlatma, 11. ret) |
 | Başlatma kilidi (eşzamanlılık) | `StartTx` | Tek yer | ADR-0033'ün `TestConcurrentStartsKeepTheTargetBudget`'ı aynı fonksiyonu sınar; yamadan eşzamanlı sınanmadı |
-| HTTP kovaları | `verificationStartKeys` | Anahtarların tek üreticisi | `TestProfilePatchSharesTheStartBuckets` |
+| HTTP kovaları | `verificationStartKeys` | Anahtarların tek üreticisi | `TestProfilePatchSharesTheStartBuckets` (telefon), `TestProfileEmailPatchTakesTheStartBuckets` (e-posta) |
 | Küresel tavan, gönderim penceresi | Kod işi | Yama işi aynı `InsertTx` ile kuyruğa koyar | Denenmedi: iş yolu yüzeyden bağımsız |
 | Numaralandırma (Karar 3) | — | Yama hedefin hesap durumuna bakmaz; yalnız `StartTx` | Kod incelemesi; listede `VERIFICATION_TARGET_IN_USE` yok, bağ denetimi bunu zorlar |
 
@@ -120,6 +124,10 @@ Kimlik doğrulanmışsa ad, soyad ve doğum tarihi **değişemez**; hesaptaki de
 | Sahiplik ihlali | gizli 404 (`Concealment.notFound`) | gizli 404, bayt bayt | aynı |
 | Referans tutarlılığı | serviste iki ayrı hata | tek kod, bileşik FK | Karar 6 |
 | Giden kaydı yükü | profilin JSON'u | yok, yayında okunur | Karar 8 |
+| Devirde eski sahibin yayını | çağıranın bağlamıyla | sistem kaynağı: yalnız istek kimliği | Karar 8 |
+| Kimlik doğrulamada yayın | `UserManager.java:393`, `IdentityVerificationManager.java:151` | kimlik PR'ında, tetik testi | Karar 8 |
+| Birincil adres değişikliğinde yayın | `UserManager.java:536` | adres PR'ında, tetik testi | Karar 8 |
+| Lise derecesi | `GradeType` içinde | yok | Karar 6 |
 
 ## Sözleşme değişiklikleri
 
@@ -132,6 +140,9 @@ Altı operasyonun `x-not-implemented` işareti kalktı, iskele metotları silind
 - `createMyEducation`: `EDUCATION_LIMIT_REACHED` listede; `201` `Idempotent-Replayed` başlığını tanımlar (ADR-0034, bağlı operasyon kuralı).
 - `deleteMyEducation`: `SOFT_DELETE_RESTRICTED` listede, `409` yanıtı eklendi.
 - `EducationInput`: `dependentRequired: {departmentId: [facultyId]}`.
+- `EducationDegree`: `HIGH_SCHOOL` çıktı (Karar 6; uç hiçbir istemcide yok).
+- `UserProfilePatch.currentPassword`: e-posta ya da telefon olmadan gönderilirse yok sayılır (denetlenmez, yazılmaz); açıklama bunu yazar, davranış değişmedi.
+- `createMyEducation`, `replaceMyEducation`: açıklama emekli referans kuralını yazar.
 - `ErrorCode`: `EDUCATION_LIMIT_REACHED` (409) eklendi; `PASSWORD_MISMATCH`'in düzyazısı profil yamasını anar.
 
 ## Yerine geçtiği
@@ -139,23 +150,24 @@ Altı operasyonun `x-not-implemented` işareti kalktı, iskele metotları silind
 1. **`test/scenarios/user.yaml`'da USR-023'ün `deferred: phase 2` gerekçesi** → Karar 8: gönderim döngüsü Faz 6'dadır (ADR-0029 *Sonuçlar* ile hizalandı).
 2. **ADR-0033 *Sonuçlar*'ındaki "USR-014 `deferred` kalıyor"** → USR-014 bağlandı (`boundAhead`: `updateMyProfile`, `confirmMyVerification`).
 3. **ADR-0029 *Sonuçlar*'ındaki üç kalem** kapandı: profil senkronu giden kaydının yazımı (Karar 8), `pii.knownFields`'e `birth_date` (Karar 4), ilk gerçek PATCH operasyonunun uçtan uca doğrulama ve bağlama testi (`TestProfileOverHTTP`: `application/json` 415, `null` temizler, gönderilmeyen üye kalır).
-4. **ADR-0033 Karar 1'in `Start` tanımı** → Karar 1: davranış aynı, kod `Reauthenticate` + `StartTx`'e bölündü; bir ret artık transaction'ı geri alır (önceden commit ediyordu, yazılmış bir şey yoktu).
+4. **ADR-0033 Karar 1'in `Start` tanımı** → Karar 1: davranış aynı, kod `Reauthenticate` + `StartTx`'e bölündü; bir ret artık transaction'ı geri alır (önceden commit ediyordu, yazılmış bir şey yoktu). Kanıta bir dakikalık tazelik sınırı eklendi.
+5. **ADR-0010 Karar 2 ve CLAUDE.md'nin "garantili yan etki River `InsertTx` ile" kuralı** → Karar 8: profil senkronu giden kaydı, tüketicisi Faz 6'ya kadar olmadığı için bir tablodur (plan K3-c, elle yazılmış outbox). İstisna tek tüketicilidir; CLAUDE.md satırı istisnayı yazar. Kuralın kendisi değişmez.
+6. **ADR-0021'in uyarı tablosundaki `KoalaUserProfileSyncBacklog`/`…OldestAge` satırı** ("River kuyruk birikimi, River worker PR'ında") → Karar 8: karşılık `user_profile_sync_intents`'teki açık niyetler; metrik ve kural Faz 6'nın göndericisiyle gelir.
 
-ADR-0013, ADR-0014, ADR-0026, ADR-0029 ve ADR-0033'ün kararları başka yerde değişmiyor.
+ADR-0010, ADR-0013, ADR-0014, ADR-0021, ADR-0026, ADR-0029 ve ADR-0033'ün kararları başka yerde değişmiyor.
 
 ## Sonuçlar
 
 - Bağlanan P0'lar: USR-014, USR-022 (`boundAhead`). USR-023 `deferred: phase 6`. P1'lerden USR-024, USR-027 (IBAN yarısı `partial: phase 6`), USR-028 ve P2 USR-029 da teste bağlandı.
 - `users` alanının kalan donmuş operasyonları (`getPublicProfile`, kimlik belgeleri, adresler, takip edilen şirketler, medya) `boundAhead` kuralını sürdürür.
-- Medya, adres ve şirket PR'ları profil bağlarını getirmek zorundadır; tetik testi bunu zorlar (Karar 5).
+- Medya, adres, şirket ve banka hesabı PR'ları profil bağlarını (`profilePictureId`/`cvId`, `addressId`, `companies`, `maskedIban`) getirmek zorundadır; tetik testi bunu zorlar (Karar 5).
+- **Kimlik ve adres PR'larının senkron yükümlülüğü:** onaylanan kimlik doğrulaması ve birincil adres değişikliği kendi transaction'ında `profilesync.Record` çağırır (Java'nın `UserManager.java:393`, `:536`, `IdentityVerificationManager.java:151` yayınları). Tetik testi `identity_verifications` ve `addresses` tablolarında kırmızıdır.
 - Referans PR'ı tabloları tohumlar ve uçları açar; o gün `createMyEducation` gerçek kimliklerle çalışır.
 - Faz 6'nın göndericisi `user_profile_sync_intents`'i sahiplenir, yayımlar, saklama süresini getirir ve USR-023'ü bağlar.
 - `softdelete.LockActiveParent` ve `Deleter.Delete`'e ulaşan ilk handler'lar bunlar. Bağ denetimi (ADR-0032 Karar 1) platformun elle yazılmış iki sorgusunda `db.Querier`'ın gömülü pgx arayüzünden geçen `QueryRow(…).Scan` çağrısının tipini çözemiyor; `unresolvedCalls`'a gerekçeli iki muafiyet eklendi (pgx hatası döner, platform onu sarar ya da `ErrNotActive`'e çevirir; apperr kodu üretmez). Muafiyet, izleme onu artık gerektirmediği gün kırmızıdır.
 
 ## Açık sorular
 
-1. **Eğitim kaydı sınırı (20)** bir ürün tercihidir; ölçülmedi.
-2. **Aynı değerle gelen e-posta ya da telefonda parola** (Karar 2): istenen davranış "değişmiyorsa parola isteme" olursa kural değerin karşılaştırmasından sonra uygulanabilir; bugün ADR-0033 Karar 1b'nin sözcüğü izlendi.
-3. **Kullanıcının kendi telefonunun maskeli dönmesi** USR-027'nin ve sözleşmenin kararıdır; istemcinin numarayı düzenleme ekranında tam göstermek istemesi bir ürün sorusudur.
-4. **Hangi profil alanlarının senkron niyeti doğurduğu:** bugün saklanan herhangi bir alan. Sağlayıcının yalnız bazı alanlarla ilgilendiği Faz 6'da netleşirse filtre gönderici tarafına konur.
-5. **Referans verisinin kaynağı ve güncellenmesi** referans PR'ının kararıdır (Karar 7).
+1. **Eğitim kaydı sınırı (20)**, **aynı değer gönderilse de parolanın istenmesi** (Karar 2) ve **kullanıcının kendi telefonunu maskeli görmesi** (USR-027) 22.11.2026 ürün kararıyla kalır. Telefon maskesi doğrulamanınkiyle aynıdır (`+90******4567`): ülke öneki abonenin numarasından bir hane göstermez; USR-027'nin `target`'ı bunu yazar.
+2. **Hangi profil alanlarının senkron niyeti doğurduğu:** bugün saklanan herhangi bir alan. Sağlayıcının yalnız bazı alanlarla ilgilendiği Faz 6'da netleşirse filtre gönderici tarafına konur.
+3. **Referans verisinin kaynağı, güncellenmesi ve meslek yüksekokulları** referans PR'ının kararıdır (Karar 7).

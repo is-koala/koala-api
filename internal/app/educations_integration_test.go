@@ -322,3 +322,43 @@ func TestEducationNeedsAnActiveUser(t *testing.T) {
 		t.Fatalf("%d records written for a deleted user", n)
 	}
 }
+
+// A retired reference row cannot be chosen anew, but a record keeps the one
+// it names already: a replace that leaves it as it is passes, one that
+// picks another retired row is refused (M4, ADR-0036).
+func TestEducationRetiredReferences(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	tok := a.addSignedIn(t, "emekli@example.com")
+	ref, other := a.seedReference(t), a.seedReference(t)
+	rec := a.createEducation(t, tok, educationBody(ref.university, &ref.faculty, &ref.department, 2010, year(2014)))
+	wantStatus(t, rec, http.StatusCreated, "")
+	kept := decodeBody[educationAnswer](t, rec).ID
+
+	owner := a.dbt.Open(t, db.RoleOwner)
+	for _, stmt := range []string{
+		"UPDATE universities SET retired_at = now() WHERE id = $1 OR id = $2",
+		"UPDATE faculties SET retired_at = now() WHERE university_id = $1 OR university_id = $2",
+		"UPDATE departments SET retired_at = now() WHERE faculty_id IN (SELECT id FROM faculties WHERE university_id = $1 OR university_id = $2)",
+	} {
+		if _, err := owner.Pool().Exec(t.Context(), stmt, ref.university, other.university); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Chosen anew: refused, in a create and in a replace.
+	wantStatus(t, a.createEducation(t, tok, educationBody(ref.university, nil, nil, 2015, nil)),
+		http.StatusNotFound, string(users.CodeReferenceNotFound))
+	wantStatus(t, a.call(t, http.MethodPut, "/v1/me/educations/"+kept.String(), tok,
+		educationBody(other.university, nil, nil, 2010, year(2014))), http.StatusNotFound, string(users.CodeReferenceNotFound))
+	// Kept: the record's own retired rows stay through a replace.
+	rec = a.call(t, http.MethodPut, "/v1/me/educations/"+kept.String(), tok,
+		educationBody(ref.university, &ref.faculty, &ref.department, 2011, year(2015)))
+	wantStatus(t, rec, http.StatusOK, "")
+	if got := decodeBody[educationAnswer](t, rec); got.Department == nil || got.EndYear == nil || *got.EndYear != 2015 {
+		t.Fatalf("the kept record = %s", rec.Body)
+	}
+	// Dropping a retired faculty is a change the record may make.
+	wantStatus(t, a.call(t, http.MethodPut, "/v1/me/educations/"+kept.String(), tok,
+		educationBody(ref.university, nil, nil, 2011, year(2015))), http.StatusOK, "")
+}

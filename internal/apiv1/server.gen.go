@@ -140,11 +140,10 @@ func (e CoordinatesPrecision) Valid() bool {
 
 // Defines values for EducationDegree.
 const (
-	EducationDegreeASSOCIATE  EducationDegree = "ASSOCIATE"
-	EducationDegreeBACHELOR   EducationDegree = "BACHELOR"
-	EducationDegreeDOCTORATE  EducationDegree = "DOCTORATE"
-	EducationDegreeHIGHSCHOOL EducationDegree = "HIGH_SCHOOL"
-	EducationDegreeMASTER     EducationDegree = "MASTER"
+	EducationDegreeASSOCIATE EducationDegree = "ASSOCIATE"
+	EducationDegreeBACHELOR  EducationDegree = "BACHELOR"
+	EducationDegreeDOCTORATE EducationDegree = "DOCTORATE"
+	EducationDegreeMASTER    EducationDegree = "MASTER"
 )
 
 // Valid indicates whether the value is a known member of the EducationDegree enum.
@@ -155,8 +154,6 @@ func (e EducationDegree) Valid() bool {
 	case EducationDegreeBACHELOR:
 		return true
 	case EducationDegreeDOCTORATE:
-		return true
-	case EducationDegreeHIGHSCHOOL:
 		return true
 	case EducationDegreeMASTER:
 		return true
@@ -1075,7 +1072,9 @@ type Education struct {
 	University ReferenceItem `json:"university"`
 }
 
-// EducationDegree Eğitim kaydının derecesi.
+// EducationDegree Eğitim kaydının derecesi. Kayıt bir yükseköğretim kurumuna bağlıdır (`universityId`
+// zorunlu), bu yüzden lise derecesi yoktur; önlisans (`ASSOCIATE`) üniversite altındaki
+// programlardır (ADR-0036).
 type EducationDegree string
 
 // EducationInput Bir eğitim kaydının alanları. Üniversite, fakülte ve bölüm referans verisinden
@@ -1083,7 +1082,9 @@ type EducationDegree string
 // `startYear`'dan küçük olamaz. Bölüm bir fakülte altında seçilir: `departmentId`
 // `facultyId` ister.
 type EducationInput struct {
-	// Degree Eğitim kaydının derecesi.
+	// Degree Eğitim kaydının derecesi. Kayıt bir yükseköğretim kurumuna bağlıdır (`universityId`
+	// zorunlu), bu yüzden lise derecesi yoktur; önlisans (`ASSOCIATE`) üniversite altındaki
+	// programlardır (ADR-0036).
 	Degree EducationDegree `json:"degree"`
 
 	// DepartmentID Bölümün referans kimliği.
@@ -2367,7 +2368,8 @@ type UserProfilePatch struct {
 
 	// CurrentPassword Çağıranın mevcut parolası; yalnız `email` ya da `phoneNumber` ile birlikte ve
 	// onlarla zorunlu. Profil alanı değildir, yazılmaz. Hassas iletişim bilgisi
-	// değişikliği yeniden kimlik doğrulaması ister (ADR-0033).
+	// değişikliği yeniden kimlik doğrulaması ister (ADR-0033). E-posta ya da telefon
+	// olmadan gönderilirse yok sayılır: denetlenmez ve hiçbir şey yazılmaz.
 	//
 	//
 	// Examples: eski parola cümlesi

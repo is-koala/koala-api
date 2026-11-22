@@ -3701,8 +3701,9 @@ paths:
       description: |
         Üniversite, fakülte ve bölüm referans verisinden gelir; bilinmeyen referans,
         üniversitesinin olmayan fakülte ve fakültesinin olmayan bölüm
-        `REFERENCE_ITEM_NOT_FOUND` döner. Bitiş yılı başlangıç yılından küçük olamaz ve
-        süren eğitimde bitiş yılı boştur. Bir kullanıcının en çok 20 eğitim kaydı olur;
+        `REFERENCE_ITEM_NOT_FOUND` döner; emekliye ayrılmış referans da öyle. Bitiş yılı
+        başlangıç yılından küçük olamaz ve süren eğitimde bitiş yılı boştur. Bir
+        kullanıcının en çok 20 eğitim kaydı olur;
         fazlası `EDUCATION_LIMIT_REACHED` (409) alır (ADR-0036).
       x-authz-exempt: |
         Eğitim kaydı çağıranın kendi kaydıdır; henüz var olmayan nesne yetkilendirilemez.
@@ -3767,7 +3768,8 @@ paths:
       description: |
         Kaydın alanları birbirine bağlı olduğu için kısmi güncelleme yoktur: istemci
         kaydın tamamını gönderir (stil rehberi §3). Başkasına ait kayıt var olmayandan
-        ayırt edilemez.
+        ayırt edilemez. Kaydın zaten taşıdığı referans emekliye ayrılmış olsa da kalabilir;
+        yeni seçilen emekli referans `REFERENCE_ITEM_NOT_FOUND` alır (ADR-0036).
       x-authz-exempt: |
         Değiştirme çağıranın kendi eğitim kayıtlarıyla sınırlıdır; başkasınınki yok sayılır.
       x-body-limit: 4096
@@ -4771,7 +4773,8 @@ components:
           description: |
             Çağıranın mevcut parolası; yalnız `email` ya da `phoneNumber` ile birlikte ve
             onlarla zorunlu. Profil alanı değildir, yazılmaz. Hassas iletişim bilgisi
-            değişikliği yeniden kimlik doğrulaması ister (ADR-0033).
+            değişikliği yeniden kimlik doğrulaması ister (ADR-0033). E-posta ya da telefon
+            olmadan gönderilirse yok sayılır: denetlenmez ve hiçbir şey yazılmaz.
           examples: [eski parola cümlesi]
         firstName:
           type: string
@@ -6134,8 +6137,11 @@ components:
 
     EducationDegree:
       type: string
-      description: Eğitim kaydının derecesi.
-      enum: [HIGH_SCHOOL, ASSOCIATE, BACHELOR, MASTER, DOCTORATE]
+      description: |
+        Eğitim kaydının derecesi. Kayıt bir yükseköğretim kurumuna bağlıdır (`universityId`
+        zorunlu), bu yüzden lise derecesi yoktur; önlisans (`ASSOCIATE`) üniversite altındaki
+        programlardır (ADR-0036).
+      enum: [ASSOCIATE, BACHELOR, MASTER, DOCTORATE]
 
     EducationInput:
       type: object

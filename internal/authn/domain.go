@@ -171,6 +171,13 @@ const (
 	// VerificationRetention is how long a verification is kept before the
 	// purge hard-deletes it (M2): the longest budget window and a margin.
 	VerificationRetention = 48 * time.Hour
+	// ReauthenticationTTL is how long a proved current password
+	// (Reauthentication) may open verifications. A request lives at most
+	// httpx.RequestTimeout (25 seconds); a proof older than a minute did
+	// not come from the request that uses it, and is refused like a wrong
+	// password: the remedy is the same, the caller enters it again
+	// (ADR-0036).
+	ReauthenticationTTL = time.Minute
 )
 
 // Verification channels (user_verifications CHECK) and the statuses a

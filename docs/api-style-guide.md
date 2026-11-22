@@ -235,6 +235,7 @@ Bir alanın sözleşmesi bir kerede dondurulur ki istemci işi (plan §4.2) uygu
   - `softdeletetest.ReadTest` ve `softdeletetest.JoinTest` işaretli GET'i kataloğa bakmadan atlar, böylece `x-resource` henüz var olmayan bir tabloyu dürüstçe adlandırabilir **[test]**.
   - `test/scenarios.TestFrozenDomainsDeferTheirScenarios` alanın P0 senaryolarının `deferred` olmasını ister; işaretli operasyon kalmayınca bağlanmış olmalarını ister **[test]**.
 - `501` `404 ROUTE_NOT_FOUND` ile karıştırılmaz: yol **vardır** ve sözleşmesi bağlayıcıdır, yalnız uygulaması yoktur.
+- **Alan düzeyinde 501** (ADR-0036 Karar 5): uygulanmış bir operasyonun bir üyesi henüz gelmemiş bir modülün tablosuna bağlanıyorsa (profil yamasının `profilePictureId`, `cvId`, `addressId`'si), o üyeye bir değer göndermek `501 NOT_IMPLEMENTED` alır, `null` hiçbir şey değiştirmez; okuma yanıtında üye `null` ya da boş listedir. `404 …_NOT_FOUND` **dönülmez**: hedef tablo geldiği gün gerçek bir kaynağa "yok" diyen sessiz bir yalana dönüşür. O üyenin kodları (`MEDIA_NOT_FOUND`…) bağ gelene kadar `x-error-codes`'ta durmaz (bağ denetimi dönmeyen kodu kırmızı sayar), yanıt durumları sözleşmede kalır. Bir tetik testi (`users.TestProfileLinksWaitForTheirTables`) hedef tablo katalogda belirdiği gün kırmızıdır, böylece tabloyu getiren PR bağı aynı değişiklikte kurar **[test]**.
 
 ## 12. Kullanımdan kaldırma (öneri)
 
