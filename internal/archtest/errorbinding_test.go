@@ -2074,14 +2074,14 @@ func TestErrorTraceOnADemoModule(t *testing.T) {
 	}
 	slices.Sort(whys)
 	wantWhys := []string{
-		"a call of a local function value",                        // f()
-		"a function-typed field, passed on",                       // run(h.hook)
-		"a local function value passed on",                        // run(f)
-		"a package-level function value passed on",                // run(hookVar)
-		"a receiver of unknown type",                              // s[0].Do(), an indexed access of unknown element type
-		"a receiver whose type is not a named type of the module", // v.Do(), a parameter of a type parameter's type
-		"an indexed callee",                                       // h.fns["k"]()
-		"an indexed function value passed on",                     // run(h.fns["k"])
+		"a call of a local function value",                        // at f()
+		"a function-typed field, passed on",                       // at run(h.hook)
+		"a local function value passed on",                        // at run(f)
+		"a package-level function value passed on",                // at run(hookVar)
+		"a receiver of unknown type",                              // at s[0].Do(), an indexed access of unknown element type
+		"a receiver whose type is not a named type of the module", // at v.Do(), a parameter of a type parameter's type
+		"an indexed callee",                                       // at h.fns["k"]()
+		"an indexed function value passed on",                     // at run(h.fns["k"])
 	}
 	if !slices.Equal(whys, wantWhys) {
 		t.Errorf("GetBlind: unresolved %q, want %q", whys, wantWhys)
