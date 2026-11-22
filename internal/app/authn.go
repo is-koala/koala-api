@@ -47,6 +47,8 @@ type modules struct {
 	// serves /v1/me/media.
 	media     *media.Service
 	mediaHTTP *media.HTTP
+	// The profile and education operations (ADR-0036).
+	usersHTTP *usersHandlers
 }
 
 // wireModules builds the modules on database, their metrics on reg.
@@ -105,6 +107,10 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
+	usersHTTP, err := wireUsers(database, verifications, mediaService, clk)
+	if err != nil {
+		return modules{}, err
+	}
 	return modules{
 		users: users, staff: staff, accounts: accounts, verifications: verifications,
 		authHTTP: authn.NewHTTP(users, staff, accounts, verifications),
@@ -117,6 +123,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 		idempotencyPurge: &idempotencyPurgeWorker{store: idem, logger: logger},
 		media:            mediaService,
 		mediaHTTP:        mediaHTTP,
+		usersHTTP:        usersHTTP,
 	}, nil
 }
 

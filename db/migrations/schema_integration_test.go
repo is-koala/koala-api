@@ -273,6 +273,15 @@ func TestRoleGrants(t *testing.T) {
 			// The daily upload budget's ledger (0045, ADR-0035): appended,
 			// counted and purged, never updated.
 			"media_upload_starts": {"SELECT", "INSERT", "DELETE"},
+			// Academic reference data (0046, ADR-0036): M4, read-only;
+			// its rows come by migration.
+			"universities": {"SELECT"},
+			"faculties":    {"SELECT"},
+			"departments":  {"SELECT"},
+			// The profile sync outbox (0046, ADR-0036): written by the
+			// profile changes, marked published by the dispatcher; never
+			// deleted by the application yet.
+			"user_profile_sync_intents": {"SELECT", "INSERT", "UPDATE"},
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below

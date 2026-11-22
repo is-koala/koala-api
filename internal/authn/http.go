@@ -485,8 +485,10 @@ type TargetLimiter interface {
 //     owner from verifying it for as long as the drain goes on; the
 //     target's resend budget in the database bounds the codes it gets. A
 //     confirmation takes one from the bucket of its verification, in the
-//     pair group (ADR-0033 Karar 4). A refusal of the verification's own
-//     resend budget carries Retry-After.
+//     pair group (ADR-0033 Karar 4). A profile patch that sends an address
+//     or a number takes a start's tokens for each, from the same buckets
+//     (verificationStartKeys, ADR-0036). A refusal of the verification's
+//     own resend budget carries Retry-After, the patch's too.
 //   - Token responses are not cached (RFC 6749 §5.1).
 //
 // The address bucket of the root chain applies on top.
@@ -583,6 +585,36 @@ type limitKey struct {
 	known func(context.Context) (bool, error)
 }
 
+// startTarget is one verification a request starts: its channel and the
+// target as sent.
+type startTarget struct {
+	channel, raw string
+}
+
+// verificationStartKeys are the rate limit keys of the verification starts
+// of one request, the one place both surfaces that start one take them
+// from (startMyVerification and a profile patch, ADR-0036). The caller's
+// own bucket first: a caller over it spends nothing of the address's
+// budget, which a carrier NAT shares among many users; then the address's
+// hourly budget; then the (keyed target, address) bucket (ADR-0033 Karar
+// 4). Each start takes one token of each.
+func (h *HTTP) verificationStartKeys(ctx context.Context, addr string, starts []startTarget) []limitKey {
+	var keys []limitKey
+	if p, ok := UserFrom(ctx); ok {
+		for range starts {
+			keys = append(keys, limitKey{key: "verification:user:" + p.UserID.String()})
+		}
+	}
+	for range starts {
+		keys = append(keys, limitKey{key: "verification:address:" + addr, bucket: verificationAddressBucket})
+	}
+	for _, s := range starts {
+		target := hex.EncodeToString(h.verifications.TargetKey(s.channel, s.raw))
+		keys = append(keys, limitKey{key: "verification:" + target + "@" + addr})
+	}
+	return keys
+}
+
 // rateLimitKeys returns the rate limit keys of an authentication request
 // (none for other operations) and whether its response carries tokens.
 func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool) {
@@ -628,16 +660,22 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 			return []limitKey{{key: "password:user:" + p.UserID.String()}}, false
 		}
 	case apiv1.StartMyVerificationRequestObject:
-		// The caller's own bucket first: a caller over it spends nothing
-		// of the address's budget, which a carrier NAT shares among many
-		// users (ADR-0033 Karar 4).
-		var keys []limitKey
-		if p, ok := UserFrom(ctx); ok {
-			keys = append(keys, limitKey{key: "verification:user:" + p.UserID.String()})
+		return h.verificationStartKeys(ctx, addr, []startTarget{{channel: string(req.Body.Channel), raw: req.Body.Target}}), false
+	case apiv1.UpdateMyProfileRequestObject:
+		// A patch that sends an address or a number starts a verification
+		// of each: the start's buckets, one start's tokens per target, so
+		// the patch is no second door past them (ADR-0036).
+		if req.Body == nil {
+			return nil, false
 		}
-		keys = append(keys, limitKey{key: "verification:address:" + addr, bucket: verificationAddressBucket})
-		target := hex.EncodeToString(h.verifications.TargetKey(string(req.Body.Channel), req.Body.Target))
-		return append(keys, limitKey{key: "verification:" + target + "@" + addr}), false
+		var starts []startTarget
+		if req.Body.Email != nil {
+			starts = append(starts, startTarget{channel: ChannelEmail, raw: *req.Body.Email})
+		}
+		if req.Body.PhoneNumber != nil {
+			starts = append(starts, startTarget{channel: ChannelPhone, raw: *req.Body.PhoneNumber})
+		}
+		return h.verificationStartKeys(ctx, addr, starts), false
 	case apiv1.ConfirmMyVerificationRequestObject:
 		return []limitKey{{key: "verification-confirm:" + req.VerificationID.String()}}, false
 	}

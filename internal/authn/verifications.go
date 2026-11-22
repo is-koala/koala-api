@@ -23,8 +23,10 @@ import (
 	"github.com/is-koala/koala-api/internal/authn/authndb"
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/db"
+	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/mailer"
 	"github.com/is-koala/koala-api/internal/platform/sms"
+	"github.com/is-koala/koala-api/internal/profilesync"
 )
 
 // The verification mails.
@@ -128,32 +130,42 @@ func RetryAfter(err error) (time.Duration, bool) {
 // stored form and the budget key: an address normalized like users.email
 // and its mailbox (sub-address and Gmail dots dropped, ADR-0032 Karar 6);
 // a number in E.164, which is also its own key, and only one that may get
-// a text message (TextableNumber).
+// a text message (TextableNumber). A refusal names the start's member.
 func verificationTarget(channel, raw string) (target, budget string, err error) {
+	return targetAt(channel, raw, "/target")
+}
+
+// targetAt is verificationTarget for a target sent in the body member at
+// pointer: the start's /target, a profile patch's /email or /phoneNumber.
+func targetAt(channel, raw, pointer string) (target, budget string, err error) {
 	switch channel {
 	case ChannelEmail:
-		email, err := checkTarget(raw)
+		email, err := checkEmail(raw)
 		if err != nil {
-			return "", "", err
+			return "", "", invalidField(pointer)
 		}
 		return email, mailboxKey(email), nil
 	case ChannelPhone:
 		n, ok := NormalizePhone(raw)
 		if !ok || !TextableNumber(n) {
-			return "", "", invalidField("/target")
+			return "", "", invalidField(pointer)
 		}
 		return n, n, nil
 	}
 	return "", "", invalidField("/channel")
 }
 
-// checkTarget is checkEmail for the verification's member.
-func checkTarget(raw string) (string, error) {
-	email, err := checkEmail(raw)
+// CheckTarget applies a verification's target rule to a new address or
+// number sent in the body member at pointer and returns its stored form:
+// what a verification of it would write, and what a profile patch compares
+// with the value on file (ADR-0036). A refusal is REQUEST_INVALID at
+// pointer. The rule stays here, in one place, for both surfaces.
+func CheckTarget(channel, raw, pointer string) (string, error) {
+	target, _, err := targetAt(channel, raw, pointer)
 	if err != nil {
-		return "", invalidField("/target")
+		return "", err
 	}
-	return email, nil
+	return target, nil
 }
 
 // TargetKey is the keyed hash that stands for a target in the rate limit
@@ -202,76 +214,137 @@ func claimLock(key []byte) int32 {
 // The answer does not say whether the target is another account's: that
 // is told only on confirmation, to the caller who entered the code sent
 // to it (ADR-0033).
+//
+// Start is Reauthenticate and StartTx in a transaction of its own; a
+// profile patch runs the same two in its transaction (ADR-0036), so the
+// rules of a start live in StartTx alone.
 func (v *Verifications) Start(ctx context.Context, p UserPrincipal, channel, raw, currentPassword string) (Verification, error) {
-	target, budget, err := verificationTarget(channel, raw)
+	if _, _, err := verificationTarget(channel, raw); err != nil {
+		return Verification{}, err
+	}
+	r, err := v.Reauthenticate(ctx, p, currentPassword)
 	if err != nil {
 		return Verification{}, err
 	}
+	var out Verification
+	err = v.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
+		started, err := v.StartTx(ctx, tx, p, r, channel, raw, "/target")
+		out = started
+		return err
+	})
+	if err != nil {
+		return Verification{}, fmt.Errorf("authn: start verification: %w", err)
+	}
+	return out, nil
+}
+
+// Reauthentication is the caller's current password, proved outside any
+// transaction by Reauthenticate (argon2's cost holds no lock). StartTx
+// takes it and checks under the user's row lock that the password did
+// not change in between, and that the proof is fresh
+// (ReauthenticationTTL). Only Reauthenticate makes one.
+type Reauthentication struct {
+	user   uuid.UUID
+	hash   *string
+	signIn []byte
+	at     time.Time
+}
+
+// Reauthenticate checks the caller's current password for a change of
+// the account's address or number (ADR-0033 Karar 1b): the in-app
+// password change's check (confirmPassword), so a wrong password counts on
+// the account's sign-in target and its lock, and a locked target is
+// refused unexamined. Every surface that starts a verification calls it:
+// startMyVerification and a profile patch that sends an address or a
+// number (ADR-0036).
+func (v *Verifications) Reauthenticate(ctx context.Context, p UserPrincipal, currentPassword string) (Reauthentication, error) {
 	cur, signIn, err := v.users.confirmPassword(ctx, p.UserID, currentPassword)
+	if err != nil {
+		return Reauthentication{}, err
+	}
+	return Reauthentication{user: p.UserID, hash: cur.PasswordHash, signIn: signIn, at: v.users.clock.Now()}, nil
+}
+
+// errForeignReauthentication means StartTx got another user's
+// reauthentication: a wiring bug, answered 500.
+var errForeignReauthentication = errors.New("authn: a verification start with another user's reauthentication")
+
+// StartTx opens a verification in tx, the caller's transaction, under
+// every rule of a start: the target rule (a refusal names the body member
+// at pointer), the password r proved within ReauthenticationTTL and
+// unchanged under the user's row lock,
+// the target's start lock, the resend budget (cooldown, the target's
+// hourly budget, the caller's daily cap), the one open verification per
+// target, and the code job queued in tx. A refusal is returned as an
+// error and the caller's transaction rolls back with it.
+//
+// Lock order (ADR-0033 Karar 5): the user's row, then the target's start
+// lock. A caller that locked the user's row already (a profile patch) holds
+// it in the same transaction, so the order stays.
+func (v *Verifications) StartTx(ctx context.Context, tx db.Querier, p UserPrincipal, r Reauthentication,
+	channel, raw, pointer string,
+) (Verification, error) {
+	if r.user != p.UserID {
+		return Verification{}, errForeignReauthentication
+	}
+	target, budget, err := targetAt(channel, raw, pointer)
 	if err != nil {
 		return Verification{}, err
 	}
 	key := v.users.targets.of(budget)
 	now := v.users.clock.Now()
+	if now.Sub(r.at) > ReauthenticationTTL {
+		// A proof that outlived its request: the password is asked again.
+		return Verification{}, apperr.New(apperr.KindForbidden, CodeCurrentMismatch)
+	}
 	id := newID()
-	var outcome error
-	err = v.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
-		q := authndb.New(tx)
-		// The verification is a child of the user: the user's row lock
-		// keeps it active until this commits (CLAUDE.md, ADR-0020), and
-		// serializes the user's starts for the daily cap.
-		u, err := q.LockUserForSignIn(ctx, p.UserID)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && u.Status != UserActive) {
-			outcome = apperr.New(apperr.KindUnauthenticated, CodeSessionInactive)
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("authn: lock user: %w", err)
-		}
-		if u.PasswordHash == nil || cur.PasswordHash == nil || *u.PasswordHash != *cur.PasswordHash {
-			// Changed since it was verified above, like an in-app
-			// change checks: the password given is not the account's
-			// any more.
-			outcome = apperr.New(apperr.KindForbidden, CodeCurrentMismatch)
-			return nil
-		}
-		// Every start of the target, from any user, counts and then
-		// writes under this lock.
-		if err := q.LockVerificationTarget(ctx, targetLock(key)); err != nil {
-			return fmt.Errorf("authn: lock the target: %w", err)
-		}
-		wait, err := v.budgetWait(ctx, q, p.UserID, channel, key, now)
-		if err != nil {
-			return err
-		}
-		if wait > 0 {
-			v.users.metrics.verificationCode(channel, codeThrottled)
-			outcome = &resendError{err: apperr.New(apperr.KindRateLimited, CodeVerificationResendTooSoon), wait: wait}
-			return nil
-		}
-		err = q.CancelOpenVerifications(ctx, authndb.CancelOpenVerificationsParams{
-			Now: now, UserID: p.UserID, Channel: channel, Target: target,
-		})
-		if err != nil {
-			return fmt.Errorf("authn: cancel the open verification: %w", err)
-		}
-		err = q.InsertVerification(ctx, authndb.InsertVerificationParams{
-			ID: id, UserID: p.UserID, Channel: channel, Target: target, TargetKey: key,
-			CreatedAt: now, ExpiresAt: now.Add(VerificationTTL),
-		})
-		if err != nil {
-			return fmt.Errorf("authn: insert the verification: %w", err)
-		}
-		if err := insertAttempt(ctx, q, principalUser, signIn, outcomeSucceeded, now); err != nil {
-			return err
-		}
-		return v.enqueueTx(ctx, tx, verificationCodeArgs{Ref: id, Channel: channel})
+	q := authndb.New(tx)
+	// The verification is a child of the user: the user's row lock keeps
+	// it active until this commits (CLAUDE.md, ADR-0020), and serializes
+	// the user's starts for the daily cap.
+	u, err := q.LockUserForSignIn(ctx, p.UserID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && u.Status != UserActive) {
+		return Verification{}, apperr.New(apperr.KindUnauthenticated, CodeSessionInactive)
+	}
+	if err != nil {
+		return Verification{}, fmt.Errorf("authn: lock user: %w", err)
+	}
+	if u.PasswordHash == nil || r.hash == nil || *u.PasswordHash != *r.hash {
+		// Changed since it was verified, like an in-app change checks:
+		// the password given is not the account's any more.
+		return Verification{}, apperr.New(apperr.KindForbidden, CodeCurrentMismatch)
+	}
+	// Every start of the target, from any user, counts and then writes
+	// under this lock.
+	if err := q.LockVerificationTarget(ctx, targetLock(key)); err != nil {
+		return Verification{}, fmt.Errorf("authn: lock the target: %w", err)
+	}
+	wait, err := v.budgetWait(ctx, q, p.UserID, channel, key, now)
+	if err != nil {
+		return Verification{}, err
+	}
+	if wait > 0 {
+		v.users.metrics.verificationCode(channel, codeThrottled)
+		return Verification{}, &resendError{err: apperr.New(apperr.KindRateLimited, CodeVerificationResendTooSoon), wait: wait}
+	}
+	err = q.CancelOpenVerifications(ctx, authndb.CancelOpenVerificationsParams{
+		Now: now, UserID: p.UserID, Channel: channel, Target: target,
 	})
 	if err != nil {
-		return Verification{}, fmt.Errorf("authn: start verification: %w", err)
+		return Verification{}, fmt.Errorf("authn: cancel the open verification: %w", err)
 	}
-	if outcome != nil {
-		return Verification{}, outcome
+	err = q.InsertVerification(ctx, authndb.InsertVerificationParams{
+		ID: id, UserID: p.UserID, Channel: channel, Target: target, TargetKey: key,
+		CreatedAt: now, ExpiresAt: now.Add(VerificationTTL),
+	})
+	if err != nil {
+		return Verification{}, fmt.Errorf("authn: insert the verification: %w", err)
+	}
+	if err := insertAttempt(ctx, q, principalUser, r.signIn, outcomeSucceeded, now); err != nil {
+		return Verification{}, err
+	}
+	if err := v.enqueueTx(ctx, tx, verificationCodeArgs{Ref: id, Channel: channel}); err != nil {
+		return Verification{}, err
 	}
 	return Verification{
 		ID: id, Channel: channel, Status: StatusPending, MaskedTarget: maskTarget(channel, target),
@@ -404,7 +477,8 @@ func (v *Verifications) Confirm(ctx context.Context, p UserPrincipal, id uuid.UU
 			return fmt.Errorf("authn: confirm the verification: %w", err)
 		}
 		delete(locked, p.UserID)
-		if err := v.apply(ctx, tx, q, u, locked, row.Channel, row.Target, now); err != nil {
+		origin := profilesync.Origin{RequestID: httpx.RequestIDFrom(ctx), SessionID: p.SessionID, DeviceKey: p.DeviceKey}
+		if err := v.apply(ctx, tx, q, u, locked, row.Channel, row.Target, origin, now); err != nil {
 			return err
 		}
 		confirmed := now
@@ -451,8 +525,13 @@ func lockUsers(ctx context.Context, q *authndb.Queries, ids []uuid.UUID) (map[uu
 // notices. others are the other locked users: the number's holder, if
 // any. An address another active account holds is a conflict, and the
 // error rolls the confirmation back with the rest; a number moves.
+//
+// Every account whose address or number changes gets its profile sync
+// intent in the same transaction (USR-022, ADR-0036): the caller's, and
+// the holder's whose number moved. A value confirmed again unchanged
+// writes none.
 func (v *Verifications) apply(ctx context.Context, tx db.Querier, q *authndb.Queries, u authndb.LockUserForSignInRow,
-	others map[uuid.UUID]authndb.LockUserForSignInRow, channel, target string, now time.Time,
+	others map[uuid.UUID]authndb.LockUserForSignInRow, channel, target string, origin profilesync.Origin, now time.Time,
 ) error {
 	inUse := apperr.New(apperr.KindConflict, CodeVerificationTargetInUse)
 	notice := contactChangedArgs{User: u.ID, Channel: channel}
@@ -473,6 +552,9 @@ func (v *Verifications) apply(ctx context.Context, tx db.Querier, q *authndb.Que
 		if err := q.RevokeOpenPasswordResets(ctx, authndb.RevokeOpenPasswordResetsParams{Now: now, UserID: u.ID}); err != nil {
 			return fmt.Errorf("authn: revoke the open reset: %w", err)
 		}
+		if err := profilesync.Record(ctx, tx, u.ID, origin, now); err != nil {
+			return fmt.Errorf("authn: record the profile change: %w", err)
+		}
 		notice.Previous = u.Email
 	case ChannelPhone:
 		for _, holder := range others {
@@ -481,6 +563,12 @@ func (v *Verifications) apply(ctx context.Context, tx db.Querier, q *authndb.Que
 			}
 			if err := q.ClearUserPhone(ctx, holder.ID); err != nil {
 				return fmt.Errorf("authn: take the number from its holder: %w", err)
+			}
+			// The holder did not make this change: its intent carries no
+			// session or device of the caller, only the request that
+			// moved the number (ADR-0036).
+			if err := profilesync.Record(ctx, tx, holder.ID, profilesync.Origin{RequestID: origin.RequestID}, now); err != nil {
+				return fmt.Errorf("authn: record the holder's profile change: %w", err)
 			}
 			if err := v.enqueueTx(ctx, tx, contactChangedArgs{User: holder.ID, Channel: ChannelPhone, Released: true}); err != nil {
 				return err
@@ -496,6 +584,9 @@ func (v *Verifications) apply(ctx context.Context, tx db.Querier, q *authndb.Que
 		}
 		if u.Phone != nil && *u.Phone == target {
 			return nil // the number on file, now verified: nothing changed
+		}
+		if err := profilesync.Record(ctx, tx, u.ID, origin, now); err != nil {
+			return fmt.Errorf("authn: record the profile change: %w", err)
 		}
 	default:
 		return fmt.Errorf("authn: unknown verification channel %q", channel)

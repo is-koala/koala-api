@@ -136,6 +136,27 @@ func idempotentFixtures() map[string]func(t *testing.T, a *authApp) idempotentFi
 				},
 			}
 		},
+		"createMyEducation": func(t *testing.T, a *authApp) idempotentFixture {
+			t.Helper()
+			const email = "egitim-anahtar@example.com"
+			ref := a.seedReference(t)
+			return idempotentFixture{
+				path: "/v1/me/educations", bearer: a.addSignedIn(t, email),
+				body: educationBody(ref.university, &ref.faculty, &ref.department, 2014, nil),
+				// The education record the create wrote; a view has no
+				// xmin, so the base table is read as koala_maint.
+				businessXmin: func(t *testing.T) string {
+					t.Helper()
+					var xmin string
+					err := a.maint.Pool().QueryRow(t.Context(),
+						"SELECT e.xmin::text FROM educations e JOIN users u ON u.id = e.user_id WHERE u.email = $1", email).Scan(&xmin)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return xmin
+				},
+			}
+		},
 		// The start writes the media row and the budget ledger's row in
 		// one transaction with the stored answer (ADR-0035).
 		"startMediaUpload": func(t *testing.T, a *authApp) idempotentFixture {

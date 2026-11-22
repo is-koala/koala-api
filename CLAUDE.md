@@ -100,7 +100,7 @@ Bu dosya kısa tutulur. Bir kural lint ya da testle zorlanabiliyorsa oraya yazı
 - Tx servis metodu sınırında `db.InTx(ctx, func(ctx context.Context, q db.Querier) error)` ile açılır. Store `Querier` alır, kendi tx'ini açmaz. İç içe `InTx` `ErrNestedTx` döner **[test]**.
 - Commit hatası belirsizdir: tx işlenmiş olabilir. Tekrarı güvenli olmayan yazım idempotent yapılır (ADR-0017).
 - **Dış çağrı (Iyzico, FCM, SMTP, S3) sırasında tx açık kalmaz.** Akış şöyledir: rezerve et ve commit et → dış çağrıyı yap → sonucu kısa bir tx'te yaz.
-- Garantili yan etki iş verisiyle aynı tx'te River `InsertTx` ile kuyruğa girer. Best-effort işler commit sonrası hook'ta çalışır.
+- Garantili yan etki iş verisiyle aynı tx'te River `InsertTx` ile kuyruğa girer. Best-effort işler commit sonrası hook'ta çalışır. İstisna: tüketicisi henüz olmayan profil senkronu giden kaydı aynı tx'te bir tabloya yazılır (`profilesync.Record`, `user_profile_sync_intents`; plan K3-c, ADR-0036).
 - Kilit açık yazılır (`SELECT … FOR UPDATE`). Para yolunda kilit sırası "önce atama, sonra detay"dır.
 - Her isteğin context'inde `httpx.RequestTimeout` süre sınırı var. Uzun işler isteğe değil, River işine taşınır.
 

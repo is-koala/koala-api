@@ -41,6 +41,7 @@ func boundAhead() map[string][]string {
 		"USR-011": {"confirmMyVerification", "getMyVerification", "cancelMyVerification"},
 		"USR-012": {"confirmMyVerification"},
 		"USR-013": {"confirmMyVerification"},
+		"USR-014": {"updateMyProfile", "confirmMyVerification"},
 		"USR-015": {"completePasswordReset"},
 		"USR-016": {"completePasswordReset"},
 		"USR-017": {"requestPasswordReset", "changeMyPassword"},
@@ -57,6 +58,7 @@ func boundAhead() map[string][]string {
 		"MED-005": {"completeMediaUpload"},
 		"MED-006": {"completeMediaUpload", "deleteMedia"},
 		"MED-014": {"startMediaUpload", "completeMediaUpload", "getMedia"},
+		"USR-022": {"updateMyProfile", "confirmMyVerification"},
 	}
 }
 

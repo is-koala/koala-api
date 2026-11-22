@@ -453,6 +453,27 @@ func Bind(ctx context.Context, q db.Querier, now time.Time, owner, id uuid.UUID)
 	return apperr.New(apperr.KindConflict, CodeNotReady)
 }
 
+// KindOf locks one of owner's media in q's transaction and returns its
+// kind, for a consumer that takes one kind only (a profile picture, a CV)
+// and checks it before it binds the media (ADR-0036 Karar 10). Another
+// user's media, or one that is not there, is MEDIA_NOT_FOUND.
+func (s *Service) KindOf(ctx context.Context, q db.Querier, owner, id uuid.UUID) (Kind, error) {
+	r, err := queries(q).LockOwnMedia(ctx, mediadb.LockOwnMediaParams{ID: id, OwnerID: owner})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", apperr.New(apperr.KindNotFound, CodeNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("media: lock the media: %w", err)
+	}
+	return Kind(r.Kind), nil
+}
+
+// Bind is the package's Bind as a method of the service, for a consumer
+// that reaches the media module through an interface.
+func (s *Service) Bind(ctx context.Context, q db.Querier, now time.Time, owner, id uuid.UUID) error {
+	return Bind(ctx, q, now, owner, id)
+}
+
 // Release lets go of one of owner's media a consuming resource no longer
 // uses, in q's transaction -- the transaction that points the consumer at
 // its new media (ADR-0035 Karar 8). A profile picture that is replaced, an
