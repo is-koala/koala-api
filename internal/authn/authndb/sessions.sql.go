@@ -35,23 +35,33 @@ FROM user_sessions s
 LEFT JOIN active_devices d ON d.id = s.device_id
 WHERE s.user_id = $1 AND d.device_key = $2::text
   AND s.last_seen_at >= $3::timestamptz
+  AND s.created_at > $4::timestamptz
   AND (s.revoke_reason IS NULL OR s.revoke_reason NOT IN ('DEVICE_MISMATCH', 'REFRESH_REUSED', 'USER_REVOKED', 'PASSWORD_RESET', 'PASSWORD_CHANGED'))
 `
 
 type CountRecentDeviceSessionsParams struct {
-	UserID    uuid.UUID
-	DeviceKey string
-	Since     time.Time
+	UserID           uuid.UUID
+	DeviceKey        string
+	Since            time.Time
+	CredentialsSince time.Time
 }
 
 // CountRecentDeviceSessions counts the user's sessions on a device seen
 // since a bound: the device is a known-good source (ADR-0025 §5). Sessions
 // ended for a stolen token or another device, or revoked by the user, do
-// not vouch for it, and neither do sessions a password reset or change
-// ended: the account may have been taken over from that device (ADR-0032).
+// not vouch for it, and neither does a session opened before the
+// account's credential epoch, the last password reset or change: the
+// account may have been taken over from that device, and the reason a
+// session ended (REPLACED by a second sign-in, say) does not tell
+// (ADR-0032 Karar 7). The two password reasons are excluded as well.
 // softdelete:inner-by-design devices: only a session on this very device vouches for it, and a soft-deleted device vouches for nothing
 func (q *Queries) CountRecentDeviceSessions(ctx context.Context, arg CountRecentDeviceSessionsParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countRecentDeviceSessions, arg.UserID, arg.DeviceKey, arg.Since)
+	row := q.db.QueryRow(ctx, countRecentDeviceSessions,
+		arg.UserID,
+		arg.DeviceKey,
+		arg.Since,
+		arg.CredentialsSince,
+	)
 	var count int64
 	err := row.Scan(&count)
 	return count, err

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/mail"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/mailer"
+	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
 // mailTemplates are the account mails (ADR-0032).
@@ -37,6 +39,7 @@ const (
 	mailRegistrationLink = "registration_link"
 	mailResetLink        = "reset_link"
 	mailChanged          = "password_changed"
+	mailWelcome          = "welcome"
 
 	registrationLinkPath = "hesap-dogrula"
 	resetLinkPath        = "sifre-sifirla"
@@ -71,11 +74,15 @@ type Accounts struct {
 	sender mailSender
 	mails  *mailer.Templates
 	web    *url.URL
+	// registrationsPerHour is the global hourly cap of registration mails.
+	registrationsPerHour int64
 }
 
 // NewAccounts returns the account flows on users' database and clock.
-// webBaseURL is the web origin the mailed links open.
-func NewAccounts(users *Service, queue jobQueue, sender mailSender, webBaseURL string) (*Accounts, error) {
+// webBaseURL is the web origin the mailed links open; registrationsPerHour
+// is the global hourly cap of registration mails, 0 for
+// DefaultRegistrationMailsPerHour.
+func NewAccounts(users *Service, queue jobQueue, sender mailSender, webBaseURL string, registrationsPerHour int) (*Accounts, error) {
 	if users == nil || queue == nil || sender == nil {
 		return nil, errors.New("authn: accounts need the user service, a job queue and a mail sender")
 	}
@@ -83,6 +90,20 @@ func NewAccounts(users *Service, queue jobQueue, sender mailSender, webBaseURL s
 	if err != nil || (web.Scheme != "https" && web.Scheme != "http") || web.Host == "" {
 		return nil, errors.New("authn: the web base URL must be an absolute http or https URL")
 	}
+	mails, err := parseMailTemplates()
+	if err != nil {
+		return nil, err
+	}
+	limit := int64(DefaultRegistrationMailsPerHour)
+	if registrationsPerHour > 0 {
+		limit = int64(registrationsPerHour)
+	}
+	return &Accounts{users: users, queue: queue, sender: sender, mails: mails, web: web, registrationsPerHour: limit}, nil
+}
+
+// parseMailTemplates reads the account mails and checks that each has its
+// subject, text and HTML.
+func parseMailTemplates() (*mailer.Templates, error) {
 	sub, err := fs.Sub(mailTemplates, "mail")
 	if err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
@@ -91,10 +112,10 @@ func NewAccounts(users *Service, queue jobQueue, sender mailSender, webBaseURL s
 	if err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
 	}
-	if err := mails.Check(mailRegistrationLink, mailResetLink, mailChanged); err != nil {
+	if err := mails.Check(mailRegistrationLink, mailResetLink, mailChanged, mailWelcome); err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
 	}
-	return &Accounts{users: users, queue: queue, sender: sender, mails: mails, web: web}, nil
+	return mails, nil
 }
 
 // RegistrationRequest is the first step of a registration.
@@ -127,7 +148,9 @@ func (a *Accounts) StartRegistration(ctx context.Context, in RegistrationRequest
 // registered address gets nothing: no pending registration, no mail
 // (USR-001). Otherwise the address's open registration is revoked and a
 // new one written (USR-002), and its link mail queued in the same
-// transaction, unless the address's mail budget is spent (ADR-0032).
+// transaction, unless the mailbox's budget or the global hourly cap is
+// spent (ADR-0032 Karar 6); a held mail is counted, never reported to the
+// requester.
 func (a *Accounts) HandleRegistrationRequest(ctx context.Context, in RegistrationRequest) error {
 	now := a.users.clock.Now()
 	err := a.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
@@ -139,14 +162,21 @@ func (a *Accounts) HandleRegistrationRequest(ctx context.Context, in Registratio
 		if registered {
 			return nil
 		}
+		mailbox := mailboxKey(in.Email)
 		recent, err := q.CountRecentRegistrationMails(ctx, authndb.CountRecentRegistrationMailsParams{
-			WindowStart: now.Add(-time.Hour), CooldownStart: now.Add(-LinkMailCooldown), Email: in.Email,
+			MailboxKey: mailbox, WindowStart: now.Add(-time.Hour), CooldownStart: now.Add(-LinkMailCooldown),
 		})
 		if err != nil {
 			return fmt.Errorf("authn: count registration mails: %w", err)
 		}
-		if recent.InCooldown > 0 || recent.InWindow >= LinkMailsPerHour {
-			a.users.logger.InfoContext(ctx, "registration mail held back by the address's mail budget")
+		switch {
+		case recent.InCooldown > 0 || recent.InWindow >= LinkMailsPerHour:
+			a.users.metrics.mailHeld(heldMailbox)
+			a.users.logger.InfoContext(ctx, "registration mail held back by the mailbox's budget")
+			return nil
+		case recent.Everyone >= a.registrationsPerHour:
+			a.users.metrics.mailHeld(heldGlobal)
+			a.users.logger.WarnContext(ctx, "registration mail held back by the global hourly cap")
 			return nil
 		}
 		err = q.RevokeOpenPendingRegistrations(ctx, authndb.RevokeOpenPendingRegistrationsParams{Now: now, Email: in.Email})
@@ -155,7 +185,8 @@ func (a *Accounts) HandleRegistrationRequest(ctx context.Context, in Registratio
 		}
 		id := newID()
 		err = q.InsertPendingRegistration(ctx, authndb.InsertPendingRegistrationParams{
-			ID: id, Email: in.Email, FirstName: in.FirstName, LastName: in.LastName, Employer: in.Employer, CreatedAt: now,
+			ID: id, Email: &in.Email, MailboxKey: mailbox, FirstName: &in.FirstName, LastName: &in.LastName,
+			Employer: in.Employer, CreatedAt: now,
 		})
 		if err != nil {
 			return fmt.Errorf("authn: insert the pending registration: %w", err)
@@ -238,21 +269,29 @@ type ConsentDecision struct {
 }
 
 // RegistrationCompletion is the third step: the registration token, the
-// password, the consents and the device the session opens on.
+// password, the consents, the device the session opens on, and the client
+// address and User-Agent the consents are recorded with (ADR-0032 Karar 8).
 type RegistrationCompletion struct {
 	Token     string
 	Password  string
 	Consents  []ConsentDecision
 	DeviceKey string
 	Platform  string
+	ClientIP  netip.Addr
+	UserAgent string
 }
+
+// maxUserAgentBytes bounds the User-Agent a consent record keeps (Java's
+// VARCHAR(512)).
+const maxUserAgentBytes = 512
 
 // CompleteRegistration creates the user from the pending registration and
 // signs it in on the request's device (USR-006). The consents are checked
 // first, before the token is read: a missing mandatory consent neither
 // consumes the token nor says whether it is valid (USR-005). The token is
 // consumed by one conditional statement in the transaction that writes
-// the user, the consents and the session, so it works once (USR-004).
+// the user, the consents, the session and the welcome mail, so it works
+// once (USR-004).
 func (a *Accounts) CompleteRegistration(ctx context.Context, in RegistrationCompletion) (TokenPair, error) {
 	if err := checkDeviceKey(in.DeviceKey); err != nil {
 		return TokenPair{}, err
@@ -307,9 +346,11 @@ func (a *Accounts) CompleteRegistration(ctx context.Context, in RegistrationComp
 		if err != nil {
 			return fmt.Errorf("authn: insert user: %w", err)
 		}
+		ip, agent := consentClient(in.ClientIP, in.UserAgent)
 		for _, d := range in.Consents {
 			err := q.InsertConsentRecord(ctx, authndb.InsertConsentRecordParams{
 				ID: newID(), UserID: userID, DocumentCode: d.DocumentCode, Version: d.Version, Granted: d.Granted, RecordedAt: now,
+				IpAddress: ip, UserAgent: agent,
 			})
 			if err != nil {
 				return fmt.Errorf("authn: record consent: %w", err)
@@ -322,7 +363,10 @@ func (a *Accounts) CompleteRegistration(ctx context.Context, in RegistrationComp
 		if pair, err = a.users.openSession(ctx, q, userID, deviceID, now); err != nil {
 			return err
 		}
-		return insertAttempt(ctx, q, principalUser, a.users.targets.of(p.Email), outcomeSucceeded, now)
+		if err := insertAttempt(ctx, q, principalUser, a.users.targets.of(p.Email), outcomeSucceeded, now); err != nil {
+			return err
+		}
+		return a.enqueueTx(ctx, tx, authMailArgs{Mail: mailWelcome, Ref: userID})
 	})
 	if err != nil {
 		return TokenPair{}, fmt.Errorf("authn: complete registration: %w", err)
@@ -331,6 +375,31 @@ func (a *Accounts) CompleteRegistration(ctx context.Context, in RegistrationComp
 		return TokenPair{}, outcome
 	}
 	return pair, nil
+}
+
+// consentClient is the client address and User-Agent a consent record
+// keeps: the address as the edge resolved it, the User-Agent cut to
+// maxUserAgentBytes on a character boundary; nil when absent.
+func consentClient(addr netip.Addr, userAgent string) (ip, agent *string) {
+	if addr.IsValid() {
+		s := addr.Unmap().String()
+		ip = &s
+	}
+	userAgent = strings.ToValidUTF8(strings.TrimSpace(userAgent), "")
+	if len(userAgent) > maxUserAgentBytes {
+		end := 0
+		for i, r := range userAgent {
+			if i+utf8.RuneLen(r) > maxUserAgentBytes {
+				break
+			}
+			end = i + utf8.RuneLen(r)
+		}
+		userAgent = userAgent[:end]
+	}
+	if userAgent != "" {
+		agent = &userAgent
+	}
+	return ip, agent
 }
 
 // checkConsents holds the decisions against the current agreements: each
@@ -375,9 +444,12 @@ func (a *Accounts) RequestPasswordReset(ctx context.Context, email string) error
 }
 
 // HandlePasswordResetRequest is the job of a reset request. An address
-// without an account gets nothing. Otherwise the user's open reset is
-// revoked and a new one written (USR-017), with its mail queued in the same
-// transaction, unless the account's mail budget is spent (ADR-0032).
+// without an active account gets nothing: a suspended account no more than
+// an unknown one (ADR-0032 Karar 7), and the request did the same work for
+// all of them. Otherwise the user's open reset is revoked and a new one
+// written (USR-017), with its mail queued in the same transaction, unless
+// the account's mail budget is spent (ADR-0032 Karar 6). An account
+// without a password gets the mail too, as in Java: the reset sets one.
 func (a *Accounts) HandlePasswordResetRequest(ctx context.Context, email string) error {
 	cred, err := a.users.reads.GetUserCredentials(ctx, email)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -386,8 +458,20 @@ func (a *Accounts) HandlePasswordResetRequest(ctx context.Context, email string)
 	if err != nil {
 		return fmt.Errorf("authn: look up the address: %w", err)
 	}
+	if cred.Status != UserActive {
+		return nil
+	}
 	now := a.users.clock.Now()
 	err = a.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
+		// The reset row is a child of the user: the user must stay active
+		// until this commits (CLAUDE.md, ADR-0020).
+		err := softdelete.LockActiveParent(ctx, tx, "users", cred.ID)
+		if errors.Is(err, softdelete.ErrNotActive) {
+			return nil // deleted since the look-up
+		}
+		if err != nil {
+			return fmt.Errorf("authn: lock the user: %w", err)
+		}
 		q := authndb.New(tx)
 		recent, err := q.CountRecentPasswordResets(ctx, authndb.CountRecentPasswordResetsParams{
 			WindowStart: now.Add(-time.Hour), CooldownStart: now.Add(-LinkMailCooldown), UserID: cred.ID,
@@ -396,6 +480,7 @@ func (a *Accounts) HandlePasswordResetRequest(ctx context.Context, email string)
 			return fmt.Errorf("authn: count reset mails: %w", err)
 		}
 		if recent.InCooldown > 0 || recent.InWindow >= LinkMailsPerHour {
+			a.users.metrics.mailHeld(heldAccount)
 			a.users.logger.InfoContext(ctx, "password reset mail held back by the account's mail budget")
 			return nil
 		}
@@ -414,21 +499,38 @@ func (a *Accounts) HandlePasswordResetRequest(ctx context.Context, email string)
 	return nil
 }
 
+// PasswordResetCompletion is a reset: the mailed token, the new password
+// and the device the request comes from.
+type PasswordResetCompletion struct {
+	Token     string
+	Password  string
+	DeviceKey string
+	Platform  string
+}
+
 // CompletePasswordReset sets a new password with a reset token (USR-015).
 // The token is consumed by one conditional statement in the transaction
-// that writes the password; an unknown, expired, revoked and used token
-// are the same error (USR-016). Every session of the user, the caller's
-// included, ends, and no token pair is handed out: the user signs in again
-// (USR-019). The user is told by mail.
-func (a *Accounts) CompletePasswordReset(ctx context.Context, token, newPassword string) error {
-	if err := CheckPassword(newPassword); err != nil {
+// that writes the password; an unknown, expired, revoked and used token,
+// and the token of an account that is no longer active, are the same
+// error (USR-016). Every session of the user, the caller's included, ends,
+// and no token pair is handed out: the user signs in again (USR-019).
+//
+// The reset proved the mailbox from the request's device, so that device
+// becomes a known-good source and the sign-in target gets a SUCCEEDED
+// attempt: a user locked out by someone else's guesses signs in with the
+// new password at once (ADR-0032 Karar 7). The user is told by mail.
+func (a *Accounts) CompletePasswordReset(ctx context.Context, in PasswordResetCompletion) error {
+	if err := checkDeviceKey(in.DeviceKey); err != nil {
+		return err
+	}
+	if err := CheckPassword(in.Password); err != nil {
 		return err
 	}
 	invalid := apperr.New(apperr.KindInvalid, CodeResetLinkInvalid)
-	if !wellFormedOpaque(token) {
+	if !wellFormedOpaque(in.Token) {
 		return invalid
 	}
-	digest := hashOpaque(token)
+	digest := hashOpaque(in.Token)
 	now := a.users.clock.Now()
 	_, err := a.users.reads.PeekPasswordReset(ctx, authndb.PeekPasswordResetParams{TokenDigest: digest, Now: now})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -437,7 +539,7 @@ func (a *Accounts) CompletePasswordReset(ctx context.Context, token, newPassword
 	if err != nil {
 		return fmt.Errorf("authn: look up the reset token: %w", err)
 	}
-	hash, err := a.users.passwords.Hash(ctx, newPassword)
+	hash, err := a.users.passwords.Hash(ctx, in.Password)
 	if err != nil {
 		return fmt.Errorf("authn: hash password: %w", err)
 	}
@@ -452,16 +554,26 @@ func (a *Accounts) CompletePasswordReset(ctx context.Context, token, newPassword
 		if err != nil {
 			return fmt.Errorf("authn: consume the reset token: %w", err)
 		}
-		_, err = q.LockUserForSignIn(ctx, userID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			// The user was deleted after the request: nothing to reset.
+		u, err := q.LockUserForSignIn(ctx, userID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && u.Status != UserActive) {
+			// Deleted or suspended after the request: nothing to reset.
 			// The error rolls the consumption back.
 			return invalid
 		}
 		if err != nil {
 			return fmt.Errorf("authn: lock user: %w", err)
 		}
-		return a.writePassword(ctx, tx, q, userID, hash, reasonReset, uuid.Nil, now)
+		if err := a.writePassword(ctx, tx, q, userID, hash, reasonReset, uuid.Nil, now); err != nil {
+			return err
+		}
+		deviceID, err := upsertDevice(ctx, q, userID, LoginInput{DeviceKey: in.DeviceKey, Platform: in.Platform}, now)
+		if err != nil {
+			return err
+		}
+		if err := q.MarkDeviceProven(ctx, authndb.MarkDeviceProvenParams{Now: now, ID: deviceID}); err != nil {
+			return fmt.Errorf("authn: mark the device: %w", err)
+		}
+		return insertAttempt(ctx, q, principalUser, a.users.targets.of(u.Email), outcomeSucceeded, now)
 	})
 	if err != nil {
 		return fmt.Errorf("authn: complete password reset: %w", err)
@@ -481,6 +593,13 @@ type PasswordChange struct {
 // ends, and the user's open reset token is revoked (USR-017). The checks
 // that need no hash come first: the confirmation, the password rule
 // (USR-021) and that the new password differs from the given current one.
+//
+// A wrong current password counts on the account's sign-in target like a
+// wrong password at sign-in, and while the target is locked the change is
+// refused unexamined (ADR-0032 Karar 7): a stolen session cannot guess the
+// password here without limit. The known-device exemption of sign-in does
+// not apply, since the caller's own device is the one that holds the
+// session.
 func (a *Accounts) ChangePassword(ctx context.Context, p UserPrincipal, in PasswordChange) error {
 	if in.New != in.Confirmation {
 		return apperr.New(apperr.KindInvalid, CodeConfirmationMismatch)
@@ -493,31 +612,36 @@ func (a *Accounts) ChangePassword(ctx context.Context, p UserPrincipal, in Passw
 	}
 	mismatch := apperr.New(apperr.KindForbidden, CodeCurrentMismatch)
 	gone := apperr.New(apperr.KindUnauthenticated, CodeSessionInactive)
-	stored, err := a.users.reads.GetUserPasswordHash(ctx, p.UserID)
+	cur, err := a.users.reads.GetUserPassword(ctx, p.UserID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return gone
 	}
 	if err != nil {
 		return fmt.Errorf("authn: load password: %w", err)
 	}
-	if stored == nil {
-		if err := a.users.passwords.VerifyDummy(ctx, in.Current); err != nil {
-			return fmt.Errorf("authn: verify password: %w", err)
+	now := a.users.clock.Now()
+	target := a.users.targets.of(cur.Email)
+	failures, locked, err := a.users.lockState(ctx, target, now)
+	if err != nil {
+		return err
+	}
+	ok, err := a.verifyCurrent(ctx, cur.PasswordHash, in.Current, locked)
+	if err != nil {
+		return err
+	}
+	if locked {
+		if err := insertAttempt(ctx, a.users.reads, principalUser, target, outcomeLocked, now); err != nil {
+			return err
 		}
 		return mismatch
 	}
-	ok, _, err := a.users.passwords.Verify(ctx, *stored, in.Current)
-	if err != nil {
-		return fmt.Errorf("authn: verify password: %w", err)
-	}
 	if !ok {
-		return mismatch
+		return a.users.fail(ctx, target, failures, now, mismatch)
 	}
 	hash, err := a.users.passwords.Hash(ctx, in.New)
 	if err != nil {
 		return fmt.Errorf("authn: hash password: %w", err)
 	}
-	now := a.users.clock.Now()
 	var outcome error
 	err = a.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := authndb.New(tx)
@@ -529,13 +653,16 @@ func (a *Accounts) ChangePassword(ctx context.Context, p UserPrincipal, in Passw
 		if err != nil {
 			return fmt.Errorf("authn: lock user: %w", err)
 		}
-		if u.PasswordHash == nil || *u.PasswordHash != *stored {
+		if u.PasswordHash == nil || cur.PasswordHash == nil || *u.PasswordHash != *cur.PasswordHash {
 			// Changed since it was verified above: the current password
 			// checked is not the account's password any more.
 			outcome = mismatch
 			return nil
 		}
-		return a.writePassword(ctx, tx, q, p.UserID, hash, reasonChanged, p.SessionID, now)
+		if err := a.writePassword(ctx, tx, q, p.UserID, hash, reasonChanged, p.SessionID, now); err != nil {
+			return err
+		}
+		return insertAttempt(ctx, q, principalUser, target, outcomeSucceeded, now)
 	})
 	if err != nil {
 		return fmt.Errorf("authn: change password: %w", err)
@@ -543,14 +670,35 @@ func (a *Accounts) ChangePassword(ctx context.Context, p UserPrincipal, in Passw
 	return outcome
 }
 
-// writePassword stores a new password hash under the user's row lock,
-// ends every session but keep (uuid.Nil keeps none), revokes the open
-// reset token and queues the notice mail. The realtime connections of the
-// ended sessions close after commit.
+// verifyCurrent checks a current password against the stored hash. Every
+// branch costs one argon2id verification: an account without a password
+// is checked against the dummy, and a locked target against a decoy whose
+// result is discarded.
+func (a *Accounts) verifyCurrent(ctx context.Context, stored *string, current string, locked bool) (bool, error) {
+	var ok bool
+	var err error
+	switch {
+	case stored == nil:
+		err = a.users.passwords.VerifyDummy(ctx, current)
+	case locked:
+		err = a.users.passwords.VerifyDecoy(ctx, *stored, current)
+	default:
+		ok, _, err = a.users.passwords.Verify(ctx, *stored, current)
+	}
+	if err != nil {
+		return false, fmt.Errorf("authn: verify password: %w", err)
+	}
+	return ok, nil
+}
+
+// writePassword stores a new password hash under the user's row lock and
+// moves the credential epoch, ends every session but keep (uuid.Nil keeps
+// none), revokes the open reset token and queues the notice mail. The
+// realtime connections of the ended sessions close after commit.
 func (a *Accounts) writePassword(ctx context.Context, tx db.Querier, q *authndb.Queries, userID uuid.UUID, hash, reason string,
 	keep uuid.UUID, now time.Time,
 ) error {
-	if err := q.UpdateUserPasswordHash(ctx, authndb.UpdateUserPasswordHashParams{ID: userID, PasswordHash: &hash}); err != nil {
+	if err := q.SetUserPassword(ctx, authndb.SetUserPasswordParams{PasswordHash: hash, Now: now, ID: userID}); err != nil {
 		return fmt.Errorf("authn: store password: %w", err)
 	}
 	ended, err := q.RevokeUserSessionsForPassword(ctx, authndb.RevokeUserSessionsForPasswordParams{

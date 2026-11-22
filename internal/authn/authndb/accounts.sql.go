@@ -35,11 +35,18 @@ func (q *Queries) ConsumePasswordReset(ctx context.Context, arg ConsumePasswordR
 }
 
 const consumePendingRegistration = `-- name: ConsumePendingRegistration :one
-UPDATE pending_registrations
-SET consumed_at = $1::timestamptz
-WHERE registration_token_hash = $2::bytea AND consumed_at IS NULL AND revoked_at IS NULL
-  AND registration_expires_at > $1::timestamptz
-RETURNING id, email, first_name, last_name, employer
+WITH cur AS (
+    SELECT id, email, first_name, last_name
+    FROM pending_registrations
+    WHERE registration_token_hash = $2::bytea AND consumed_at IS NULL AND revoked_at IS NULL
+      AND registration_expires_at > $1::timestamptz
+    FOR UPDATE
+)
+UPDATE pending_registrations p
+SET consumed_at = $1::timestamptz, email = NULL, first_name = NULL, last_name = NULL
+FROM cur
+WHERE p.id = cur.id
+RETURNING p.id, cur.email::text AS email, cur.first_name::text AS first_name, cur.last_name::text AS last_name, p.employer
 `
 
 type ConsumePendingRegistrationParams struct {
@@ -57,7 +64,9 @@ type ConsumePendingRegistrationRow struct {
 
 // ConsumePendingRegistration consumes the registration of a live
 // registration token in one conditional statement: a second use, a
-// revoked and an expired token match no row (USR-004).
+// revoked and an expired token match no row (USR-004). The address and
+// the names leave the row in the same statement (KVKK data minimization);
+// the CTE reads them first and RETURNING hands them to the caller.
 func (q *Queries) ConsumePendingRegistration(ctx context.Context, arg ConsumePendingRegistrationParams) (ConsumePendingRegistrationRow, error) {
 	row := q.db.QueryRow(ctx, consumePendingRegistration, arg.Now, arg.TokenHash)
 	var i ConsumePendingRegistrationRow
@@ -99,30 +108,35 @@ func (q *Queries) CountRecentPasswordResets(ctx context.Context, arg CountRecent
 }
 
 const countRecentRegistrationMails = `-- name: CountRecentRegistrationMails :one
-SELECT count(*) FILTER (WHERE created_at > $1::timestamptz) AS in_window,
-       count(*) FILTER (WHERE created_at > $2::timestamptz) AS in_cooldown
+SELECT count(*) FILTER (WHERE mailbox_key = $1::text
+                          AND created_at > $2::timestamptz) AS in_window,
+       count(*) FILTER (WHERE mailbox_key = $1::text
+                          AND created_at > $3::timestamptz) AS in_cooldown,
+       count(*) AS everyone
 FROM pending_registrations
-WHERE email = $3::text
+WHERE created_at > $2::timestamptz
 `
 
 type CountRecentRegistrationMailsParams struct {
+	MailboxKey    string
 	WindowStart   time.Time
 	CooldownStart time.Time
-	Email         string
 }
 
 type CountRecentRegistrationMailsRow struct {
 	InWindow   int64
 	InCooldown int64
+	Everyone   int64
 }
 
 // CountRecentRegistrationMails counts the pending registrations, and so
-// the link mails, written for an address within the budget window and
-// within the cooldown (ADR-0032).
+// the link mails, written for a mailbox within the budget window and
+// within the cooldown, and those written for any address within the
+// window: the global cap (ADR-0032 Karar 6).
 func (q *Queries) CountRecentRegistrationMails(ctx context.Context, arg CountRecentRegistrationMailsParams) (CountRecentRegistrationMailsRow, error) {
-	row := q.db.QueryRow(ctx, countRecentRegistrationMails, arg.WindowStart, arg.CooldownStart, arg.Email)
+	row := q.db.QueryRow(ctx, countRecentRegistrationMails, arg.MailboxKey, arg.WindowStart, arg.CooldownStart)
 	var i CountRecentRegistrationMailsRow
-	err := row.Scan(&i.InWindow, &i.InCooldown)
+	err := row.Scan(&i.InWindow, &i.InCooldown, &i.Everyone)
 	return i, err
 }
 
@@ -169,7 +183,7 @@ func (q *Queries) GetPendingRegistrationByLinkForUpdate(ctx context.Context, lin
 }
 
 const getUserMailIdentity = `-- name: GetUserMailIdentity :one
-SELECT email, first_name
+SELECT email, first_name, last_name, status
 FROM active_users
 WHERE id = $1
 `
@@ -177,32 +191,47 @@ WHERE id = $1
 type GetUserMailIdentityRow struct {
 	Email     string
 	FirstName string
+	LastName  string
+	Status    string
 }
 
-// GetUserMailIdentity is what a mail to the user needs.
+// GetUserMailIdentity is what a mail to the user needs, and its status: a
+// reset link goes to an active account only.
 func (q *Queries) GetUserMailIdentity(ctx context.Context, id uuid.UUID) (GetUserMailIdentityRow, error) {
 	row := q.db.QueryRow(ctx, getUserMailIdentity, id)
 	var i GetUserMailIdentityRow
-	err := row.Scan(&i.Email, &i.FirstName)
+	err := row.Scan(
+		&i.Email,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
+	)
 	return i, err
 }
 
-const getUserPasswordHash = `-- name: GetUserPasswordHash :one
-SELECT password_hash
+const getUserPassword = `-- name: GetUserPassword :one
+SELECT email, password_hash
 FROM active_users
 WHERE id = $1
 `
 
-func (q *Queries) GetUserPasswordHash(ctx context.Context, id uuid.UUID) (*string, error) {
-	row := q.db.QueryRow(ctx, getUserPasswordHash, id)
-	var password_hash *string
-	err := row.Scan(&password_hash)
-	return password_hash, err
+type GetUserPasswordRow struct {
+	Email        string
+	PasswordHash *string
+}
+
+// GetUserPassword is what an in-app change checks: the hash, and the
+// address whose sign-in target counts the failures (ADR-0032 Karar 7).
+func (q *Queries) GetUserPassword(ctx context.Context, id uuid.UUID) (GetUserPasswordRow, error) {
+	row := q.db.QueryRow(ctx, getUserPassword, id)
+	var i GetUserPasswordRow
+	err := row.Scan(&i.Email, &i.PasswordHash)
+	return i, err
 }
 
 const insertConsentRecord = `-- name: InsertConsentRecord :exec
-INSERT INTO consent_records (id, user_id, document_code, version, granted, recorded_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO consent_records (id, user_id, document_code, version, granted, recorded_at, ip_address, user_agent)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertConsentRecordParams struct {
@@ -212,6 +241,8 @@ type InsertConsentRecordParams struct {
 	Version      string
 	Granted      bool
 	RecordedAt   time.Time
+	IpAddress    *string
+	UserAgent    *string
 }
 
 func (q *Queries) InsertConsentRecord(ctx context.Context, arg InsertConsentRecordParams) error {
@@ -222,6 +253,8 @@ func (q *Queries) InsertConsentRecord(ctx context.Context, arg InsertConsentReco
 		arg.Version,
 		arg.Granted,
 		arg.RecordedAt,
+		arg.IpAddress,
+		arg.UserAgent,
 	)
 	return err
 }
@@ -243,23 +276,25 @@ func (q *Queries) InsertPasswordReset(ctx context.Context, arg InsertPasswordRes
 }
 
 const insertPendingRegistration = `-- name: InsertPendingRegistration :exec
-INSERT INTO pending_registrations (id, email, first_name, last_name, employer, created_at)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO pending_registrations (id, email, mailbox_key, first_name, last_name, employer, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type InsertPendingRegistrationParams struct {
-	ID        uuid.UUID
-	Email     string
-	FirstName string
-	LastName  string
-	Employer  bool
-	CreatedAt time.Time
+	ID         uuid.UUID
+	Email      *string
+	MailboxKey string
+	FirstName  *string
+	LastName   *string
+	Employer   bool
+	CreatedAt  time.Time
 }
 
 func (q *Queries) InsertPendingRegistration(ctx context.Context, arg InsertPendingRegistrationParams) error {
 	_, err := q.db.Exec(ctx, insertPendingRegistration,
 		arg.ID,
 		arg.Email,
+		arg.MailboxKey,
 		arg.FirstName,
 		arg.LastName,
 		arg.Employer,
@@ -329,7 +364,7 @@ const mintRegistrationLink = `-- name: MintRegistrationLink :one
 UPDATE pending_registrations
 SET link_token_hash = $1::bytea, link_expires_at = $2::timestamptz
 WHERE id = $3 AND consumed_at IS NULL AND revoked_at IS NULL
-RETURNING email, first_name
+RETURNING email::text
 `
 
 type MintRegistrationLinkParams struct {
@@ -338,19 +373,16 @@ type MintRegistrationLinkParams struct {
 	ID        uuid.UUID
 }
 
-type MintRegistrationLinkRow struct {
-	Email     string
-	FirstName string
-}
-
 // MintRegistrationLink stores the digest of a new link token on an open
 // registration, replacing any earlier one, and returns where the mail
-// goes. No row: the registration ended before its mail was sent.
-func (q *Queries) MintRegistrationLink(ctx context.Context, arg MintRegistrationLinkParams) (MintRegistrationLinkRow, error) {
+// goes. No row: the registration ended before its mail was sent. The
+// names are not returned: the address is not verified yet, so the mail
+// does not carry what the requester typed (ADR-0032 Karar 3).
+func (q *Queries) MintRegistrationLink(ctx context.Context, arg MintRegistrationLinkParams) (string, error) {
 	row := q.db.QueryRow(ctx, mintRegistrationLink, arg.TokenHash, arg.ExpiresAt, arg.ID)
-	var i MintRegistrationLinkRow
-	err := row.Scan(&i.Email, &i.FirstName)
-	return i, err
+	var email string
+	err := row.Scan(&email)
+	return email, err
 }
 
 const peekPasswordReset = `-- name: PeekPasswordReset :one
@@ -443,7 +475,7 @@ func (q *Queries) RevokeOpenPasswordResets(ctx context.Context, arg RevokeOpenPa
 
 const revokeOpenPendingRegistrations = `-- name: RevokeOpenPendingRegistrations :exec
 UPDATE pending_registrations
-SET revoked_at = $1::timestamptz
+SET revoked_at = $1::timestamptz, email = NULL, first_name = NULL, last_name = NULL
 WHERE email = $2::text AND consumed_at IS NULL AND revoked_at IS NULL
 `
 
@@ -461,7 +493,7 @@ func (q *Queries) RevokeOpenPendingRegistrations(ctx context.Context, arg Revoke
 
 const revokePendingRegistration = `-- name: RevokePendingRegistration :exec
 UPDATE pending_registrations
-SET revoked_at = $1::timestamptz
+SET revoked_at = $1::timestamptz, email = NULL, first_name = NULL, last_name = NULL
 WHERE id = $2 AND consumed_at IS NULL AND revoked_at IS NULL
 `
 

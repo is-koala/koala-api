@@ -150,21 +150,27 @@ func wireAccounts(cfg config.Config, database *db.DB, users *authn.Service, logg
 			web = localWebBaseURL
 		}
 	} else {
-		s, err := smtp.New(smtp.Config{
-			Host: cfg.Mail.SMTPHost, Port: cfg.Mail.SMTPPort,
-			Username: cfg.Mail.SMTPUsername, Password: cfg.Mail.SMTPPassword.Reveal(),
-			From: cfg.Mail.From, RequireTLS: cfg.Env != config.EnvLocal && cfg.Env != config.EnvTest,
-		})
+		s, err := smtp.New(smtpConfig(cfg))
 		if err != nil {
 			return nil, fmt.Errorf("wire accounts: %w", err)
 		}
 		sender = s
 	}
-	accounts, err := authn.NewAccounts(users, queue, sender, web)
+	accounts, err := authn.NewAccounts(users, queue, sender, web, cfg.Mail.RegistrationsPerHour)
 	if err != nil {
 		return nil, fmt.Errorf("wire accounts: %w", err)
 	}
 	return accounts, nil
+}
+
+// smtpConfig is the relay configuration of cfg. Encryption is required
+// everywhere but local and test (ADR-0032 Karar 4).
+func smtpConfig(cfg config.Config) smtp.Config {
+	return smtp.Config{
+		Host: cfg.Mail.SMTPHost, Port: cfg.Mail.SMTPPort,
+		Username: cfg.Mail.SMTPUsername, Password: cfg.Mail.SMTPPassword.Reveal(),
+		From: cfg.Mail.From, RequireTLS: cfg.Env != config.EnvLocal && cfg.Env != config.EnvTest,
+	}
 }
 
 // droppedMail stands in for the relay in local and test without one. It

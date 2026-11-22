@@ -161,10 +161,12 @@ tables:
     pii: true
     reason: >-
       A registration between its first and third step (ADR-0029 Karar 2):
-      address, names and the SHA-256 digests of its two tokens. Hard-deleted
-      30 days after it was written, consumed or not (USR-007); a revoked or
-      expired row stays until then so the per-address mail budget can count
-      it (ADR-0032). Not soft-deleted: a registration never comes back.
+      address, names and the SHA-256 digests of its two tokens. The address
+      and the names are cleared the moment the registration is consumed or
+      revoked (KVKK data minimization); the row stays, with the mailbox key
+      and its time only, until it is hard-deleted 30 days after it was
+      written (USR-007), so the mail budget can count it (ADR-0032 Karar 6).
+      Not soft-deleted: a registration never comes back.
   password_reset_tokens:
     class: M2
     reason: >-
@@ -183,10 +185,14 @@ tables:
     pii: true
     reason: >-
       One consent decision of a user at registration (USR-006): evidence of
-      who agreed to which version when. Appended, never updated or
-      deleted; an account's anonymization keeps it (koala-backend ADR-0012).
-      No retention yet: how long consent evidence is kept is a legal
-      decision (ADR-0032, open question).
+      who agreed to which version, when, from which client address and
+      User-Agent. Appended, never updated or deleted; an account's
+      anonymization keeps it (koala-backend ADR-0012). Rule (ADR-0032 Karar
+      8, legal confirmation pending): ip_address and user_agent are
+      anonymized three years after the consent ends (withdrawn, replaced by
+      a new version, or the account deleted); the row itself stays. A
+      consent's end is not modeled yet, so the anonymization job comes with
+      the PR that models it.
   river_leader:
     class: M3
     reason: River's leader election (ADR-0010).

@@ -11,6 +11,7 @@ package authn
 import (
 	"net/netip"
 	"regexp"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -123,6 +124,11 @@ const (
 	// budget is answered like any other and sends nothing.
 	LinkMailCooldown = time.Minute
 	LinkMailsPerHour = 5
+	// DefaultRegistrationMailsPerHour is the global cap of registration
+	// link mails an hour, over every address (KOALA_REGISTRATION_MAILS_PER_HOUR
+	// overrides it). It bounds what a spread-out flood can send through the
+	// relay; a held mail is counted and alerted on (ADR-0032 Karar 6).
+	DefaultRegistrationMailsPerHour = 500
 	// AccountRowRetention is how long pending registrations and reset
 	// requests are kept before the purge hard-deletes them (M2; USR-007).
 	AccountRowRetention = 30 * 24 * time.Hour
@@ -367,6 +373,29 @@ func accountFailure(failures int32, now time.Time) (int32, *time.Time) {
 // inForce reports whether a lock or backoff ending at until holds at now.
 func inForce(until *time.Time, now time.Time) bool {
 	return until != nil && now.Before(*until)
+}
+
+// mailboxKey is the mailbox an address delivers to, for the mail budget
+// and the rate limit keys of the account requests (ADR-0032 Karar 6): the
+// sub-address after '+' is dropped, googlemail.com is gmail.com, and at
+// Gmail the dots of the local part are dropped. The stored address does
+// not change. email is normalized (normalizeEmail).
+func mailboxKey(email string) string {
+	at := strings.LastIndexByte(email, '@')
+	if at < 0 {
+		return email
+	}
+	local, domain := email[:at], email[at+1:]
+	if plus := strings.IndexByte(local, '+'); plus >= 0 {
+		local = local[:plus]
+	}
+	if domain == "googlemail.com" {
+		domain = "gmail.com"
+	}
+	if domain == "gmail.com" {
+		local = strings.ReplaceAll(local, ".", "")
+	}
+	return local + "@" + domain
 }
 
 // ClientKey is the address part of a lock or rate limit key: the address,

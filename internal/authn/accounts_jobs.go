@@ -110,9 +110,13 @@ func (w *mailWorker) Work(ctx context.Context, job *river.Job[authMailArgs]) err
 	return w.accounts.SendAccountMail(ctx, job.Args.Mail, job.Args.Ref)
 }
 
-// mailData is what the account templates read.
+// mailData is what the account templates read. The registration link
+// mail reads Link only: its address is not verified yet, so it carries
+// nothing the requester typed (ADR-0032 Karar 3).
 type mailData struct {
 	FirstName string
+	LastName  string
+	Email     string
 	Link      string
 }
 
@@ -120,13 +124,19 @@ type mailData struct {
 // token first, in a statement of its own that commits before the relay is
 // called (no transaction is open during the send); the token lives only
 // in this call and in the mail. A row that ended before its mail (a
-// consumed or revoked registration, a deleted user) sends nothing.
+// consumed or revoked registration, a deleted user, a reset of an account
+// that is no longer active) sends nothing. An undeliverable recipient
+// cancels the job instead of retrying it.
 func (a *Accounts) SendAccountMail(ctx context.Context, kind string, ref uuid.UUID) error {
 	msg, ok, err := a.prepareMail(ctx, kind, ref)
 	if err != nil || !ok {
 		return err
 	}
-	if err := a.sender.Send(ctx, msg); err != nil {
+	err = a.sender.Send(ctx, msg)
+	if errors.Is(err, mailer.ErrUndeliverable) {
+		return fmt.Errorf("authn: %s mail is undeliverable: %w", kind, river.JobCancel(err))
+	}
+	if err != nil {
 		return fmt.Errorf("authn: send %s mail: %w", kind, err)
 	}
 	return nil
@@ -139,7 +149,7 @@ func (a *Accounts) prepareMail(ctx context.Context, kind string, ref uuid.UUID) 
 	switch kind {
 	case mailRegistrationLink:
 		token := newOpaque()
-		row, err := a.users.reads.MintRegistrationLink(ctx, authndb.MintRegistrationLinkParams{
+		email, err := a.users.reads.MintRegistrationLink(ctx, authndb.MintRegistrationLinkParams{
 			TokenHash: hashOpaque(token), ExpiresAt: now.Add(RegistrationLinkTTL), ID: ref,
 		})
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -148,7 +158,7 @@ func (a *Accounts) prepareMail(ctx context.Context, kind string, ref uuid.UUID) 
 		if err != nil {
 			return mailer.Message{}, false, fmt.Errorf("authn: mint registration link: %w", err)
 		}
-		to, data.FirstName, data.Link = row.Email, row.FirstName, a.link(registrationLinkPath, token)
+		to, data.Link = email, a.link(registrationLinkPath, token)
 	case mailResetLink:
 		token := newOpaque()
 		userID, err := a.users.reads.MintPasswordReset(ctx, authndb.MintPasswordResetParams{
@@ -161,16 +171,16 @@ func (a *Accounts) prepareMail(ctx context.Context, kind string, ref uuid.UUID) 
 			return mailer.Message{}, false, fmt.Errorf("authn: mint reset link: %w", err)
 		}
 		who, found, err := a.recipient(ctx, userID)
-		if err != nil || !found {
+		if err != nil || !found || who.Status != UserActive {
 			return mailer.Message{}, false, err
 		}
 		to, data.FirstName, data.Link = who.Email, who.FirstName, a.link(resetLinkPath, token)
-	case mailChanged:
+	case mailChanged, mailWelcome:
 		who, found, err := a.recipient(ctx, ref)
 		if err != nil || !found {
 			return mailer.Message{}, false, err
 		}
-		to, data.FirstName = who.Email, who.FirstName
+		to, data.FirstName, data.LastName, data.Email = who.Email, who.FirstName, who.LastName, who.Email
 	default:
 		return mailer.Message{}, false, fmt.Errorf("authn: unknown account mail %q", kind)
 	}

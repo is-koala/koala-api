@@ -64,6 +64,30 @@ func (q *Queries) CountLoginAttempts(ctx context.Context, arg CountLoginAttempts
 	return i, err
 }
 
+const deviceProvenSince = `-- name: DeviceProvenSince :one
+SELECT EXISTS (
+    SELECT 1 FROM active_devices
+    WHERE user_id = $1 AND device_key = $2::text
+      AND credentials_proven_at >= $3::timestamptz
+) AS proven
+`
+
+type DeviceProvenSinceParams struct {
+	UserID    uuid.UUID
+	DeviceKey string
+	Since     time.Time
+}
+
+// DeviceProvenSince reports whether a password reset was completed from
+// the user's device since the bound: such a device is known-good although
+// the reset opened no session on it.
+func (q *Queries) DeviceProvenSince(ctx context.Context, arg DeviceProvenSinceParams) (bool, error) {
+	row := q.db.QueryRow(ctx, deviceProvenSince, arg.UserID, arg.DeviceKey, arg.Since)
+	var proven bool
+	err := row.Scan(&proven)
+	return proven, err
+}
+
 const getDeviceForUpdate = `-- name: GetDeviceForUpdate :one
 SELECT id
 FROM active_devices
@@ -111,22 +135,30 @@ func (q *Queries) GetUser(ctx context.Context, id uuid.UUID) (GetUserRow, error)
 }
 
 const getUserCredentials = `-- name: GetUserCredentials :one
-SELECT id, password_hash, status
+SELECT id, password_hash, status, password_changed_at
 FROM active_users
 WHERE email = $1
 `
 
 type GetUserCredentialsRow struct {
-	ID           uuid.UUID
-	PasswordHash *string
-	Status       string
+	ID                uuid.UUID
+	PasswordHash      *string
+	Status            string
+	PasswordChangedAt *time.Time
 }
 
 // GetUserCredentials finds an active user by login identifier for sign-in.
+// password_changed_at is the credential epoch the known-device check
+// counts from (ADR-0032 Karar 7).
 func (q *Queries) GetUserCredentials(ctx context.Context, email string) (GetUserCredentialsRow, error) {
 	row := q.db.QueryRow(ctx, getUserCredentials, email)
 	var i GetUserCredentialsRow
-	err := row.Scan(&i.ID, &i.PasswordHash, &i.Status)
+	err := row.Scan(
+		&i.ID,
+		&i.PasswordHash,
+		&i.Status,
+		&i.PasswordChangedAt,
+	)
 	return i, err
 }
 
@@ -216,7 +248,7 @@ func (q *Queries) InsertUser(ctx context.Context, arg InsertUserParams) error {
 }
 
 const lockUserForSignIn = `-- name: LockUserForSignIn :one
-SELECT id, status, password_hash
+SELECT id, status, password_hash, email
 FROM active_users
 WHERE id = $1
 FOR UPDATE
@@ -226,6 +258,7 @@ type LockUserForSignInRow struct {
 	ID           uuid.UUID
 	Status       string
 	PasswordHash *string
+	Email        string
 }
 
 // LockUserForSignIn locks the active user row FOR UPDATE. It serializes
@@ -234,12 +267,36 @@ type LockUserForSignInRow struct {
 // softdelete.LockActiveParent for the device and session rows the
 // sign-in inserts: the user cannot be soft-deleted until it commits. The
 // hash comes back so the caller can see whether it changed since the
-// password was verified outside the lock.
+// password was verified outside the lock. The address is the sign-in
+// target of the account flows that record attempts.
 func (q *Queries) LockUserForSignIn(ctx context.Context, id uuid.UUID) (LockUserForSignInRow, error) {
 	row := q.db.QueryRow(ctx, lockUserForSignIn, id)
 	var i LockUserForSignInRow
-	err := row.Scan(&i.ID, &i.Status, &i.PasswordHash)
+	err := row.Scan(
+		&i.ID,
+		&i.Status,
+		&i.PasswordHash,
+		&i.Email,
+	)
 	return i, err
+}
+
+const markDeviceProven = `-- name: MarkDeviceProven :exec
+UPDATE active_devices
+SET credentials_proven_at = $1::timestamptz
+WHERE id = $2
+`
+
+type MarkDeviceProvenParams struct {
+	Now time.Time
+	ID  uuid.UUID
+}
+
+// MarkDeviceProven records that a password reset was completed from the
+// device (ADR-0032 Karar 7). The caller holds the user's row lock.
+func (q *Queries) MarkDeviceProven(ctx context.Context, arg MarkDeviceProvenParams) error {
+	_, err := q.db.Exec(ctx, markDeviceProven, arg.Now, arg.ID)
+	return err
 }
 
 const nthFailureSinceSuccess = `-- name: NthFailureSinceSuccess :one
@@ -283,6 +340,26 @@ func (q *Queries) PurgeLoginAttempts(ctx context.Context, createdAt time.Time) (
 	return result.RowsAffected(), nil
 }
 
+const setUserPassword = `-- name: SetUserPassword :exec
+UPDATE active_users
+SET password_hash = $1::text, password_changed_at = $2::timestamptz
+WHERE id = $3
+`
+
+type SetUserPasswordParams struct {
+	PasswordHash string
+	Now          time.Time
+	ID           uuid.UUID
+}
+
+// SetUserPassword stores a new password and moves the credential epoch:
+// sessions opened before it no longer vouch for their device (ADR-0032
+// Karar 7).
+func (q *Queries) SetUserPassword(ctx context.Context, arg SetUserPasswordParams) error {
+	_, err := q.db.Exec(ctx, setUserPassword, arg.PasswordHash, arg.Now, arg.ID)
+	return err
+}
+
 const touchDevice = `-- name: TouchDevice :exec
 UPDATE active_devices
 SET last_seen_at = $2, platform = coalesce($3, platform)
@@ -309,7 +386,8 @@ type UpdateUserPasswordHashParams struct {
 	PasswordHash *string
 }
 
-// UpdateUserPasswordHash stores a rehash under current parameters.
+// UpdateUserPasswordHash stores a rehash under current parameters. The
+// password is the same, so the credential epoch does not move.
 func (q *Queries) UpdateUserPasswordHash(ctx context.Context, arg UpdateUserPasswordHashParams) error {
 	_, err := q.db.Exec(ctx, updateUserPasswordHash, arg.ID, arg.PasswordHash)
 	return err

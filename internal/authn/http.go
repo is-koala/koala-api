@@ -208,6 +208,7 @@ func (h *HTTP) CompleteRegistration(ctx context.Context, req apiv1.CompleteRegis
 	pair, err := h.accounts.CompleteRegistration(ctx, RegistrationCompletion{
 		Token: req.Body.RegistrationToken, Password: req.Body.Password, Consents: consents,
 		DeviceKey: httpx.DeviceIDFrom(ctx), Platform: string(httpx.ClientPlatformFrom(ctx)),
+		ClientIP: httpx.ClientIPFrom(ctx), UserAgent: userAgentFrom(ctx),
 	})
 	if err != nil {
 		return nil, err
@@ -231,7 +232,11 @@ func (h *HTTP) RequestPasswordReset(ctx context.Context, req apiv1.RequestPasswo
 // CompletePasswordReset sets a new password with a reset token and ends
 // every session.
 func (h *HTTP) CompletePasswordReset(ctx context.Context, req apiv1.CompletePasswordResetRequestObject) (apiv1.CompletePasswordResetResponseObject, error) {
-	if err := h.accounts.CompletePasswordReset(ctx, req.Body.ResetToken, req.Body.NewPassword); err != nil {
+	err := h.accounts.CompletePasswordReset(ctx, PasswordResetCompletion{
+		Token: req.Body.ResetToken, Password: req.Body.NewPassword,
+		DeviceKey: httpx.DeviceIDFrom(ctx), Platform: string(httpx.ClientPlatformFrom(ctx)),
+	})
+	if err != nil {
 		return nil, err
 	}
 	return apiv1.CompletePasswordReset204Response{}, nil
@@ -301,9 +306,10 @@ type TargetLimiter interface {
 //   - A refresh takes one from the bucket of its hashed token, a staff
 //     password change from the member's, both in pairGroup.
 //   - A registration start and a password reset request take a token from
-//     the two buckets of their target address, like a sign-in but without
-//     the known-source escape: the e-mail bomb defense of ADR-0032 (the
-//     mail budget of the job is the second line).
+//     the two buckets of their target mailbox (the address without its
+//     sub-address, ADR-0032 Karar 6), like a sign-in but without the
+//     known-source escape: the e-mail bomb defense (the mail budget of the
+//     job is the second line).
 //   - The steps that present a mailed or issued token (registration
 //     verify and complete, reset complete) take one from the bucket of the
 //     hashed token, an in-app password change from the user's; all in
@@ -317,6 +323,10 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup s
 			keys, tokens := h.rateLimitKeys(ctx, request)
 			if tokens {
 				w.Header().Set("Cache-Control", "no-store")
+			}
+			if _, ok := request.(apiv1.CompleteRegistrationRequestObject); ok {
+				// The consent records keep it (ADR-0032 Karar 8).
+				ctx = context.WithValue(ctx, userAgentKey{}, r.UserAgent())
 			}
 			for _, k := range keys {
 				group := pairGroup
@@ -341,6 +351,16 @@ func (h *HTTP) StrictMiddleware(limiter TargetLimiter, pairGroup, accountGroup s
 			return f(ctx, w, r, request)
 		}
 	}
+}
+
+// userAgentKey carries the request's User-Agent to a handler that records
+// it.
+type userAgentKey struct{}
+
+// userAgentFrom returns the User-Agent the strict middleware put on ctx.
+func userAgentFrom(ctx context.Context) string {
+	ua, _ := ctx.Value(userAgentKey{}).(string)
+	return ua
 }
 
 type limitKey struct {
@@ -379,9 +399,9 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 			return []limitKey{{key: "password:staff:" + p.StaffID.String()}}, false
 		}
 	case apiv1.StartRegistrationRequestObject:
-		return signIn("registration:", h.users.Target(req.Body.Email), nil), true
+		return signIn("registration:", h.users.MailboxTarget(req.Body.Email), nil), true
 	case apiv1.RequestPasswordResetRequestObject:
-		return signIn("password-reset:", h.users.Target(req.Body.Email), nil), true
+		return signIn("password-reset:", h.users.MailboxTarget(req.Body.Email), nil), true
 	case apiv1.VerifyRegistrationRequestObject:
 		return []limitKey{{key: "registration-link:" + hex.EncodeToString(hashOpaque(req.Body.VerificationToken))}}, true
 	case apiv1.CompleteRegistrationRequestObject:

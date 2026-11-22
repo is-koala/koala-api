@@ -120,7 +120,7 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (TokenPair, error) {
 		return TokenPair{}, fmt.Errorf("authn: load user credentials: %w", err)
 	}
 	// An unknown address asks about the nil user, which has no sessions.
-	known, err := s.knownDevice(ctx, cred.ID, in.DeviceKey, now)
+	known, err := s.knownDevice(ctx, cred.ID, in.DeviceKey, cred.PasswordChangedAt, now)
 	if err != nil {
 		return TokenPair{}, err
 	}
@@ -249,26 +249,51 @@ func (s *Service) lockState(ctx context.Context, target []byte, now time.Time) (
 
 // KnownDevice reports whether deviceKey is a known-good device of the
 // account of email: one the account had a session on within
-// KnownSourceWindow (ADR-0025 §5). The rate limit lets such a device past
-// the account-wide bucket. An unknown address runs the same two queries,
-// the second on the nil user, so the answer's time does not tell whether
-// the address has an account.
+// KnownSourceWindow (ADR-0025 §5), opened after the account's last password
+// reset or change, or one a password reset was completed from within the
+// window (ADR-0032 Karar 7). The rate limit lets such a device past the
+// account-wide bucket. An unknown address runs the same queries on the nil
+// user, so the answer's time does not tell whether the address has an
+// account.
 func (s *Service) KnownDevice(ctx context.Context, email, deviceKey string) (bool, error) {
 	cred, err := s.reads.GetUserCredentials(ctx, normalizeEmail(email))
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return false, fmt.Errorf("authn: load user credentials: %w", err)
 	}
-	return s.knownDevice(ctx, cred.ID, deviceKey, s.clock.Now())
+	return s.knownDevice(ctx, cred.ID, deviceKey, cred.PasswordChangedAt, s.clock.Now())
 }
 
-func (s *Service) knownDevice(ctx context.Context, userID uuid.UUID, deviceKey string, now time.Time) (bool, error) {
+// knownDevice is KnownDevice for a user id. epoch is the account's
+// credential epoch (users.password_changed_at, nil before the first reset
+// or change): a session opened before it does not vouch for its device,
+// whatever ended it (ADR-0032 Karar 7). Both queries run in every case.
+func (s *Service) knownDevice(ctx context.Context, userID uuid.UUID, deviceKey string, epoch *time.Time, now time.Time) (bool, error) {
+	since := now.Add(-KnownSourceWindow)
+	var credentialsSince time.Time // the zero time: before any session
+	if epoch != nil {
+		credentialsSince = *epoch
+	}
 	n, err := s.reads.CountRecentDeviceSessions(ctx, authndb.CountRecentDeviceSessionsParams{
-		UserID: userID, DeviceKey: deviceKey, Since: now.Add(-KnownSourceWindow),
+		UserID: userID, DeviceKey: deviceKey, Since: since, CredentialsSince: credentialsSince,
 	})
 	if err != nil {
 		return false, fmt.Errorf("authn: check known device: %w", err)
 	}
-	return n > 0, nil
+	if credentialsSince.After(since) {
+		since = credentialsSince
+	}
+	proven, err := s.reads.DeviceProvenSince(ctx, authndb.DeviceProvenSinceParams{UserID: userID, DeviceKey: deviceKey, Since: since})
+	if err != nil {
+		return false, fmt.Errorf("authn: check proven device: %w", err)
+	}
+	return n > 0 || proven, nil
+}
+
+// MailboxTarget is the keyed hash that stands for an address's mailbox in
+// the rate limit keys of the account requests (ADR-0032 Karar 6): every
+// sub-address and, at Gmail, every dotting of one mailbox is one target.
+func (s *Service) MailboxTarget(email string) []byte {
+	return s.targets.of(mailboxKey(normalizeEmail(email)))
 }
 
 // fail logs a failed sign-in in its own statement (a transaction would

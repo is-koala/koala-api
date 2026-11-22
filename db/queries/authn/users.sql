@@ -1,6 +1,8 @@
 -- name: GetUserCredentials :one
 -- GetUserCredentials finds an active user by login identifier for sign-in.
-SELECT id, password_hash, status
+-- password_changed_at is the credential epoch the known-device check
+-- counts from (ADR-0032 Karar 7).
+SELECT id, password_hash, status, password_changed_at
 FROM active_users
 WHERE email = $1;
 
@@ -23,15 +25,42 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 -- softdelete.LockActiveParent for the device and session rows the
 -- sign-in inserts: the user cannot be soft-deleted until it commits. The
 -- hash comes back so the caller can see whether it changed since the
--- password was verified outside the lock.
-SELECT id, status, password_hash
+-- password was verified outside the lock. The address is the sign-in
+-- target of the account flows that record attempts.
+SELECT id, status, password_hash, email
 FROM active_users
 WHERE id = $1
 FOR UPDATE;
 
 -- name: UpdateUserPasswordHash :exec
--- UpdateUserPasswordHash stores a rehash under current parameters.
+-- UpdateUserPasswordHash stores a rehash under current parameters. The
+-- password is the same, so the credential epoch does not move.
 UPDATE active_users SET password_hash = $2 WHERE id = $1;
+
+-- name: SetUserPassword :exec
+-- SetUserPassword stores a new password and moves the credential epoch:
+-- sessions opened before it no longer vouch for their device (ADR-0032
+-- Karar 7).
+UPDATE active_users
+SET password_hash = sqlc.arg(password_hash)::text, password_changed_at = sqlc.arg(now)::timestamptz
+WHERE id = sqlc.arg(id);
+
+-- name: MarkDeviceProven :exec
+-- MarkDeviceProven records that a password reset was completed from the
+-- device (ADR-0032 Karar 7). The caller holds the user's row lock.
+UPDATE active_devices
+SET credentials_proven_at = sqlc.arg(now)::timestamptz
+WHERE id = sqlc.arg(id);
+
+-- name: DeviceProvenSince :one
+-- DeviceProvenSince reports whether a password reset was completed from
+-- the user's device since the bound: such a device is known-good although
+-- the reset opened no session on it.
+SELECT EXISTS (
+    SELECT 1 FROM active_devices
+    WHERE user_id = sqlc.arg(user_id) AND device_key = sqlc.arg(device_key)::text
+      AND credentials_proven_at >= sqlc.arg(since)::timestamptz
+) AS proven;
 
 -- name: GetDeviceForUpdate :one
 -- GetDeviceForUpdate locks the user's active device with this key. The
