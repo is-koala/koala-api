@@ -330,15 +330,37 @@ func unparen(e ast.Expr) ast.Expr {
 func (m *codeModule) imported(f *ast.File, name string) (*codePkg, bool) {
 	for _, imp := range f.Imports {
 		path := strings.Trim(imp.Path.Value, `"`)
-		local := path[strings.LastIndexByte(path, '/')+1:]
 		if imp.Name != nil {
-			local = imp.Name.Name
+			if imp.Name.Name == name {
+				return m.pkgs[path], true
+			}
+			continue
 		}
-		if local == name {
+		if slices.Contains(packageNames(path), name) {
 			return m.pkgs[path], true
 		}
 	}
 	return nil, false
+}
+
+// packageNames are the names a package imported without a name may go by,
+// read off its path: the last element, the one before a major version
+// suffix (github.com/golang-jwt/jwt/v5 is jwt), and the last element
+// without a go- prefix, a -go or .go suffix or its dashes
+// (github.com/wneessen/go-mail is mail). Without the type checker the
+// package clause of an outside package is not read; a name none of these
+// gives is not recognized, and a call through it is reported as
+// unresolved rather than passed over.
+func packageNames(path string) []string {
+	elems := strings.Split(path, "/")
+	last := elems[len(elems)-1]
+	names := []string{last}
+	if len(elems) > 1 && len(last) > 1 && last[0] == 'v' && strings.Trim(last[1:], "0123456789") == "" {
+		names = append(names, elems[len(elems)-2])
+		last = elems[len(elems)-2]
+	}
+	trimmed := strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(last, "go-"), "-go"), ".go")
+	return append(names, trimmed, strings.ReplaceAll(trimmed, "-", ""))
 }
 
 // handlers returns the handler methods of the module by operation method
@@ -1596,6 +1618,24 @@ func TestHandlersReturnTheirDeclaredErrorCodes(t *testing.T) {
 	} {
 		if !slices.ContainsFunc(traced[op], func(s errorSite) bool { return s.kind == want.kind && s.code == want.code }) {
 			t.Errorf("the trace of %s does not reach %s %s; it no longer sees the handler's sites", op, want.kind, want.code)
+		}
+	}
+}
+
+// TestPackageNames pins the names an unnamed import goes by: the real
+// repository's versioned and dashed paths among them.
+func TestPackageNames(t *testing.T) {
+	t.Parallel()
+
+	for path, want := range map[string]string{
+		"github.com/golang-jwt/jwt/v5": "jwt",
+		"github.com/jackc/pgx/v5":      "pgx",
+		"github.com/wneessen/go-mail":  "mail",
+		"log/slog":                     "slog",
+		"github.com/riverqueue/river":  "river",
+	} {
+		if got := packageNames(path); !slices.Contains(got, want) {
+			t.Errorf("packageNames(%q) = %v, want it to include %q", path, got, want)
 		}
 	}
 }
