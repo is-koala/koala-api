@@ -599,3 +599,147 @@ func TestServeStorageErrors(t *testing.T) {
 		})
 	}
 }
+
+func mailEnviron(env string) []string {
+	return []string{
+		"KOALA_ENV=" + env,
+		config.VarSMTPHost + "=smtp.example.com",
+		config.VarSMTPPort + "=465",
+		config.VarSMTPUsername + "=koala",
+		config.VarSMTPPassword + "=test-smtp-secret",
+		config.VarMailFrom + "=Koala <no-reply@iskoala.com>",
+		config.VarWebBaseURL + "=https://iskoala.com",
+	}
+}
+
+func TestLoadReadsTheMailSettings(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(mailEnviron("production"))
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+	want := config.Mail{
+		SMTPHost: "smtp.example.com", SMTPPort: 465, SMTPUsername: "koala", SMTPPassword: "test-smtp-secret",
+		From: "Koala <no-reply@iskoala.com>", WebBaseURL: "https://iskoala.com",
+	}
+	if cfg.Mail != want {
+		t.Errorf("Mail = %+v, want %+v", cfg.Mail, want)
+	}
+	if s := fmt.Sprintf("%v %+v", cfg.Mail, cfg); strings.Contains(s, "test-smtp-secret") {
+		t.Errorf("the SMTP password prints: %s", s)
+	}
+}
+
+func TestLoadRejectsBadMailValues(t *testing.T) {
+	t.Parallel()
+
+	for name, kv := range map[string]string{
+		"port":          config.VarSMTPPort + "=0",
+		"port text":     config.VarSMTPPort + "=smtp",
+		"sender":        config.VarMailFrom + "=not an address",
+		"web origin":    config.VarWebBaseURL + "=iskoala.com",
+		"plain web url": config.VarWebBaseURL + "=http://iskoala.com",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := config.Load([]string{"KOALA_ENV=production", kv}); err == nil {
+				t.Errorf("Load(%s) succeeded", kv)
+			}
+		})
+	}
+	// Plain http is fine where nothing is live (a local web client).
+	if _, err := config.Load([]string{"KOALA_ENV=local", config.VarWebBaseURL + "=http://localhost:3000"}); err != nil {
+		t.Errorf("Load(local http origin) = %v", err)
+	}
+}
+
+// TestServeMailErrors: serve refuses to start in staging and production
+// without the relay, its credentials, the sender and the web origin, since
+// registration and reset would answer 202 and send nothing; a partly
+// configured setup fails everywhere.
+func TestServeMailErrors(t *testing.T) {
+	t.Parallel()
+
+	without := func(env, drop string) []string {
+		var out []string
+		for _, kv := range mailEnviron(env) {
+			if name, _, _ := strings.Cut(kv, "="); name != drop {
+				out = append(out, kv)
+			}
+		}
+		return out
+	}
+	tests := []struct {
+		name    string
+		environ []string
+		want    []string
+	}{
+		{"complete in production", mailEnviron("production"), nil},
+		{"complete in local", mailEnviron("local"), nil},
+		{"nothing set in test", []string{"KOALA_ENV=test"}, nil},
+		{"port missing: the submission port", without("production", config.VarSMTPPort), nil},
+		{
+			"nothing set in staging",
+			[]string{"KOALA_ENV=staging"},
+			[]string{
+				config.VarSMTPHost + ": required by serve in staging",
+				config.VarSMTPUsername + ": required by serve in staging",
+				config.VarSMTPPassword + ": required by serve in staging",
+				config.VarMailFrom + ": required by serve in staging",
+				config.VarWebBaseURL + ": required by serve in staging",
+			},
+		},
+		{
+			"password missing in production",
+			without("production", config.VarSMTPPassword),
+			[]string{config.VarSMTPPassword + ": required by serve in production"},
+		},
+		{
+			"web origin missing in local",
+			without("local", config.VarWebBaseURL),
+			[]string{config.VarWebBaseURL + ": required once any mail variable is set"},
+		},
+		{
+			"username without password in local",
+			without("local", config.VarSMTPPassword),
+			[]string{"set both or neither"},
+		},
+		{
+			"a local relay without credentials",
+			[]string{
+				"KOALA_ENV=local", config.VarSMTPHost + "=127.0.0.1", config.VarSMTPPort + "=1025",
+				config.VarMailFrom + "=no-reply@iskoala.test", config.VarWebBaseURL + "=http://localhost:3000",
+			},
+			nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg, err := config.Load(tt.environ)
+			if err != nil {
+				t.Fatalf("Load() = %v", err)
+			}
+			err = cfg.ServeMailErrors()
+			if len(tt.want) == 0 {
+				if err != nil {
+					t.Fatalf("ServeMailErrors() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("ServeMailErrors() = nil, want an error")
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("ServeMailErrors() = %v, want it to mention %q", err, w)
+				}
+			}
+			if strings.Contains(err.Error(), "test-smtp-secret") {
+				t.Errorf("ServeMailErrors() echoes the secret: %v", err)
+			}
+		})
+	}
+}

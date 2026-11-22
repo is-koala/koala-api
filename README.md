@@ -115,6 +115,14 @@ Hata mesajı değişkenin adını verir, değerini yazmaz.
 | `KOALA_OBJECT_SECRET_ACCESS_KEY` | staging ve production'da `serve` için | — | Statik kimliğin sırrı. **Sırdır**: log'a ve hata mesajına yazılmaz |
 | `KOALA_OBJECT_PATH_STYLE` | hayır | `false` | `true` ise bucket yola konur (`<endpoint>/<bucket>/<key>`); MinIO ve yerel uç nokta bunu ister |
 | `KOALA_OBJECT_PUBLIC_BASE_URL` | staging ve production'da `serve` için | — | Genel okunabilen nesnelerin servis edildiği origin (bucket'ın önündeki CDN). Yoksa hiçbir nesneye genel adres üretilmez ve sözleşmenin dolu olmasını vaat ettiği `Media.url` her hazır profil fotoğrafı, logo ve galeri görselinde `null` kalır — bu yüzden zorunludur (ADR-0030 Karar 7). `local` ve `test` dışında `https` |
+| `KOALA_SMTP_HOST` | staging ve production'da `serve` için | — | Hesap postalarının (kayıt bağlantısı, parola sıfırlama, parola değişti bildirimi) SMTP aktarıcısı (ADR-0032). Yoksa `local` ve `test`'te posta düşürülür ve yalnız konusu log'a yazılır |
+| `KOALA_SMTP_PORT` | hayır | `587` | `465` örtük TLS, diğer portlar STARTTLS. `local` ve `test` dışında şifreleme zorunludur; STARTTLS sunmayan aktarıcıya gönderim düşer |
+| `KOALA_SMTP_USERNAME` | staging ve production'da `serve` için | — | Aktarıcı kimliği; parolayla birlikte verilir |
+| `KOALA_SMTP_PASSWORD` | staging ve production'da `serve` için | — | Aktarıcı parolası. **Sırdır**: log'a ve hata mesajına yazılmaz |
+| `KOALA_MAIL_FROM` | staging ve production'da `serve` için | — | Gönderen, RFC 5322 adresi (`Koala <no-reply@iskoala.com>`) |
+| `KOALA_WEB_BASE_URL` | staging ve production'da `serve` için | `local`/`test`'te `http://localhost:3000` | Postadaki bağlantıların açtığı web origin'i (`<origin>/hesap-dogrula?token=…`, `<origin>/sifre-sifirla?token=…`). `local` ve `test` dışında `https` |
+
+`KOALA_SMTP_*`, `KOALA_MAIL_FROM` ve `KOALA_WEB_BASE_URL` de yarım verilemez: biri verildiyse aktarıcı, gönderen ve web origin'i de verilir; kullanıcı adı ve parola birlikte verilir. `staging` ve `production`'da hiçbiri verilmemişse `serve` açılmaz, çünkü kayıt ve sıfırlama `202` döner ama hiçbir posta gitmez ve bunu hiçbir şey bildirmez (ADR-0032).
 
 `KOALA_OBJECT_*` değişkenleri **yarım verilemez**: biri verildiyse `KOALA_OBJECT_REGION`, `_BUCKET`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY` ve `_PUBLIC_BASE_URL` de verilmek zorundadır, her ortamda. `staging` ve `production`'da yükleme uçları canlı olduğu için bu beşi hiç verilmemişse de `serve` açılmaz; `local` ve `test` nesne deposu yapılandırılmadan koşar (ADR-0030 Karar 7).
 
@@ -173,6 +181,7 @@ Konteynerin durdurma süresi (`stop_grace_period`) `KOALA_SHUTDOWN_DRAIN_DELAY +
 - [ ] Production'da `KOALA_MIN_APP_VERSION`, staging ve production'da `KOALA_TRUSTED_PROXIES` (yoksa `serve` açılmaz) ve Prometheus'un `KOALA_METRICS_ADDR`'i iç ağdan kazıması.
 - [ ] Staging ve production'da `KOALA_JWT_MARKETPLACE_KEYS`, `KOALA_JWT_STAFF_KEYS` ve `KOALA_LOGIN_PEPPER` (biri yoksa `serve` açılmaz; `koala keygen` ile üretim ve rotasyon runbook'ta).
 - [ ] Staging ve production'da nesne deposu: `KOALA_OBJECT_REGION`, `KOALA_OBJECT_BUCKET`, `KOALA_OBJECT_ACCESS_KEY_ID`, `KOALA_OBJECT_SECRET_ACCESS_KEY` ve `KOALA_OBJECT_PUBLIC_BASE_URL` (biri yoksa `serve` açılmaz), **ve bucket'ta `incoming/` öneki için 1 günlük nesne yaşam döngüsü kuralı** (ADR-0030; tamamlanmayan yüklemeyi temizleyen şey o kuraldır, uygulama değil).
+- [ ] Staging ve production'da hesap postası: `KOALA_SMTP_HOST`, `KOALA_SMTP_USERNAME`, `KOALA_SMTP_PASSWORD`, `KOALA_MAIL_FROM` ve `KOALA_WEB_BASE_URL` (biri yoksa `serve` açılmaz; ADR-0032), ve gönderen alan adının SPF, DKIM ve DMARC kayıtları.
 - [ ] Faz 9'da `DOKPLOY_DEPLOY_WEBHOOK` sırrı (HTTPS alan adı) ve `DOKPLOY_DEPLOY_ENABLED` değişkeni.
 
 Elle build gerekirse (CI ya da sunucu ortamında):

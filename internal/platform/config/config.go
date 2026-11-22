@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/mail"
 	"net/netip"
 	"net/url"
 	"slices"
@@ -51,6 +52,15 @@ const (
 	VarObjectSecretKey      = "KOALA_OBJECT_SECRET_ACCESS_KEY" //nolint:gosec // G101: a variable name, not a credential
 	VarObjectPathStyle      = "KOALA_OBJECT_PATH_STYLE"
 	VarObjectPublicBaseURL  = "KOALA_OBJECT_PUBLIC_BASE_URL"
+	VarSMTPHost             = "KOALA_SMTP_HOST"
+	VarSMTPPort             = "KOALA_SMTP_PORT"
+	VarSMTPUsername         = "KOALA_SMTP_USERNAME"
+	// VarSMTPPassword is built from Prefix: it is a variable name, not a
+	// credential, and the expression keeps gosec's G101 from reading it as
+	// one.
+	VarSMTPPassword = Prefix + "SMTP_PASSWORD"
+	VarMailFrom     = "KOALA_MAIL_FROM"
+	VarWebBaseURL   = "KOALA_WEB_BASE_URL"
 )
 
 // known lists every variable Load understands. A KOALA_* variable outside
@@ -62,6 +72,7 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarJWTMarketplaceKeys, VarJWTStaffKeys, VarRealtimeOrigins, VarLoginPepper,
 	VarObjectEndpoint, VarObjectRegion, VarObjectBucket,
 	VarObjectAccessKeyID, VarObjectSecretKey, VarObjectPathStyle, VarObjectPublicBaseURL,
+	VarSMTPHost, VarSMTPPort, VarSMTPUsername, VarSMTPPassword, VarMailFrom, VarWebBaseURL,
 }
 
 // Variables returns every KOALA_* variable Load understands, in the
@@ -146,6 +157,31 @@ type Config struct {
 	// all empty; a partly configured store stops startup, and serve
 	// requires it outside local and test (ServeStorageErrors).
 	Object ObjectStore
+	// Mail is the SMTP relay the account mails go through and the web
+	// origin their links point at (ADR-0032). All empty is allowed in local
+	// and test, where mail is dropped; serve requires it elsewhere
+	// (ServeMailErrors).
+	Mail Mail
+}
+
+// Mail is the validated mail configuration. The password is a Secret.
+type Mail struct {
+	SMTPHost string
+	// SMTPPort is 0 when unset; the client then uses the submission port.
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword Secret
+	// From is the sender, an RFC 5322 address with an optional name.
+	From string
+	// WebBaseURL is the web origin of the links in mail
+	// (<origin>/hesap-dogrula, <origin>/sifre-sifirla).
+	WebBaseURL string
+}
+
+// Configured reports whether any mail variable was set.
+func (m Mail) Configured() bool {
+	return m.SMTPHost != "" || m.SMTPPort != 0 || m.SMTPUsername != "" || m.SMTPPassword != "" ||
+		m.From != "" || m.WebBaseURL != ""
 }
 
 // ObjectStore is the validated object store configuration. The secret is
@@ -295,6 +331,7 @@ func Load(environ []string) (Config, error) {
 	errs = append(errs, loadEdge(vars, &cfg)...)
 	errs = append(errs, loadAuth(vars, &cfg)...)
 	errs = append(errs, loadObjectStore(vars, &cfg)...)
+	errs = append(errs, loadMail(vars, &cfg)...)
 
 	if len(errs) > 0 {
 		slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
@@ -721,6 +758,80 @@ func (c Config) ServeStorageErrors() error {
 		if v == "" {
 			errs = append(errs, fmt.Errorf("%s: required once any %sOBJECT_* variable is set", name, Prefix))
 		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errors.Join(errs...)
+}
+
+// loadMail reads the mail variables (ADR-0032). Like the object store, a
+// value is only shape-checked here; ServeMailErrors decides whether serve
+// may start without it.
+func loadMail(vars map[string]string, cfg *Config) []error {
+	var errs []error
+	for name, dst := range map[string]*string{
+		VarSMTPHost: &cfg.Mail.SMTPHost, VarSMTPUsername: &cfg.Mail.SMTPUsername,
+		VarMailFrom: &cfg.Mail.From, VarWebBaseURL: &cfg.Mail.WebBaseURL,
+	} {
+		if v, ok := vars[name]; ok {
+			*dst = strings.TrimSpace(v)
+		}
+	}
+	if v, ok := vars[VarSMTPPassword]; ok {
+		cfg.Mail.SMTPPassword = Secret(v)
+	}
+	if v, ok := vars[VarSMTPPort]; ok {
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 || n > 65535 {
+			errs = append(errs, fmt.Errorf("%s: %w: port must be 1-65535", VarSMTPPort, errInvalidValue))
+		} else {
+			cfg.Mail.SMTPPort = n
+		}
+	}
+	if cfg.Mail.From != "" {
+		if _, err := mail.ParseAddress(cfg.Mail.From); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w: want an address such as Koala <no-reply@iskoala.com>", VarMailFrom, errInvalidValue))
+		}
+	}
+	if cfg.Mail.WebBaseURL != "" {
+		if err := validateObjectURL(cfg.Mail.WebBaseURL, cfg.Env != EnvLocal && cfg.Env != EnvTest); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", VarWebBaseURL, err))
+		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errs
+}
+
+// ServeMailErrors reports what serve needs of the mail configuration
+// (ADR-0032), fail closed like ServeStorageErrors: staging and production
+// need the relay, its credentials, the sender and the web origin, because
+// without them registration and password reset answer 202 and no mail
+// ever arrives, which nothing would report; a partly configured mail
+// setup is an error everywhere. local and test may run without one: the
+// mail is then dropped, and only its kind is logged.
+func (c Config) ServeMailErrors() error {
+	required := map[string]string{
+		VarSMTPHost: c.Mail.SMTPHost, VarMailFrom: c.Mail.From, VarWebBaseURL: c.Mail.WebBaseURL,
+	}
+	live := c.Env == EnvStaging || c.Env == EnvProduction
+	if live {
+		required[VarSMTPUsername] = c.Mail.SMTPUsername
+		required[VarSMTPPassword] = c.Mail.SMTPPassword.Reveal()
+	}
+	if !c.Mail.Configured() && !live {
+		return nil
+	}
+	var errs []error
+	for name, v := range required {
+		if v == "" {
+			if live {
+				errs = append(errs, fmt.Errorf("%s: required by serve in %s", name, c.Env))
+			} else {
+				errs = append(errs, fmt.Errorf("%s: required once any mail variable is set", name))
+			}
+		}
+	}
+	if !live && (c.Mail.SMTPUsername == "") != (c.Mail.SMTPPassword == "") {
+		errs = append(errs, fmt.Errorf("%s, %s: %w: set both or neither", VarSMTPUsername, VarSMTPPassword, errInvalidValue))
 	}
 	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
 	return errors.Join(errs...)
