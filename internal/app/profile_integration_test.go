@@ -279,8 +279,16 @@ func TestProfileContactChangeNeedsThePassword(t *testing.T) {
 		http.StatusForbidden, string(authn.CodeCurrentMismatch))
 	// Other fields need no password, locked or not.
 	wantStatus(t, a.patchProfile(t, tok, `{"firstName":"Yeni"}`), http.StatusOK, "")
+	// The lock ends; the access token of before has expired by then.
 	a.clock.Advance(authn.UserLockDuration)
-	wantStatus(t, a.patchProfile(t, tok, `{"phoneNumber":"+905321110003","currentPassword":"`+userPw+`"}`), http.StatusOK, "")
+	pair, err := a.mods.users.Login(t.Context(), authn.LoginInput{
+		Email: email, Password: userPw, DeviceKey: testDevice, Platform: string(httpx.PlatformIOS),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStatus(t, a.patchProfile(t, pair.AccessToken, `{"phoneNumber":"+905321110003","currentPassword":"`+userPw+`"}`),
+		http.StatusOK, "")
 }
 
 // The patch is no second door past a start's budget (ADR-0036): a number

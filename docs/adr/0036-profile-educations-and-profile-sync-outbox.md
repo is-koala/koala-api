@@ -150,6 +150,7 @@ ADR-0013, ADR-0014, ADR-0026, ADR-0029 ve ADR-0033'ün kararları başka yerde d
 - Medya, adres ve şirket PR'ları profil bağlarını getirmek zorundadır; tetik testi bunu zorlar (Karar 5).
 - Referans PR'ı tabloları tohumlar ve uçları açar; o gün `createMyEducation` gerçek kimliklerle çalışır.
 - Faz 6'nın göndericisi `user_profile_sync_intents`'i sahiplenir, yayımlar, saklama süresini getirir ve USR-023'ü bağlar.
+- `softdelete.LockActiveParent` ve `Deleter.Delete`'e ulaşan ilk handler'lar bunlar. Bağ denetimi (ADR-0032 Karar 1) platformun elle yazılmış iki sorgusunda `db.Querier`'ın gömülü pgx arayüzünden geçen `QueryRow(…).Scan` çağrısının tipini çözemiyor; `unresolvedCalls`'a gerekçeli iki muafiyet eklendi (pgx hatası döner, platform onu sarar ya da `ErrNotActive`'e çevirir; apperr kodu üretmez). Muafiyet, izleme onu artık gerektirmediği gün kırmızıdır.
 
 ## Açık sorular
 
