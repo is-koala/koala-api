@@ -25,6 +25,8 @@ const (
 	// CodeNotFound: no such media, or not the caller's; the two are one
 	// answer (ADR-0014).
 	CodeNotFound apperr.Code = "MEDIA_NOT_FOUND"
+	// CodeNotReady: a media that is not READY cannot be bound (Bind).
+	CodeNotReady apperr.Code = "MEDIA_NOT_READY"
 	// CodeTooLarge: the declared size is over the kind's limit at the
 	// start, or the object is over it at the completion (rejectionCode).
 	CodeTooLarge apperr.Code = "MEDIA_TOO_LARGE"
@@ -32,7 +34,8 @@ const (
 	CodeTypeUnsupported apperr.Code = "MEDIA_TYPE_UNSUPPORTED"
 	// CodeUploadIncomplete is a rejection's code (rejectionCode only).
 	CodeUploadIncomplete apperr.Code = "MEDIA_UPLOAD_INCOMPLETE"
-	// CodePendingLimit: the caller holds MaxOpenUploads unfinished uploads.
+	// CodePendingLimit: the caller holds MaxOpenUploads unfinished uploads
+	// (429 with Retry-After, ADR-0035 Karar 6).
 	CodePendingLimit apperr.Code = "MEDIA_UPLOAD_PENDING_LIMIT"
 	// CodeDailyLimit: the caller started DailyUploads uploads in the last
 	// UploadBudgetWindow.
@@ -45,7 +48,7 @@ const (
 // rejectionCode (Rejection.Code).
 func Codes() []apperr.Code {
 	return []apperr.Code{
-		CodeNotFound, CodeTooLarge, CodeTypeUnsupported, CodeUploadIncomplete,
+		CodeNotFound, CodeNotReady, CodeTooLarge, CodeTypeUnsupported, CodeUploadIncomplete,
 		CodePendingLimit, CodeDailyLimit,
 	}
 }

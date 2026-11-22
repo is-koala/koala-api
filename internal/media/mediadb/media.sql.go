@@ -12,6 +12,50 @@ import (
 	"github.com/google/uuid"
 )
 
+const activeObject = `-- name: ActiveObject :one
+SELECT status, object_key FROM active_media WHERE id = $1::uuid
+`
+
+type ActiveObjectRow struct {
+	Status    string
+	ObjectKey *string
+}
+
+// ActiveObject is the status and final key of the active row with the id,
+// if there is one: the object deletion job keeps what an active row
+// names.
+func (q *Queries) ActiveObject(ctx context.Context, id uuid.UUID) (ActiveObjectRow, error) {
+	row := q.db.QueryRow(ctx, activeObject, id)
+	var i ActiveObjectRow
+	err := row.Scan(&i.Status, &i.ObjectKey)
+	return i, err
+}
+
+const bindMedia = `-- name: BindMedia :one
+UPDATE active_media
+SET bound_at = COALESCE(bound_at, $1::timestamptz)
+WHERE id = $2::uuid AND owner_id = $3::uuid AND status = 'READY'
+RETURNING id
+`
+
+type BindMediaParams struct {
+	Now     time.Time
+	ID      uuid.UUID
+	OwnerID uuid.UUID
+}
+
+// BindMedia marks one of the owner's READY media bound, once; it is the
+// one writer of bound_at (ADR-0035 Karar 8). The update takes the row's
+// lock, which a concurrent soft deletion conflicts with, so it stands in
+// for softdelete.LockActiveParent. No row: the media is not the owner's,
+// not there, or not READY; media.Bind tells them apart.
+func (q *Queries) BindMedia(ctx context.Context, arg BindMediaParams) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, bindMedia, arg.Now, arg.ID, arg.OwnerID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const countOpenUploads = `-- name: CountOpenUploads :one
 SELECT count(*)
 FROM active_media
@@ -173,6 +217,74 @@ func (q *Queries) InsertUploadStart(ctx context.Context, arg InsertUploadStartPa
 	return err
 }
 
+const listSweepable = `-- name: ListSweepable :many
+SELECT id, kind, upload_key, created_at
+FROM active_media
+WHERE (created_at, id) > ($1::timestamptz, $2::uuid)
+    AND (
+        (status IN ('PENDING', 'REJECTED') AND created_at < $3::timestamptz
+            AND (completion_requested_at IS NULL OR completion_requested_at < $4::timestamptz))
+        OR (status = 'READY' AND bound_at IS NULL AND decided_at < $5::timestamptz))
+ORDER BY created_at, id
+LIMIT $6::integer
+`
+
+type ListSweepableParams struct {
+	AfterCreatedAt   time.Time
+	AfterID          uuid.UUID
+	UnfinishedBefore time.Time
+	RequestedBefore  time.Time
+	UnboundBefore    time.Time
+	Batch            int32
+}
+
+type ListSweepableRow struct {
+	ID        uuid.UUID
+	Kind      string
+	UploadKey string
+	CreatedAt time.Time
+}
+
+// ListSweepable pages, by (created_at, id) after the cursor, through the
+// media the sweep removes (ADR-0035 Karar 4 and 8):
+//   - an upload that did not end READY and was started before
+//     unfinished_before, unless its completion was asked for after
+//     requested_before (a job may be writing its object right now);
+//   - a READY media nothing bound, decided before unbound_before.
+//
+// No lock: retire locks and checks each row again.
+func (q *Queries) ListSweepable(ctx context.Context, arg ListSweepableParams) ([]ListSweepableRow, error) {
+	rows, err := q.db.Query(ctx, listSweepable,
+		arg.AfterCreatedAt,
+		arg.AfterID,
+		arg.UnfinishedBefore,
+		arg.RequestedBefore,
+		arg.UnboundBefore,
+		arg.Batch,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSweepableRow
+	for rows.Next() {
+		var i ListSweepableRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.UploadKey,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockMedia = `-- name: LockMedia :one
 SELECT id, owner_id, kind, status, upload_key, declared_size, created_at, completion_requested_at,
     decided_at, object_key, content_type, size_bytes, rejection
@@ -272,72 +384,37 @@ func (q *Queries) LockOwnMedia(ctx context.Context, arg LockOwnMediaParams) (Loc
 	return i, err
 }
 
-const lockUnfinished = `-- name: LockUnfinished :many
-SELECT id, owner_id, kind, status, upload_key, declared_size, created_at, completion_requested_at,
-    decided_at, object_key, content_type, size_bytes, rejection
+const lockSweepable = `-- name: LockSweepable :one
+SELECT status
 FROM active_media
-WHERE status IN ('PENDING', 'REJECTED') AND created_at < $1::timestamptz
-ORDER BY created_at
-LIMIT $2::integer
+WHERE id = $1::uuid
+    AND (
+        (status IN ('PENDING', 'REJECTED') AND created_at < $2::timestamptz
+            AND (completion_requested_at IS NULL OR completion_requested_at < $3::timestamptz))
+        OR (status = 'READY' AND bound_at IS NULL AND decided_at < $4::timestamptz))
 FOR UPDATE SKIP LOCKED
 `
 
-type LockUnfinishedParams struct {
-	Before time.Time
-	Batch  int32
+type LockSweepableParams struct {
+	ID               uuid.UUID
+	UnfinishedBefore time.Time
+	RequestedBefore  time.Time
+	UnboundBefore    time.Time
 }
 
-type LockUnfinishedRow struct {
-	ID                    uuid.UUID
-	OwnerID               uuid.UUID
-	Kind                  string
-	Status                string
-	UploadKey             string
-	DeclaredSize          int64
-	CreatedAt             time.Time
-	CompletionRequestedAt *time.Time
-	DecidedAt             *time.Time
-	ObjectKey             *string
-	ContentType           *string
-	SizeBytes             *int64
-	Rejection             *string
-}
-
-// LockUnfinished locks a batch of uploads that did not end READY and
-// were started before the bound, oldest first. A row another transaction
-// holds (the completion job deciding it) is skipped and seen next run.
-func (q *Queries) LockUnfinished(ctx context.Context, arg LockUnfinishedParams) ([]LockUnfinishedRow, error) {
-	rows, err := q.db.Query(ctx, lockUnfinished, arg.Before, arg.Batch)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []LockUnfinishedRow
-	for rows.Next() {
-		var i LockUnfinishedRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.OwnerID,
-			&i.Kind,
-			&i.Status,
-			&i.UploadKey,
-			&i.DeclaredSize,
-			&i.CreatedAt,
-			&i.CompletionRequestedAt,
-			&i.DecidedAt,
-			&i.ObjectKey,
-			&i.ContentType,
-			&i.SizeBytes,
-			&i.Rejection,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+// LockSweepable locks one media ListSweepable returned if it is still to
+// be swept; a row a completion holds is skipped (SKIP LOCKED) and seen
+// again next run.
+func (q *Queries) LockSweepable(ctx context.Context, arg LockSweepableParams) (string, error) {
+	row := q.db.QueryRow(ctx, lockSweepable,
+		arg.ID,
+		arg.UnfinishedBefore,
+		arg.RequestedBefore,
+		arg.UnboundBefore,
+	)
+	var status string
+	err := row.Scan(&status)
+	return status, err
 }
 
 const lockUploader = `-- name: LockUploader :exec
@@ -411,17 +488,21 @@ func (q *Queries) MarkRejected(ctx context.Context, arg MarkRejectedParams) (int
 	return result.RowsAffected(), nil
 }
 
-const mediaExists = `-- name: MediaExists :one
-SELECT EXISTS (SELECT FROM active_media WHERE id = $1::uuid)
+const oldestOpenUpload = `-- name: OldestOpenUpload :one
+SELECT created_at
+FROM active_media
+WHERE owner_id = $1::uuid AND status = 'PENDING'
+ORDER BY created_at
+LIMIT 1
 `
 
-// MediaExists reports whether an active row has the id: a restored row
-// keeps its objects.
-func (q *Queries) MediaExists(ctx context.Context, id uuid.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, mediaExists, id)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
+// OldestOpenUpload is when the owner's oldest PENDING upload started: the
+// sweep frees its place UploadRetention later at the latest.
+func (q *Queries) OldestOpenUpload(ctx context.Context, ownerID uuid.UUID) (time.Time, error) {
+	row := q.db.QueryRow(ctx, oldestOpenUpload, ownerID)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
 }
 
 const oldestUploadStart = `-- name: OldestUploadStart :one

@@ -125,7 +125,7 @@ func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.
 	}
 	client, err := jobs.NewClient(database.Pool(), jobs.Config{
 		Logger:  logger,
-		Queues:  map[string]river.QueueConfig{river.QueueDefault: {MaxWorkers: 2}},
+		Queues:  workerQueues(),
 		Workers: workers,
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(river.PeriodicInterval(authPurgeInterval),
@@ -145,6 +145,17 @@ func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.
 		return nil, fmt.Errorf("workers: %w", err)
 	}
 	return client, nil
+}
+
+// workerQueues are the River queues of serve: the default queue of the
+// mail, code and purge jobs, and the media queue, which keeps the
+// completion job's image decoding away from them (ADR-0035 Karar 2;
+// media.QueueWorkers says why one worker).
+func workerQueues() map[string]river.QueueConfig {
+	return map[string]river.QueueConfig{
+		river.QueueDefault: {MaxWorkers: 2},
+		media.Queue:        {MaxWorkers: media.QueueWorkers},
+	}
 }
 
 // Worker metrics (ADR-0025 §7). A start that keeps failing shows as

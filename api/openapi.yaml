@@ -2338,8 +2338,12 @@ paths:
 
         Bir kullanıcının aynı anda en çok on tamamlanmamış yüklemesi olur
         (`MEDIA_UPLOAD_PENDING_LIMIT`) ve son yirmi dört saatte en çok elli yükleme
-        başlatır (`MEDIA_UPLOAD_DAILY_LIMIT`, `Retry-After` ile). Silinen yükleme ikinci
-        sınırdan düşmez (ADR-0035 Karar 6).
+        başlatır (`MEDIA_UPLOAD_DAILY_LIMIT`); ikisi de `429` ve `Retry-After` ile döner.
+        Silinen yükleme ikinci sınırdan düşmez (ADR-0035 Karar 6).
+
+        Yanıt `Idempotency-Key` için saklanır. Yazma adresi on beş dakika yaşar: on beş
+        dakikadan sonra gelen tekrar aynı, artık ölü adresi döner ve istemci yeni bir
+        yükleme başlatır (ADR-0035 Karar 5).
       x-authz-exempt: |
         Yükleme çağıranın kendi medyasıdır; henüz var olmayan nesne yetkilendirilemez.
       x-rate-limit: upload
@@ -2500,8 +2504,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         default:

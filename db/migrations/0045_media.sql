@@ -14,7 +14,8 @@
 -- It is what makes every object the pipeline can leave behind reachable
 -- from a row: the final keys an id can have are its kind's prefix times
 -- the extensions the kind accepts, and the orphan sweep deletes the ones
--- the row does not name.
+-- the row does not name. media_object_key_check also ties the prefix to
+-- the kind and the extension to the detected type.
 --
 -- rejection is the pipeline's own reason (internal/media.Rejection), four
 -- values; the contract renders three codes and folds CORRUPT into
@@ -50,14 +51,47 @@ CREATE TABLE media (
     size_bytes bigint,
     -- REJECTED only.
     rejection text,
+    -- When a consuming resource (a profile, a CV slot, a company gallery,
+    -- an identity review) bound this READY media; NULL while nothing
+    -- refers to it. Written only by media.Bind, in the binding
+    -- transaction. A READY media unbound for seven days is swept
+    -- (ADR-0035 Karar 8).
+    bound_at timestamptz,
     CONSTRAINT media_kind_check CHECK (
         kind IN ('PROFILE_PICTURE', 'COMPANY_LOGO', 'COMPANY_IMAGE', 'IDENTITY_DOCUMENT', 'CV')),
     CONSTRAINT media_status_check CHECK (status IN ('PENDING', 'READY', 'REJECTED')),
     CONSTRAINT media_upload_key_check CHECK (
         upload_key ~ ('^incoming/' || id::text || '\.(jpg|png|pdf|doc|docx)$')),
+    -- The final key is the kind's prefix, the row's id and the detected
+    -- type's extension (internal/media.Kind.Prefix, ExtOf): the database
+    -- holds the same mapping, so a row cannot name another kind's prefix
+    -- or an extension its type does not have.
     CONSTRAINT media_object_key_check CHECK (
         object_key IS NULL
-        OR object_key ~ ('^(images|identity-documents|files)/' || id::text || '\.(jpg|png|pdf|doc|docx)$')),
+        OR object_key = (
+            CASE kind
+                WHEN 'PROFILE_PICTURE' THEN 'images/'
+                WHEN 'COMPANY_LOGO' THEN 'images/'
+                WHEN 'COMPANY_IMAGE' THEN 'images/'
+                WHEN 'IDENTITY_DOCUMENT' THEN 'identity-documents/'
+                WHEN 'CV' THEN 'files/'
+            END
+            || id::text || '.' ||
+            CASE content_type
+                WHEN 'image/jpeg' THEN 'jpg'
+                WHEN 'image/png' THEN 'png'
+                WHEN 'application/pdf' THEN 'pdf'
+                WHEN 'application/msword' THEN 'doc'
+                WHEN 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' THEN 'docx'
+            END)),
+    -- The types a kind accepts (internal/media.Kind.AllowedTypes).
+    CONSTRAINT media_content_type_check CHECK (
+        content_type IS NULL
+        OR (kind IN ('PROFILE_PICTURE', 'COMPANY_LOGO', 'COMPANY_IMAGE', 'IDENTITY_DOCUMENT')
+            AND content_type IN ('image/jpeg', 'image/png'))
+        OR (kind = 'CV' AND content_type IN ('application/pdf', 'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document'))),
+    CONSTRAINT media_bound_check CHECK (bound_at IS NULL OR status = 'READY'),
     CONSTRAINT media_declared_size_check CHECK (declared_size BETWEEN 1 AND 10485760),
     CONSTRAINT media_size_check CHECK (size_bytes IS NULL OR size_bytes >= 0),
     CONSTRAINT media_rejection_check CHECK (
@@ -88,9 +122,10 @@ GRANT SELECT, INSERT, UPDATE ON active_media TO koala_app;
 
 -- The owner's media: the cascade edge's index, the open-upload count.
 CREATE INDEX media_owner_created_idx ON media (owner_id, created_at);
--- The sweep: uploads that did not end READY, by age.
-CREATE INDEX media_unfinished_created_idx ON media (created_at)
-    WHERE status IN ('PENDING', 'REJECTED') AND deleted_at IS NULL;
+-- The sweep: uploads that did not end READY, and READY media nothing
+-- bound, by age.
+CREATE INDEX media_sweep_created_idx ON media (created_at, id)
+    WHERE deleted_at IS NULL AND (status <> 'READY' OR bound_at IS NULL);
 
 CREATE TABLE media_upload_starts (
     -- The started media's id; a start writes one row.

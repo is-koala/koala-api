@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
 
+	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/media/mediadb"
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/clock"
@@ -57,9 +58,9 @@ const UploadRetention = 24 * time.Hour
 // CV is less sensitive and is fetched from a phone.
 const DownloadTTL = 5 * time.Minute
 
-// sweepBatch is how many unfinished uploads one sweep transaction takes.
-// sweepBatches bounds a run, so a store that keeps failing cannot hold
-// the job forever; what is left is the next run's.
+// sweepBatch is how many media one page of the sweep lists; each is
+// retired in a transaction of its own. sweepBatches bounds a run; what is
+// left is the next run's.
 const (
 	sweepBatch   = 100
 	sweepBatches = 20
@@ -176,9 +177,16 @@ func (s *Service) Start(ctx context.Context, owner uuid.UUID, kind Kind, declare
 		// The caller is the parent (cascade edge): a concurrent deletion
 		// of the account either waits for this transaction and takes the
 		// new row with it, or has already marked the user. The second case
-		// is a deleted caller that authentication let through moments
-		// before; there is no code for it and it is answered 500.
-		if err := softdelete.LockActiveParent(ctx, q, "users", owner); err != nil {
+		// is a caller whose account was deleted after authentication let
+		// the request through. It gets the answer authentication gives the
+		// same caller one request later, 401 with the session code, and
+		// not a 404: the parent here is the caller itself, as for an
+		// x-resource-self read (ADR-0035 Karar 2; CLAUDE.md, ErrNotActive).
+		err := softdelete.LockActiveParent(ctx, q, "users", owner)
+		if errors.Is(err, softdelete.ErrNotActive) {
+			return apperr.Wrap(err, apperr.KindUnauthenticated, authn.CodeSessionInactive)
+		}
+		if err != nil {
 			return fmt.Errorf("media: lock the owner: %w", err)
 		}
 		open, err := mq.CountOpenUploads(ctx, owner)
@@ -186,7 +194,16 @@ func (s *Service) Start(ctx context.Context, owner uuid.UUID, kind Kind, declare
 			return fmt.Errorf("media: count open uploads: %w", err)
 		}
 		if open >= MaxOpenUploads {
-			return apperr.New(apperr.KindConflict, CodePendingLimit)
+			oldest, err := mq.OldestOpenUpload(ctx, owner)
+			if err != nil {
+				return fmt.Errorf("media: oldest open upload: %w", err)
+			}
+			// The place frees when an upload is completed or deleted, and
+			// at the latest when the sweep takes the oldest one.
+			return &budgetError{
+				err:  apperr.New(apperr.KindRateLimited, CodePendingLimit),
+				wait: oldest.Add(UploadRetention).Sub(now),
+			}
 		}
 		since := now.Add(-UploadBudgetWindow)
 		n, err := mq.CountUploadStarts(ctx, mediadb.CountUploadStartsParams{UserID: owner, Since: since})
@@ -227,8 +244,8 @@ func (s *Service) Start(ctx context.Context, owner uuid.UUID, kind Kind, declare
 	return started, nil
 }
 
-// budgetError is MEDIA_UPLOAD_DAILY_LIMIT with the wait its answer's
-// Retry-After carries.
+// budgetError is MEDIA_UPLOAD_PENDING_LIMIT or MEDIA_UPLOAD_DAILY_LIMIT
+// with the wait its answer's Retry-After carries.
 type budgetError struct {
 	err  *apperr.Error
 	wait time.Duration
@@ -298,7 +315,8 @@ func (s *Service) RequestCompletion(ctx context.Context, owner, id uuid.UUID) (M
 		if m, err = fromRow(row(requested)); err != nil {
 			return err
 		}
-		if _, err := s.queue.InsertTx(ctx, q.PgxTx(), completeArgs{Media: id}, nil); err != nil {
+		args := completeArgs{Media: id, MediaKind: string(m.Kind), UploadKey: m.UploadKey.String()}
+		if _, err := s.queue.InsertTx(ctx, q.PgxTx(), args, nil); err != nil {
 			return fmt.Errorf("media: queue the completion: %w", err)
 		}
 		return nil
@@ -328,11 +346,7 @@ func (s *Service) Delete(ctx context.Context, owner, id uuid.UUID) error {
 		}); err != nil {
 			return fmt.Errorf("media: soft-delete: %w", err)
 		}
-		args := deleteObjectsArgs{Media: id, MediaKind: r.Kind, UploadKey: r.UploadKey}
-		if _, err := s.queue.InsertTx(ctx, q.PgxTx(), args, nil); err != nil {
-			return fmt.Errorf("media: queue the deletion of the objects: %w", err)
-		}
-		return nil
+		return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey)
 	})
 	if err != nil {
 		return fmt.Errorf("media: delete media: %w", err)
@@ -387,4 +401,32 @@ func (s *Service) Address(ctx context.Context, m Media, download bool) (Address,
 	default:
 		return Address{}, nil
 	}
+}
+
+// Bind marks one of owner's READY media bound to a consuming resource,
+// in q's transaction -- the transaction that writes the consuming row
+// (ADR-0035 Karar 8). It is the one writer of media.bound_at: a READY
+// media that is never bound is swept UnboundRetention after it was
+// decided. The update locks the media row, which a concurrent deletion
+// of the media conflicts with, so a consumer needs no separate
+// softdelete.LockActiveParent for it. Binding twice keeps the first time.
+//
+// A media that is not owner's or is not there is MEDIA_NOT_FOUND; one
+// that is not READY is MEDIA_NOT_READY.
+func Bind(ctx context.Context, q db.Querier, now time.Time, owner, id uuid.UUID) error {
+	mq := queries(q)
+	_, err := mq.BindMedia(ctx, mediadb.BindMediaParams{Now: now, ID: id, OwnerID: owner})
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("media: bind: %w", err)
+	}
+	if _, err := mq.GetOwnMedia(ctx, mediadb.GetOwnMediaParams{ID: id, OwnerID: owner}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperr.New(apperr.KindNotFound, CodeNotFound)
+		}
+		return fmt.Errorf("media: bind: %w", err)
+	}
+	return apperr.New(apperr.KindConflict, CodeNotReady)
 }

@@ -37,6 +37,11 @@ func statusFreeCodes() map[string]string {
 		"REALTIME_COMMAND_INVALID": "the code of an error event, not of a response",
 		"REALTIME_RATE_LIMITED":    "the code of an error event, not of a response",
 		"CONVERSATION_NOT_FOUND":   "the code of an error event until Faz 4 gives it a REST route",
+		// A media rejection is the resource's rejectionCode, not a
+		// problem (ADR-0035 Karar 3). MEDIA_TOO_LARGE is both and keeps
+		// its status.
+		"MEDIA_UPLOAD_INCOMPLETE": "a Media.rejectionCode value, never a problem's code",
+		"MEDIA_TYPE_UNSUPPORTED":  "a Media.rejectionCode value, never a problem's code",
 	}
 }
 

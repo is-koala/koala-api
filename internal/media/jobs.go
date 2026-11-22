@@ -17,6 +17,22 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/storage"
 )
 
+// Queue is the River queue of the completion job (ADR-0035 Karar 2).
+// It is a queue of its own, apart from the default queue's mail and
+// verification code jobs: decoding a 50 megapixel image holds a CPU for
+// seconds and a raster of up to 200 MiB (RGBA), twice when an orientation
+// is applied, and a code job queued behind it would wait out a code's ten
+// minutes. QueueWorkers is its worker count per instance.
+const Queue = "media"
+
+// QueueWorkers is one per instance. The worst case of one completion is
+// about 400 MiB of rasters (the decoded image and its rotated copy at the
+// canvas limit), so one worker bounds the memory a burst of uploads can
+// take; a typical phone photo (12 megapixels) completes in well under a
+// second, so one worker still clears dozens a minute, and instances scale
+// it out. Raise it with the instance's memory, not before.
+const QueueWorkers = 1
+
 // Attempts of the media jobs (ADR-0035 Karar 2). River waits attempt⁴
 // seconds between attempts: eight attempts spend about two and a half
 // hours, well inside the 24 hours after which the sweep takes the upload
@@ -26,27 +42,43 @@ const (
 	deleteObjectsAttempts = 10
 )
 
-// completeArgs is the completion of one upload: the media's id and
-// nothing else, so the job reads the row as it stands when it runs.
+// SweepGrace keeps the sweep away from an upload whose completion was asked
+// for recently: its job may be writing the object right now. Past it the
+// job has either recorded the outcome or is retrying, and a retry that
+// finds its row gone deletes what it wrote (Complete).
+const SweepGrace = 15 * time.Minute
+
+// UnboundRetention is how long a READY media nothing bound is kept
+// (ADR-0035 Karar 8): a week for the client to attach what it uploaded.
+// Without it the bucket is free image hosting, and an identity photo
+// whose review was never submitted is kept for good.
+const UnboundRetention = 7 * 24 * time.Hour
+
+// completeArgs is the completion of one upload. The job reads the row as
+// it stands when it runs; the kind and the quarantine key travel along so
+// that a run that finds its row gone can still delete what an earlier run
+// of it wrote. It is unique by the media's id alone.
 type completeArgs struct {
-	Media uuid.UUID `json:"media"`
+	Media     uuid.UUID `json:"media" river:"unique"`
+	MediaKind string    `json:"kind"`
+	UploadKey string    `json:"upload_key"`
 }
 
 // Kind is the job kind in River's tables.
 func (completeArgs) Kind() string { return "media_complete" }
 
-// InsertOpts are the job's River options. The job is unique by its
-// arguments in River's default states (waiting, running, retrying and
-// completed): a second request to complete queues nothing while one job
-// waits or runs. A discarded or canceled job does not block a new one, so
-// the owner can try again after River gave up.
+// InsertOpts are the job's River options. The job runs on Queue. It is
+// unique by the media's id in River's default states (waiting, running,
+// retrying and completed): a second request to complete queues nothing
+// while one job waits or runs. A discarded or canceled job does not block
+// a new one, so the owner can try again after River gave up.
 func (completeArgs) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{MaxAttempts: completeAttempts, UniqueOpts: river.UniqueOpts{ByArgs: true}}
+	return river.InsertOpts{Queue: Queue, MaxAttempts: completeAttempts, UniqueOpts: river.UniqueOpts{ByArgs: true}}
 }
 
-// deleteObjectsArgs is the deletion of a deleted media's objects. It
-// carries the kind and the quarantine key because the row is no longer
-// readable through active_media when the job runs.
+// deleteObjectsArgs is the deletion of the objects a media id may have
+// left. It carries the kind and the quarantine key because the row may no
+// longer be readable when the job runs.
 type deleteObjectsArgs struct {
 	Media     uuid.UUID `json:"media"`
 	MediaKind string    `json:"kind"`
@@ -61,8 +93,9 @@ func (deleteObjectsArgs) InsertOpts() river.InsertOpts {
 	return river.InsertOpts{MaxAttempts: deleteObjectsAttempts}
 }
 
-// SweepArgs is the periodic sweep of unfinished uploads and of the budget
-// ledger (ADR-0035 Karar 4 and 6). internal/app schedules it.
+// SweepArgs is the periodic sweep of unfinished and unbound media and of
+// the budget ledger (ADR-0035 Karar 4, 6 and 8). internal/app schedules
+// it.
 type SweepArgs struct{}
 
 // Kind is the job kind in River's tables.
@@ -88,7 +121,8 @@ type completeWorker struct {
 }
 
 func (w *completeWorker) Work(ctx context.Context, job *river.Job[completeArgs]) error {
-	return w.service.Complete(ctx, job.Args.Media)
+	a := job.Args
+	return w.service.Complete(ctx, a.Media, Kind(a.MediaKind), a.UploadKey)
 }
 
 type deleteObjectsWorker struct {
@@ -112,51 +146,71 @@ func (w *sweepWorker) Work(ctx context.Context, _ *river.Job[SweepArgs]) error {
 	return err
 }
 
+// queueDeleteObjects queues the deletion of the objects of the media id
+// in q's transaction: a guaranteed side effect, committed with the
+// decision that makes the objects leftovers (CLAUDE.md, ADR-0010).
+func (s *Service) queueDeleteObjects(ctx context.Context, q db.Querier, id uuid.UUID, kind, uploadKey string) error {
+	args := deleteObjectsArgs{Media: id, MediaKind: kind, UploadKey: uploadKey}
+	if _, err := s.queue.InsertTx(ctx, q.PgxTx(), args, nil); err != nil {
+		return fmt.Errorf("media: queue the deletion of the objects: %w", err)
+	}
+	return nil
+}
+
 // Complete is the completion job (ADR-0029 Karar 6, ADR-0035 Karar 2):
-// validate, strip and move the quarantine object, then record the
-// outcome. The request that queued it answered 202; the owner reads the
-// outcome from the media.
+// validate, strip and write the quarantine object to its final key, then
+// record the outcome. The request that queued it answered 202; the owner
+// reads the outcome from the media.
 //
 // The flow is "decide, call out, record", with no transaction open
 // during the object store's calls (CLAUDE.md):
 //
 //  1. Under the row's lock the row must still be PENDING; otherwise the
-//     job has nothing to do (the owner deleted it, the sweep took it, an
-//     earlier run decided it). Pipeline.Complete is therefore only ever
-//     called for a PENDING row, which is its precondition (ADR-0030).
+//     job has nothing to complete (an earlier run decided it). Pipeline.
+//     Complete is therefore only ever called for a PENDING row, which is
+//     its precondition (ADR-0030). A row that is gone (the owner or the
+//     sweep deleted it) may still have an object an earlier run of this
+//     job wrote before its recording failed; the run deletes every object
+//     of the id, as its own retried work.
 //  2. Pipeline.Complete runs. A Rejection is a business outcome; an error
 //     is the store failing and is retried.
 //  3. Under the lock again the outcome is written, PENDING → READY or
-//     REJECTED, if the row is still PENDING.
+//     REJECTED, if the row is still PENDING, and in the same transaction
+//     the deletion of every object of the id that the row does not name
+//     is queued (the quarantine key, the id's other extensions, or, when
+//     the row is gone or was decided meanwhile, the object this run
+//     wrote): a guaranteed side effect, never a best-effort call.
 //
 // Error classes:
 //
 //   - permanent: a row that does not read (fromRow) cannot be completed by
-//     any retry; the job is canceled and the sweep takes the row;
+//     any retry; the job is canceled. The row stays PENDING until the
+//     sweep takes it after UploadRetention -- the sweep reads only the
+//     id, kind and keys as strings and the object job cancels on a key
+//     that does not parse, so such a row ends deleted with its objects
+//     left to the lifecycle rule and the log;
 //   - transient: the store or the database failed; River retries
 //     (completeAttempts). An object the pipeline already wrote is kept
 //     across the retry -- the next run finds it at its final key
 //     (Pipeline.finishedEarlier) instead of answering NOT_UPLOADED for an
 //     upload that happened.
 //
-// Objects (MED-006): when step 3 finds the row gone or decided, nothing
-// will ever name the object this run wrote, and it is deleted after the
-// commit (Discard, WriteFailed). When step 3's own transaction fails its
-// outcome may be unknown (ADR-0017), and the object is kept
-// (WriteIndeterminate); the retry records it or, after the last attempt,
-// the sweep deletes it. A READY outcome also deletes the row's other final
-// keys -- the same id under the extensions the kind accepts and the row
-// does not name -- which is the orphan sweep of the final prefixes
-// (ADR-0035 Karar 4).
-func (s *Service) Complete(ctx context.Context, id uuid.UUID) error {
+// When step 3's own transaction fails its outcome may be unknown
+// (ADR-0017), so the object is kept (WriteIndeterminate): the retry
+// either records it or, finding the row gone, deletes it (step 1).
+//
+// kind and uploadKey are the job's arguments, the row's at the time the
+// completion was asked for.
+func (s *Service) Complete(ctx context.Context, id uuid.UUID, kind Kind, uploadKey string) error {
 	if s.pipeline == nil {
 		return errNoObjectStore
 	}
 	var m Media
-	var pending bool
+	var pending, gone bool
 	err := s.db.InTx(ctx, func(ctx context.Context, q db.Querier) error {
 		r, err := queries(q).LockMedia(ctx, id)
 		if errors.Is(err, pgx.ErrNoRows) {
+			gone = true
 			return nil
 		}
 		if err != nil {
@@ -175,6 +229,9 @@ func (s *Service) Complete(ctx context.Context, id uuid.UUID) error {
 	if err != nil {
 		return fmt.Errorf("media: complete %s: %w", id, err)
 	}
+	if gone {
+		return s.DeleteObjects(ctx, id, kind, uploadKey)
+	}
 	if !pending {
 		return nil
 	}
@@ -184,24 +241,30 @@ func (s *Service) Complete(ctx context.Context, id uuid.UUID) error {
 		return fmt.Errorf("media: complete %s: %w", id, err)
 	}
 
-	var recorded, orphaned bool
 	err = s.db.InTx(ctx, func(ctx context.Context, q db.Querier) error {
 		mq := queries(q)
 		r, err := mq.LockMedia(ctx, id)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
-			orphaned = true
-			return nil
+			// Deleted meanwhile; the deletion's own job may have run before
+			// the object was written.
+			if done.Rejected() {
+				return nil
+			}
+			return s.queueDeleteObjects(ctx, q, id, string(m.Kind), m.UploadKey.String())
 		case err != nil:
 			return fmt.Errorf("media: lock media: %w", err)
 		}
 		from := Status(r.Status)
 		if from != StatusPending {
-			// Decided meanwhile: by the sweep (REJECTED) or, which the
-			// unique job rules out, by another run. An object at the key
-			// the row names is the row's and stays.
-			orphaned = r.ObjectKey == nil || *r.ObjectKey != done.Key.String()
-			return nil
+			// Decided meanwhile: the unique job rules out another run, so
+			// this is a row the sweep or a person took. Whatever this run
+			// wrote that the row does not name goes (DeleteObjects keeps
+			// the row's own object_key).
+			if done.Rejected() {
+				return nil
+			}
+			return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey)
 		}
 		now := s.clock.Now()
 		if done.Rejected() {
@@ -209,33 +272,29 @@ func (s *Service) Complete(ctx context.Context, id uuid.UUID) error {
 				return fmt.Errorf("media: %s cannot become %s", from, StatusRejected)
 			}
 			_, err = mq.MarkRejected(ctx, mediadb.MarkRejectedParams{Now: now, Rejection: string(done.Rejection), ID: id})
-		} else {
-			if !CanTransition(from, StatusReady) {
-				return fmt.Errorf("media: %s cannot become %s", from, StatusReady)
+			if err != nil {
+				return fmt.Errorf("media: record the outcome: %w", err)
 			}
-			_, err = mq.MarkReady(ctx, mediadb.MarkReadyParams{
-				Now: now, ObjectKey: done.Key.String(), ContentType: string(done.Type), SizeBytes: done.Size, ID: id,
-			})
+			return nil
 		}
+		if !CanTransition(from, StatusReady) {
+			return fmt.Errorf("media: %s cannot become %s", from, StatusReady)
+		}
+		_, err = mq.MarkReady(ctx, mediadb.MarkReadyParams{
+			Now: now, ObjectKey: done.Key.String(), ContentType: string(done.Type), SizeBytes: done.Size, ID: id,
+		})
 		if err != nil {
 			return fmt.Errorf("media: record the outcome: %w", err)
 		}
-		recorded = true
-		return nil
+		// The id's other extensions and the quarantine key are leftovers
+		// now; the job keeps the object_key just written.
+		return s.queueDeleteObjects(ctx, q, id, r.Kind, r.UploadKey)
 	})
 	if err != nil {
 		if !done.Rejected() {
 			s.pipeline.Discard(ctx, done.Key, WriteIndeterminate)
 		}
 		return fmt.Errorf("media: complete %s: %w", id, err)
-	}
-	switch {
-	case done.Rejected():
-		// The pipeline deleted the quarantine object; nothing was written.
-	case orphaned:
-		s.pipeline.Discard(ctx, done.Key, WriteFailed)
-	case recorded:
-		s.deleteSiblings(ctx, m, done.Key)
 	}
 	return nil
 }
@@ -264,69 +323,58 @@ func candidates(kind Kind, id uuid.UUID) ([]storage.Key, error) {
 	return out, nil
 }
 
-// deleteSiblings deletes the final keys of m that are not keep: objects
-// written for this id under another extension, which no row names. It is
-// best effort: a failure is logged and left (the object is unreachable
-// from any row, and the next completion of this id cannot happen).
-func (s *Service) deleteSiblings(ctx context.Context, m Media, keep storage.Key) {
-	keys, err := candidates(m.Kind, m.ID)
-	if err != nil {
-		s.logger.ErrorContext(ctx, "media sibling keys", slog.Any("error", err))
-		return
-	}
-	for _, key := range keys {
-		if key == keep {
-			continue
-		}
-		if err := s.store.Delete(ctx, key); err != nil {
-			s.logger.ErrorContext(ctx, "object left in the store after a failed cleanup",
-				slog.String("prefix", string(key.Prefix())), slog.String("id", key.ID().String()),
-				slog.Any("error", err))
-		}
-	}
-}
-
-// deleteAll deletes every object the media id of kind can have: its
-// candidate final keys and its quarantine key.
-func (s *Service) deleteAll(ctx context.Context, kind Kind, id uuid.UUID, upload storage.Key) error {
-	keys, err := candidates(kind, id)
-	if err != nil {
-		return err
-	}
-	if !upload.Zero() {
-		keys = append(keys, upload)
-	}
-	var errs []error
-	for _, key := range keys {
-		if err := s.store.Delete(ctx, key); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if err := errors.Join(errs...); err != nil {
-		return fmt.Errorf("media: delete objects: %w", err)
-	}
-	return nil
-}
-
-// DeleteObjects is the job a deletion queues (ADR-0035 Karar 7): it
-// deletes every object the media could have. A media that is active again
-// when the job runs (restored by staff in between) keeps its objects.
+// DeleteObjects deletes every object the media id of kind may have that
+// no active row names (ADR-0035 Karar 4 and 7): its candidate final keys
+// and its quarantine key. What it keeps depends on the active row with
+// the id, read when the job runs:
+//
+//   - none (deleted by its owner, by the sweep, with its account): all of
+//     them go;
+//   - READY: its object_key stays, the rest goes;
+//   - REJECTED: all of them go;
+//   - PENDING: nothing is touched -- the upload is still the completion's
+//     (a restored row, or a job queued for a row that came back).
+//
+// It is the job a deletion, a recorded completion and the sweep queue in
+// their transactions, and what a completion run does itself when it finds
+// its row gone. A failure is returned and River retries it.
 func (s *Service) DeleteObjects(ctx context.Context, id uuid.UUID, kind Kind, uploadKey string) error {
-	active, err := queries(s.db.Pool()).MediaExists(ctx, id)
-	if err != nil {
-		return fmt.Errorf("media: delete objects of %s: %w", id, err)
-	}
-	if active || s.store == nil {
+	if s.store == nil {
 		return nil
+	}
+	var keep string
+	active, err := queries(s.db.Pool()).ActiveObject(ctx, id)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return fmt.Errorf("media: delete objects of %s: %w", id, err)
+	case Status(active.Status) == StatusPending:
+		return nil
+	case active.ObjectKey != nil:
+		keep = *active.ObjectKey
 	}
 	upload, err := storage.ParseKey(uploadKey)
 	if err != nil {
 		return fmt.Errorf("media: delete objects of %s: %w", id, river.JobCancel(err))
 	}
-	if _, ok := kind.Prefix(); !ok {
-		return fmt.Errorf("media: delete objects of %s: %w", id, river.JobCancel(fmt.Errorf("unknown kind %q", kind)))
+	keys, err := candidates(kind, id)
+	if err != nil {
+		return fmt.Errorf("media: delete objects of %s: %w", id, river.JobCancel(err))
 	}
-	return s.deleteAll(ctx, kind, id, upload)
+	keys = append(keys, upload)
+	var errs []error
+	for _, key := range keys {
+		if key.String() == keep {
+			continue
+		}
+		if err := s.store.Delete(ctx, key); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return fmt.Errorf("media: delete objects of %s: %w", id, err)
+	}
+	return nil
 }
 
 // Swept is what one sweep removed.
@@ -334,31 +382,39 @@ type Swept struct {
 	// Expired counts the PENDING uploads the sweep rejected for want of a
 	// completion.
 	Expired int
-	// Deleted counts the unfinished uploads soft-deleted, with their
-	// objects.
+	// Deleted counts the media soft-deleted, unfinished and unbound
+	// together; each has its object deletion queued.
 	Deleted int
-	// Kept counts the uploads whose objects could not be deleted; they
-	// are taken again next run.
+	// Unbound counts the READY media among Deleted that nothing bound.
+	Unbound int
+	// Kept counts the media whose deletion failed; they are logged and
+	// left, and the sweep pages past them.
 	Kept int
 	// Starts counts the purged rows of the budget ledger.
 	Starts int64
 }
 
-// Sweep removes what unfinished uploads leave (ADR-0035 Karar 4; the
-// River side of ADR-0030's "incoming/ süpürme işi"):
+// sweepBounds are the moments a sweep compares against.
+type sweepBounds struct {
+	unfinished, requested, unbound time.Time
+}
+
+// Sweep removes the media nobody will complete or use (ADR-0035 Karar 4
+// and 8; the River side of ADR-0030's "incoming/ süpürme işi"):
 //
-//  1. Under row locks (SKIP LOCKED, so a running completion is not
-//     waited for) uploads older than UploadRetention that are PENDING or
-//     REJECTED are taken; the PENDING ones become REJECTED
-//     (NOT_UPLOADED). From then on no completion job records them, and a
-//     request to complete them queues nothing (the status gate).
-//  2. Outside any transaction every object the media could have is
-//     deleted: its candidate final keys and its quarantine key. The
-//     quarantine also expires by the bucket's lifecycle rule (ADR-0030,
-//     "Zorunlu ops adımı"); the final keys are what only this sweep
-//     covers -- a completion that wrote its object and never recorded it.
-//  3. The row is soft-deleted, as the system, for retention. A row whose
-//     objects could not be deleted stays REJECTED and is taken again.
+//   - an upload that did not end READY, older than UploadRetention, whose
+//     completion was not asked for within SweepGrace;
+//   - a READY media nothing bound, decided more than UnboundRetention ago.
+//
+// It pages through them by (created_at, id) and retires each in a
+// transaction of its own: the row is locked again (SKIP LOCKED, so a
+// running completion is not waited for), a PENDING one becomes REJECTED
+// (NOT_UPLOADED) so that no completion records it, the row is soft-deleted
+// as the system for retention, and the deletion of every object of its id
+// is queued in the same transaction. A media whose retirement fails (a
+// consuming row on a restrict edge, say) is logged and left, and the cursor
+// moves past it, so a run never stalls on it. The objects' deletion is a
+// retried job of its own and cannot stall the sweep either.
 //
 // The budget ledger's rows older than UploadBudgetWindow are purged too.
 func (s *Service) Sweep(ctx context.Context) (Swept, error) {
@@ -369,119 +425,92 @@ func (s *Service) Sweep(ctx context.Context) (Swept, error) {
 		return out, fmt.Errorf("media: purge upload starts: %w", err)
 	}
 	out.Starts = n
-	seen := map[uuid.UUID]bool{}
+	b := sweepBounds{
+		unfinished: now.Add(-UploadRetention),
+		requested:  now.Add(-SweepGrace),
+		unbound:    now.Add(-UnboundRetention),
+	}
+	var afterAt time.Time
+	var afterID uuid.UUID
 	for range sweepBatches {
-		taken, expired, err := s.takeUnfinished(ctx, now.Add(-UploadRetention), seen)
+		rows, err := queries(s.db.Pool()).ListSweepable(ctx, mediadb.ListSweepableParams{
+			AfterCreatedAt: afterAt, AfterID: afterID,
+			UnfinishedBefore: b.unfinished, RequestedBefore: b.requested, UnboundBefore: b.unbound,
+			Batch: sweepBatch,
+		})
 		if err != nil {
-			return out, err
+			return out, fmt.Errorf("media: list sweepable media: %w", err)
 		}
-		out.Expired += expired
-		for i := range taken {
-			m := &taken[i]
-			seen[m.ID] = true
-			if s.store != nil {
-				if err := s.deleteAll(ctx, m.Kind, m.ID, m.UploadKey); err != nil {
-					s.logger.WarnContext(ctx, "unfinished upload kept: its objects could not be deleted",
-						slog.String("id", m.ID.String()), slog.Any("error", err))
-					out.Kept++
-					continue
-				}
-			}
-			deleted, err := s.retire(ctx, m.ID, now)
+		for i := range rows {
+			r := &rows[i]
+			afterAt, afterID = r.CreatedAt, r.ID
+			status, err := s.retire(ctx, r, b, now)
 			if err != nil {
-				return out, err
+				s.logger.WarnContext(ctx, "media kept by the sweep: its retirement failed",
+					slog.String("id", r.ID.String()), slog.Any("error", err))
+				out.Kept++
+				continue
 			}
-			if deleted {
+			switch status {
+			case "":
+			case StatusPending:
+				out.Expired++
+				out.Deleted++
+			case StatusReady:
+				out.Unbound++
+				out.Deleted++
+			case StatusRejected:
 				out.Deleted++
 			}
 		}
-		if len(taken) < sweepBatch {
+		if len(rows) < sweepBatch {
 			break
 		}
 	}
 	s.logger.InfoContext(ctx, "media sweep",
-		slog.Int("expired", out.Expired), slog.Int("deleted", out.Deleted),
+		slog.Int("expired", out.Expired), slog.Int("deleted", out.Deleted), slog.Int("unbound", out.Unbound),
 		slog.Int("kept", out.Kept), slog.Int64("upload_starts", out.Starts))
 	return out, nil
 }
 
-// takeUnfinished is step 1 of Sweep: it rejects the expired PENDING rows
-// of one batch and returns the batch, without the rows seen earlier in
-// this run.
-func (s *Service) takeUnfinished(ctx context.Context, before time.Time, seen map[uuid.UUID]bool) ([]Media, int, error) {
-	var taken []Media
-	expired := 0
+// retire retires one media of the sweep and returns the status it had,
+// or "" when it no longer qualifies (completed, bound, deleted or held by
+// a completion meanwhile).
+func (s *Service) retire(ctx context.Context, r *mediadb.ListSweepableRow, b sweepBounds, now time.Time) (Status, error) {
+	var was Status
 	err := s.db.InTx(ctx, func(ctx context.Context, q db.Querier) error {
 		mq := queries(q)
-		rows, err := mq.LockUnfinished(ctx, mediadb.LockUnfinishedParams{Before: before, Batch: sweepBatch})
-		if err != nil {
-			return fmt.Errorf("media: lock unfinished uploads: %w", err)
-		}
-		now := s.clock.Now()
-		for i := range rows {
-			r := &rows[i]
-			if seen[r.ID] {
-				continue
-			}
-			m, err := fromRow(row(*r))
-			if err != nil {
-				// Unreachable under the table's CHECKs; a row that does not
-				// read is left for a person rather than stopping the sweep.
-				s.logger.ErrorContext(ctx, "unfinished upload skipped: the row does not read",
-					slog.String("id", r.ID.String()), slog.Any("error", err))
-				continue
-			}
-			if m.Status == StatusPending {
-				if !CanTransition(m.Status, StatusRejected) {
-					return fmt.Errorf("media: %s cannot become %s", m.Status, StatusRejected)
-				}
-				_, err := mq.MarkRejected(ctx, mediadb.MarkRejectedParams{
-					Now: now, Rejection: string(RejectionNotUploaded), ID: m.ID,
-				})
-				if err != nil {
-					return fmt.Errorf("media: expire upload: %w", err)
-				}
-				m.Status, m.Rejection = StatusRejected, RejectionNotUploaded
-				expired++
-			}
-			taken = append(taken, m)
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, 0, fmt.Errorf("media: sweep: %w", err)
-	}
-	return taken, expired, nil
-}
-
-// retire is step 3 of Sweep: soft-delete the row if it is still a
-// REJECTED one.
-func (s *Service) retire(ctx context.Context, id uuid.UUID, now time.Time) (bool, error) {
-	deleted := false
-	err := s.db.InTx(ctx, func(ctx context.Context, q db.Querier) error {
-		r, err := queries(q).LockMedia(ctx, id)
+		status, err := mq.LockSweepable(ctx, mediadb.LockSweepableParams{
+			ID: r.ID, UnfinishedBefore: b.unfinished, RequestedBefore: b.requested, UnboundBefore: b.unbound,
+		})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("media: lock media: %w", err)
+			return fmt.Errorf("media: lock sweepable media: %w", err)
 		}
-		if Status(r.Status) != StatusRejected {
-			return nil
+		was = Status(status)
+		if was == StatusPending {
+			if !CanTransition(was, StatusRejected) {
+				return fmt.Errorf("media: %s cannot become %s", was, StatusRejected)
+			}
+			if _, err := mq.MarkRejected(ctx, mediadb.MarkRejectedParams{
+				Now: now, Rejection: string(RejectionNotUploaded), ID: r.ID,
+			}); err != nil {
+				return fmt.Errorf("media: expire upload: %w", err)
+			}
 		}
-		_, err = s.deleter.Delete(ctx, q, softdelete.DeleteRequest{
-			Table: tableMedia, ID: id,
+		if _, err := s.deleter.Delete(ctx, q, softdelete.DeleteRequest{
+			Table: tableMedia, ID: r.ID,
 			Actor:  softdelete.Actor{Kind: softdelete.ActorSystem},
 			Reason: softdelete.ReasonRetention, At: now,
-		})
-		if err != nil {
-			return fmt.Errorf("media: retire upload: %w", err)
+		}); err != nil {
+			return fmt.Errorf("media: retire media: %w", err)
 		}
-		deleted = true
-		return nil
+		return s.queueDeleteObjects(ctx, q, r.ID, r.Kind, r.UploadKey)
 	})
 	if err != nil {
-		return false, fmt.Errorf("media: sweep: %w", err)
+		return "", fmt.Errorf("media: sweep %s: %w", r.ID, err)
 	}
-	return deleted, nil
+	return was, nil
 }
