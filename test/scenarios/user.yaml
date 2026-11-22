@@ -179,15 +179,15 @@ scenarios:
     error: VERIFICATION_CODE_EXPIRED
     decision: "Java hatası (kod düz metin saklanıyor; uzay baştaki sıfırı dışlıyor; ömür on beş dakika)"
     target: >
-      Kod SHA-256 özeti olarak saklanır, uzay 000000-999999'dur ve ömür on dakikadır
-      (NIST SP 800-63B; ADR-0029 Karar 3). Java kodu düz metin saklıyor ve 100000-999999 üretiyor.
+      Kod anahtarlı özet (HMAC-SHA256) olarak saklanır, uzay 000000-999999'dur ve ömür on
+      dakikadır (NIST SP 800-63B; ADR-0029 Karar 3, ADR-0033 Karar 1). Java kodu düz metin saklıyor ve 100000-999999 üretiyor.
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/EmailVerificationManager.java#startEmailVerification"
       - "src/main/java/com/exskylab/koala/business/concretes/PhoneVerificationManager.java#startPhoneVerification"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/authn.TestVerificationCodeIsDigestedAndLivesTenMinutes
+      - internal/authn.TestCodeUsesTheWholeSpace
+      - internal/authn.TestCodeDigestIsKeyed
 
   - id: USR-009
     priority: P0
@@ -212,10 +212,9 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/UserVerificationManager.java#verify"
       - "src/main/java/com/exskylab/koala/entities/UserVerification.java:1-60"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/authn.TestVerificationBurnsAfterFiveWrongCodes
+      - internal/authn.TestAttemptLimitHoldsUnderConcurrency
 
   - id: USR-010
     priority: P0
@@ -241,10 +240,9 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/PhoneVerificationManager.java#startPhoneVerification"
       - "src/main/java/com/exskylab/koala/business/concretes/EmailVerificationManager.java#startEmailVerification"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/authn.TestOneOpenVerificationPerTarget
+      - internal/app.TestVerificationOperationsOverHTTP
 
   - id: USR-011
     priority: P0
@@ -268,10 +266,9 @@ scenarios:
       hatası döndürüyor ve böylece başkasının doğrulama kimliğinin varlığını açığa veriyor.
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/UserVerificationManager.java#verify"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/authn.TestAnotherUsersVerificationIsNotFound
+      - internal/app.TestVerificationRefusalsDoNotTellApart
 
   - id: USR-012
     priority: P0
@@ -294,10 +291,9 @@ scenarios:
       hata alıyor.
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/UserVerificationManager.java#verify"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/authn.TestExpiryComesBeforeTheCode
+      - internal/app.TestVerificationRefusalsDoNotTellApart
 
   - id: USR-013
     priority: P0
@@ -320,10 +316,8 @@ scenarios:
       yanlış kodu da başarıyla karşılıyor.
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/UserVerificationManager.java#verify"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; doğrulama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/authn.TestConfirmConsumesTheVerification
 
   - id: USR-014
     priority: P0

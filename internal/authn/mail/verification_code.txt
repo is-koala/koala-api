@@ -1,0 +1,12 @@
+{{define "verification_code.subject"}}Koala doğrulama kodun{{end}}
+{{define "verification_code.text"}}
+Merhaba,
+
+Koala hesabına bu adresi eklemek için doğrulama kodun:
+
+{{.Code}}
+
+Kod 10 dakika geçerlidir. Kodu kimseyle paylaşma; Koala çalışanları kodu hiçbir zaman sormaz.
+
+Bu isteği sen yapmadıysan bu e-postayı yok sayabilirsin; hiçbir hesap değişmez.
+{{end}}

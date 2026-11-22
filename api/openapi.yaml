@@ -1027,19 +1027,17 @@ paths:
   /v1/me/verifications:
     get:
       operationId: listMyVerifications
-      x-error-codes: []
+      x-error-codes: [CURSOR_INVALID]
       tags: [users]
       summary: Çağıranın açık doğrulamalarını listeler.
       description: |
-        Onaylanmamış, süresi dolmamış ve yakılmamış doğrulamalar, yeniden eskiye. Kod
-        hiçbir yanıtta dönmez; yalnız kanal, hedefin maskeli hâli, kalan deneme ve bitiş
-        anı döner.
+        Onaylanmamış, süresi dolmamış, iptal edilmemiş ve yakılmamış doğrulamalar, yeniden
+        eskiye. Kod hiçbir yanıtta dönmez; yalnız kanal, hedefin maskeli hâli, kalan deneme
+        ve bitiş anı döner. Bozuk ya da başka bir sorguya ait cursor `CURSOR_INVALID` alır
+        (ADR-0033).
       x-authz-exempt: |
         Liste çağıranın kendi doğrulamalarıyla sınırlıdır; seçilecek başka bir nesne yoktur.
       x-resource: user_verifications
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - $ref: "./components/pagination.yaml#/components/parameters/Limit"
         - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
@@ -1060,7 +1058,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: startMyVerification
-      x-error-codes: [VERIFICATION_TARGET_IN_USE, VERIFICATION_RESEND_TOO_SOON]
+      x-error-codes: [PASSWORD_MISMATCH, VERIFICATION_RESEND_TOO_SOON]
       tags: [users]
       summary: Yeni bir e-posta ya da telefon için doğrulama başlatır.
       description: |
@@ -1068,14 +1066,25 @@ paths:
         dakika yaşar (USR-008). En çok beş yanlış deneme kabul edilir; dolunca doğrulama
         yakılır (USR-009). Kanal ve hedef başına tek açık doğrulama vardır: yeni istek
         öncekini iptal eder, yeniden göndermenin bekleme süresi ve hedef başına saatlik
-        bütçesi vardır (USR-010).
+        bütçesi vardır (USR-010); kullanıcının kanal başına günlük bir gönderim tavanı da
+        vardır. Üçü de `VERIFICATION_RESEND_TOO_SOON` ve `Retry-After` döner.
+
+        Çağıran mevcut parolasını yeniden girer (`currentPassword`; OWASP ASVS 4.0.3
+        V3.7.1): çalınmış bir oturum hesabın adresini ya da numarasını değiştirip
+        ardından parolayı sıfırlayamaz. Yanlış parola `PASSWORD_MISMATCH` (403) alır ve
+        uygulama içi parola değişimi gibi hesabın giriş kilidine sayılır (ADR-0033).
+
+        Yanıt hedefin başka bir hesapta olup olmadığını söylemez: o bilgi yalnız kodu
+        doğru giren, yani hedefin sahibi olduğunu kanıtlayan çağırana onayda döner
+        (`VERIFICATION_TARGET_IN_USE`; ADR-0033). Telefon numarası E.164'e çevrilir
+        (`+90`, baştaki `0`, boşluk ve tire kabul edilir); bugün yalnız Türkiye cep
+        numaraları (`+905…`) kabul edilir, diğerleri `REQUEST_INVALID` alır. Kod istekte
+        değil, gönderim işinde üretilir. `409` yanıtı sözleşmede durur ama bugün hiçbir
+        durumda dönmez.
       x-authz-exempt: |
         Doğrulama çağıranın kendi adresi ya da numarası için başlatılır; seçilecek başka bir nesne yoktur.
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Kanal ve hedef başına tek açık doğrulama vardır; tekrar eden istek yalnız öncekini iptal edip yenisini açar.
       requestBody:
         description: Doğrulanacak kanal ve hedef.
@@ -1101,6 +1110,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "409":
           $ref: "#/components/responses/Conflict"
         "413":
@@ -1127,14 +1138,11 @@ paths:
       tags: [users]
       summary: Çağıranın doğrulamalarından birini döndürür.
       description: |
-        Başkasına ait, yakılmış ve hiç olmamış doğrulama aynı `VERIFICATION_NOT_FOUND`
-        gövdesini alır (USR-011). Kod dönmez.
+        Başkasına ait, yakılmış, iptal edilmiş ve hiç olmamış doğrulama aynı
+        `VERIFICATION_NOT_FOUND` gövdesini alır (USR-011). Kod dönmez.
       x-authz-exempt: |
         Arama çağıranın kendi doğrulamalarıyla sınırlıdır; başkasınınki yok sayılır.
       x-resource: user_verifications
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Doğrulama.
@@ -1158,13 +1166,11 @@ paths:
       tags: [users]
       summary: Çağıranın açık doğrulamasını iptal eder.
       description: |
-        Doğrulama iptal edilir ve kodu geçersizleşir. Başkasına ait ve hiç olmamış
-        doğrulama aynı 404'ü alır ve hiçbir şey değişmez (USR-011).
+        Doğrulama iptal edilir ve kodu geçersizleşir. Başkasına ait, yakılmış, zaten iptal
+        edilmiş ve hiç olmamış doğrulama aynı 404'ü alır ve hiçbir şey değişmez (USR-011).
+        Onaylanmış doğrulamanın iptali bir şey değiştirmez: yazılan değer yerinde kalır.
       x-authz-exempt: |
         İptal çağıranın kendi doğrulamalarıyla sınırlıdır; başkasınınki yok sayılır.
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "204":
           description: Doğrulama iptal edildi.
@@ -1200,14 +1206,17 @@ paths:
         gizlenmiş 404 alır (USR-011); süresi dolmuş doğrulamada doğru ve yanlış kod aynı
         gövdeyi alır, böylece kod doğruluğu sızmaz (USR-012). Başarı doğrulamayı tüketir:
         özet silinir ve ikinci onay `VERIFICATION_ALREADY_CONFIRMED` alır (USR-013).
-        Onaydan sonra yeni e-posta ya da telefon profile yazılır ve doğrulanmış işaretlenir.
+        Onaydan sonra yeni e-posta ya da telefon profile yazılır ve doğrulanmış işaretlenir
+        (USR-014). E-posta adresi başka bir hesaptaysa `VERIFICATION_TARGET_IN_USE` döner ve
+        hiçbir şey yazılmaz; bu bilgi yalnız doğru kodu girene döner. Telefon numarası
+        başka bir hesaptaysa numara onaylayana geçer ve eski hesaptan kaldırılır (geri
+        dönüştürülmüş numara; ADR-0033).
+        İptal edilmiş doğrulama hiç olmamış gibi 404 alır. Değişiklik eski adrese (telefonda
+        hesabın adresine) postayla bildirilir.
       x-authz-exempt: |
         Onay çağıranın kendi doğrulamalarıyla sınırlıdır; başkasınınki yok sayılır.
       x-rate-limit: auth
       x-body-limit: 4096
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       x-no-idempotency-key: Onay doğrulamayı tüketir; aynı gövdenin tekrarı çakışma yanıtı alır.
       requestBody:
         description: Doğrulama kodu.
@@ -4474,7 +4483,9 @@ components:
       type: string
       description: |
         Doğrulamanın durumu. `BURNED` deneme sınırı dolduğu için yakılmış doğrulamadır:
-        doğru kodla bile onaylanamaz (USR-009).
+        doğru kodla bile onaylanamaz (USR-009). `BURNED` ve `CANCELLED` bugün hiçbir
+        yanıtta dönmez: yakılmış ve iptal edilmiş doğrulama yok sayılır (404), liste
+        yalnız açık doğrulamaları gösterir (ADR-0033).
       enum: [PENDING, CONFIRMED, EXPIRED, BURNED, CANCELLED]
 
     StartVerificationRequest:
@@ -4483,7 +4494,7 @@ components:
         Doğrulanacak kanal ve hedef. Kanal ve hedef başına tek açık doğrulama vardır: yeni
         istek öncekini iptal eder (USR-010).
       additionalProperties: false
-      required: [channel, target]
+      required: [channel, target, currentPassword]
       properties:
         channel:
           $ref: "#/components/schemas/VerificationChannel"
@@ -4493,6 +4504,15 @@ components:
           maxLength: 254
           description: Doğrulanacak yeni e-posta adresi ya da telefon numarası.
           examples: [ayse.yeni@example.com]
+        currentPassword:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: |
+            Çağıranın mevcut parolası; hassas iletişim bilgisi değişikliği yeniden kimlik
+            doğrulaması ister (ADR-0033). Parolası olmayan hesap önce sıfırlamayla parola
+            belirler.
+          examples: [eski parola cümlesi]
 
     ConfirmVerificationRequest:
       type: object

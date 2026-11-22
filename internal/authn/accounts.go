@@ -29,7 +29,8 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
-// mailTemplates are the account mails (ADR-0032).
+// mailTemplates are the account mails (ADR-0032) and the verification
+// mails (ADR-0033).
 //
 //go:embed mail/*.txt mail/*.html
 var mailTemplates embed.FS
@@ -92,7 +93,7 @@ func NewAccounts(users *Service, queue jobQueue, sender mailSender, webBaseURL s
 	if err != nil || (web.Scheme != "https" && web.Scheme != "http") || web.Host == "" {
 		return nil, errors.New("authn: the web base URL must be an absolute http or https URL")
 	}
-	mails, err := parseMailTemplates()
+	mails, err := parseMailTemplates(mailRegistrationLink, mailResetLink, mailChanged, mailWelcome)
 	if err != nil {
 		return nil, err
 	}
@@ -103,9 +104,9 @@ func NewAccounts(users *Service, queue jobQueue, sender mailSender, webBaseURL s
 	return &Accounts{users: users, queue: queue, sender: sender, mails: mails, web: web, registrationsPerHour: limit}, nil
 }
 
-// parseMailTemplates reads the account mails and checks that each has its
-// subject, text and HTML.
-func parseMailTemplates() (*mailer.Templates, error) {
+// parseMailTemplates reads the module's mails and checks that each of
+// names has its subject, text and HTML.
+func parseMailTemplates(names ...string) (*mailer.Templates, error) {
 	sub, err := fs.Sub(mailTemplates, "mail")
 	if err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
@@ -114,7 +115,7 @@ func parseMailTemplates() (*mailer.Templates, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
 	}
-	if err := mails.Check(mailRegistrationLink, mailResetLink, mailChanged, mailWelcome); err != nil {
+	if err := mails.Check(names...); err != nil {
 		return nil, fmt.Errorf("authn: mail templates: %w", err)
 	}
 	return mails, nil
@@ -551,7 +552,7 @@ func (a *Accounts) CompletePasswordReset(ctx context.Context, in PasswordResetCo
 	}
 	digest := hashOpaque(in.Token)
 	now := a.users.clock.Now()
-	_, err := a.users.reads.PeekPasswordReset(ctx, authndb.PeekPasswordResetParams{TokenDigest: digest, Now: now})
+	userID, err := a.users.reads.PeekPasswordReset(ctx, authndb.PeekPasswordResetParams{TokenDigest: digest, Now: now})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return invalid
 	}
@@ -565,22 +566,24 @@ func (a *Accounts) CompletePasswordReset(ctx context.Context, in PasswordResetCo
 	var outcome error
 	err = a.users.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := authndb.New(tx)
-		userID, err := q.ConsumePasswordReset(ctx, authndb.ConsumePasswordResetParams{Now: now, TokenDigest: digest})
-		if errors.Is(err, pgx.ErrNoRows) {
+		// The user's row first, then the token's: every path that locks
+		// both takes them in this order (ADR-0033 Karar 5).
+		u, err := q.LockUserForSignIn(ctx, userID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && u.Status != UserActive) {
+			// Deleted or suspended after the request: nothing to reset.
 			outcome = invalid
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("authn: consume the reset token: %w", err)
+			return fmt.Errorf("authn: lock user: %w", err)
 		}
-		u, err := q.LockUserForSignIn(ctx, userID)
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && u.Status != UserActive) {
-			// Deleted or suspended after the request: nothing to reset.
-			// The error rolls the consumption back.
-			return invalid
+		consumed, err := q.ConsumePasswordReset(ctx, authndb.ConsumePasswordResetParams{Now: now, TokenDigest: digest})
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && consumed != userID) {
+			outcome = invalid // used, revoked or expired since the look-up
+			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("authn: lock user: %w", err)
+			return fmt.Errorf("authn: consume the reset token: %w", err)
 		}
 		if err := a.writePassword(ctx, tx, q, userID, hash, reasonReset, uuid.Nil, now); err != nil {
 			return err
@@ -633,32 +636,11 @@ func (a *Accounts) ChangePassword(ctx context.Context, p UserPrincipal, in Passw
 	}
 	mismatch := apperr.New(apperr.KindForbidden, CodeCurrentMismatch)
 	gone := apperr.New(apperr.KindUnauthenticated, CodeSessionInactive)
-	cur, err := a.users.reads.GetUserPassword(ctx, p.UserID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return gone
-	}
+	cur, target, err := a.users.confirmPassword(ctx, p.UserID, in.Current)
 	if err != nil {
-		return fmt.Errorf("authn: load password: %w", err)
+		return err
 	}
 	now := a.users.clock.Now()
-	target := a.users.targets.of(cur.Email)
-	failures, locked, err := a.users.lockState(ctx, target, now)
-	if err != nil {
-		return err
-	}
-	ok, err := a.verifyCurrent(ctx, cur.PasswordHash, in.Current, locked)
-	if err != nil {
-		return err
-	}
-	if locked {
-		if err := insertAttempt(ctx, a.users.reads, principalUser, target, outcomeLocked, now); err != nil {
-			return err
-		}
-		return mismatch
-	}
-	if !ok {
-		return a.users.fail(ctx, target, failures, now, mismatch)
-	}
 	hash, err := a.users.passwords.Hash(ctx, in.New)
 	if err != nil {
 		return fmt.Errorf("authn: hash password: %w", err)
@@ -695,20 +677,62 @@ func (a *Accounts) ChangePassword(ctx context.Context, p UserPrincipal, in Passw
 	return outcome
 }
 
+// confirmPassword checks a signed-in user's current password before a
+// sensitive change: an in-app password change (ADR-0032 Karar 7) and an
+// e-mail or phone verification (ADR-0033 Karar 1b, OWASP ASVS 4.0.3
+// V3.7.1). It returns the stored row and the account's sign-in target. A
+// wrong password counts on that target like a wrong password at sign-in,
+// and while the target is locked the password is refused unexamined
+// (checked against a decoy, the same cost): a stolen session cannot guess
+// the password here without limit. An account without a password is
+// checked against the dummy hash and always refused; it sets one with a
+// reset first. The caller records the SUCCEEDED attempt in the
+// transaction that makes the change.
+func (s *Service) confirmPassword(ctx context.Context, userID uuid.UUID, current string) (authndb.GetUserPasswordRow, []byte, error) {
+	mismatch := apperr.New(apperr.KindForbidden, CodeCurrentMismatch)
+	cur, err := s.reads.GetUserPassword(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return cur, nil, apperr.New(apperr.KindUnauthenticated, CodeSessionInactive)
+	}
+	if err != nil {
+		return cur, nil, fmt.Errorf("authn: load password: %w", err)
+	}
+	now := s.clock.Now()
+	target := s.targets.of(cur.Email)
+	failures, locked, err := s.lockState(ctx, target, now)
+	if err != nil {
+		return cur, nil, err
+	}
+	ok, err := s.verifyCurrent(ctx, cur.PasswordHash, current, locked)
+	if err != nil {
+		return cur, nil, err
+	}
+	if locked {
+		if err := insertAttempt(ctx, s.reads, principalUser, target, outcomeLocked, now); err != nil {
+			return cur, nil, err
+		}
+		return cur, nil, mismatch
+	}
+	if !ok {
+		return cur, nil, s.fail(ctx, target, failures, now, mismatch)
+	}
+	return cur, target, nil
+}
+
 // verifyCurrent checks a current password against the stored hash. Every
 // branch costs one argon2id verification: an account without a password
 // is checked against the dummy, and a locked target against a decoy whose
 // result is discarded.
-func (a *Accounts) verifyCurrent(ctx context.Context, stored *string, current string, locked bool) (bool, error) {
+func (s *Service) verifyCurrent(ctx context.Context, stored *string, current string, locked bool) (bool, error) {
 	var ok bool
 	var err error
 	switch {
 	case stored == nil:
-		err = a.users.passwords.VerifyDummy(ctx, current)
+		err = s.passwords.VerifyDummy(ctx, current)
 	case locked:
-		err = a.users.passwords.VerifyDecoy(ctx, *stored, current)
+		err = s.passwords.VerifyDecoy(ctx, *stored, current)
 	default:
-		ok, _, err = a.users.passwords.Verify(ctx, *stored, current)
+		ok, _, err = s.passwords.Verify(ctx, *stored, current)
 	}
 	if err != nil {
 		return false, fmt.Errorf("authn: verify password: %w", err)

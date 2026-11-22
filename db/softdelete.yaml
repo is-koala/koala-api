@@ -154,8 +154,10 @@ tables:
       a registration start and a password reset request carry the address
       (and the names) they were asked for, because deciding in the job, not
       in the request, is what keeps the request from telling a registered
-      address apart (ADR-0032). River deletes a finished job after its
-      retention (completed and cancelled 24 hours, discarded 7 days).
+      address apart (ADR-0032). The notice of a confirmed e-mail change
+      carries the previous address, which the account no longer holds
+      (ADR-0033). River deletes a finished job after its retention
+      (completed and canceled 24 hours, discarded 7 days).
   pending_registrations:
     class: M2
     pii: true
@@ -184,6 +186,19 @@ tables:
       use, fifteen minutes. Hard-deleted 30 days after the request; a used
       or revoked row stays until then so the per-user mail budget can count
       it (ADR-0032).
+  user_verifications:
+    class: M2
+    pii: true
+    reason: >-
+      One e-mail or phone verification of a signed-in user (ADR-0029 Karar
+      3, ADR-0033): the new address or number, the keyed digest of its
+      six-digit code (HMAC under a key derived from the login pepper, so a
+      leaked table yields no code; cleared when the verification ends), the
+      failed attempts and the end. The target is personal data, hence pii.
+      target_key is the HMAC of the budget key (mailbox or number), so the
+      resend budget compares keys, not addresses. Hard-deleted two days
+      after the row was written: the longest budget window is a day. Not
+      soft-deleted: a verification never comes back.
   agreement_versions:
     class: M4
     reason: >-
@@ -248,6 +263,13 @@ edges:
   # A deleted user's reset tokens are dead: consuming one locks the user's
   # active row first. The rows are M2 and cannot cascade.
   - child: password_reset_tokens
+    column: user_id
+    parent: users
+    policy: detach
+  # A deleted user's verifications are dead: confirming one locks the
+  # user's active row first, and its caller no longer authenticates. The
+  # rows are M2 and cannot cascade.
+  - child: user_verifications
     column: user_id
     parent: users
     policy: detach

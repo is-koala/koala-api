@@ -52,7 +52,7 @@ func TestRegistrationMailNamesNobody(t *testing.T) {
 		}
 	}
 	// And the rendered mail: a name in the data does not reach it.
-	mails, err := parseMailTemplates()
+	mails, err := parseMailTemplates(mailRegistrationLink)
 	if err != nil {
 		t.Fatal(err)
 	}

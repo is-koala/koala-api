@@ -110,7 +110,7 @@ func TestJoinTestOnTheContract(t *testing.T) {
 		}
 	}
 
-	var ownToken, otherToken, staffToken string
+	var ownToken, otherToken, staffToken, verificationToken string
 	cases := map[string]softdeletetest.DetachCase{
 		// The session's own user: deleting it ends the session.
 		"user_sessions.user_id": {
@@ -199,6 +199,31 @@ func TestJoinTestOnTheContract(t *testing.T) {
 		},
 		"staff_login_sources.staff_id": {
 			Unread: "no GET operation reads staff_login_sources: it is the sign-in failure counter of one client address, read only by the sign-in path (ADR-0025 §5)",
+		},
+		// The verification's user is the caller: deleting it ends the
+		// caller's session, and the list and the detail answer 401.
+		"user_verifications.user_id": {
+			Fixture: func(ctx context.Context) (softdeletetest.Row, error) {
+				user, email, err := addUser(ctx)
+				if err != nil {
+					return softdeletetest.Row{}, err
+				}
+				pair, err := signIn(ctx, email, testDevice)
+				if err != nil {
+					return softdeletetest.Row{}, err
+				}
+				verificationToken = pair.AccessToken
+				ver, err := a.mods.verifications.Start(ctx, authn.UserPrincipal{UserID: user, SessionID: pair.SessionID},
+					authn.ChannelPhone, "+905321234567", userPw)
+				if err != nil {
+					return softdeletetest.Row{}, fmt.Errorf("start a verification: %w", err)
+				}
+				return softdeletetest.Row{Child: ver.ID, Parent: user}, nil
+			},
+			Authorize: bearer(&verificationToken, true),
+			Outcome:   softdeletetest.Unauthenticated,
+			Reason: "the verification's user is the caller: the per-request session check reaches the user by " +
+				"LEFT JOIN and requires it active, so a deleted user's verifications are read by nobody (ADR-0033)",
 		},
 		"password_reset_tokens.user_id": {
 			Unread: "no GET operation reads password_reset_tokens: a reset token is only presented, once, by the reset itself (ADR-0029 Karar 4)",

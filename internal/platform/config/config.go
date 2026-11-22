@@ -67,6 +67,35 @@ const (
 	// VarRegistrationStartsPerIPHour overrides the per-client-address
 	// hourly budget of registration starts (ADR-0032 Karar 6).
 	VarRegistrationStartsPerIPHour = "KOALA_REGISTRATION_STARTS_PER_IP_HOUR"
+	// The İleti Merkezi account that sends the verification codes by text
+	// message (ADR-0033). The key and hash are built from Prefix: they are
+	// variable names, not credentials, and the expression keeps gosec's
+	// G101 from reading them as one.
+	VarSMSAPIKey  = Prefix + "ILETIMERKEZI_API_KEY"
+	VarSMSAPIHash = Prefix + "ILETIMERKEZI_API_HASH"
+	VarSMSSender  = "KOALA_ILETIMERKEZI_SENDER"
+	// VarSMSPerHour overrides the global hourly cap of text messages
+	// (ADR-0033).
+	VarSMSPerHour = "KOALA_SMS_PER_HOUR"
+	// VarSMSDriver picks the text message sender: SMSDriverIletiMerkezi
+	// (the default) or SMSDriverLog, which sends nothing and is refused in
+	// production (ADR-0033).
+	VarSMSDriver = "KOALA_SMS_DRIVER"
+	// VarVerificationMailsPerHour overrides the global hourly cap of
+	// verification code mails (ADR-0033).
+	VarVerificationMailsPerHour = "KOALA_VERIFICATION_MAILS_PER_HOUR"
+	// VarVerificationStartsPerIPHour overrides the per-client-address
+	// hourly budget of verification starts (ADR-0033).
+	VarVerificationStartsPerIPHour = "KOALA_VERIFICATION_STARTS_PER_IP_HOUR"
+)
+
+// The text message senders (VarSMSDriver).
+const (
+	SMSDriverIletiMerkezi = "iletimerkezi"
+	// SMSDriverLog sends nothing and logs only that a message went: never
+	// the number or the code. For local, test and a staging whose sender
+	// name is not approved yet; production refuses it.
+	SMSDriverLog = "log"
 )
 
 // known lists every variable Load understands. A KOALA_* variable outside
@@ -80,6 +109,8 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarObjectAccessKeyID, VarObjectSecretKey, VarObjectPathStyle, VarObjectPublicBaseURL,
 	VarSMTPHost, VarSMTPPort, VarSMTPUsername, VarSMTPPassword, VarMailFrom, VarWebBaseURL,
 	VarRegistrationMailsPerHour, VarRegistrationStartsPerIPHour,
+	VarSMSAPIKey, VarSMSAPIHash, VarSMSSender, VarSMSPerHour, VarSMSDriver,
+	VarVerificationMailsPerHour, VarVerificationStartsPerIPHour,
 }
 
 // Variables returns every KOALA_* variable Load understands, in the
@@ -169,6 +200,45 @@ type Config struct {
 	// and test, where mail is dropped; serve requires it elsewhere
 	// (ServeMailErrors).
 	Mail Mail
+	// SMS is the İleti Merkezi account the verification codes go out
+	// through by text message (ADR-0033). All empty is allowed in local
+	// and test, where the message is dropped; serve requires it elsewhere
+	// (ServeSMSErrors).
+	SMS SMS
+	// Verification holds the bounds of the e-mail and phone verification
+	// that are not the text message account's (ADR-0033).
+	Verification Verification
+}
+
+// Verification is the validated verification configuration. A zero field
+// is unset: the verification flow or the edge uses its default.
+type Verification struct {
+	// MailsPerHour is the global hourly cap of verification code mails.
+	MailsPerHour int
+	// StartsPerIP is the hourly budget of verification starts from one
+	// client address (an IPv6 /64).
+	StartsPerIP int
+}
+
+// SMS is the validated text message configuration. The credentials are
+// Secrets.
+type SMS struct {
+	// Driver is SMSDriverIletiMerkezi or SMSDriverLog; Load sets the
+	// default.
+	Driver  string
+	APIKey  Secret
+	APIHash Secret
+	// Sender is the approved sender name (başlık) the messages carry.
+	Sender string
+	// PerHour is the global hourly cap of text messages; 0 when unset, and
+	// the verification flow then uses its default. Not part of the
+	// account's configuration (Configured).
+	PerHour int
+}
+
+// Configured reports whether any variable of the account was set.
+func (s SMS) Configured() bool {
+	return s.APIKey != "" || s.APIHash != "" || s.Sender != ""
 }
 
 // Mail is the validated mail configuration. The password is a Secret.
@@ -347,6 +417,7 @@ func Load(environ []string) (Config, error) {
 	errs = append(errs, loadAuth(vars, &cfg)...)
 	errs = append(errs, loadObjectStore(vars, &cfg)...)
 	errs = append(errs, loadMail(vars, &cfg)...)
+	errs = append(errs, loadSMS(vars, &cfg)...)
 
 	if len(errs) > 0 {
 		slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
@@ -841,6 +912,121 @@ const maxRegistrationsPerHour = 100000
 // maxRegistrationStartsPerIP bounds the per-address registration budget:
 // a larger value is the global cap's business, not an address's.
 const maxRegistrationStartsPerIP = 1000
+
+// loadSMS reads the text message variables (ADR-0033). A value is only
+// shape-checked here; ServeSMSErrors decides whether serve may start
+// without it.
+func loadSMS(vars map[string]string, cfg *Config) []error {
+	var errs []error
+	cfg.SMS.Driver = SMSDriverIletiMerkezi
+	if v, ok := vars[VarSMSDriver]; ok {
+		switch d := strings.TrimSpace(v); d {
+		case SMSDriverIletiMerkezi:
+		case SMSDriverLog:
+			if cfg.Env == EnvProduction {
+				errs = append(errs, fmt.Errorf("%s: %w: %s sends nothing and is refused in production", VarSMSDriver, errInvalidValue, SMSDriverLog))
+			}
+			cfg.SMS.Driver = d
+		default:
+			errs = append(errs, fmt.Errorf("%s: %w: want %s or %s", VarSMSDriver, errInvalidValue, SMSDriverIletiMerkezi, SMSDriverLog))
+		}
+	}
+	if v, ok := vars[VarSMSAPIKey]; ok {
+		cfg.SMS.APIKey = Secret(strings.TrimSpace(v))
+	}
+	if v, ok := vars[VarSMSAPIHash]; ok {
+		cfg.SMS.APIHash = Secret(strings.TrimSpace(v))
+	}
+	if v, ok := vars[VarSMSSender]; ok {
+		cfg.SMS.Sender = strings.TrimSpace(v)
+		if n := len(cfg.SMS.Sender); n < minSMSSender || n > maxSMSSender || !printableASCII(cfg.SMS.Sender) {
+			errs = append(errs, fmt.Errorf("%s: %w: want %d-%d printable ASCII characters (the approved sender name)",
+				VarSMSSender, errInvalidValue, minSMSSender, maxSMSSender))
+		}
+	}
+	for name, limit := range map[string]struct {
+		dst *int
+		max int
+	}{
+		VarSMSPerHour:                  {&cfg.SMS.PerHour, maxSMSPerHour},
+		VarVerificationMailsPerHour:    {&cfg.Verification.MailsPerHour, maxSMSPerHour},
+		VarVerificationStartsPerIPHour: {&cfg.Verification.StartsPerIP, maxVerificationStartsPerIP},
+	} {
+		v, ok := vars[name]
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 || n > limit.max {
+			errs = append(errs, fmt.Errorf("%s: %w: want 1-%d", name, errInvalidValue, limit.max))
+		} else {
+			*limit.dst = n
+		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errs
+}
+
+// maxVerificationStartsPerIP bounds the per-address verification budget,
+// like the registration one.
+const maxVerificationStartsPerIP = 1000
+
+// The sender name of a text message: Turkish operators allow at most 11
+// characters; İleti Merkezi registers names of at least 3.
+const (
+	minSMSSender = 3
+	maxSMSSender = 11
+)
+
+// maxSMSPerHour bounds the global text and verification mail caps: a
+// larger value is no cap.
+const maxSMSPerHour = 100000
+
+// printableASCII reports whether s is printable ASCII.
+func printableASCII(s string) bool {
+	for i := range len(s) {
+		if s[i] < 0x20 || s[i] > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
+// ServeSMSErrors reports what serve needs of the text message
+// configuration (ADR-0033), fail closed like ServeMailErrors: staging and
+// production need the account's key, hash and sender, because without them
+// a phone verification answers 201 and no code ever arrives, which nothing
+// would report; a partly configured account is an error everywhere.
+// local and test may run without one: the message is then dropped. The
+// log driver (local, test and staging only; Load refuses it in
+// production) needs no account.
+func (c Config) ServeSMSErrors() error {
+	if c.SMS.Driver == SMSDriverLog {
+		if c.Env == EnvProduction {
+			return fmt.Errorf("%s: %s is refused in production", VarSMSDriver, SMSDriverLog)
+		}
+		return nil
+	}
+	live := c.Env == EnvStaging || c.Env == EnvProduction
+	if !c.SMS.Configured() && !live {
+		return nil
+	}
+	var errs []error
+	for name, v := range map[string]string{
+		VarSMSAPIKey: c.SMS.APIKey.Reveal(), VarSMSAPIHash: c.SMS.APIHash.Reveal(), VarSMSSender: c.SMS.Sender,
+	} {
+		if v != "" {
+			continue
+		}
+		if live {
+			errs = append(errs, fmt.Errorf("%s: required by serve in %s", name, c.Env))
+		} else {
+			errs = append(errs, fmt.Errorf("%s: required once any text message variable is set", name))
+		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errors.Join(errs...)
+}
 
 // ServeMailErrors reports what serve needs of the mail configuration
 // (ADR-0032), fail closed like ServeStorageErrors: staging and production

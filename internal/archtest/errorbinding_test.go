@@ -1721,6 +1721,11 @@ func TestHandlersReturnTheirDeclaredErrorCodes(t *testing.T) {
 		"completeRegistration":  {kind: "KindConflict", code: "VERIFICATION_TARGET_IN_USE"},
 		"completePasswordReset": {kind: "KindInvalid", code: "PASSWORD_RESET_TOKEN_INVALID"},
 		"changeMyPassword":      {kind: "KindForbidden", code: "PASSWORD_MISMATCH"},
+		// Through a composite literal (the resend refusal carries its
+		// wait) and through a local bound to the site (the cursor).
+		"startMyVerification":   {kind: "KindRateLimited", code: "VERIFICATION_RESEND_TOO_SOON"},
+		"listMyVerifications":   {kind: "KindInvalid", code: "CURSOR_INVALID"},
+		"confirmMyVerification": {kind: "KindConflict", code: "VERIFICATION_TARGET_IN_USE"},
 		// The two operations with an empty list: their only sites are the
 		// platform's, reached through a helper of the module.
 		"startRegistration":    {kind: "KindInvalid", code: "REQUEST_INVALID"},

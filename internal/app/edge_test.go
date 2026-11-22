@@ -32,6 +32,7 @@ func rateLimitADRs() []string {
 		"../../docs/adr/0021-http-edge-clients-rate-limit-metrics.md",
 		"../../docs/adr/0025-authentication-tokens-sessions-and-staff-sign-in.md",
 		"../../docs/adr/0032-registration-password-reset-mail-and-error-code-binding.md",
+		"../../docs/adr/0033-email-and-phone-verification-and-sms.md",
 	}
 }
 
@@ -120,6 +121,21 @@ func TestRegistrationStartsPerIPIsConfigurable(t *testing.T) {
 	got := serveRateLimitGroups(cfg)[groupRegistrationAddress].PerCustom
 	if got.Burst != 4 || got.Every != 15*time.Minute {
 		t.Errorf("4 an hour: %+v, want a burst of 4 refilled every 15 minutes", got)
+	}
+}
+
+// The per-address budget of verification starts is configurable; unset,
+// it is the ADR's default (ADR-0033 Karar 4).
+func TestVerificationStartsPerIPIsConfigurable(t *testing.T) {
+	t.Parallel()
+	if got, want := serveRateLimitGroups(config.Config{}), rateLimitGroups(); got[groupVerificationAddress] != want[groupVerificationAddress] {
+		t.Errorf("unset: %+v, want the default %+v", got[groupVerificationAddress], want[groupVerificationAddress])
+	}
+	var cfg config.Config
+	cfg.Verification.StartsPerIP = 6
+	got := serveRateLimitGroups(cfg)[groupVerificationAddress].PerCustom
+	if got.Burst != 6 || got.Every != 10*time.Minute {
+		t.Errorf("6 an hour: %+v, want a burst of 6 refilled every 10 minutes", got)
 	}
 }
 

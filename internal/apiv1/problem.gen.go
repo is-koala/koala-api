@@ -450,7 +450,8 @@ func (e ProblemFieldIn) Valid() bool {
 //     tüketilmez.
 //   - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
 //     iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
-//   - `PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+//   - `PASSWORD_MISMATCH` (403): parola değişiminde ya da e-posta veya telefon doğrulaması
+//     başlatırken mevcut parola yanlış.
 //   - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
 //   - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
 //   - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
@@ -462,10 +463,12 @@ func (e ProblemFieldIn) Valid() bool {
 //     doğru kodla bile onaylanamaz (USR-009).
 //   - `VERIFICATION_ALREADY_CONFIRMED` (409): doğrulama zaten onaylanmış; ikinci onay kodu
 //     hiç bakılmadan reddedilir (USR-013).
-//   - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres ya da numara başka bir
-//     hesapta.
-//   - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi ya da hedef
-//     başına saatlik bütçe doldu (USR-010); `Retry-After` döner.
+//   - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres başka bir hesapta.
+//     Doğrulamada yalnız doğru kodu girene, kayıtta yalnız bağlantıyı açana döner; telefon
+//     numarası ise onaylayana geçer (ADR-0033).
+//   - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi, hedef
+//     başına saatlik bütçe (USR-010) ya da kullanıcının kanal başına günlük tavanı doldu;
+//     `Retry-After` döner.
 //   - `USER_NOT_FOUND` (404): kullanıcı yok ya da görme yetkisi yok; ikisi ayırt edilemez.
 //   - `USER_FIELD_IMMUTABLE` (409): kimlik doğrulandıktan sonra ad, soyad ya da doğum tarihi
 //     değiştirilemez (USR-024).
@@ -637,7 +640,8 @@ type Problem struct {
 	//   tüketilmez.
 	// - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
 	//   iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
-	// - `PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+	// - `PASSWORD_MISMATCH` (403): parola değişiminde ya da e-posta veya telefon doğrulaması
+	//   başlatırken mevcut parola yanlış.
 	// - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
 	// - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
 	// - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
@@ -649,10 +653,12 @@ type Problem struct {
 	//   doğru kodla bile onaylanamaz (USR-009).
 	// - `VERIFICATION_ALREADY_CONFIRMED` (409): doğrulama zaten onaylanmış; ikinci onay kodu
 	//   hiç bakılmadan reddedilir (USR-013).
-	// - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres ya da numara başka bir
-	//   hesapta.
-	// - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi ya da hedef
-	//   başına saatlik bütçe doldu (USR-010); `Retry-After` döner.
+	// - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres başka bir hesapta.
+	//   Doğrulamada yalnız doğru kodu girene, kayıtta yalnız bağlantıyı açana döner; telefon
+	//   numarası ise onaylayana geçer (ADR-0033).
+	// - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi, hedef
+	//   başına saatlik bütçe (USR-010) ya da kullanıcının kanal başına günlük tavanı doldu;
+	//   `Retry-After` döner.
 	// - `USER_NOT_FOUND` (404): kullanıcı yok ya da görme yetkisi yok; ikisi ayırt edilemez.
 	// - `USER_FIELD_IMMUTABLE` (409): kimlik doğrulandıktan sonra ad, soyad ya da doğum tarihi
 	//   değiştirilemez (USR-024).
@@ -855,7 +861,8 @@ type ProblemField struct {
 	//   tüketilmez.
 	// - `PASSWORD_RESET_TOKEN_INVALID` (400): sıfırlama token'ının bilinmeyen, süresi dolmuş,
 	//   iptal edilmiş ya da zaten kullanılmış hâli; dördü ayırt edilemez (USR-016).
-	// - `PASSWORD_MISMATCH` (403): parola değişiminde mevcut parola yanlış.
+	// - `PASSWORD_MISMATCH` (403): parola değişiminde ya da e-posta veya telefon doğrulaması
+	//   başlatırken mevcut parola yanlış.
 	// - `PASSWORD_REUSED` (400): yeni parola mevcut parolayla aynı.
 	// - `PASSWORD_CONFIRMATION_MISMATCH` (400): yeni parola onayıyla eşleşmiyor.
 	// - `VERIFICATION_NOT_FOUND` (404): çağıranın böyle bir doğrulaması yok; başkasınınki de
@@ -867,10 +874,12 @@ type ProblemField struct {
 	//   doğru kodla bile onaylanamaz (USR-009).
 	// - `VERIFICATION_ALREADY_CONFIRMED` (409): doğrulama zaten onaylanmış; ikinci onay kodu
 	//   hiç bakılmadan reddedilir (USR-013).
-	// - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres ya da numara başka bir
-	//   hesapta.
-	// - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi ya da hedef
-	//   başına saatlik bütçe doldu (USR-010); `Retry-After` döner.
+	// - `VERIFICATION_TARGET_IN_USE` (409): doğrulanmak istenen adres başka bir hesapta.
+	//   Doğrulamada yalnız doğru kodu girene, kayıtta yalnız bağlantıyı açana döner; telefon
+	//   numarası ise onaylayana geçer (ADR-0033).
+	// - `VERIFICATION_RESEND_TOO_SOON` (429): yeniden göndermenin bekleme süresi, hedef
+	//   başına saatlik bütçe (USR-010) ya da kullanıcının kanal başına günlük tavanı doldu;
+	//   `Retry-After` döner.
 	// - `USER_NOT_FOUND` (404): kullanıcı yok ya da görme yetkisi yok; ikisi ayırt edilemez.
 	// - `USER_FIELD_IMMUTABLE` (409): kimlik doğrulandıktan sonra ad, soyad ya da doğum tarihi
 	//   değiştirilemez (USR-024).

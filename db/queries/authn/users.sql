@@ -26,8 +26,9 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);
 -- sign-in inserts: the user cannot be soft-deleted until it commits. The
 -- hash comes back so the caller can see whether it changed since the
 -- password was verified outside the lock. The address is the sign-in
--- target of the account flows that record attempts.
-SELECT id, status, password_hash, email
+-- target of the account flows that record attempts. The number is what a
+-- verification compares a confirmed one with (ADR-0033).
+SELECT id, status, password_hash, email, phone
 FROM active_users
 WHERE id = $1
 FOR UPDATE;

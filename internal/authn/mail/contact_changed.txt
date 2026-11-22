@@ -1,0 +1,8 @@
+{{define "contact_changed.subject"}}Koala hesabının {{.Changed}} değişti{{end}}
+{{define "contact_changed.text"}}
+Merhaba {{.FirstName}},
+
+Koala hesabının {{.Changed}} az önce doğrulanarak değiştirildi.
+
+Bu değişikliği sen yapmadıysan hemen destek ekibimize yaz.
+{{end}}

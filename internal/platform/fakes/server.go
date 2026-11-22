@@ -7,8 +7,9 @@
 // The real clients come in Faz 5 (FCM) and Faz 6 (Iyzico); those two
 // fakes only model what those clients need from the wire. The object
 // store client is real as of Faz 2 (internal/platform/storage), so its
-// fake is the one a real client runs against (ADR-0030 Karar 6). Only
-// tests import this package (TestOnlyTestsImportFakes).
+// fake is the one a real client runs against (ADR-0030 Karar 6); so is
+// the İleti Merkezi SMS fake for internal/integrations/iletimerkezi
+// (ADR-0033). Only tests import this package (TestOnlyTestsImportFakes).
 package fakes
 
 import (

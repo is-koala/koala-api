@@ -24,8 +24,8 @@ import (
 // TestReadTestOnTheContract is the generated read test (ADR-0020 §11) on
 // the real contract and router: every GET's x-resource that names a
 // soft-deleted table (users, staff_members) gets a fixture; user_sessions,
-// realtime_tickets and staff_role_assignments are exempt and have nothing
-// to hide. /v1/me and /v1/admin/me read the caller itself
+// realtime_tickets, staff_role_assignments and user_verifications are
+// exempt and have nothing to hide. /v1/me and /v1/admin/me read the caller itself
 // (x-resource-self): after the soft delete the caller no longer
 // authenticates.
 func TestReadTestOnTheContract(t *testing.T) {

@@ -31,8 +31,9 @@ const workerRetry = 5 * time.Second
 
 // authPurgeArgs is the periodic purge of the exemption class M2 tables of
 // authentication: ended sessions with their refresh tokens, old attempts,
-// staff address counters, expired realtime tickets, and the pending
-// registrations and reset requests past their retention (ADR-0032).
+// staff address counters, expired realtime tickets, the pending
+// registrations and reset requests past their retention (ADR-0032), and
+// the verifications past theirs (ADR-0033).
 type authPurgeArgs struct{}
 
 // Kind is the job kind in River's tables.
@@ -42,12 +43,13 @@ func (authPurgeArgs) Kind() string { return "auth_purge" }
 type authPurgeWorker struct {
 	river.WorkerDefaults[authPurgeArgs]
 
-	users    *authn.Service
-	staff    *authn.StaffService
-	accounts *authn.Accounts
-	tickets  *realtime.PostgresTickets
-	clock    clock.Clock
-	logger   *slog.Logger
+	users         *authn.Service
+	staff         *authn.StaffService
+	accounts      *authn.Accounts
+	verifications *authn.Verifications
+	tickets       *realtime.PostgresTickets
+	clock         clock.Clock
+	logger        *slog.Logger
 }
 
 // Work purges every table and logs what it removed.
@@ -56,14 +58,16 @@ func (w *authPurgeWorker) Work(ctx context.Context, _ *river.Job[authPurgeArgs])
 	staffSessions, sources, errStaff := w.staff.Purge(ctx)
 	tickets, errTickets := w.tickets.Purge(ctx, w.clock.Now())
 	pending, resets, requests, errAccounts := w.accounts.Purge(ctx)
-	if err := errors.Join(errUsers, errStaff, errTickets, errAccounts); err != nil {
+	verifications, errVerifications := w.verifications.Purge(ctx)
+	if err := errors.Join(errUsers, errStaff, errTickets, errAccounts, errVerifications); err != nil {
 		return fmt.Errorf("auth purge: %w", err)
 	}
 	w.logger.InfoContext(ctx, "auth purge",
 		slog.Int64("user_sessions", sessions), slog.Int64("login_attempts", attempts),
 		slog.Int64("staff_sessions", staffSessions), slog.Int64("staff_login_sources", sources),
 		slog.Int64("realtime_tickets", tickets), slog.Int64("pending_registrations", pending),
-		slog.Int64("password_reset_tokens", resets), slog.Int64("registration_requests", requests))
+		slog.Int64("password_reset_tokens", resets), slog.Int64("registration_requests", requests),
+		slog.Int64("user_verifications", verifications))
 	return nil
 }
 
@@ -76,6 +80,9 @@ func newWorkerClient(database *db.DB, mods modules, logger *slog.Logger) (*jobs.
 		return nil, fmt.Errorf("workers: %w", err)
 	}
 	if err := mods.accounts.AddWorkers(workers); err != nil {
+		return nil, fmt.Errorf("workers: %w", err)
+	}
+	if err := mods.verifications.AddWorkers(workers); err != nil {
 		return nil, fmt.Errorf("workers: %w", err)
 	}
 	client, err := jobs.NewClient(database.Pool(), jobs.Config{
