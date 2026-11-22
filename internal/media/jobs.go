@@ -521,10 +521,15 @@ func (s *Service) Sweep(ctx context.Context) (Swept, error) {
 // BindMedia, the one writer of bound_at, so no later listing returns it
 // (ADR-0035 Karar 8) -- in the same transaction, under the media row's
 // lock the retirement took: the deletion runs under a savepoint, the
-// refusal rolls back to it, and the bind follows at once. A separate
-// transaction would release the lock between the refusal and the bind;
-// a consumer that let go of the media in between would leave it bound
-// for good with nothing pointing at it. adopted reports the bind.
+// refusal rolls back to it, and the bind follows at once. adopted reports
+// the bind.
+//
+// The savepoint narrows a window in time; it closes no reachable bad
+// state. A consumer that lets go of the media with Release deletes it,
+// and a bind on a deleted row finds nothing, in a transaction of its own
+// as here. A consumer that drops its reference without Release can still
+// leave the media bound and unused, here as well: the platform's restrict
+// check does not lock the consuming row (ADR-0036 Karar 10).
 //
 // The listing does not exclude such media itself: the consuming tables'
 // restrict edges are the catalog's, so a static query cannot name them;

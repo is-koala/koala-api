@@ -361,4 +361,30 @@ func TestEducationRetiredReferences(t *testing.T) {
 	// Dropping a retired faculty is a change the record may make.
 	wantStatus(t, a.call(t, http.MethodPut, "/v1/me/educations/"+kept.String(), tok,
 		educationBody(ref.university, nil, nil, 2011, year(2015))), http.StatusOK, "")
+
+	// Under an active university and faculty: a retired faculty or
+	// department of their own cannot be chosen anew, while their active
+	// siblings can. GetFacultyOf and GetDepartmentOf apply the rule each
+	// on its own.
+	live := a.seedReference(t)
+	oldFaculty, oldDepartment := uuid.New(), uuid.New()
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{"INSERT INTO faculties (id, university_id, name, retired_at) VALUES ($1, $2, 'Kapanan Fakülte', now())",
+			[]any{oldFaculty, live.university}},
+		{"INSERT INTO departments (id, faculty_id, name, retired_at) VALUES ($1, $2, 'Kapanan Bölüm', now())",
+			[]any{oldDepartment, live.faculty}},
+	} {
+		if _, err := owner.Pool().Exec(t.Context(), stmt.sql, stmt.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	wantStatus(t, a.createEducation(t, tok, educationBody(live.university, &oldFaculty, nil, 2016, nil)),
+		http.StatusNotFound, string(users.CodeReferenceNotFound))
+	wantStatus(t, a.createEducation(t, tok, educationBody(live.university, &live.faculty, &oldDepartment, 2016, nil)),
+		http.StatusNotFound, string(users.CodeReferenceNotFound))
+	wantStatus(t, a.createEducation(t, tok, educationBody(live.university, &live.faculty, &live.department, 2016, nil)),
+		http.StatusCreated, "")
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
+	"github.com/is-koala/koala-api/internal/platform/fakes"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
@@ -102,8 +103,9 @@ func TestProfileMediaLinks(t *testing.T) {
 	} {
 		rec := a.patchProfile(t, tok, body)
 		wantStatus(t, rec, want.status, want.code)
-		if want.status == http.StatusBadRequest && !strings.Contains(rec.Body.String(), `"pointer":"/`) {
-			t.Errorf("%s: %s, want the member named", body, rec.Body)
+		if want.status == http.StatusBadRequest && (!strings.Contains(rec.Body.String(), `"pointer":"/`) ||
+			!strings.Contains(rec.Body.String(), `"code":"`+httpx.CodeFieldValueInvalid+`"`)) {
+			t.Errorf("%s: %s, want the member named with %s", body, rec.Body, httpx.CodeFieldValueInvalid)
 		}
 	}
 	if a.text(t, "SELECT coalesce(job_title, '-') FROM active_users WHERE id = $1", owner) != "-" {
@@ -196,6 +198,77 @@ func TestAccountDeletionTakesItsProfileMedia(t *testing.T) {
 	for _, id := range []uuid.UUID{picture, cv} {
 		if active, _ := a.mediaState(t, id); active {
 			t.Errorf("%s is still active after its owner's deletion", id)
+		}
+	}
+}
+
+// An account deleted with its profile's media comes back with them
+// (ADR-0035 Karar 7): softdelete.Restore reopens the user and the media of
+// the same deletion across the two-way edges (users → media restrict,
+// media → users cascade). The profile names the same media, both are
+// active and still bound, no object deletion was queued, and the objects
+// are still in the store.
+func TestAccountRestoreBringsItsProfileMediaBack(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	const email = "geri-gelir@example.com"
+	tok := a.addSignedIn(t, email)
+	owner := a.userID(t, email)
+	picture := a.newMedia(t, owner, media.KindProfilePicture, true)
+	cv := a.newMedia(t, owner, media.KindCV, true)
+	objects := []string{"images/" + picture.String() + ".jpg", "files/" + cv.String() + ".pdf"}
+	for _, key := range objects {
+		a.s3.Seed(key, fakes.S3Object{Body: []byte("nesne"), ContentType: "application/octet-stream"})
+	}
+	wantStatus(t, a.patchProfile(t, tok, `{"profilePictureId":"`+picture.String()+`","cvId":"`+cv.String()+`"}`),
+		http.StatusOK, "")
+
+	cat := dbtest.SoftDeleteCatalog(t)
+	var deleted softdelete.Deleted
+	err := a.db.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		var err error
+		deleted, err = softdelete.New(cat).Delete(ctx, q, softdelete.DeleteRequest{
+			Table: "users", ID: owner, Actor: softdelete.Actor{Kind: softdelete.ActorUser, ID: owner},
+			Reason: softdelete.ReasonAccountDeletion, At: a.clock.Now(),
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.clock.Advance(time.Hour)
+	// Restore works on the base tables, as koala_maint.
+	err = a.maint.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
+		_, err := softdelete.New(cat).Restore(ctx, q, softdelete.RestoreRequest{
+			DeletionID: deleted.DeletionID, Actor: softdelete.Actor{Kind: softdelete.ActorSystem}, At: a.clock.Now(),
+		})
+		return err
+	})
+	if err != nil {
+		t.Fatalf("the account's restore = %v, want it and its media back", err)
+	}
+
+	var active bool
+	var pictureID, cvID uuid.UUID
+	err = a.maint.Pool().QueryRow(t.Context(),
+		"SELECT deleted_at IS NULL, profile_picture_id, cv_id FROM users WHERE id = $1", owner).Scan(&active, &pictureID, &cvID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !active || pictureID != picture || cvID != cv {
+		t.Fatalf("the restored user: active %v, picture %s, cv %s", active, pictureID, cvID)
+	}
+	for _, id := range []uuid.UUID{picture, cv} {
+		if active, bound := a.mediaState(t, id); !active || !bound {
+			t.Errorf("%s after the restore: active %v bound %v, want both", id, active, bound)
+		}
+	}
+	if n := a.count(t, "SELECT count(*) FROM river_job WHERE kind = 'media_delete_objects'"); n != 0 {
+		t.Errorf("%d object deletions queued for an account that was only soft-deleted and restored", n)
+	}
+	for _, key := range objects {
+		if _, ok := a.s3.Object(key); !ok {
+			t.Errorf("%s is gone from the store", key)
 		}
 	}
 }
