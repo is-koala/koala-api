@@ -89,14 +89,38 @@ type Caller func(ctx context.Context) (string, bool)
 // body carries none.
 type RequestActor func(body any) (string, bool)
 
+// Throttle takes one token from the rate limit bucket a public
+// operation's handler takes from for the same request (its capability's
+// bucket); false and the wait when the bucket is empty.
+type Throttle func(body any) (ok bool, wait time.Duration)
+
+// PublicOperation is how the store serves a bound operation without a
+// caller (ADR-0034 Karar 1 and 5):
+//
+//   - Actor names the owner of its keys;
+//   - Throttle is spent by every answer the store gives without running
+//     the handler (a replay, 422, 409), so those answers take from the
+//     same bucket the handler does: a stolen capability with a known key
+//     is not a way past the capability's rate limit (a wrong password
+//     answering 422 and the right one the stored 201 would be a password
+//     oracle otherwise).
+//
+// Only a success is kept for such an operation; a 4xx frees the key, so
+// requests with random capabilities and fresh keys write no row.
+type PublicOperation struct {
+	Actor    RequestActor
+	Throttle Throttle
+}
+
 // Config wires the middleware.
 type Config struct {
 	Store  *Store
 	Caller Caller
-	// Public maps the id of every bound public operation to its actor. A
-	// bound public operation without one, and an entry for anything else,
+	// Public maps the id of every bound public operation to how it is
+	// served. A bound public operation without an entry (or with an entry
+	// missing its actor or throttle), and an entry for anything else,
 	// stop the server.
-	Public  map[string]RequestActor
+	Public  map[string]PublicOperation
 	Metrics prometheus.Registerer
 	Logger  *slog.Logger
 }
@@ -104,7 +128,7 @@ type Config struct {
 // binding is a bound operation as the middleware serves it.
 type binding struct {
 	operation string
-	actor     RequestActor // nil: the caller
+	public    *PublicOperation // nil: the caller is the actor
 }
 
 // Middleware binds every operation of the contract that takes the
@@ -135,14 +159,16 @@ func NewMiddleware(spec *openapi3.T, cfg Config) (*Middleware, error) {
 			continue
 		}
 		b := binding{operation: op.ID}
-		actor, named := cfg.Public[op.ID]
+		public, named := cfg.Public[op.ID]
 		switch {
 		case op.Public && !named:
 			return nil, fmt.Errorf("idempotency middleware: %s has no caller and no request actor; name one in Config.Public", op.ID)
 		case !op.Public && named:
 			return nil, fmt.Errorf("idempotency middleware: %s has a caller; it takes no request actor", op.ID)
+		case op.Public && (public.Actor == nil || public.Throttle == nil):
+			return nil, fmt.Errorf("idempotency middleware: %s needs both a request actor and a throttle", op.ID)
 		case op.Public:
-			b.actor = actor
+			b.public = &public
 		}
 		routes[op.Method+" "+op.Path] = b
 		bound = append(bound, op.ID)
@@ -190,6 +216,13 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// The lease assumes the request cannot outlive it: a bound route
+		// mounted outside httpx.Timeout (a Stream route) would break that,
+		// so it is refused before it takes a key.
+		if deadline, bounded := r.Context().Deadline(); !bounded || time.Until(deadline) >= Lease {
+			httpx.WriteError(w, r, m.logger, fmt.Errorf("idempotency: %s runs without a request deadline shorter than the lease", b.operation))
+			return
+		}
 		m.serve(w, r, rctx, b, next)
 	})
 }
@@ -204,8 +237,8 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, rctx *chi.Con
 	}
 	body := validatedValue(r)
 	var actor string
-	if b.actor != nil {
-		actor, ok = b.actor(body)
+	if b.public != nil {
+		actor, ok = b.public.Actor(body)
 	} else {
 		actor, ok = m.caller(ctx)
 	}
@@ -224,6 +257,13 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, rctx *chi.Con
 		httpx.WriteError(w, r, m.logger, err)
 		return
 	}
+	if res.outcome != outcomeClaimed && b.public != nil {
+		if allowed, wait := b.public.Throttle(body); !allowed {
+			m.metrics.inc(b.operation, ResultThrottled)
+			httpx.WriteError(w, r, m.logger, httpx.RateLimitedError(w, wait))
+			return
+		}
+	}
 	switch res.outcome {
 	case outcomeReplay:
 		resp, err := m.store.openResponse(id, canonical, res.sealed)
@@ -236,11 +276,11 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, rctx *chi.Con
 		return
 	case outcomeReused:
 		m.metrics.inc(b.operation, ResultReused)
-		httpx.WriteError(w, r, m.logger, apperr.New(apperr.KindUnprocessable, httpx.CodeIdempotencyKeyReused))
+		httpx.WriteError(w, r, m.logger, apperr.New(apperr.KindUnprocessable, CodeIdempotencyKeyReused))
 		return
 	case outcomeInUse:
 		m.metrics.inc(b.operation, ResultInUse)
-		httpx.WriteError(w, r, m.logger, apperr.New(apperr.KindConflict, httpx.CodeIdempotencyKeyInUse))
+		httpx.WriteError(w, r, m.logger, apperr.New(apperr.KindConflict, CodeIdempotencyKeyInUse))
 		return
 	case outcomeClaimed:
 	}
@@ -260,7 +300,7 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, rctx *chi.Con
 	}()
 	next.ServeHTTP(cw, r.WithContext(withClaim(ctx, c)))
 	finished = true
-	m.finish(ctx, w.Header(), cw, c)
+	m.finish(ctx, w.Header(), cw, c, b.public != nil)
 }
 
 // finish keeps or frees the key by the response the handler wrote:
@@ -268,8 +308,11 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, rctx *chi.Con
 //   - a success the operation committed in its transaction stays as is;
 //   - a success it did not commit is stored now, and reported: the
 //     operation is not bound to its transaction (ResultUnbound);
-//   - a permanent 4xx is stored: the request changed nothing and the same
-//     request would be refused the same way;
+//   - a permanent 4xx of an operation with a caller is stored: the
+//     request changed nothing and the same request would be refused the
+//     same way (Stripe). For a public operation it frees the key: anyone
+//     can send such requests with fresh keys, and a row each would be
+//     storage an attacker fills (ADR-0034 Karar 5);
 //   - anything else (5xx, 408, 425, 429, 3xx) frees the key so the client
 //     can retry. A row the operation's transaction completed although the
 //     handler answered 5xx (an ambiguous commit) is not freed: its retry
@@ -278,12 +321,19 @@ func (m *Middleware) serve(w http.ResponseWriter, r *http.Request, rctx *chi.Con
 // Every write is conditional on this attempt still holding the key, so
 // the 409 IDEMPOTENCY_KEY_IN_USE of an attempt fenced by a takeover
 // changes nothing.
-func (m *Middleware) finish(ctx context.Context, header http.Header, cw *captureWriter, c *claim) {
+func (m *Middleware) finish(ctx context.Context, header http.Header, cw *captureWriter, c *claim, public bool) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), finishTimeout)
 	defer cancel()
 	status := cw.statusCode()
 	op := c.id.operation
 	switch {
+	case success(status) && c.oversized:
+		// Committed without its response (Commit refused to keep more
+		// than maxStoredBody): the key is freed, so a retry runs again.
+		m.logger.ErrorContext(ctx, "idempotency: the response is too large to keep; the key is freed",
+			slog.String("operation", op))
+		m.metrics.inc(op, ResultTooLarge)
+		m.releaseKey(ctx, c)
 	case success(status) && c.committed:
 		m.metrics.inc(op, ResultCommitted)
 		if sent, err := json.Marshal(cw.stored(header)); err != nil || cw.overflow || sha256.Sum256(sent) != c.digest {
@@ -295,7 +345,7 @@ func (m *Middleware) finish(ctx context.Context, header http.Header, cw *capture
 			slog.String("operation", op))
 		m.metrics.inc(op, ResultUnbound)
 		m.storeAfter(ctx, header, cw, c)
-	case permanent(status):
+	case permanent(status) && !public:
 		m.metrics.inc(op, ResultStored)
 		m.storeAfter(ctx, header, cw, c)
 	default:
@@ -315,6 +365,7 @@ func (m *Middleware) storeAfter(ctx context.Context, header http.Header, cw *cap
 	if cw.overflow {
 		m.logger.ErrorContext(ctx, "idempotency: the response is too large to keep; the key is freed",
 			slog.String("operation", c.id.operation))
+		m.metrics.inc(c.id.operation, ResultTooLarge)
 		m.releaseKey(ctx, c)
 		return
 	}
@@ -351,8 +402,9 @@ func replay(w http.ResponseWriter, resp storedResponse) {
 	_, _ = w.Write(resp.Body) // the client went away; nothing to do
 }
 
-// maxStoredBody bounds the response body a key keeps after the handler:
-// the bound operations answer small JSON documents.
+// maxStoredBody bounds the response body a key keeps, in Commit and after
+// the handler: the bound operations answer small JSON documents. A larger
+// response is sent but not kept, and its key is freed (ADR-0034 Karar 5).
 const maxStoredBody = 1 << 20
 
 // captureWriter passes the response on and keeps a copy of it.

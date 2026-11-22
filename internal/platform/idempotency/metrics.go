@@ -32,12 +32,19 @@ const (
 	ResultInUse = "key_in_use"
 	// ResultTakenOver: a key claimed from an attempt whose lease ran out.
 	ResultTakenOver = "taken_over"
+	// ResultThrottled: 429, a public operation's answer without its
+	// handler (replay, 422, 409) found the capability's bucket empty.
+	ResultThrottled = "throttled"
+	// ResultTooLarge: a response over maxStoredBody; sent, not kept, and
+	// the key freed.
+	ResultTooLarge = "too_large"
 )
 
 func results() []string {
 	return []string{
 		ResultCommitted, ResultUnbound, ResultStored, ResultReleased,
 		ResultReplayed, ResultReused, ResultInUse, ResultTakenOver,
+		ResultThrottled, ResultTooLarge,
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
+	"github.com/is-koala/koala-api/internal/platform/idempotency"
 	"github.com/is-koala/koala-api/internal/platform/log"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
 	"github.com/is-koala/koala-api/internal/realtime"
@@ -233,7 +234,7 @@ func TestBindErrorIsALoggedServerError(t *testing.T) {
 func TestPlatformCodesAreInTheContract(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range slices.Concat(httpx.PlatformCodes(), softdelete.Codes(), realtime.Codes(), authn.Codes(), staff.Codes(), pending.Codes()) {
+	for _, c := range slices.Concat(httpx.PlatformCodes(), idempotency.Codes(), softdelete.Codes(), realtime.Codes(), authn.Codes(), staff.Codes(), pending.Codes()) {
 		if !apiv1.ErrorCode(c).Valid() {
 			t.Errorf("code %s is not in api/components/problem.yaml ErrorCode", c)
 		}

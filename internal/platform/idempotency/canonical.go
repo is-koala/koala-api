@@ -62,15 +62,25 @@ func validatedValue(r *http.Request) any {
 }
 
 // canonicalJSON writes a decoded JSON value in one form whatever the
-// spelling it came in: object members sorted by key (UTF-8 byte order),
-// no insignificant space, strings escaped by encoding/json without the
-// HTML escapes, and numbers by value: an integer that fits in an int64
-// as its decimal digits, any other number in ECMAScript's shortest form
-// (encoding/json's float format). So 1, 1.0 and 1e0 are the same member.
-// This is RFC 8785 (JCS) but for the key order, which RFC 8785 takes in
-// UTF-16 code units; the two orders differ only between keys outside the
-// Basic Multilingual Plane and keys above U+E000, and the hash only needs
-// one form per value.
+// spelling it came in: object members sorted by key, no insignificant
+// space, strings escaped by encoding/json without the HTML escapes, and
+// numbers by value. So 1, 1.0 and 1e0 are the same member. It is close to
+// RFC 8785 (JCS) and differs from it in four ways (ADR-0034 Karar 2):
+//
+//   - members are sorted by UTF-8 bytes, JCS by UTF-16 code units; the
+//     two differ only between keys outside the Basic Multilingual Plane
+//     and keys above U+E000;
+//   - U+2028 and U+2029 are escaped (encoding/json always escapes them),
+//     JCS writes them as they are;
+//   - an integer that fits in an int64 is written by its digits, JCS goes
+//     through a float64: so 9007199254740993 is itself here, while
+//     9007199254740993.0 is a float64 (9007199254740992) and another
+//     request;
+//   - no Unicode normalization: the NFC and NFD spellings of a name are
+//     two requests (JCS does not normalize either).
+//
+// The hash only needs one form per value; a client that retries resends
+// its own bytes, so none of these splits a retry from its original.
 func canonicalJSON(v any) ([]byte, error) {
 	var b bytes.Buffer
 	if err := writeCanonical(&b, v); err != nil {

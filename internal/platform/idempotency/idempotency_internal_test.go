@@ -37,7 +37,7 @@ func TestCanonicalJSON(t *testing.T) {
 		{"integer spellings", `{"n":1}`, `{"n":1.0}`, true},
 		{"exponent", `{"n":100}`, `{"n":1e2}`, true},
 		{"negative zero", `{"n":0}`, `{"n":-0}`, true},
-		{"escapes", `{"s":"<&>"}`, `{"s":"<&>"}`, true},
+		{"escapes", `{"s":"\u003c\u0026\u003e"}`, `{"s":"<&>"}`, true},
 		{"another number", `{"n":1}`, `{"n":2}`, false},
 		{"another string", `{"s":"a"}`, `{"s":"b"}`, false},
 		{"array order matters", `[1,2]`, `[2,1]`, false},
@@ -65,6 +65,16 @@ func TestCanonicalJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	if want := `{"a":[1.5,1e+21,{"y":null,"z":false}],"b":"<ç>"}`; string(got) != want {
+		t.Fatalf("canonical form = %s, want %s", got, want)
+	}
+	// The differences from RFC 8785 the ADR names (ADR-0034 Karar 2):
+	// U+2028 is escaped; an integer past 2^53 is written by its digits, so
+	// it and the same number with a fraction are two requests.
+	got, err = canonicalJSON(decode(t, `["\u2028",9007199254740993,9007199254740993.0]`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `["\u2028",9007199254740993,9007199254740992]`; string(got) != want {
 		t.Fatalf("canonical form = %s, want %s", got, want)
 	}
 	if _, err := canonicalJSON(map[string]any{"x": struct{}{}}); err == nil {
@@ -162,5 +172,21 @@ func TestRecorderKeepsRepresentationHeaders(t *testing.T) {
 	if got.Status != http.StatusCreated || string(got.Body) != `{}` || len(got.Header) != 2 ||
 		got.Header["Location"][0] != "/v1/me" || got.Header["Content-Type"][0] != "application/json" {
 		t.Fatalf("stored = %+v", got)
+	}
+}
+
+// The recorder keeps no more than maxStoredBody: past it Commit keeps
+// nothing (ADR-0034 Karar 5).
+func TestRecorderStopsAtTheStoredBodyBound(t *testing.T) {
+	t.Parallel()
+
+	rec := newRecorder()
+	_, _ = rec.Write(bytes.Repeat([]byte("a"), maxStoredBody))
+	if rec.overflow {
+		t.Fatal("a body of exactly the bound overflowed")
+	}
+	_, _ = rec.Write([]byte("b"))
+	if !rec.overflow || rec.body.Len() != 0 {
+		t.Fatalf("overflow %v with %d bytes kept, want an overflow and nothing kept", rec.overflow, rec.body.Len())
 	}
 }

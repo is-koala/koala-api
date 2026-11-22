@@ -240,16 +240,46 @@ func (h *HTTP) CompleteRegistration(ctx context.Context, req apiv1.CompleteRegis
 // consumes anyway. The digest is domain-separated from the stored token
 // hash, so the two tables do not share a value.
 func RegistrationTokenActor(body any) (string, bool) {
+	token, ok := registrationTokenOf(body)
+	if !ok {
+		return "", false
+	}
+	sum := sha256.Sum256([]byte("koala-api idempotency actor v1\x00" + token))
+	return "registration:" + base64.RawURLEncoding.EncodeToString(sum[:]), true
+}
+
+// RegistrationReplayThrottle takes, for an answer the Idempotency-Key
+// store gives completeRegistration without running it (a replay, 422,
+// 409), one token from the bucket StrictMiddleware takes from for the
+// same registration token (ADR-0034 Karar 5). Without it a stolen token
+// and key would let a wrong password (422) be told from the right one
+// (the stored 201) past the token's rate limit.
+func RegistrationReplayThrottle(limiter TargetLimiter, groups LimitGroups) idempotency.Throttle {
+	return func(body any) (bool, time.Duration) {
+		token, ok := registrationTokenOf(body)
+		if !ok {
+			return false, 0
+		}
+		return limiter.Allow(groups.of(pairBucket), httpx.KeyCustom, registrationTokenLimitKey(token))
+	}
+}
+
+// registrationTokenOf is the registration token of a validated
+// completeRegistration body.
+func registrationTokenOf(body any) (string, bool) {
 	m, ok := body.(map[string]any)
 	if !ok {
 		return "", false
 	}
 	token, ok := m["registrationToken"].(string)
-	if !ok || token == "" {
-		return "", false
-	}
-	sum := sha256.Sum256([]byte("koala-api idempotency actor v1\x00" + token))
-	return "registration:" + base64.RawURLEncoding.EncodeToString(sum[:]), true
+	return token, ok && token != ""
+}
+
+// registrationTokenLimitKey is the rate limit key of a presented
+// registration token: StrictMiddleware and RegistrationReplayThrottle take
+// from the same bucket.
+func registrationTokenLimitKey(token string) string {
+	return "registration-token:" + hex.EncodeToString(hashOpaque(token))
 }
 
 // RequestPasswordReset queues a reset request; the answer does not say
@@ -590,7 +620,7 @@ func (h *HTTP) rateLimitKeys(ctx context.Context, request any) ([]limitKey, bool
 	case apiv1.VerifyRegistrationRequestObject:
 		return []limitKey{{key: "registration-link:" + hex.EncodeToString(hashOpaque(req.Body.VerificationToken))}}, true
 	case apiv1.CompleteRegistrationRequestObject:
-		return []limitKey{{key: "registration-token:" + hex.EncodeToString(hashOpaque(req.Body.RegistrationToken))}}, true
+		return []limitKey{{key: registrationTokenLimitKey(req.Body.RegistrationToken)}}, true
 	case apiv1.CompletePasswordResetRequestObject:
 		return []limitKey{{key: "reset-token:" + hex.EncodeToString(hashOpaque(req.Body.ResetToken))}}, true
 	case apiv1.ChangeMyPasswordRequestObject:

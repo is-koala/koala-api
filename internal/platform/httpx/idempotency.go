@@ -14,17 +14,6 @@ const HeaderIdempotencyKey = "Idempotency-Key"
 // ADR-0034).
 const HeaderIdempotentReplayed = "Idempotent-Replayed"
 
-// Problem codes of the Idempotency-Key store (ADR-0005 madde 6, ADR-0034).
-// They are universal: any operation that takes the key can answer them.
-const (
-	// CodeIdempotencyKeyReused: the key was first used with another
-	// request (422).
-	CodeIdempotencyKeyReused = "IDEMPOTENCY_KEY_REUSED"
-	// CodeIdempotencyKeyInUse: a request with the key is still running
-	// (409); the client retries later with the same key.
-	CodeIdempotencyKeyInUse = "IDEMPOTENCY_KEY_IN_USE"
-)
-
 // Idempotency-Key length bounds (stil rehberi §7, öneri).
 const (
 	minIdempotencyKeyLen = 8

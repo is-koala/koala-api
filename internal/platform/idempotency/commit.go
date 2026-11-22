@@ -13,7 +13,6 @@ import (
 
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/db"
-	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/idempotency/idempotencydb"
 )
 
@@ -26,9 +25,29 @@ type claim struct {
 	canonical []byte
 
 	// Set by Commit: the operation stored its response in its own
-	// transaction, and the digest of what it stored.
+	// transaction, and the digest of what it stored; or the response was
+	// over maxStoredBody and Commit kept nothing (oversized).
 	committed bool
+	oversized bool
 	digest    [sha256.Size]byte
+}
+
+// Problem codes of the store (ADR-0005 madde 6, ADR-0034 Karar 7). They
+// are universal to the operations Operations lists, and only to them: a
+// domain package does not return them, and an operation without the key
+// neither lists them nor declares 422 (archtest, app tests).
+const (
+	// CodeIdempotencyKeyReused: the key was first used with another
+	// request (422).
+	CodeIdempotencyKeyReused apperr.Code = "IDEMPOTENCY_KEY_REUSED"
+	// CodeIdempotencyKeyInUse: a request with the key is still running
+	// (409); the client retries later with the same key.
+	CodeIdempotencyKeyInUse apperr.Code = "IDEMPOTENCY_KEY_IN_USE"
+)
+
+// Codes lists the problem codes of the store.
+func Codes() []apperr.Code {
+	return []apperr.Code{CodeIdempotencyKeyReused, CodeIdempotencyKeyInUse}
 }
 
 type claimKey struct{}
@@ -63,7 +82,7 @@ func Commit(ctx context.Context, q db.Querier, render func(http.ResponseWriter) 
 }
 
 func (c *claim) commit(ctx context.Context, q db.Querier, render func(http.ResponseWriter) error) error {
-	if c.committed {
+	if c.committed || c.oversized {
 		return errors.New("idempotency: a response was committed twice for one request")
 	}
 	rec := newRecorder()
@@ -73,6 +92,12 @@ func (c *claim) commit(ctx context.Context, q db.Querier, render func(http.Respo
 	resp := rec.stored()
 	if !success(resp.Status) {
 		return fmt.Errorf("idempotency: a %d response cannot commit; only a success is stored in the operation's transaction", resp.Status)
+	}
+	if rec.overflow {
+		// Too large to keep: the operation commits, the key keeps no
+		// response and the middleware frees it (ADR-0034 Karar 5).
+		c.oversized = true
+		return nil
 	}
 	sealed, plain, err := c.store.sealResponse(c, resp)
 	if err != nil {
@@ -87,7 +112,7 @@ func (c *claim) commit(ctx context.Context, q db.Querier, render func(http.Respo
 	}
 	if n == 0 {
 		// Another attempt holds the key now; this one must not commit.
-		return apperr.New(apperr.KindConflict, httpx.CodeIdempotencyKeyInUse)
+		return apperr.New(apperr.KindConflict, CodeIdempotencyKeyInUse)
 	}
 	c.committed, c.digest = true, sha256.Sum256(plain)
 	return nil
@@ -115,11 +140,13 @@ func keptHeaders(h http.Header) map[string][]string {
 	return out
 }
 
-// recorder is the ResponseWriter Commit renders into.
+// recorder is the ResponseWriter Commit renders into. It keeps at most
+// maxStoredBody bytes of the body; past that it only notes the overflow.
 type recorder struct {
-	header http.Header
-	status int
-	body   bytes.Buffer
+	header   http.Header
+	status   int
+	body     bytes.Buffer
+	overflow bool
 }
 
 func newRecorder() *recorder { return &recorder{header: http.Header{}} }
@@ -135,6 +162,11 @@ func (r *recorder) WriteHeader(status int) {
 func (r *recorder) Write(p []byte) (int, error) {
 	if r.status == 0 {
 		r.status = http.StatusOK
+	}
+	if r.overflow || r.body.Len()+len(p) > maxStoredBody {
+		r.overflow = true
+		r.body.Reset()
+		return len(p), nil
 	}
 	n, err := r.body.Write(p)
 	if err != nil {

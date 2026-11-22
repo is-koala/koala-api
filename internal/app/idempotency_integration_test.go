@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -100,17 +101,45 @@ func isReplay(rec *httptest.ResponseRecorder) bool {
 	return rec.Header().Get(httpx.HeaderIdempotentReplayed) == "true"
 }
 
-// idempotentFixtures build one valid request of every operation the store
-// binds, on a fresh app: its path and body. The test holds this list
-// equal to the contract, so the handler PR that lifts x-not-implemented
-// from an operation that takes the key adds its fixture here.
-func idempotentFixtures() map[string]func(t *testing.T, a *authApp) (path, body string) {
-	return map[string]func(t *testing.T, a *authApp) (string, string){
-		"completeRegistration": func(t *testing.T, a *authApp) (string, string) {
+// idempotentFixture is one valid request of a bound operation, on a fresh
+// app, and how to read the xmin of a business row its success writes.
+type idempotentFixture struct {
+	path, body string
+	// businessXmin returns the xmin of a row the operation's transaction
+	// wrote, once the operation succeeded.
+	businessXmin func(t *testing.T) string
+}
+
+// idempotentFixtures build the fixture of every operation the store binds.
+// The test holds this list equal to the contract, so the handler PR that
+// lifts x-not-implemented from an operation that takes the key adds its
+// fixture here.
+func idempotentFixtures() map[string]func(t *testing.T, a *authApp) idempotentFixture {
+	return map[string]func(t *testing.T, a *authApp) idempotentFixture{
+		"completeRegistration": func(t *testing.T, a *authApp) idempotentFixture {
 			t.Helper()
-			return "/v1/auth/registrations/complete", completionBody(a.newRegistrationToken(t, "yeni@example.com"), userPw)
+			const email = "yeni@example.com"
+			return idempotentFixture{
+				path: "/v1/auth/registrations/complete",
+				body: completionBody(a.newRegistrationToken(t, email), userPw),
+				// The session the registration opens.
+				businessXmin: func(t *testing.T) string {
+					t.Helper()
+					return a.text(t, "SELECT s.xmin::text FROM user_sessions s JOIN active_users u ON u.id = s.user_id WHERE u.email = $1", email)
+				},
+			}
 		},
 	}
+}
+
+// text runs a query of one text value.
+func (a *authApp) text(t *testing.T, sql string, args ...any) string {
+	t.Helper()
+	var v string
+	if err := a.db.Pool().QueryRow(t.Context(), sql, args...).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
 
 // TestIdempotentOperationsReplay is the dynamic half of the binding of the
@@ -120,9 +149,12 @@ func idempotentFixtures() map[string]func(t *testing.T, a *authApp) (path, body 
 // Each runs once through the wired router on the database and is sent
 // again with the same key:
 //
-//   - the first answer is a success the operation committed in its own
-//     transaction (counted as committed, never as unbound: a handler that
-//     stores its success after the transaction fails here);
+//   - the first answer is a success whose key row was last written by the
+//     transaction that wrote the operation's business row: their xmin is
+//     equal. A handler that stores its success after its transaction, or
+//     in a transaction of its own, fails here (the measurement's red side:
+//     idempotency TestCommitSharesTheOperationsTransaction). It is also
+//     counted as committed, never as unbound;
 //   - the second is the first again, byte for byte, marked as a replay.
 func TestIdempotentOperationsReplay(t *testing.T) {
 	t.Parallel()
@@ -152,16 +184,23 @@ func TestIdempotentOperationsReplay(t *testing.T) {
 		t.Run(op, func(t *testing.T) {
 			t.Parallel()
 			a := newAuthApp(t, unlimitedGroups())
-			path, body := fixtures[op](t, a)
-			first := a.postKeyed(t, path, "fixture-"+op, body)
+			fx := fixtures[op](t, a)
+			path, body, key := fx.path, fx.body, "fixture-"+op
+			first := a.postKeyed(t, path, key, body)
 			if first.Code < 200 || first.Code > 299 || isReplay(first) {
 				t.Fatalf("first answer %d (replay %v): %s", first.Code, isReplay(first), first.Body)
+			}
+			business := fx.businessXmin(t)
+			stored := a.text(t, "SELECT xmin::text FROM idempotency_keys WHERE operation = $1 AND key = $2", op, key)
+			if business != stored {
+				t.Fatalf("%s's key row was written by transaction %s, its business row by %s: Commit is not in the operation's transaction",
+					op, stored, business)
 			}
 			if a.counted(t, op, idempotency.ResultCommitted) != 1 || a.counted(t, op, idempotency.ResultUnbound) != 0 {
 				t.Fatalf("%s's success was not committed in its transaction (committed %v, unbound %v)", op,
 					a.counted(t, op, idempotency.ResultCommitted), a.counted(t, op, idempotency.ResultUnbound))
 			}
-			again := a.postKeyed(t, path, "fixture-"+op, body)
+			again := a.postKeyed(t, path, key, body)
 			if !isReplay(again) || again.Code != first.Code || !bytes.Equal(again.Body.Bytes(), first.Body.Bytes()) ||
 				again.Header().Get("Location") != first.Header().Get("Location") {
 				t.Fatalf("second answer %d %s (replay %v), want the first, %d %s",
@@ -225,7 +264,7 @@ func TestRegistrationKeyBelongsToTheToken(t *testing.T) {
 	// The victim's token without its password: another request with the
 	// victim's key.
 	stolen := a.postKeyed(t, path, key, completionBody(victim, "bambaşka uzun bir parola"))
-	wantStatus(t, stolen, http.StatusUnprocessableEntity, httpx.CodeIdempotencyKeyReused)
+	wantStatus(t, stolen, http.StatusUnprocessableEntity, string(idempotency.CodeIdempotencyKeyReused))
 	if leaks(stolen) {
 		t.Fatal("the token alone reached the victim's stored response")
 	}
@@ -275,7 +314,7 @@ func TestConcurrentRegistrationCompletions(t *testing.T) {
 			}
 			ran = rec
 		case rec.Code == http.StatusCreated:
-		case rec.Code == http.StatusConflict && strings.Contains(rec.Body.String(), httpx.CodeIdempotencyKeyInUse):
+		case rec.Code == http.StatusConflict && strings.Contains(rec.Body.String(), string(idempotency.CodeIdempotencyKeyInUse)):
 		default:
 			t.Fatalf("answer %d %s", rec.Code, rec.Body)
 		}
@@ -290,5 +329,61 @@ func TestConcurrentRegistrationCompletions(t *testing.T) {
 	}
 	if a.count(t, usersByEmail, "yeni@example.com") != 1 || a.count(t, sessionsByEmail, "yeni@example.com") != 1 {
 		t.Fatal("the completion happened more than once")
+	}
+}
+
+// completeRegistration has no caller, so only its success keeps the key
+// (ADR-0034 Karar 5): a request with a guessed token and a fresh key, the
+// kind anyone can send without end, writes no row.
+func TestPublicRefusalWritesNoKey(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+
+	raw := make([]byte, 32)
+	_, _ = rand.Read(raw)
+	for i := range 3 {
+		rec := a.postKeyed(t, "/v1/auth/registrations/complete", "guess-key-"+strconv.Itoa(i),
+			completionBody(base64.RawURLEncoding.EncodeToString(raw), userPw))
+		wantStatus(t, rec, http.StatusBadRequest, string(authn.CodeRegistrationInvalid))
+	}
+	if n := a.count(t, "SELECT count(*) FROM idempotency_keys"); n != 0 {
+		t.Fatalf("%d keys kept for refused public requests, want none", n)
+	}
+	if a.counted(t, "completeRegistration", idempotency.ResultReleased) != 3 {
+		t.Fatal("the refusals did not free their keys")
+	}
+}
+
+// The answers the store gives completeRegistration without running it (the
+// replay, 422) take from the registration token's bucket, the one the
+// handler takes from (ADR-0034 Karar 5). Without that, a stolen token and
+// key would tell a wrong password (422) from the right one (the stored
+// 201) as fast as one can ask; with it, once the bucket is empty both are
+// 429.
+func TestRegistrationReplaysTakeFromTheTokenBucket(t *testing.T) {
+	t.Parallel()
+	groups := unlimitedGroups()
+	auth := groups[groupAuth]
+	auth.PerCustom = httpx.Rate{Every: time.Hour, Burst: 3}
+	groups[groupAuth] = auth
+	a := newAuthApp(t, groups)
+	token := a.newRegistrationToken(t, "kurban@example.com")
+	const path, key = "/v1/auth/registrations/complete", "bucket-key-1"
+	right, wrong := completionBody(token, userPw), completionBody(token, "bambaşka uzun bir parola")
+
+	wantStatus(t, a.postKeyed(t, path, key, right), http.StatusCreated, "") // the handler's token
+	wantStatus(t, a.postKeyed(t, path, key, wrong), http.StatusUnprocessableEntity, string(idempotency.CodeIdempotencyKeyReused))
+	if rec := a.postKeyed(t, path, key, right); !isReplay(rec) {
+		t.Fatalf("the third answer is not the replay: %d %s", rec.Code, rec.Body)
+	}
+	for _, body := range []string{wrong, right} {
+		rec := a.postKeyed(t, path, key, body)
+		wantStatus(t, rec, http.StatusTooManyRequests, httpx.CodeRateLimited)
+		if rec.Header().Get("Retry-After") == "" || isReplay(rec) {
+			t.Fatalf("the refusal = %v", rec.Header())
+		}
+	}
+	if a.counted(t, "completeRegistration", idempotency.ResultThrottled) != 2 {
+		t.Fatal("the throttled answers are not counted")
 	}
 }

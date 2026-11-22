@@ -104,14 +104,12 @@ func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, r
 	if err != nil {
 		return fmt.Errorf("mount api: %w", err)
 	}
-	idem, err := idempotency.NewMiddleware(spec, idempotencyConfig(mods.idempotency, reg, logger))
+	groups := apiLimitGroups()
+	idem, err := idempotency.NewMiddleware(spec, idempotencyConfig(mods.idempotency, limiter, groups, reg, logger))
 	if err != nil {
 		return fmt.Errorf("mount api: %w", err)
 	}
-	middlewares := []apiv1.StrictMiddlewareFunc{mods.authHTTP.StrictMiddleware(limiter, authn.LimitGroups{
-		Pair: groupAuth, Account: groupAuthAccount, RegistrationAddress: groupRegistrationAddress,
-		VerificationAddress: groupVerificationAddress,
-	})}
+	middlewares := []apiv1.StrictMiddlewareFunc{mods.authHTTP.StrictMiddleware(limiter, groups)}
 	server := strictServer{HTTP: mods.authHTTP, admin: mods.admin.http}
 	strict := apiv1.NewStrictHandlerWithOptions(server, middlewares, apiv1.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: bindError(logger),
@@ -129,17 +127,32 @@ func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, r
 	return nil
 }
 
+// apiLimitGroups names the rate limit groups the authentication
+// operations take their target buckets from (ADR-0021 §5).
+func apiLimitGroups() authn.LimitGroups {
+	return authn.LimitGroups{
+		Pair: groupAuth, Account: groupAuthAccount, RegistrationAddress: groupRegistrationAddress,
+		VerificationAddress: groupVerificationAddress,
+	}
+}
+
 // idempotencyConfig binds the store to the callers of the API: a signed-in
 // user or staff member is the actor of their keys, and each public
 // operation that takes a key names the capability its request presents
-// (ADR-0034 Karar 1). A public operation that takes a key and is missing
-// here stops the server.
-func idempotencyConfig(store *idempotency.Store, reg prometheus.Registerer, logger *slog.Logger) idempotency.Config {
+// and the bucket of that capability its stored answers take from
+// (ADR-0034 Karar 1 and 5). A public operation that takes a key and is
+// missing here stops the server.
+func idempotencyConfig(store *idempotency.Store, limiter authn.TargetLimiter, groups authn.LimitGroups,
+	reg prometheus.Registerer, logger *slog.Logger,
+) idempotency.Config {
 	return idempotency.Config{
 		Store:  store,
 		Caller: idempotencyCaller,
-		Public: map[string]idempotency.RequestActor{
-			"completeRegistration": authn.RegistrationTokenActor,
+		Public: map[string]idempotency.PublicOperation{
+			"completeRegistration": {
+				Actor:    authn.RegistrationTokenActor,
+				Throttle: authn.RegistrationReplayThrottle(limiter, groups),
+			},
 		},
 		Metrics: reg,
 		Logger:  logger,
