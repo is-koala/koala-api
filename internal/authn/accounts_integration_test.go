@@ -348,17 +348,17 @@ func TestRegistrationLinkIsOpaqueAndExpires(t *testing.T) {
 	// The job queue holds the start and the mail job, both run and kept as
 	// River keeps them; neither carries the token, and the mail job carries
 	// no address either (ADR-0032 Karar 3).
-	var jobs, withToken, mailWithAddress int
+	var queuedJobs, withToken, mailWithAddress int
 	err = a.db.Pool().QueryRow(t.Context(), `
 		SELECT count(*), count(*) FILTER (WHERE strpos(args::text, $1) > 0),
 		       count(*) FILTER (WHERE kind = 'auth_mail' AND strpos(args::text, $2) > 0)
-		FROM river_job`, token, newcomer).Scan(&jobs, &withToken, &mailWithAddress)
+		FROM river_job`, token, newcomer).Scan(&queuedJobs, &withToken, &mailWithAddress)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if jobs < 2 || withToken != 0 || mailWithAddress != 0 {
+	if queuedJobs < 2 || withToken != 0 || mailWithAddress != 0 {
 		t.Errorf("USR-003: %d jobs, %d carry the token, %d mail jobs carry the address; want at least 2, 0, 0",
-			jobs, withToken, mailWithAddress)
+			queuedJobs, withToken, mailWithAddress)
 	}
 
 	a.clock.Advance(authn.RegistrationLinkTTL)
@@ -819,11 +819,11 @@ func TestAccountPasswordRule(t *testing.T) {
 	}
 }
 
-// lockOut writes a hundred failed sign-ins on addr just before now: the
+// lockOut writes a hundred failed sign-ins on member just before now: the
 // target is locked for an hour (ADR-0025 §5).
-func (a *accountsEnv) lockOut(t *testing.T, addr string) {
+func (a *accountsEnv) lockOut(t *testing.T) {
 	t.Helper()
-	target := a.users.Target(addr)
+	target := a.users.Target(member)
 	for i := range authn.UserLockThreshold {
 		_, err := a.db.Pool().Exec(t.Context(),
 			"INSERT INTO login_attempts (id, principal_kind, target_hash, outcome, created_at) VALUES ($1, 'USER', $2, 'FAILED', $3)",
@@ -834,9 +834,10 @@ func (a *accountsEnv) lockOut(t *testing.T, addr string) {
 	}
 }
 
-func (a *accountsEnv) known(t *testing.T, addr, device string) bool {
+// known reports whether device is a known-good device of member.
+func (a *accountsEnv) known(t *testing.T, device string) bool {
 	t.Helper()
-	known, err := a.users.KnownDevice(t.Context(), addr, device)
+	known, err := a.users.KnownDevice(t.Context(), member, device)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -857,22 +858,22 @@ func TestResetForgetsTheDevicesBeforeIt(t *testing.T) {
 	a.clock.Advance(time.Second)
 	a.login(t, member, otherPw, attacker) // the first session is REPLACED
 	a.clock.Advance(time.Second)
-	if !a.known(t, member, attacker) {
+	if !a.known(t, attacker) {
 		t.Fatal("the attacker's device is not known before the reset; the test proves nothing")
 	}
 
 	if err := a.completeReset(a.reset(t), goodPw, devicePhone); err != nil {
 		t.Fatal(err)
 	}
-	if a.known(t, member, attacker) {
+	if a.known(t, attacker) {
 		t.Error("the attacker's device still vouches for itself after the reset")
 	}
-	if !a.known(t, member, devicePhone) {
+	if !a.known(t, devicePhone) {
 		t.Error("the device the reset was completed from is not known")
 	}
 	a.clock.Advance(time.Second)
 	a.login(t, member, goodPw, deviceW2)
-	if !a.known(t, member, deviceW2) {
+	if !a.known(t, deviceW2) {
 		t.Error("a device signed in on after the reset is not known")
 	}
 }
@@ -894,7 +895,7 @@ func TestPasswordRevokeReasonsDoNotVouch(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if a.known(t, member, deviceW1) {
+			if a.known(t, deviceW1) {
 				t.Errorf("a session ended for %s vouches for its device", reason)
 			}
 		})
@@ -910,7 +911,7 @@ func TestResetLiftsTheLock(t *testing.T) {
 	a := newAccountsEnv(t)
 	a.addUser(t, member, otherPw)
 	a.clock.Advance(time.Second)
-	a.lockOut(t, member)
+	a.lockOut(t)
 	if _, err := a.users.Login(t.Context(), authn.LoginInput{Email: member, Password: otherPw, DeviceKey: devicePhone}); err == nil {
 		t.Fatal("signed in while locked; the test proves nothing")
 	}
@@ -918,7 +919,7 @@ func TestResetLiftsTheLock(t *testing.T) {
 	if err := a.completeReset(a.reset(t), goodPw, devicePhone); err != nil {
 		t.Fatal(err)
 	}
-	if !a.known(t, member, devicePhone) {
+	if !a.known(t, devicePhone) {
 		t.Error("the device the reset was completed from is not known")
 	}
 	a.login(t, member, goodPw, deviceW2) // another device: the lock is lifted
@@ -946,7 +947,7 @@ func TestPasswordChangeCountsFailures(t *testing.T) {
 		t.Fatalf("attempts after a wrong current password = %+v, want one failure", row)
 	}
 	a.clock.Advance(time.Second)
-	a.lockOut(t, member)
+	a.lockOut(t)
 	wantErr(t, change(otherPw), apperr.KindForbidden, authn.CodeCurrentMismatch)
 	if row := a.attempts(t, "USER", member); row.Locked != 1 {
 		t.Errorf("attempts while locked = %+v, want the refusal logged as LOCKED", row)
