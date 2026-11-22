@@ -965,7 +965,14 @@ type callee struct {
 func (tr *errorTrace) resolveCall(sc *scope, call *ast.CallExpr) callee {
 	fun := unparen(call.Fun)
 	switch x := fun.(type) {
-	case *ast.IndexExpr: // a generic function, F[T](…)
+	case *ast.IndexExpr: // a generic function F[T](…), or an element m[k](…)
+		if t, ok := tr.exprType(sc, x.X); ok {
+			if u := tr.m.underlying(t); !u.ext {
+				if _, isFunc := unparen(u.expr).(*ast.FuncType); !isFunc {
+					return tr.indexedCallee(sc, call, t)
+				}
+			}
+		}
 		fun = x.X
 	case *ast.IndexListExpr:
 		fun = x.X
@@ -981,6 +988,24 @@ func (tr *errorTrace) resolveCall(sc *scope, call *ast.CallExpr) callee {
 		return callee{conversion: typ{pkg: sc.fn.pkg, file: sc.fn.file, expr: fun}}
 	}
 	return callee{why: "a computed callee", missing: tr.key(sc, call.Fun)}
+}
+
+// indexedCallee is the callee of m[k](…): an element of a map, slice or
+// array of functions, put there somewhere the walk does not follow. One
+// that returns an error is unresolved.
+func (tr *errorTrace) indexedCallee(sc *scope, call *ast.CallExpr, container typ) callee {
+	elem, ok := tr.m.elem(container)
+	if !ok {
+		return callee{why: "an indexed callee of unknown type", missing: tr.key(sc, call.Fun)}
+	}
+	if elem.ext {
+		return callee{skip: true, sig: elem}
+	}
+	u := tr.m.underlying(elem)
+	if _, isFunc := unparen(u.expr).(*ast.FuncType); isFunc && !returnsError(u) {
+		return callee{skip: true, sig: u}
+	}
+	return callee{sig: u, why: "an indexed callee", missing: tr.key(sc, call.Fun)}
 }
 
 func (tr *errorTrace) resolveName(sc *scope, name string) callee {
@@ -1184,27 +1209,86 @@ func (tr *errorTrace) call(sc *scope, call *ast.CallExpr, stack []ast.Node) {
 			key: c.missing, pos: tr.m.fset.Position(call.Pos()).String(), why: c.why,
 		})
 	}
-	// Function values passed on (a method value, a package function) are
-	// visited as if called: a callback's codes come back through its caller.
-	for _, arg := range call.Args {
-		switch a := unparen(arg).(type) {
-		case *ast.Ident:
-			if _, local := sc.vars[a.Name]; local {
-				continue
+	// Function values passed on are visited as if called: a callback's
+	// codes come back through its caller, since the callee's call of its
+	// parameter is not followed (resolveName).
+	for i, arg := range call.Args {
+		tr.passedOn(sc, c, i, arg)
+	}
+}
+
+// passedOn visits a function value passed as the i-th argument of a call
+// to c: a package function, a method value (of a type, or of an interface
+// to its implementations). What cannot be followed is red, like a call:
+// a function-typed field or an unimplemented interface method, a local
+// function value that is neither a literal of this body nor a parameter,
+// and any unresolved selector the callee takes as a function returning an
+// error.
+func (tr *errorTrace) passedOn(sc *scope, c callee, i int, arg ast.Expr) {
+	switch a := unparen(arg).(type) {
+	case *ast.Ident:
+		if t, local := sc.vars[a.Name]; local {
+			if !sc.closures[a.Name] && !sc.params[a.Name] && tr.isErrorFunc(t) {
+				tr.unresolvedAt(a, tr.key(sc, a), "a local function value passed on")
 			}
-			if f, ok := sc.fn.pkg.funcs[a.Name]; ok {
-				tr.visit(f)
+			return
+		}
+		if f, ok := sc.fn.pkg.funcs[a.Name]; ok {
+			tr.visit(f)
+		}
+	case *ast.SelectorExpr:
+		v := tr.resolveSelector(sc, a)
+		switch {
+		case v.fn != nil && !v.skip:
+			tr.visit(*v.fn)
+		case len(v.impls) > 0:
+			for _, impl := range v.impls {
+				tr.visit(impl)
 			}
-		case *ast.SelectorExpr:
-			if base, ok := tr.exprType(sc, a.X); ok && !base.ext {
-				if p, name, _, _, ok := tr.m.named(base); ok {
-					if meth, found := p.methods[name][a.Sel.Name]; found {
-						tr.visit(meth)
-					}
-				}
-			}
+		case v.why != "" && (tr.isErrorFunc(v.sig) || tr.takesErrorFunc(c, i)):
+			tr.unresolvedAt(a, v.missing, v.why+", passed on")
 		}
 	}
+}
+
+// isErrorFunc reports whether t is a function type that returns an error.
+func (tr *errorTrace) isErrorFunc(t typ) bool {
+	if t.ext || t.expr == nil {
+		return false
+	}
+	u := tr.m.underlying(t)
+	_, isFunc := unparen(u.expr).(*ast.FuncType)
+	return isFunc && returnsError(u)
+}
+
+// takesErrorFunc reports whether c's i-th parameter is a function that
+// returns an error.
+func (tr *errorTrace) takesErrorFunc(c callee, i int) bool {
+	ft, ok := unparen(c.sig.expr).(*ast.FuncType)
+	if c.sig.ext || !ok || ft.Params == nil {
+		return false
+	}
+	var params []ast.Expr
+	for _, p := range ft.Params.List {
+		for range max(1, len(p.Names)) {
+			params = append(params, p.Type)
+		}
+	}
+	if len(params) == 0 {
+		return false
+	}
+	t := params[min(i, len(params)-1)]
+	if ell, variadic := t.(*ast.Ellipsis); variadic {
+		t = ell.Elt
+	} else if i >= len(params) {
+		return false
+	}
+	return tr.isErrorFunc(typ{pkg: c.sig.pkg, file: c.sig.file, expr: t})
+}
+
+// unresolvedAt records what the walk could not follow at e.
+func (tr *errorTrace) unresolvedAt(e ast.Expr, key, why string) {
+	tr.unresolved = append(tr.unresolved, unresolved{key: key, pos: tr.m.fset.Position(e.Pos()).String(), why: why})
 }
 
 // site records an apperr.New or apperr.Wrap call.
@@ -1700,6 +1784,7 @@ const (
 	CodeStaff  apperr.Code = "DEMO_STAFF_ONLY"
 	CodeVar    apperr.Code = "DEMO_VAR"
 	CodeImpl   apperr.Code = "DEMO_IMPL"
+	CodePassed apperr.Code = "DEMO_PASSED"
 )
 
 var errVar = apperr.New(apperr.KindConflict, CodeVar)
@@ -1707,6 +1792,14 @@ var errVar = apperr.New(apperr.KindConflict, CodeVar)
 type hasher interface{ Hash() error }
 
 type sender interface{ Send() error }
+
+type passer interface{ Pass() error }
+
+type doer interface{ Do() error }
+
+type Passer struct{}
+
+func (Passer) Pass() error { return apperr.New(apperr.KindConflict, CodePassed) }
 
 type Store struct{}
 
@@ -1721,6 +1814,10 @@ type HTTP struct {
 	quiet  quiet.Box
 	log    *slog.Logger
 	hook   func() error
+	passer passer
+	svcs   map[string]Passer
+	fns    map[string]func() error
+	quits  []func()
 }
 
 type Service struct{ inner *Inner }
@@ -1759,6 +1856,25 @@ func (h *HTTP) GetOther(ctx context.Context, _ apiv1.GetOtherRequestObject) (any
 }
 
 func (h *HTTP) GetLonely(context.Context, apiv1.GetLonelyRequestObject) (any, error) { return nil, nil }
+
+func (h *HTTP) GetBlind(ctx context.Context, _ apiv1.GetBlindRequestObject) (any, error) {
+	_ = run(h.passer.Pass)
+	_ = h.svcs["k"].Pass()
+	h.quits[0]()
+	_ = viaParam[Passer](Passer{})
+	_ = viaIndex[[]Passer](nil)
+	_ = h.fns["k"]()
+	f := h.passer.Pass
+	_ = f()
+	_ = run(f)
+	return nil, nil
+}
+
+func run(f func() error) error { return f() }
+
+func viaParam[T doer](v T) error { return v.Do() }
+
+func viaIndex[S ~[]E, E doer](s S) error { return s[0].Do() }
 
 func (s *Service) Login() error { return s.inner.deep() }
 
@@ -1894,6 +2010,34 @@ func TestErrorTraceOnADemoModule(t *testing.T) {
 
 	if _, _, followed := m.trace(handlers["GetLonely"][0]); followed != 0 {
 		t.Errorf("GetLonely followed %d calls, want 0: the handler alone, which the real test makes red", followed)
+	}
+
+	// GetBlind: a method value passed on is followed to the interface's
+	// implementation, an indexed access of a known element type and an
+	// indexed callee of functions returning nothing are followed or let
+	// past; everything else it meets is red, each for its own reason.
+	sites, unres, _ = m.trace(handlers["GetBlind"][0])
+	got = nil
+	for _, s := range sites {
+		got = append(got, s.kind+" "+s.code)
+	}
+	if !slices.Equal(got, []string{"KindConflict DEMO_PASSED"}) {
+		t.Errorf("GetBlind reaches %v, want DEMO_PASSED through the method value passed on", got)
+	}
+	whys = nil
+	for _, u := range unres {
+		whys = append(whys, u.why)
+	}
+	slices.Sort(whys)
+	wantWhys := []string{
+		"a call of a local function value",                        // f()
+		"a local function value passed on",                        // run(f)
+		"a receiver of unknown type",                              // s[0].Do(), an indexed access of unknown element type
+		"a receiver whose type is not a named type of the module", // v.Do(), a parameter of a type parameter's type
+		"an indexed callee",                                       // h.fns["k"]()
+	}
+	if !slices.Equal(whys, wantWhys) {
+		t.Errorf("GetBlind: unresolved %q, want %q", whys, wantWhys)
 	}
 }
 
