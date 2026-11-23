@@ -11,6 +11,19 @@ import (
 	"github.com/google/uuid"
 )
 
+const getDataVersion = `-- name: GetDataVersion :one
+SELECT coalesce((SELECT version FROM reference_data_version), 0)::integer AS version
+`
+
+// GetDataVersion is the version of db/referencedata the tables hold; 0
+// before the first sync. The lists' ETag derives from it.
+func (q *Queries) GetDataVersion(ctx context.Context) (int32, error) {
+	row := q.db.QueryRow(ctx, getDataVersion)
+	var version int32
+	err := row.Scan(&version)
+	return version, err
+}
+
 const listCities = `-- name: ListCities :many
 SELECT c.id, c.name
 FROM countries p

@@ -3103,6 +3103,54 @@ type ListMyVerificationsParams struct {
 	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
 }
 
+// ListDistrictsParams defines parameters for ListDistricts.
+type ListDistrictsParams struct {
+	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
+	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
+	// yanıt gövdesiz `304 Not Modified`'dır.
+	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
+}
+
+// ListCountriesParams defines parameters for ListCountries.
+type ListCountriesParams struct {
+	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
+	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
+	// yanıt gövdesiz `304 Not Modified`'dır.
+	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
+}
+
+// ListCitiesParams defines parameters for ListCities.
+type ListCitiesParams struct {
+	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
+	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
+	// yanıt gövdesiz `304 Not Modified`'dır.
+	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
+}
+
+// ListDepartmentsParams defines parameters for ListDepartments.
+type ListDepartmentsParams struct {
+	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
+	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
+	// yanıt gövdesiz `304 Not Modified`'dır.
+	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
+}
+
+// ListUniversitiesParams defines parameters for ListUniversities.
+type ListUniversitiesParams struct {
+	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
+	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
+	// yanıt gövdesiz `304 Not Modified`'dır.
+	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
+}
+
+// ListFacultiesParams defines parameters for ListFaculties.
+type ListFacultiesParams struct {
+	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
+	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
+	// yanıt gövdesiz `304 Not Modified`'dır.
+	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
+}
+
 // LoginStaffJSONRequestBody defines body for LoginStaff for application/json ContentType.
 type LoginStaffJSONRequestBody = LoginRequest
 
@@ -3434,22 +3482,22 @@ type ServerInterface interface {
 	ConfirmMyVerification(w http.ResponseWriter, r *http.Request, verificationID openapi_types.UUID)
 	// ListDistricts Bir şehrin ilçelerini döndürür.
 	// (GET /v1/reference/cities/{cityId}/districts)
-	ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID)
+	ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID, params ListDistrictsParams)
 	// ListCountries Ülkeleri döndürür.
 	// (GET /v1/reference/countries)
-	ListCountries(w http.ResponseWriter, r *http.Request)
+	ListCountries(w http.ResponseWriter, r *http.Request, params ListCountriesParams)
 	// ListCities Bir ülkenin şehirlerini döndürür.
 	// (GET /v1/reference/countries/{countryId}/cities)
-	ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID)
+	ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID, params ListCitiesParams)
 	// ListDepartments Bir fakültenin bölümlerini döndürür.
 	// (GET /v1/reference/faculties/{facultyId}/departments)
-	ListDepartments(w http.ResponseWriter, r *http.Request, facultyID openapi_types.UUID)
+	ListDepartments(w http.ResponseWriter, r *http.Request, facultyID openapi_types.UUID, params ListDepartmentsParams)
 	// ListUniversities Üniversiteleri döndürür.
 	// (GET /v1/reference/universities)
-	ListUniversities(w http.ResponseWriter, r *http.Request)
+	ListUniversities(w http.ResponseWriter, r *http.Request, params ListUniversitiesParams)
 	// ListFaculties Bir üniversitenin fakültelerini döndürür.
 	// (GET /v1/reference/universities/{universityId}/faculties)
-	ListFaculties(w http.ResponseWriter, r *http.Request, universityID openapi_types.UUID)
+	ListFaculties(w http.ResponseWriter, r *http.Request, universityID openapi_types.UUID, params ListFacultiesParams)
 	// GetPublicProfile Bir kullanıcının herkese açık profilini döndürür.
 	// (GET /v1/users/{userId})
 	GetPublicProfile(w http.ResponseWriter, r *http.Request, userID openapi_types.UUID)
@@ -3935,37 +3983,37 @@ func (_ Unimplemented) ConfirmMyVerification(w http.ResponseWriter, r *http.Requ
 
 // ListDistricts Bir şehrin ilçelerini döndürür.
 // (GET /v1/reference/cities/{cityId}/districts)
-func (_ Unimplemented) ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID) {
+func (_ Unimplemented) ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID, params ListDistrictsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // ListCountries Ülkeleri döndürür.
 // (GET /v1/reference/countries)
-func (_ Unimplemented) ListCountries(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListCountries(w http.ResponseWriter, r *http.Request, params ListCountriesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // ListCities Bir ülkenin şehirlerini döndürür.
 // (GET /v1/reference/countries/{countryId}/cities)
-func (_ Unimplemented) ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID) {
+func (_ Unimplemented) ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID, params ListCitiesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // ListDepartments Bir fakültenin bölümlerini döndürür.
 // (GET /v1/reference/faculties/{facultyId}/departments)
-func (_ Unimplemented) ListDepartments(w http.ResponseWriter, r *http.Request, facultyID openapi_types.UUID) {
+func (_ Unimplemented) ListDepartments(w http.ResponseWriter, r *http.Request, facultyID openapi_types.UUID, params ListDepartmentsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // ListUniversities Üniversiteleri döndürür.
 // (GET /v1/reference/universities)
-func (_ Unimplemented) ListUniversities(w http.ResponseWriter, r *http.Request) {
+func (_ Unimplemented) ListUniversities(w http.ResponseWriter, r *http.Request, params ListUniversitiesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // ListFaculties Bir üniversitenin fakültelerini döndürür.
 // (GET /v1/reference/universities/{universityId}/faculties)
-func (_ Unimplemented) ListFaculties(w http.ResponseWriter, r *http.Request, universityID openapi_types.UUID) {
+func (_ Unimplemented) ListFaculties(w http.ResponseWriter, r *http.Request, universityID openapi_types.UUID, params ListFacultiesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -6521,8 +6569,32 @@ func (siw *ServerInterfaceWrapper) ListDistricts(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDistrictsParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch IfNoneMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListDistricts(w, r, cityID)
+		siw.Handler.ListDistricts(w, r, cityID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6535,8 +6607,35 @@ func (siw *ServerInterfaceWrapper) ListDistricts(w http.ResponseWriter, r *http.
 // ListCountries operation middleware
 func (siw *ServerInterfaceWrapper) ListCountries(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCountriesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch IfNoneMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListCountries(w, r)
+		siw.Handler.ListCountries(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6561,8 +6660,32 @@ func (siw *ServerInterfaceWrapper) ListCities(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCitiesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch IfNoneMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListCities(w, r, countryID)
+		siw.Handler.ListCities(w, r, countryID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6587,8 +6710,32 @@ func (siw *ServerInterfaceWrapper) ListDepartments(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDepartmentsParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch IfNoneMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListDepartments(w, r, facultyID)
+		siw.Handler.ListDepartments(w, r, facultyID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6601,8 +6748,35 @@ func (siw *ServerInterfaceWrapper) ListDepartments(w http.ResponseWriter, r *htt
 // ListUniversities operation middleware
 func (siw *ServerInterfaceWrapper) ListUniversities(w http.ResponseWriter, r *http.Request) {
 
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListUniversitiesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch IfNoneMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListUniversities(w, r)
+		siw.Handler.ListUniversities(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6627,8 +6801,32 @@ func (siw *ServerInterfaceWrapper) ListFaculties(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListFacultiesParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-None-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-None-Match")]; found {
+		var IfNoneMatch IfNoneMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-None-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-None-Match", valueList[0], &IfNoneMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-None-Match", Err: err})
+			return
+		}
+
+		params.IfNoneMatch = &IfNoneMatch
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListFaculties(w, r, universityID)
+		siw.Handler.ListFaculties(w, r, universityID, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -16998,24 +17196,51 @@ func (response ConfirmMyVerificationdefaultApplicationProblemPlusJSONResponse) V
 
 type ListDistrictsRequestObject struct {
 	CityID openapi_types.UUID `json:"cityId"`
+	Params ListDistrictsParams
 }
 
 type ListDistrictsResponseObject interface {
 	VisitListDistrictsResponse(w http.ResponseWriter) error
 }
 
-type ListDistricts200JSONResponse ReferenceItemList
+type ListDistricts200ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListDistricts200JSONResponse struct {
+	Body    ReferenceItemList
+	Headers ListDistricts200ResponseHeaders
+}
 
 func (response ListDistricts200JSONResponse) VisitListDistrictsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+type ListDistricts304ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListDistricts304Response struct {
+	Headers ListDistricts304ResponseHeaders
+}
+
+func (response ListDistricts304Response) VisitListDistrictsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(304)
+	return nil
 }
 
 type ListDistricts400ApplicationProblemPlusJSONResponse struct {
@@ -17090,24 +17315,51 @@ func (response ListDistrictsdefaultApplicationProblemPlusJSONResponse) VisitList
 }
 
 type ListCountriesRequestObject struct {
+	Params ListCountriesParams
 }
 
 type ListCountriesResponseObject interface {
 	VisitListCountriesResponse(w http.ResponseWriter) error
 }
 
-type ListCountries200JSONResponse ReferenceItemList
+type ListCountries200ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListCountries200JSONResponse struct {
+	Body    ReferenceItemList
+	Headers ListCountries200ResponseHeaders
+}
 
 func (response ListCountries200JSONResponse) VisitListCountriesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+type ListCountries304ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListCountries304Response struct {
+	Headers ListCountries304ResponseHeaders
+}
+
+func (response ListCountries304Response) VisitListCountriesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(304)
+	return nil
 }
 
 type ListCountries400ApplicationProblemPlusJSONResponse struct {
@@ -17167,24 +17419,51 @@ func (response ListCountriesdefaultApplicationProblemPlusJSONResponse) VisitList
 
 type ListCitiesRequestObject struct {
 	CountryID openapi_types.UUID `json:"countryId"`
+	Params    ListCitiesParams
 }
 
 type ListCitiesResponseObject interface {
 	VisitListCitiesResponse(w http.ResponseWriter) error
 }
 
-type ListCities200JSONResponse ReferenceItemList
+type ListCities200ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListCities200JSONResponse struct {
+	Body    ReferenceItemList
+	Headers ListCities200ResponseHeaders
+}
 
 func (response ListCities200JSONResponse) VisitListCitiesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+type ListCities304ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListCities304Response struct {
+	Headers ListCities304ResponseHeaders
+}
+
+func (response ListCities304Response) VisitListCitiesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(304)
+	return nil
 }
 
 type ListCities400ApplicationProblemPlusJSONResponse struct {
@@ -17260,24 +17539,51 @@ func (response ListCitiesdefaultApplicationProblemPlusJSONResponse) VisitListCit
 
 type ListDepartmentsRequestObject struct {
 	FacultyID openapi_types.UUID `json:"facultyId"`
+	Params    ListDepartmentsParams
 }
 
 type ListDepartmentsResponseObject interface {
 	VisitListDepartmentsResponse(w http.ResponseWriter) error
 }
 
-type ListDepartments200JSONResponse ReferenceItemList
+type ListDepartments200ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListDepartments200JSONResponse struct {
+	Body    ReferenceItemList
+	Headers ListDepartments200ResponseHeaders
+}
 
 func (response ListDepartments200JSONResponse) VisitListDepartmentsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+type ListDepartments304ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListDepartments304Response struct {
+	Headers ListDepartments304ResponseHeaders
+}
+
+func (response ListDepartments304Response) VisitListDepartmentsResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(304)
+	return nil
 }
 
 type ListDepartments400ApplicationProblemPlusJSONResponse struct {
@@ -17352,24 +17658,51 @@ func (response ListDepartmentsdefaultApplicationProblemPlusJSONResponse) VisitLi
 }
 
 type ListUniversitiesRequestObject struct {
+	Params ListUniversitiesParams
 }
 
 type ListUniversitiesResponseObject interface {
 	VisitListUniversitiesResponse(w http.ResponseWriter) error
 }
 
-type ListUniversities200JSONResponse ReferenceItemList
+type ListUniversities200ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListUniversities200JSONResponse struct {
+	Body    ReferenceItemList
+	Headers ListUniversities200ResponseHeaders
+}
 
 func (response ListUniversities200JSONResponse) VisitListUniversitiesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+type ListUniversities304ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListUniversities304Response struct {
+	Headers ListUniversities304ResponseHeaders
+}
+
+func (response ListUniversities304Response) VisitListUniversitiesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(304)
+	return nil
 }
 
 type ListUniversities400ApplicationProblemPlusJSONResponse struct {
@@ -17429,24 +17762,51 @@ func (response ListUniversitiesdefaultApplicationProblemPlusJSONResponse) VisitL
 
 type ListFacultiesRequestObject struct {
 	UniversityID openapi_types.UUID `json:"universityId"`
+	Params       ListFacultiesParams
 }
 
 type ListFacultiesResponseObject interface {
 	VisitListFacultiesResponse(w http.ResponseWriter) error
 }
 
-type ListFaculties200JSONResponse ReferenceItemList
+type ListFaculties200ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListFaculties200JSONResponse struct {
+	Body    ReferenceItemList
+	Headers ListFaculties200ResponseHeaders
+}
 
 func (response ListFaculties200JSONResponse) VisitListFacultiesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
 	w.WriteHeader(200)
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+type ListFaculties304ResponseHeaders struct {
+	CacheControl string
+	ETag         string
+}
+
+type ListFaculties304Response struct {
+	Headers ListFaculties304ResponseHeaders
+}
+
+func (response ListFaculties304Response) VisitListFacultiesResponse(w http.ResponseWriter) error {
+	w.Header().Set("Cache-Control", fmt.Sprint(response.Headers.CacheControl))
+	w.Header().Set("ETag", fmt.Sprint(response.Headers.ETag))
+	w.WriteHeader(304)
+	return nil
 }
 
 type ListFaculties400ApplicationProblemPlusJSONResponse struct {
@@ -20164,10 +20524,11 @@ func (sh *strictHandler) ConfirmMyVerification(w http.ResponseWriter, r *http.Re
 }
 
 // ListDistricts operation middleware
-func (sh *strictHandler) ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID) {
+func (sh *strictHandler) ListDistricts(w http.ResponseWriter, r *http.Request, cityID openapi_types.UUID, params ListDistrictsParams) {
 	var request ListDistrictsRequestObject
 
 	request.CityID = cityID
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListDistricts(ctx, request.(ListDistrictsRequestObject))
@@ -20190,8 +20551,10 @@ func (sh *strictHandler) ListDistricts(w http.ResponseWriter, r *http.Request, c
 }
 
 // ListCountries operation middleware
-func (sh *strictHandler) ListCountries(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) ListCountries(w http.ResponseWriter, r *http.Request, params ListCountriesParams) {
 	var request ListCountriesRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListCountries(ctx, request.(ListCountriesRequestObject))
@@ -20214,10 +20577,11 @@ func (sh *strictHandler) ListCountries(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListCities operation middleware
-func (sh *strictHandler) ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID) {
+func (sh *strictHandler) ListCities(w http.ResponseWriter, r *http.Request, countryID openapi_types.UUID, params ListCitiesParams) {
 	var request ListCitiesRequestObject
 
 	request.CountryID = countryID
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListCities(ctx, request.(ListCitiesRequestObject))
@@ -20240,10 +20604,11 @@ func (sh *strictHandler) ListCities(w http.ResponseWriter, r *http.Request, coun
 }
 
 // ListDepartments operation middleware
-func (sh *strictHandler) ListDepartments(w http.ResponseWriter, r *http.Request, facultyID openapi_types.UUID) {
+func (sh *strictHandler) ListDepartments(w http.ResponseWriter, r *http.Request, facultyID openapi_types.UUID, params ListDepartmentsParams) {
 	var request ListDepartmentsRequestObject
 
 	request.FacultyID = facultyID
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListDepartments(ctx, request.(ListDepartmentsRequestObject))
@@ -20266,8 +20631,10 @@ func (sh *strictHandler) ListDepartments(w http.ResponseWriter, r *http.Request,
 }
 
 // ListUniversities operation middleware
-func (sh *strictHandler) ListUniversities(w http.ResponseWriter, r *http.Request) {
+func (sh *strictHandler) ListUniversities(w http.ResponseWriter, r *http.Request, params ListUniversitiesParams) {
 	var request ListUniversitiesRequestObject
+
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListUniversities(ctx, request.(ListUniversitiesRequestObject))
@@ -20290,10 +20657,11 @@ func (sh *strictHandler) ListUniversities(w http.ResponseWriter, r *http.Request
 }
 
 // ListFaculties operation middleware
-func (sh *strictHandler) ListFaculties(w http.ResponseWriter, r *http.Request, universityID openapi_types.UUID) {
+func (sh *strictHandler) ListFaculties(w http.ResponseWriter, r *http.Request, universityID openapi_types.UUID, params ListFacultiesParams) {
 	var request ListFacultiesRequestObject
 
 	request.UniversityID = universityID
+	request.Params = params
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.ListFaculties(ctx, request.(ListFacultiesRequestObject))

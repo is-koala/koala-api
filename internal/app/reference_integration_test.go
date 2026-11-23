@@ -3,7 +3,9 @@
 package app
 
 import (
+	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"github.com/is-koala/koala-api/db/referencedata"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
+	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/reference"
 )
 
@@ -82,12 +85,33 @@ func inTurkishOrder(t *testing.T, items []referenceItem) {
 	}
 }
 
+// conditional sends a GET with If-None-Match, without a bearer.
+func (a *authApp) conditional(t *testing.T, path, ifNoneMatch string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
+	req.RemoteAddr = "192.0.2.1:40000"
+	req.Header.Set(httpx.HeaderRequestID, "req-reference")
+	setClient(req.Header)
+	if ifNoneMatch != "" {
+		req.Header.Set("If-None-Match", ifNoneMatch)
+	}
+	rec := httptest.NewRecorder()
+	a.router.ServeHTTP(rec, req)
+	return rec
+}
+
+// before fails unless first comes before second in items.
+func before(t *testing.T, items []referenceItem, first, second string) {
+	t.Helper()
+	if i, j := position(items, first), position(items, second); i < 0 || j < 0 || i >= j {
+		t.Errorf("%q at %d, %q at %d; want the first before the second", first, i, second, j)
+	}
+}
+
 // TestReferenceOverHTTP reads the reference lists as an anonymous caller
 // (MED-012): country → city → district and university → faculty →
 // department, in Turkish alphabetical order; an unknown parent is
-// REFERENCE_ITEM_NOT_FOUND, a parent without children an empty list; a
-// retired row leaves its list, and a retired parent's list is the unknown
-// parent's answer.
+// REFERENCE_ITEM_NOT_FOUND, a parent without children an empty list.
 func TestReferenceOverHTTP(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
@@ -105,9 +129,7 @@ func TestReferenceOverHTTP(t *testing.T) {
 	// collation puts İ with I. Turkish puts them where a reader looks.
 	inTurkishOrder(t, cities)
 	for _, w := range [][2]string{{"BURSA", "ÇANAKKALE"}, {"ÇORUM", "DENİZLİ"}, {"IĞDIR", "ISPARTA"}, {"ISPARTA", "İSTANBUL"}, {"OSMANİYE", "RİZE"}, {"ŞANLIURFA", "ŞIRNAK"}, {"ŞIRNAK", "TEKİRDAĞ"}} {
-		if i, j := position(cities, w[0]), position(cities, w[1]); i < 0 || j < 0 || i >= j {
-			t.Errorf("%s at %d, %s at %d; want the first before the second", w[0], i, w[1], j)
-		}
+		before(t, cities, w[0], w[1])
 	}
 	ankara := named(t, cities, "ANKARA")
 	districts := a.list(t, "/v1/reference/cities/"+ankara.ID.String()+"/districts")
@@ -117,8 +139,8 @@ func TestReferenceOverHTTP(t *testing.T) {
 	inTurkishOrder(t, districts)
 
 	universities := a.list(t, "/v1/reference/universities")
-	if len(universities) != 223 {
-		t.Fatalf("%d universities, want 223", len(universities))
+	if len(universities) != 224 {
+		t.Fatalf("%d universities, want 224", len(universities))
 	}
 	// Under the root collation IŞIK sorts before ISPARTA (Ş with S) and
 	// İBN HALDUN first of all (İ with I); under the byte order IĞDIR
@@ -130,19 +152,20 @@ func TestReferenceOverHTTP(t *testing.T) {
 		{"BURSA ULUDAĞ ÜNİVERSİTESİ", "ÇUKUROVA ÜNİVERSİTESİ"},
 		{"ÇUKUROVA ÜNİVERSİTESİ", "DİCLE ÜNİVERSİTESİ"},
 	} {
-		if i, j := position(universities, w[0]), position(universities, w[1]); i < 0 || j < 0 || i >= j {
-			t.Errorf("%s at %d, %s at %d; want the first before the second", w[0], i, w[1], j)
-		}
+		before(t, universities, w[0], w[1])
 	}
-	odtu := named(t, universities, "ORTA DOĞU TEKNİK ÜNİVERSİTESİ")
-	faculties := a.list(t, "/v1/reference/universities/"+odtu.ID.String()+"/faculties")
-	if len(faculties) == 0 {
-		t.Fatal("ODTÜ has no faculties")
-	}
-	departments := a.list(t, "/v1/reference/faculties/"+faculties[0].ID.String()+"/departments")
-	if len(departments) == 0 {
-		t.Fatalf("%s has no departments", faculties[0].Name)
-	}
+
+	// Mixed-case names: Giresun's faculties put "Tıp" before "Tirebolu"
+	// (ı before i; the byte order and the root collation both put i
+	// first), Ankara's DTCF puts "Coğrafya" before "Çağdaş …" (the root
+	// collation reads Ç as C and puts "Çağ" first) and "Çağdaş …" before
+	// "Dilbilimi" (the byte order puts Ç after every ASCII letter).
+	giresun := named(t, universities, "GİRESUN ÜNİVERSİTESİ")
+	faculties := a.list(t, "/v1/reference/universities/"+giresun.ID.String()+"/faculties")
+	before(t, faculties, "Tıp Fakültesi", "Tirebolu İletişim Fakültesi")
+	dtcf := a.list(t, "/v1/reference/faculties/14b340a3-2419-40fe-8208-e4a7b57c768d/departments")
+	before(t, dtcf, "Coğrafya", "Çağdaş Türk Lehçeleri ve Edebiyatları")
+	before(t, dtcf, "Çağdaş Türk Lehçeleri ve Edebiyatları", "Dilbilimi")
 
 	// A faculty without departments is an empty list, not a 404.
 	var empty uuid.UUID
@@ -163,43 +186,155 @@ func TestReferenceOverHTTP(t *testing.T) {
 	} {
 		wantStatus(t, a.call(t, http.MethodGet, strings.Replace(path, "%s", uuid.NewString(), 1), "", ""), http.StatusNotFound, notFound)
 	}
+}
 
-	// Retired rows leave their lists; a retired parent is unknown.
+// TestReferenceListsHideRetiredRows binds each retired_at filter of the
+// list queries (db/queries/reference/reference.sql) on its own: a retired
+// row leaves its list while its parent stays in use, and a retired
+// parent's list is the unknown parent's 404. Each step retires one row.
+func TestReferenceListsHideRetiredRows(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
 	owner := a.dbt.Open(t, db.RoleOwner)
-	cankaya := named(t, districts, "ÇANKAYA")
-	for _, stmt := range []struct {
-		sql string
-		id  uuid.UUID
-	}{
-		{"UPDATE districts SET retired_at = now() WHERE id = $1", cankaya.ID},
-		{"UPDATE universities SET retired_at = now() WHERE id = $1", odtu.ID},
-		{"UPDATE faculties SET retired_at = now() WHERE id = $1", faculties[0].ID},
-		{"UPDATE cities SET retired_at = now() WHERE id = $1", ankara.ID},
-	} {
-		if _, err := owner.Pool().Exec(t.Context(), stmt.sql, stmt.id); err != nil {
+	retire := func(table string, id uuid.UUID) {
+		t.Helper()
+		if _, err := owner.Pool().Exec(t.Context(), "UPDATE "+table+" SET retired_at = now() WHERE id = $1", id); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := a.list(t, "/v1/reference/universities"); len(got) != 222 || position(got, odtu.Name) >= 0 {
-		t.Errorf("after retiring ODTÜ: %d universities, ODTÜ at %d", len(got), position(got, odtu.Name))
-	}
-	if got := a.list(t, "/v1/reference/countries/"+countries[0].ID.String()+"/cities"); len(got) != 80 || position(got, "ANKARA") >= 0 {
-		t.Errorf("after retiring Ankara: %d cities", len(got))
-	}
-	for _, path := range []string{
-		"/v1/reference/universities/" + odtu.ID.String() + "/faculties",
-		"/v1/reference/faculties/" + faculties[0].ID.String() + "/departments",
-		"/v1/reference/cities/" + ankara.ID.String() + "/districts",
-	} {
+	notFound := string(reference.CodeReferenceItemNotFound)
+	gone := func(path string) {
+		t.Helper()
 		wantStatus(t, a.call(t, http.MethodGet, path, "", ""), http.StatusNotFound, notFound)
 	}
-	// The other faculty of a university in use keeps its departments; a
-	// retired district leaves the list of a city in use.
-	if _, err := owner.Pool().Exec(t.Context(), "UPDATE cities SET retired_at = NULL WHERE id = $1", ankara.ID); err != nil {
+	turkey := "/v1/reference/countries/26a60ab5-db94-4167-8678-1bb6a85fce30/cities"
+
+	// A city of a country in use (ListCities' join filter).
+	adana := named(t, a.list(t, turkey), "ADANA")
+	retire("cities", adana.ID)
+	if got := a.list(t, turkey); len(got) != 80 || position(got, "ADANA") >= 0 {
+		t.Errorf("after retiring Adana: %d cities", len(got))
+	}
+	gone("/v1/reference/cities/" + adana.ID.String() + "/districts")
+
+	// A district of a city in use (ListDistricts' join filter).
+	ankara := named(t, a.list(t, turkey), "ANKARA")
+	districts := "/v1/reference/cities/" + ankara.ID.String() + "/districts"
+	retire("districts", named(t, a.list(t, districts), "ÇANKAYA").ID)
+	if got := a.list(t, districts); len(got) != 24 || position(got, "ÇANKAYA") >= 0 {
+		t.Errorf("after retiring Çankaya: %d districts", len(got))
+	}
+
+	// A university (ListUniversities' filter) and its faculties (404).
+	universities := a.list(t, "/v1/reference/universities")
+	odtu := named(t, universities, "ORTA DOĞU TEKNİK ÜNİVERSİTESİ")
+	retire("universities", odtu.ID)
+	if got := a.list(t, "/v1/reference/universities"); len(got) != 223 || position(got, odtu.Name) >= 0 {
+		t.Errorf("after retiring ODTÜ: %d universities", len(got))
+	}
+	gone("/v1/reference/universities/" + odtu.ID.String() + "/faculties")
+
+	// One faculty of a university in use (ListFaculties' join filter),
+	// and its departments (404).
+	giresun := "/v1/reference/universities/" + named(t, universities, "GİRESUN ÜNİVERSİTESİ").ID.String() + "/faculties"
+	faculties := a.list(t, giresun)
+	tip := named(t, faculties, "Tıp Fakültesi")
+	retire("faculties", tip.ID)
+	if got := a.list(t, giresun); len(got) != len(faculties)-1 || position(got, tip.Name) >= 0 {
+		t.Errorf("after retiring Giresun's Tıp Fakültesi: %d of %d faculties", len(got), len(faculties))
+	}
+	gone("/v1/reference/faculties/" + tip.ID.String() + "/departments")
+
+	// One department of a faculty in use (ListDepartments' join filter).
+	dtcf := "/v1/reference/faculties/14b340a3-2419-40fe-8208-e4a7b57c768d/departments"
+	departments := a.list(t, dtcf)
+	geo := named(t, departments, "Coğrafya")
+	retire("departments", geo.ID)
+	if got := a.list(t, dtcf); len(got) != len(departments)-1 || position(got, geo.Name) >= 0 {
+		t.Errorf("after retiring Coğrafya: %d of %d departments", len(got), len(departments))
+	}
+
+	// The country last (ListCountries' filter): its list is empty and its
+	// cities' list is the unknown country's.
+	retire("countries", uuid.MustParse("26a60ab5-db94-4167-8678-1bb6a85fce30"))
+	if got := a.list(t, "/v1/reference/countries"); len(got) != 0 {
+		t.Errorf("after retiring Türkiye: countries %+v", got)
+	}
+	gone(turkey)
+}
+
+// TestReferenceOrderBreaksTiesByID: two siblings of one name come in id
+// order, whatever order they were written in, so the order is total.
+func TestReferenceOrderBreaksTiesByID(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	owner := a.dbt.Open(t, db.RoleOwner)
+	faculty := uuid.New()
+	low, high := uuid.MustParse("00000000-0000-4000-8000-000000000001"), uuid.MustParse("ffffffff-ffff-4fff-bfff-ffffffffffff")
+	for _, stmt := range []struct {
+		sql  string
+		args []any
+	}{
+		{"INSERT INTO faculties (id, university_id, name) VALUES ($1, 'a1c346d6-2872-4194-9b98-3f0ea5b838ec', 'Sıra Fakültesi')", []any{faculty}},
+		// The larger id first: a heap scan without the id tie-break would
+		// return it first.
+		{"INSERT INTO departments (id, faculty_id, name) VALUES ($1, $2, 'Aynı Ad')", []any{high, faculty}},
+		{"INSERT INTO departments (id, faculty_id, name) VALUES ($1, $2, 'Aynı Ad')", []any{low, faculty}},
+		{"INSERT INTO departments (id, faculty_id, name) VALUES ($1, $2, 'Ayna')", []any{uuid.New(), faculty}},
+	} {
+		if _, err := owner.Pool().Exec(t.Context(), stmt.sql, stmt.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := a.list(t, "/v1/reference/faculties/"+faculty.String()+"/departments")
+	if len(got) != 3 || got[0].Name != "Ayna" || got[1].ID != low || got[2].ID != high {
+		t.Fatalf("departments = %+v, want Ayna, then the two of one name in id order", got)
+	}
+}
+
+// TestReferenceListsAreCacheable: every list is public for a day and
+// carries the data version's ETag; a matching If-None-Match (exact, weak
+// or in a list) is 304 without a body, another tag or none is 200, and a
+// missing parent stays 404 whatever the client sends. A new data version
+// changes the tag.
+func TestReferenceListsAreCacheable(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	paths := []string{
+		"/v1/reference/countries",
+		"/v1/reference/countries/26a60ab5-db94-4167-8678-1bb6a85fce30/cities",
+		"/v1/reference/cities/82ca8c6a-7a71-4288-9248-740256024599/districts",
+		"/v1/reference/universities",
+		"/v1/reference/universities/b8cf7211-a21b-4e1f-ad1a-7bacdd914fc3/faculties",
+		"/v1/reference/faculties/a8004de5-6f16-41ea-9841-42ed646684cf/departments",
+	}
+	const tag = `"reference-v1"`
+	for _, path := range paths {
+		rec := a.conditional(t, path, "")
+		wantStatus(t, rec, http.StatusOK, "")
+		if rec.Header().Get("ETag") != tag || rec.Header().Get("Cache-Control") != "public, max-age=86400" {
+			t.Errorf("%s: ETag %q, Cache-Control %q", path, rec.Header().Get("ETag"), rec.Header().Get("Cache-Control"))
+		}
+		for _, inm := range []string{tag, "W/" + tag, `"other", ` + tag, "*"} {
+			rec := a.conditional(t, path, inm)
+			if rec.Code != http.StatusNotModified || rec.Body.Len() != 0 || rec.Header().Get("ETag") != tag ||
+				rec.Header().Get("Cache-Control") != "public, max-age=86400" {
+				t.Errorf("%s with If-None-Match %s: %d %q (ETag %q)", path, inm, rec.Code, rec.Body, rec.Header().Get("ETag"))
+			}
+		}
+		if rec := a.conditional(t, path, `"reference-v0"`); rec.Code != http.StatusOK {
+			t.Errorf("%s with another tag: %d", path, rec.Code)
+		}
+	}
+	missing := a.conditional(t, "/v1/reference/faculties/"+uuid.NewString()+"/departments", "*")
+	wantStatus(t, missing, http.StatusNotFound, string(reference.CodeReferenceItemNotFound))
+
+	if _, err := a.dbt.Open(t, db.RoleOwner).Pool().Exec(t.Context(), "UPDATE reference_data_version SET version = 2"); err != nil {
 		t.Fatal(err)
 	}
-	if got := a.list(t, "/v1/reference/cities/"+ankara.ID.String()+"/districts"); len(got) != 24 || position(got, "ÇANKAYA") >= 0 {
-		t.Errorf("after retiring Çankaya: %d districts, Çankaya at %d", len(got), position(got, "ÇANKAYA"))
+	rec := a.conditional(t, paths[0], tag)
+	if rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"reference-v2"` {
+		t.Fatalf("after version 2 with the old tag: %d, ETag %q", rec.Code, rec.Header().Get("ETag"))
 	}
 }
 
@@ -253,9 +388,10 @@ func summaryOf(t *testing.T, stdout string) map[string][4]int {
 }
 
 // TestReferenceSyncCommand drives `koala reference sync`: a dry run
-// reports the drift and writes nothing, a real run repairs it, and a run
-// after that has nothing to do. The drift is what a hand edit or an older
-// release leaves: a renamed university and a retired department.
+// reports the drift row by row and writes nothing, a real run repairs it,
+// and a run after that has nothing to do. The drift is what a hand edit or
+// an older release leaves: a renamed university, a retired department and
+// a department the files do not list.
 func TestReferenceSyncCommand(t *testing.T) {
 	t.Parallel()
 	d := dbtest.New(t)
@@ -264,59 +400,128 @@ func TestReferenceSyncCommand(t *testing.T) {
 	const (
 		university = "a1c346d6-2872-4194-9b98-3f0ea5b838ec" // ADIYAMAN ÜNİVERSİTESİ
 		department = "97d43fdf-0a52-4f95-9dab-8d5adbf2d37f" // Psikoloji (İngilizce)
+		faculty    = "a8004de5-6f16-41ea-9841-42ed646684cf" // its faculty
 	)
+	extra := uuid.New()
 	for _, stmt := range []string{
 		"UPDATE universities SET name = 'ELLE DEĞİŞTİRİLDİ' WHERE id = '" + university + "'",
 		"UPDATE departments SET retired_at = now() WHERE id = '" + department + "'",
+		"INSERT INTO departments (id, faculty_id, name) VALUES ('" + extra.String() + "', '" + faculty + "', 'Fazladan Bölüm')",
 	} {
 		if _, err := owner.Pool().Exec(t.Context(), stmt); err != nil {
 			t.Fatal(err)
 		}
 	}
-	drift := func() (name string, retired bool) {
+	drift := func() (name string, retired, extraRetired bool) {
 		t.Helper()
 		err := owner.Pool().QueryRow(t.Context(), `
-			SELECT (SELECT name FROM universities WHERE id = $1), (SELECT retired_at IS NOT NULL FROM departments WHERE id = $2)`,
-			university, department).Scan(&name, &retired)
+			SELECT (SELECT name FROM universities WHERE id = $1), (SELECT retired_at IS NOT NULL FROM departments WHERE id = $2),
+			       (SELECT retired_at IS NOT NULL FROM departments WHERE id = $3)`,
+			university, department, extra).Scan(&name, &retired, &extraRetired)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return name, retired
+		return name, retired, extraRetired
 	}
-	syncCmd := func(args ...string) map[string][4]int {
+	syncCmd := func(args ...string) (map[string][4]int, string) {
 		t.Helper()
 		code, stdout, stderr := run(args, environ...)
 		if code != ExitOK {
 			t.Fatalf("%v: exit %d\nstdout: %s\nstderr: %s", args, code, stdout, stderr)
 		}
-		return summaryOf(t, stdout)
+		return summaryOf(t, stdout), stdout
+	}
+	wantSummary := map[string][4]int{
+		"countries": {0, 0, 0, 1}, "cities": {0, 0, 0, 81}, "districts": {0, 0, 0, 972},
+		"universities": {0, 1, 0, 223}, "faculties": {0, 0, 0, 2047}, "departments": {0, 1, 1, 7570},
+	}
+	// The rows, each with its id and name: the rename with both names, the
+	// department back in use, the one retired.
+	wantRows := []string{
+		`~ universities ` + university + ` "ELLE DEĞİŞTİRİLDİ" -> "ADIYAMAN ÜNİVERSİTESİ"`,
+		`^ departments ` + department + ` "Psikoloji (İngilizce)"`,
+		`- departments ` + extra.String() + ` "Fazladan Bölüm"`,
 	}
 
-	code, stdout, _ := run([]string{"reference", "sync", "--dry-run"}, environ...)
-	if code != ExitOK || !strings.Contains(stdout, "dry run: nothing was written") {
-		t.Fatalf("dry run: exit %d, stdout %s; want the dry run said", code, stdout)
+	s, stdout := syncCmd("reference", "sync", "--dry-run")
+	if !strings.Contains(stdout, "dry run: nothing was written") || !strings.Contains(stdout, "data version 1, database version 1") {
+		t.Fatalf("dry run: stdout %s; want the dry run and the versions said", stdout)
 	}
-	s := summaryOf(t, stdout)
-	if s["universities"] != [4]int{0, 1, 0, 222} || s["departments"] != [4]int{0, 1, 0, 11249} || s["districts"] != [4]int{0, 0, 0, 995} {
-		t.Fatalf("dry run = %v", s)
+	if !maps.Equal(s, wantSummary) {
+		t.Fatalf("dry run = %v, want %v", s, wantSummary)
 	}
-	if name, retired := drift(); name != "ELLE DEĞİŞTİRİLDİ" || !retired {
-		t.Fatalf("the dry run wrote: name %q, retired %v", name, retired)
+	for _, row := range wantRows {
+		if !strings.Contains(stdout, row+"\n") {
+			t.Errorf("dry run lacks the row %s:\n%s", row, stdout)
+		}
 	}
-	s = syncCmd("reference", "sync")
-	if s["universities"] != [4]int{0, 1, 0, 222} || s["departments"] != [4]int{0, 1, 0, 11249} {
-		t.Fatalf("sync = %v", s)
+	if name, retired, extraRetired := drift(); name != "ELLE DEĞİŞTİRİLDİ" || !retired || extraRetired {
+		t.Fatalf("the dry run wrote: name %q, retired %v, extra retired %v", name, retired, extraRetired)
 	}
-	if name, retired := drift(); name != "ADIYAMAN ÜNİVERSİTESİ" || retired {
-		t.Fatalf("after the sync: name %q, retired %v", name, retired)
+	s, stdout = syncCmd("reference", "sync")
+	if !maps.Equal(s, wantSummary) || strings.Contains(stdout, "dry run") {
+		t.Fatalf("sync = %v\n%s", s, stdout)
 	}
-	s = syncCmd("reference", "sync")
+	for _, row := range wantRows {
+		if !strings.Contains(stdout, row+"\n") {
+			t.Errorf("sync lacks the row %s", row)
+		}
+	}
+	if name, retired, extraRetired := drift(); name != "ADIYAMAN ÜNİVERSİTESİ" || retired || !extraRetired {
+		t.Fatalf("after the sync: name %q, retired %v, extra retired %v", name, retired, extraRetired)
+	}
+	s, stdout = syncCmd("reference", "sync")
 	for table, n := range s {
 		if n[0]+n[1]+n[2] != 0 {
 			t.Errorf("third run: %s %v, want nothing to do", table, n)
 		}
 	}
-	if len(s) != 6 {
-		t.Errorf("summary has %d tables, want 6: %v", len(s), s)
+	if len(s) != 6 || strings.Contains(stdout, "\n+ ") || strings.Contains(stdout, "\n- ") {
+		t.Errorf("third run: %v\n%s", s, stdout)
+	}
+}
+
+// TestMigrateUpHoldsTheRetireLimit: `koala migrate up` stops when its
+// sync would retire more than a table's limit, names the table and the
+// variable that allows it, and writes nothing; with
+// KOALA_REFERENCE_ALLOW_RETIRE it goes through (ADR-0037).
+func TestMigrateUpHoldsTheRetireLimit(t *testing.T) {
+	t.Parallel()
+	d := dbtest.New(t)
+	owner := d.Open(t, db.RoleOwner)
+	environ := []string{"KOALA_ENV=test", "KOALA_OWNER_DATABASE_URL=" + d.URL(db.RoleOwner)}
+	// 400 departments the files do not list: with 7,971 rows in use the
+	// limit is 398 (5 %), so retiring them all is above it.
+	if _, err := owner.Pool().Exec(t.Context(), `
+		INSERT INTO departments (id, faculty_id, name)
+		SELECT gen_random_uuid(), 'a8004de5-6f16-41ea-9841-42ed646684cf', 'Fazla ' || n FROM generate_series(1, 400) AS n`); err != nil {
+		t.Fatal(err)
+	}
+	inUse := func() int {
+		t.Helper()
+		var n int
+		if err := owner.Pool().QueryRow(t.Context(), "SELECT count(*) FROM departments WHERE retired_at IS NULL").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	code, stdout, _ := run([]string{"migrate", "up"}, environ...)
+	if code != ExitError || !strings.Contains(stdout, `"table":"departments"`) || !strings.Contains(stdout, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400") {
+		t.Fatalf("migrate up over the limit: exit %d\n%s", code, stdout)
+	}
+	if n := inUse(); n != 7971 {
+		t.Fatalf("after the refusal %d departments in use, want 7971", n)
+	}
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400")...)
+	if code != ExitOK || !strings.Contains(stdout, `"retired":400`) {
+		t.Fatalf("migrate up allowed: exit %d\n%s", code, stdout)
+	}
+	if n := inUse(); n != 7571 {
+		t.Fatalf("after the allowed sync %d departments in use, want 7571", n)
+	}
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=users:1")...)
+	if code != ExitError || !strings.Contains(stdout, "KOALA_REFERENCE_ALLOW_RETIRE") {
+		t.Fatalf("an allowance for another table: exit %d\n%s", code, stdout)
 	}
 }

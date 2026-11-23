@@ -38,3 +38,31 @@ func TestChildren(t *testing.T) {
 		t.Fatalf("children = %v, %v", items, err)
 	}
 }
+
+// TestETagMatches pins the conditional request: the tag names the data
+// version, and If-None-Match matches it under the weak comparison, in a
+// list, or as "*"; another version does not match.
+func TestETagMatches(t *testing.T) {
+	t.Parallel()
+
+	tag := ETag(3)
+	if tag != `"reference-v3"` || ETag(4) == tag {
+		t.Fatalf("ETag(3) = %s, ETag(4) = %s", tag, ETag(4))
+	}
+	for header, want := range map[string]bool{
+		`"reference-v3"`:                   true,
+		`W/"reference-v3"`:                 true,
+		`"x", "reference-v3"`:              true,
+		`"x" ,W/"reference-v3" `:           true,
+		`*`:                                true,
+		`"reference-v2"`:                   false,
+		`reference-v3`:                     false,
+		`"reference-v3`:                    false,
+		``:                                 false,
+		`"reference-v30", "reference-v31"`: false,
+	} {
+		if got := Matches(header, tag); got != want {
+			t.Errorf("Matches(%q, %s) = %v, want %v", header, tag, got, want)
+		}
+	}
+}

@@ -46,3 +46,8 @@ FROM faculties p
 LEFT JOIN departments c ON c.faculty_id = p.id AND c.retired_at IS NULL
 WHERE p.id = sqlc.arg(faculty_id) AND p.retired_at IS NULL
 ORDER BY c.name, c.id;
+
+-- name: GetDataVersion :one
+-- GetDataVersion is the version of db/referencedata the tables hold; 0
+-- before the first sync. The lists' ETag derives from it.
+SELECT coalesce((SELECT version FROM reference_data_version), 0)::integer AS version;

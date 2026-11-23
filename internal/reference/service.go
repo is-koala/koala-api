@@ -25,6 +25,18 @@ func NewService(database *db.DB) (*Service, error) {
 	return &Service{reads: referencedb.New(database.Pool())}, nil
 }
 
+// Version is the data version the tables hold, 0 before the first sync.
+// A handler reads it before the list: if a sync lands in between, the
+// list is newer than its ETag and the next conditional request gets the
+// new list, never the other way round.
+func (s *Service) Version(ctx context.Context) (int32, error) {
+	v, err := s.reads.GetDataVersion(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("reference: read the data version: %w", err)
+	}
+	return v, nil
+}
+
 // Countries lists the countries in use.
 func (s *Service) Countries(ctx context.Context) ([]Item, error) {
 	rows, err := s.reads.ListCountries(ctx)

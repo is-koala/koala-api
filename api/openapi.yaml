@@ -2900,15 +2900,31 @@ paths:
         eşit adlarda kimliktir. Şehir yoksa ya da emekliye ayrılmışsa
         `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan şehir boş liste alır
         (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
+        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
       security: []
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
       x-resource: districts
       responses:
         "200":
           description: İlçeler, ada göre sıralı.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReferenceItemList"
+        "304":
+          description: Temsil değişmedi; gövde yok.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -2928,15 +2944,31 @@ paths:
         Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
         Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
         eşit adlarda kimliktir (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
+        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
       security: []
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
       x-resource: universities
       responses:
         "200":
           description: Üniversiteler, ada göre sıralı.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReferenceItemList"
+        "304":
+          description: Temsil değişmedi; gövde yok.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
         "400":
           $ref: "#/components/responses/BadRequest"
         "429":
@@ -2964,15 +2996,31 @@ paths:
         eşit adlarda kimliktir. Üniversite yoksa ya da emekliye ayrılmışsa
         `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan üniversite boş liste alır
         (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
+        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
       security: []
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
       x-resource: faculties
       responses:
         "200":
           description: Fakülteler, ada göre sıralı.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReferenceItemList"
+        "304":
+          description: Temsil değişmedi; gövde yok.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -3002,15 +3050,31 @@ paths:
         eşit adlarda kimliktir. Fakülte yoksa ya da emekliye ayrılmışsa
         `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan fakülte boş liste alır
         (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
+        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
       security: []
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
       x-resource: departments
       responses:
         "200":
           description: Bölümler, ada göre sıralı.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReferenceItemList"
+        "304":
+          description: Temsil değişmedi; gövde yok.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
@@ -3901,15 +3965,31 @@ paths:
         Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
         Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
         eşit adlarda kimliktir (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
+        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
       security: []
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
       x-resource: countries
       responses:
         "200":
           description: Ülkeler, ada göre sıralı.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReferenceItemList"
+        "304":
+          description: Temsil değişmedi; gövde yok.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
         "400":
           $ref: "#/components/responses/BadRequest"
         "429":
@@ -3938,15 +4018,31 @@ paths:
         eşit adlarda kimliktir. Ülke yoksa ya da emekliye ayrılmışsa
         `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan ülke boş liste alır
         (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
+        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
       security: []
+      parameters:
+        - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
       x-resource: cities
       responses:
         "200":
           description: Şehirler, ada göre sıralı.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReferenceItemList"
+        "304":
+          description: Temsil değişmedi; gövde yok.
+          headers:
+            ETag:
+              $ref: "./components/headers.yaml#/components/headers/ETag"
+            Cache-Control:
+              $ref: "./components/headers.yaml#/components/headers/CacheControl"
         "400":
           $ref: "#/components/responses/BadRequest"
         "404":
