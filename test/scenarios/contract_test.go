@@ -49,8 +49,8 @@ func boundAhead() map[string][]string {
 		"USR-019": {"completePasswordReset"},
 		"USR-020": {"changeMyPassword"},
 		"USR-021": {"completeRegistration", "completePasswordReset", "changeMyPassword"},
-		// Media uploads (ADR-0035); the domain's address and reference
-		// operations are still frozen.
+		// Media uploads (ADR-0035); the domain's address operations are
+		// still frozen (the reference ones landed with ADR-0037).
 		"MED-001": {"startMediaUpload", "completeMediaUpload", "getMedia"},
 		"MED-002": {"startMediaUpload", "completeMediaUpload"},
 		"MED-003": {"getMedia", "deleteMedia"},

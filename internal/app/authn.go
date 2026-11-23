@@ -25,6 +25,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/sms"
 	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
 	"github.com/is-koala/koala-api/internal/realtime"
+	"github.com/is-koala/koala-api/internal/reference"
 )
 
 // modules are the domain modules the router mounts and the workers run.
@@ -49,6 +50,8 @@ type modules struct {
 	mediaHTTP *media.HTTP
 	// The profile and education operations (ADR-0036).
 	usersHTTP *usersHandlers
+	// The reference lists of /v1/reference (ADR-0037).
+	referenceHTTP *reference.HTTP
 }
 
 // wireModules builds the modules on database, their metrics on reg.
@@ -111,6 +114,10 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
+	referenceHTTP, err := wireReference(database)
+	if err != nil {
+		return modules{}, err
+	}
 	return modules{
 		users: users, staff: staff, accounts: accounts, verifications: verifications,
 		authHTTP: authn.NewHTTP(users, staff, accounts, verifications),
@@ -124,6 +131,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 		media:            mediaService,
 		mediaHTTP:        mediaHTTP,
 		usersHTTP:        usersHTTP,
+		referenceHTTP:    referenceHTTP,
 	}, nil
 }
 

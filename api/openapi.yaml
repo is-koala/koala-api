@@ -2894,12 +2894,14 @@ paths:
       x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
       tags: [reference]
       summary: Bir şehrin ilçelerini döndürür.
-      description: Salt okunur referans verisi; kimlik istemez (MED-012).
+      description: |
+        Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+        Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
+        eşit adlarda kimliktir. Şehir yoksa ya da emekliye ayrılmışsa
+        `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan şehir boş liste alır
+        (ADR-0037).
       security: []
       x-resource: districts
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: İlçeler, ada göre sıralı.
@@ -2922,12 +2924,12 @@ paths:
       x-error-codes: []
       tags: [reference]
       summary: Üniversiteleri döndürür.
-      description: Salt okunur referans verisi; kimlik istemez (MED-012).
+      description: |
+        Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+        Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
+        eşit adlarda kimliktir (ADR-0037).
       security: []
       x-resource: universities
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Üniversiteler, ada göre sıralı.
@@ -2956,12 +2958,14 @@ paths:
       x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
       tags: [reference]
       summary: Bir üniversitenin fakültelerini döndürür.
-      description: Salt okunur referans verisi; kimlik istemez (MED-012).
+      description: |
+        Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+        Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
+        eşit adlarda kimliktir. Üniversite yoksa ya da emekliye ayrılmışsa
+        `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan üniversite boş liste alır
+        (ADR-0037).
       security: []
       x-resource: faculties
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Fakülteler, ada göre sıralı.
@@ -2992,12 +2996,14 @@ paths:
       x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
       tags: [reference]
       summary: Bir fakültenin bölümlerini döndürür.
-      description: Salt okunur referans verisi; kimlik istemez (MED-012).
+      description: |
+        Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+        Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
+        eşit adlarda kimliktir. Fakülte yoksa ya da emekliye ayrılmışsa
+        `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan fakülte boş liste alır
+        (ADR-0037).
       security: []
       x-resource: departments
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Bölümler, ada göre sıralı.
@@ -3891,12 +3897,12 @@ paths:
       x-error-codes: []
       tags: [reference]
       summary: Ülkeleri döndürür.
-      description: Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+      description: |
+        Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+        Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
+        eşit adlarda kimliktir (ADR-0037).
       security: []
       x-resource: countries
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Ülkeler, ada göre sıralı.
@@ -3926,13 +3932,14 @@ paths:
       tags: [reference]
       summary: Bir ülkenin şehirlerini döndürür.
       description: |
-        Salt okunur referans verisi; kimlik istemez (MED-012). Şehir ülkeye bağlıdır:
-        adres bileşenleri ülke → şehir → ilçe zinciriyle çözülür (ADR-0029 Karar 8).
+        Şehir ülkeye bağlıdır: adres bileşenleri ülke → şehir → ilçe zinciriyle çözülür
+        (ADR-0029 Karar 8). Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
+        Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
+        eşit adlarda kimliktir. Ülke yoksa ya da emekliye ayrılmışsa
+        `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan ülke boş liste alır
+        (ADR-0037).
       security: []
       x-resource: cities
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Şehirler, ada göre sıralı.

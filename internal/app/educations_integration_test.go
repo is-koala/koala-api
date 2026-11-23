@@ -20,17 +20,17 @@ import (
 	"github.com/is-koala/koala-api/internal/users"
 )
 
-// reference is one university with a faculty and a department under it.
-type reference struct {
+// academicRef is one university with a faculty and a department under it.
+type academicRef struct {
 	university, faculty, department uuid.UUID
 }
 
 // seedReference writes reference rows as their migration would: the
 // application only reads them (M4, ADR-0036).
-func (a *authApp) seedReference(t *testing.T) reference {
+func (a *authApp) seedReference(t *testing.T) academicRef {
 	t.Helper()
 	owner := a.dbt.Open(t, db.RoleOwner)
-	ref := reference{university: uuid.New(), faculty: uuid.New(), department: uuid.New()}
+	ref := academicRef{university: uuid.New(), faculty: uuid.New(), department: uuid.New()}
 	for _, stmt := range []struct {
 		sql  string
 		args []any

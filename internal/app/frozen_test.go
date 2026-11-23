@@ -119,18 +119,21 @@ func TestFrozenOperationsAreNotShadowed(t *testing.T) {
 
 // TestFrozenOperationAnswers501 proves the claim the contract makes, over
 // HTTP, on the real router: a frozen operation answers 501 with a problem
-// document whose code is NOT_IMPLEMENTED. GET /v1/reference/countries is
-// the witness because it is public and takes neither a body nor a
-// parameter, so nothing before the handler can answer first.
+// document whose code is NOT_IMPLEMENTED. GET
+// /v1/companies/{companyId}/images is the witness because it is public and
+// takes no body and only a well-formed path parameter, so nothing before
+// the handler can answer first. (GET /v1/reference/countries was the
+// witness until its handler landed, ADR-0037.)
 func TestFrozenOperationAnswers501(t *testing.T) {
 	t.Parallel()
 
-	const route = "GET /v1/reference/countries"
+	const route = "GET /v1/companies/{companyId}/images"
 	if !slices.Contains(pending.Operations(), route) {
 		t.Fatalf("%s is no longer frozen; pick another public frozen operation as the witness", route)
 	}
 	h := newAPIRouter(t, config.EnvTest)
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/v1/reference/countries", http.NoBody)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet,
+		"/v1/companies/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d01/images", http.NoBody)
 	req.Header.Set(httpx.HeaderRequestID, "req-1")
 	setClient(req.Header)
 	rec := httptest.NewRecorder()

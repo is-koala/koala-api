@@ -61,12 +61,6 @@ func Operations() []string {
 		"GET /v1/me/addresses/{addressId}",
 		"GET /v1/me/followed-companies",
 		"GET /v1/me/identity-documents",
-		"GET /v1/reference/cities/{cityId}/districts",
-		"GET /v1/reference/countries",
-		"GET /v1/reference/countries/{countryId}/cities",
-		"GET /v1/reference/faculties/{facultyId}/departments",
-		"GET /v1/reference/universities",
-		"GET /v1/reference/universities/{universityId}/faculties",
 		"GET /v1/users/{userId}",
 		"PATCH /v1/companies/{companyId}",
 		"POST /v1/admin/companies/{companyId}/approve",
@@ -199,11 +193,6 @@ func (Server) ListAddressSuggestions(context.Context, apiv1.ListAddressSuggestio
 	return nil, notImplemented()
 }
 
-// ListCities answers GET /v1/reference/countries/{countryId}/cities with 501 until its handler lands.
-func (Server) ListCities(context.Context, apiv1.ListCitiesRequestObject) (apiv1.ListCitiesResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // ListCompaniesForStaff answers GET /v1/admin/companies with 501 until its handler lands.
 func (Server) ListCompaniesForStaff(context.Context, apiv1.ListCompaniesForStaffRequestObject) (apiv1.ListCompaniesForStaffResponseObject, error) {
 	return nil, notImplemented()
@@ -224,26 +213,6 @@ func (Server) ListCompanyInvitations(context.Context, apiv1.ListCompanyInvitatio
 	return nil, notImplemented()
 }
 
-// ListCountries answers GET /v1/reference/countries with 501 until its handler lands.
-func (Server) ListCountries(context.Context, apiv1.ListCountriesRequestObject) (apiv1.ListCountriesResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ListDepartments answers GET /v1/reference/faculties/{facultyId}/departments with 501 until its handler lands.
-func (Server) ListDepartments(context.Context, apiv1.ListDepartmentsRequestObject) (apiv1.ListDepartmentsResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ListDistricts answers GET /v1/reference/cities/{cityId}/districts with 501 until its handler lands.
-func (Server) ListDistricts(context.Context, apiv1.ListDistrictsRequestObject) (apiv1.ListDistrictsResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ListFaculties answers GET /v1/reference/universities/{universityId}/faculties with 501 until its handler lands.
-func (Server) ListFaculties(context.Context, apiv1.ListFacultiesRequestObject) (apiv1.ListFacultiesResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // ListIdentityRevealsForStaff answers GET /v1/admin/users/{userId}/identity-reveals with 501 until its handler lands.
 func (Server) ListIdentityRevealsForStaff(context.Context, apiv1.ListIdentityRevealsForStaffRequestObject) (apiv1.ListIdentityRevealsForStaffResponseObject, error) {
 	return nil, notImplemented()
@@ -261,11 +230,6 @@ func (Server) ListMyAddresses(context.Context, apiv1.ListMyAddressesRequestObjec
 
 // ListMyFollowedCompanies answers GET /v1/me/followed-companies with 501 until its handler lands.
 func (Server) ListMyFollowedCompanies(context.Context, apiv1.ListMyFollowedCompaniesRequestObject) (apiv1.ListMyFollowedCompaniesResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ListUniversities answers GET /v1/reference/universities with 501 until its handler lands.
-func (Server) ListUniversities(context.Context, apiv1.ListUniversitiesRequestObject) (apiv1.ListUniversitiesResponseObject, error) {
 	return nil, notImplemented()
 }
 
