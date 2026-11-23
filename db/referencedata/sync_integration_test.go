@@ -164,7 +164,7 @@ func TestTemplateHoldsTheReferenceData(t *testing.T) {
 		t.Errorf("associate programs %d (want 7144), Uçak Teknolojisi's codes %d (want 2): %v", associate, codes, err)
 	}
 	var name string
-	err := owner.Pool().QueryRow(t.Context(),
+	err = owner.Pool().QueryRow(t.Context(),
 		"SELECT name FROM departments WHERE id = '97d43fdf-0a52-4f95-9dab-8d5adbf2d37f' AND faculty_id = 'a8004de5-6f16-41ea-9841-42ed646684cf'").
 		Scan(&name)
 	if err != nil || name != "Psikoloji (İngilizce)" {
