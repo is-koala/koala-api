@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	dbsrc "github.com/is-koala/koala-api/db"
+	"github.com/is-koala/koala-api/internal/address"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/media"
@@ -24,14 +25,16 @@ type usersHandlers = users.HTTP
 // the verification flows themselves, so the start's rules have one home;
 // its media links are bound and released through the media service
 // (ADR-0035 Karar 8); education records are deleted along the soft-delete
-// catalog.
-func wireUsers(database *db.DB, verifications *authn.Verifications, mediaService *media.Service, clk clock.Clock,
+// catalog. The profile's primary address is linked by the address module,
+// the link's one writer (ADR-0039 Karar 5).
+func wireUsers(database *db.DB, verifications *authn.Verifications, mediaService *media.Service,
+	addressService *address.Service, clk clock.Clock,
 ) (*users.HTTP, error) {
 	cat, err := softdelete.ParseCatalog(dbsrc.SoftDeleteCatalog())
 	if err != nil {
 		return nil, fmt.Errorf("wire users: %w", err)
 	}
-	svc, err := users.NewService(database, verifications, mediaService, softdelete.New(cat), clk)
+	svc, err := users.NewService(database, verifications, mediaService, addressService, softdelete.New(cat), clk)
 	if err != nil {
 		return nil, fmt.Errorf("wire users: %w", err)
 	}

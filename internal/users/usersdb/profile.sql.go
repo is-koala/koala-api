@@ -14,7 +14,8 @@ import (
 
 const getProfile = `-- name: GetProfile :one
 SELECT id, email, phone, status, first_name, last_name, birth_date, gender, job_title, about, qualifications,
-       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at
+       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at,
+       address_id
 FROM active_users
 WHERE id = $1
 `
@@ -39,6 +40,7 @@ type GetProfileRow struct {
 	PhoneVerified    bool
 	IdentityVerified bool
 	CreatedAt        time.Time
+	AddressID        uuid.NullUUID
 }
 
 // GetProfile is the caller's own profile (GET /v1/me/profile). The phone
@@ -67,13 +69,15 @@ func (q *Queries) GetProfile(ctx context.Context, id uuid.UUID) (GetProfileRow, 
 		&i.PhoneVerified,
 		&i.IdentityVerified,
 		&i.CreatedAt,
+		&i.AddressID,
 	)
 	return i, err
 }
 
 const lockProfile = `-- name: LockProfile :one
 SELECT id, email, phone, status, first_name, last_name, birth_date, gender, job_title, about, qualifications,
-       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at
+       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at,
+       address_id
 FROM active_users
 WHERE id = $1
 FOR UPDATE
@@ -99,6 +103,7 @@ type LockProfileRow struct {
 	PhoneVerified    bool
 	IdentityVerified bool
 	CreatedAt        time.Time
+	AddressID        uuid.NullUUID
 }
 
 // LockProfile locks the caller's active row FOR UPDATE for a profile
@@ -128,6 +133,7 @@ func (q *Queries) LockProfile(ctx context.Context, id uuid.UUID) (LockProfileRow
 		&i.PhoneVerified,
 		&i.IdentityVerified,
 		&i.CreatedAt,
+		&i.AddressID,
 	)
 	return i, err
 }

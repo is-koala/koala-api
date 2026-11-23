@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/api"
+	"github.com/is-koala/koala-api/internal/address"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/media"
@@ -113,10 +114,11 @@ func mountAPI(spec *openapi3.T, router chi.Router, limiter *httpx.RateLimiter, r
 	}
 	middlewares := []apiv1.StrictMiddlewareFunc{
 		mods.authHTTP.StrictMiddleware(limiter, groups), mods.mediaHTTP.StrictMiddleware(),
+		mods.addressHTTP.StrictMiddleware(),
 	}
 	server := strictServer{
 		HTTP: mods.authHTTP, admin: mods.admin.http, media: mods.mediaHTTP, users: mods.usersHTTP,
-		reference: mods.referenceHTTP,
+		reference: mods.referenceHTTP, address: mods.addressHTTP,
 	}
 	strict := apiv1.NewStrictHandlerWithOptions(server, middlewares, apiv1.StrictHTTPServerOptions{
 		RequestErrorHandlerFunc: bindError(logger),
@@ -195,8 +197,8 @@ func bindError(logger *slog.Logger) func(http.ResponseWriter, *http.Request, err
 
 // strictServer composes the modules' handlers into the generated strict
 // server interface: authentication (authn, embedded), the staff surface,
-// media uploads, the profile and education operations and the reference
-// lists (forwarded; every handler type is named HTTP) and the operations
+// media uploads, the profile and education operations, the reference
+// lists and the addresses (forwarded; every handler type is named HTTP) and the operations
 // whose contract is frozen but whose handler has not landed (pending,
 // embedded; they answer 501, ADR-0029 §1).
 type strictServer struct {
@@ -206,6 +208,7 @@ type strictServer struct {
 	media     *media.HTTP
 	users     *usersHandlers
 	reference *reference.HTTP
+	address   *address.HTTP
 }
 
 func (s strictServer) StartMediaUpload(ctx context.Context, req apiv1.StartMediaUploadRequestObject) (apiv1.StartMediaUploadResponseObject, error) {

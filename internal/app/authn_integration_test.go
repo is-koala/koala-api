@@ -60,6 +60,13 @@ type authApp struct {
 
 func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	t.Helper()
+	return newAuthAppWith(t, groups, config.Maps{Driver: config.MapsDriverFake})
+}
+
+// newAuthAppWith is newAuthApp with the map provider's configuration: the
+// driver, the service area and the lookup budget (ADR-0039).
+func newAuthAppWith(t *testing.T, groups map[string]httpx.GroupLimits, maps config.Maps) *authApp {
+	t.Helper()
 	d := dbtest.New(t)
 	database := d.Open(t, db.RoleApp)
 	clk := clock.NewFake(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC))
@@ -69,7 +76,7 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 		Endpoint: s3.Endpoint(), Region: "eu-central-1", Bucket: testBucket,
 		AccessKeyID: "app-test-access-key", SecretKey: "app-test-secret", PathStyle: true,
 		PublicBaseURL: testPublicBaseURL,
-	}}
+	}, Maps: maps}
 	mods := testModulesWith(t, cfg, database, clk)
 	reg := prometheus.NewRegistry()
 	router, err := newRouter(context.Background(), cfg, logger,

@@ -14,7 +14,6 @@ import (
 
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/authn/authndb"
-	"github.com/is-koala/koala-api/internal/pending"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/users"
@@ -143,20 +142,6 @@ func TestProfileOverHTTP(t *testing.T) {
 	if up.Profile.MaskedIdentityNumber == nil || *up.Profile.MaskedIdentityNumber != "***********" ||
 		up.Profile.Gender == nil || *up.Profile.Gender != "NOT_SPECIFIED" {
 		t.Fatalf("frozen = %s", rec.Body)
-	}
-}
-
-// The link to the address module is not live yet: an id is 501, a null
-// changes nothing (ADR-0036 Karar 5). The media links landed (Karar 10,
-// TestProfileMediaLinks).
-func TestProfileLinksWaitForTheirModules(t *testing.T) {
-	t.Parallel()
-	a := newAuthApp(t, unlimitedGroups())
-	tok := a.addSignedIn(t, "bag@example.com")
-	for _, member := range []string{"addressId"} {
-		rec := a.patchProfile(t, tok, `{"`+member+`":"`+uuid.NewString()+`"}`)
-		wantStatus(t, rec, http.StatusNotImplemented, string(pending.CodeNotImplemented))
-		wantStatus(t, a.patchProfile(t, tok, `{"`+member+`":null}`), http.StatusOK, "")
 	}
 }
 

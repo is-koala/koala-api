@@ -33,7 +33,7 @@ func runServe(ctx context.Context, args []string, sio IO) int {
 		return ExitError
 	}
 	if err := errors.Join(cfg.ServeLoginErrors(), cfg.ServeEdgeErrors(), cfg.ServeAuthErrors(),
-		cfg.ServeStorageErrors(), cfg.ServeMailErrors(), cfg.ServeSMSErrors()); err != nil {
+		cfg.ServeStorageErrors(), cfg.ServeMailErrors(), cfg.ServeSMSErrors(), cfg.ServeMapsErrors()); err != nil {
 		logger.ErrorContext(ctx, "startup failed", slog.Any("error", err))
 		return ExitError
 	}

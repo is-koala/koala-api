@@ -25,9 +25,10 @@ import (
 
 // TestReadTestOnTheContract is the generated read test (ADR-0020 §11) on
 // the real contract and router: every GET's x-resource that names a
-// soft-deleted table (users, staff_members, media, educations) gets a fixture; user_sessions,
-// realtime_tickets, staff_role_assignments and user_verifications are
-// exempt and have nothing to hide. /v1/me and /v1/admin/me read the caller itself
+// soft-deleted table (users, staff_members, media, educations, addresses)
+// gets a fixture; user_sessions, realtime_tickets, staff_role_assignments,
+// user_verifications and address_search_sessions are exempt and have
+// nothing to hide. /v1/me and /v1/admin/me read the caller itself
 // (x-resource-self): after the soft delete the caller no longer
 // authenticates.
 func TestReadTestOnTheContract(t *testing.T) {
@@ -109,6 +110,26 @@ func TestReadTestOnTheContract(t *testing.T) {
 			mu.Unlock()
 			return id, nil
 		},
+		// An address of a fresh user, not its primary one: the restrict
+		// edge users.address_id would hold the deletion back (ADR-0039).
+		// Its city and district are reference rows the template carries.
+		"addresses": func(ctx context.Context, q db.Querier) (uuid.UUID, error) {
+			owner, err := insertUser(ctx, q)
+			if err != nil {
+				return uuid.Nil, err
+			}
+			id := uuid.Must(uuid.NewV7())
+			_, err = q.Exec(ctx, `
+				INSERT INTO active_addresses (id, user_id, city_id, district_id, thoroughfare, created_at, updated_at)
+				VALUES ($1, $2, $3, $4, 'Moda Caddesi', $5, $5)`, id, owner, istanbulCity, kadikoyDistrict, a.clock.Now())
+			if err != nil {
+				return uuid.Nil, fmt.Errorf("insert address: %w", err)
+			}
+			mu.Lock()
+			owners[id] = owner
+			mu.Unlock()
+			return id, nil
+		},
 		"users": insertUser,
 		// The application cannot create staff (ADR-0025): the fixture
 		// writes as koala_maint.
@@ -130,7 +151,7 @@ func TestReadTestOnTheContract(t *testing.T) {
 	authorize := func(ctx context.Context, table string, id uuid.UUID, r *http.Request) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if table == "media" || table == "educations" {
+		if table == "media" || table == "educations" || table == "addresses" {
 			// The owner reads it, as a user.
 			id, table = owners[id], "users"
 		}

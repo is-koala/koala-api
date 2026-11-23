@@ -557,7 +557,7 @@ type AddressInput struct {
 	// Examples: Caferağa
 	Neighborhood *string `json:"neighborhood,omitempty"`
 
-	// PostalCode Posta kodu.
+	// PostalCode Posta kodu; beş rakam.
 	//
 	// Examples: 34710
 	PostalCode *string `json:"postalCode,omitempty"`
@@ -1626,10 +1626,12 @@ type ResolvedAddress struct {
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d01
 	CityID openapi_types.UUID `json:"cityId"`
 
-	// DistrictID İlçenin referans kimliği.
+	// DistrictID İlçenin referans kimliği; sağlayıcının ilçesi referans verisindeki bir ilçeye
+	// eşleşmezse `null` (kullanıcı ilçeyi listeden seçer, ADR-0039).
+	//
 	//
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d02
-	DistrictID openapi_types.UUID `json:"districtId"`
+	DistrictID *openapi_types.UUID `json:"districtId"`
 
 	// Latitude Enlem; sağlayıcı vermediyse `null`.
 	//
@@ -13335,6 +13337,22 @@ func (response ReverseLookupAddress415ApplicationProblemPlusJSONResponse) VisitR
 	return err
 }
 
+type ReverseLookupAddress422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableContentApplicationProblemPlusJSONResponse
+}
+
+func (response ReverseLookupAddress422ApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ReverseLookupAddress429ApplicationProblemPlusJSONResponse struct {
 	TooManyRequestsApplicationProblemPlusJSONResponse
 }
@@ -13575,6 +13593,22 @@ func (response ResolveAddressCandidate404ApplicationProblemPlusJSONResponse) Vis
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResolveAddressCandidate422ApplicationProblemPlusJSONResponse struct {
+	UnprocessableContentApplicationProblemPlusJSONResponse
+}
+
+func (response ResolveAddressCandidate422ApplicationProblemPlusJSONResponse) VisitResolveAddressCandidateResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -13860,7 +13894,8 @@ type CreateMyAddressResponseObject interface {
 }
 
 type CreateMyAddress201ResponseHeaders struct {
-	Location *string
+	IdempotentReplayed *string
+	Location           *string
 }
 
 type CreateMyAddress201JSONResponse struct {
@@ -13875,6 +13910,9 @@ func (response CreateMyAddress201JSONResponse) VisitCreateMyAddressResponse(w ht
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.IdempotentReplayed != nil {
+		w.Header().Set("Idempotent-Replayed", fmt.Sprint(*response.Headers.IdempotentReplayed))
+	}
 	if response.Headers.Location != nil {
 		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
 	}

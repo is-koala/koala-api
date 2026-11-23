@@ -12,7 +12,6 @@ import (
 
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/media"
-	"github.com/is-koala/koala-api/internal/pending"
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/db"
@@ -43,26 +42,39 @@ type mediaLinks interface {
 	Release(ctx context.Context, q db.Querier, now time.Time, owner, id uuid.UUID) error
 }
 
+// addressLinks is the address module's side of the primary address link
+// (ADR-0039 Karar 5): it checks the address is the caller's, locks it,
+// writes users.address_id and the profile sync intent of the change, in
+// the patch's transaction under the caller's row lock. It is the link's
+// one writer.
+type addressLinks interface {
+	LinkPrimary(ctx context.Context, tx db.Querier, p authn.UserPrincipal, id *uuid.UUID, now time.Time) error
+}
+
 // Service serves the caller's profile and education records.
 type Service struct {
-	db      *db.DB
-	reads   *usersdb.Queries
-	verify  verifier
-	media   mediaLinks
-	deleter *softdelete.Deleter
-	clock   clock.Clock
+	db        *db.DB
+	reads     *usersdb.Queries
+	verify    verifier
+	media     mediaLinks
+	addresses addressLinks
+	deleter   *softdelete.Deleter
+	clock     clock.Clock
 }
 
 // NewService returns the service on database. verify starts the
 // verifications a profile patch asks for; links binds and releases the
-// profile's media; deleter soft-deletes education records along the
-// catalog.
-func NewService(database *db.DB, verify verifier, links mediaLinks, deleter *softdelete.Deleter, clk clock.Clock) (*Service, error) {
-	if database == nil || verify == nil || links == nil || deleter == nil || clk == nil {
-		return nil, errors.New("users: the service needs a database, the verification start, the media links, a deleter and a clock")
+// profile's media; addresses writes the primary address link; deleter
+// soft-deletes education records along the catalog.
+func NewService(database *db.DB, verify verifier, links mediaLinks, addresses addressLinks, deleter *softdelete.Deleter,
+	clk clock.Clock,
+) (*Service, error) {
+	if database == nil || verify == nil || links == nil || addresses == nil || deleter == nil || clk == nil {
+		return nil, errors.New("users: the service needs a database, the verification start, the media and address links, a deleter and a clock")
 	}
 	return &Service{
-		db: database, reads: usersdb.New(database.Pool()), verify: verify, media: links, deleter: deleter, clock: clk,
+		db: database, reads: usersdb.New(database.Pool()), verify: verify, media: links, addresses: addresses,
+		deleter: deleter, clock: clk,
 	}, nil
 }
 
@@ -96,7 +108,7 @@ func profileOf(r usersdb.LockProfileRow) Profile {
 		ID: r.ID, Email: r.Email, FirstName: r.FirstName, LastName: r.LastName, Phone: r.Phone,
 		BirthDate: r.BirthDate, Gender: r.Gender, JobTitle: r.JobTitle, About: r.About,
 		Qualifications: r.Qualifications, Interests: r.Interests, Employer: r.Employer,
-		ProfilePicture: optionalID(r.ProfilePictureID), CV: optionalID(r.CvID),
+		ProfilePicture: optionalID(r.ProfilePictureID), CV: optionalID(r.CvID), Address: optionalID(r.AddressID),
 		EmailVerified: r.EmailVerified, PhoneVerified: r.PhoneVerified, IdentityVerified: r.IdentityVerified,
 		CreatedAt: r.CreatedAt,
 	}
@@ -105,25 +117,24 @@ func profileOf(r usersdb.LockProfileRow) Profile {
 // Update applies a profile patch (RFC 7396) and returns the profile and
 // the verifications it started. In order:
 //
-//  1. a link to an address is not live yet: 501 (ADR-0036 Karar 5);
-//  2. the values the schema allows but the rules do not: REQUEST_INVALID
+//  1. the values the schema allows but the rules do not: REQUEST_INVALID
 //     (an empty name, a birth date in the future, an address or number a
 //     verification refuses);
-//  3. an address or a number in the patch needs the current password
+//  2. an address or a number in the patch needs the current password
 //     (ADR-0033 Karar 1b), checked like every start's (Reauthenticate): a
 //     wrong one is PASSWORD_MISMATCH and counts on the sign-in lock;
-//  4. in one transaction, under the caller's row lock: the identity freeze
+//  3. in one transaction, under the caller's row lock: the identity freeze
 //     (USR-024); a new profile picture or CV is checked (owner, kind,
-//     READY) and bound (media.Bind, ADR-0035 Karar 8); the fields and the
-//     profile sync intent (USR-022); the media the profile no longer names
+//     READY) and bound (media.Bind, ADR-0035 Karar 8); a changed primary
+//     address is checked (the caller's, ADDRESS_NOT_FOUND otherwise) and
+//     linked by the address module with its own sync intent (ADR-0039
+//     Karar 5); the fields and the profile sync intent (USR-022); the
+//     media the profile no longer names
 //     is released, after the row moved off it; and a
 //     verification of each address or number that differs from the one on
 //     file (USR-014), under every rule of a start (StartTx). A refusal of
 //     any of them rolls the whole patch back.
 func (s *Service) Update(ctx context.Context, p authn.UserPrincipal, patch Patch) (Profile, []authn.Verification, error) {
-	if patch.linksAddress() {
-		return Profile{}, nil, apperr.New(apperr.KindNotImplemented, pending.CodeNotImplemented)
-	}
 	if err := checkPatch(patch, s.clock.Now()); err != nil {
 		return Profile{}, nil, err
 	}
@@ -159,6 +170,11 @@ func (s *Service) Update(ctx context.Context, p authn.UserPrincipal, patch Patch
 		}
 		if err := s.bindMedia(ctx, tx, p.UserID, cur, next, now); err != nil {
 			return err
+		}
+		if !sameID(cur.Address, next.Address) {
+			if err := s.addresses.LinkPrimary(ctx, tx, p, next.Address, now); err != nil {
+				return fmt.Errorf("users: link the primary address: %w", err)
+			}
 		}
 		if fieldsChanged(cur, next) {
 			err := q.UpdateProfile(ctx, usersdb.UpdateProfileParams{
