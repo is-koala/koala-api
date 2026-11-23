@@ -70,6 +70,8 @@ type RetireLimitError struct {
 	Allowed int // Options.AllowRetire[Table]
 }
 
+// Error names the table, the counts and the allowance that lets it
+// through.
 func (e *RetireLimitError) Error() string {
 	return fmt.Sprintf("referencedata: %s: the files would retire %d of its %d rows in use, above the limit of %d "+
 		"(allowed %d); nothing was written. If that is meant, allow it: %s:%d",

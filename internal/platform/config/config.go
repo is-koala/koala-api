@@ -446,7 +446,7 @@ func Load(environ []string) (Config, error) {
 var errInvalidValue = errors.New("invalid value")
 
 // allowRetire is the shape of VarReferenceAllowRetire.
-var allowRetire = regexp.MustCompile(`^[a-z_]+:[0-9]{1,9}( *, *[a-z_]+:[0-9]{1,9})*$`)
+var allowRetire = regexp.MustCompile(`^[a-z_]+:\d{1,9}( *, *[a-z_]+:\d{1,9})*$`)
 
 // loadEdge reads the variables of the HTTP edge: the client version gate,
 // the trusted proxies and the metrics listener (ADR-0021).

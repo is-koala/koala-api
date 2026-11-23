@@ -361,7 +361,10 @@ func TestSyncRefusesInvalidData(t *testing.T) {
 func TestConcurrentSyncsSerialize(t *testing.T) {
 	t.Parallel()
 
-	owner := dbtest.New(t).Open(t, db.RoleOwner)
+	// Three pools: an owner pool holds two connections, and the first
+	// sync, the second and the watcher each need one at the same time.
+	database := dbtest.New(t)
+	owner, second, watcher := database.Open(t, db.RoleOwner), database.Open(t, db.RoleOwner), database.Open(t, db.RoleOwner)
 	d := load(t)
 	d.Version = 2
 	d.Departments = append(d.Departments, referencedata.Row{ID: uuid.New(), Parent: d.Faculties[0].ID, Name: "Eşzamanlı Bölüm"})
@@ -384,7 +387,7 @@ func TestConcurrentSyncsSerialize(t *testing.T) {
 	done := make(chan outcome, 1)
 	go func() {
 		var o outcome
-		o.err = owner.InTx(ctx, func(ctx context.Context, q db.Querier) error {
+		o.err = second.InTx(ctx, func(ctx context.Context, q db.Querier) error {
 			var err error
 			o.res, err = referencedata.Sync(ctx, q, d, referencedata.Options{})
 			return err
@@ -396,7 +399,7 @@ func TestConcurrentSyncsSerialize(t *testing.T) {
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		var waiting int
-		err := owner.Pool().QueryRow(ctx,
+		err := watcher.Pool().QueryRow(ctx,
 			"SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database())").
 			Scan(&waiting)
 		if err != nil {
