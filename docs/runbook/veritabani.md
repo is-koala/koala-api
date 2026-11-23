@@ -23,7 +23,9 @@ Bu sayfa yalnız açıklamadır; kararlar ve gerekçeleri ADR-0013 ve ADR-0017'd
 
 ## Yayın
 
-`scripts/release-db.sh <imaj>` yeni imaj trafiğe açılmadan önce çalışır: önce `koala bootstrap`, sonra `koala migrate up`. Biri başarısız olursa yayın durur. `migrate up` migration'lardan sonra referans verisini imajdaki dosyalara eşitler ve tablo başına eklenen, güncellenen, emekliye ayrılan ve değişmeyen satır sayılarını log'a yazar; aynı özeti, yazılacak her satırla birlikte, yayından önce `koala reference sync --dry-run` hiçbir şey yazmadan verir (ADR-0037). **Dikkat:** kuru koşu yeni imajla ama veritabanının bugünkü şemasıyla koşar; yayın referans tablolarına dokunan bir migration taşıyorsa (kolon, tablo, collation) kuru koşu o migration'lardan önce koşamaz ve hata verir ya da yanıltır. O yayında kuru koşu bir kopya veritabanında `migrate up`'tan sonra yapılır. Eşitleme bir tablonun kullanımdaki satırlarının %5'inden (en az 10) fazlasını emekliye ayıracaksa `migrate up` hiçbir şey yazmadan durur ve aşma değerini log'a yazar; bilinçliyse yalnız o yayın için `KOALA_REFERENCE_ALLOW_RETIRE=<tablo>:<n>` verilir. Veritabanında imajdakinden yeni bir veri sürümü varsa (geri alınmış yayın) eşitleme hiçbir şey yazmaz ve uyarı basar; veri geri götürülmez.
+`scripts/release-db.sh <imaj>` yeni imaj trafiğe açılmadan önce çalışır: önce `koala bootstrap`, sonra `koala migrate up`. Biri başarısız olursa yayın durur. `koala migrate down` production'da reddedilir; geri dönüş ileri bir migration ya da yedekten dönüşle yapılır.
+
+`migrate up` migration'lardan sonra referans verisini imajdaki dosyalara eşitler ve tablo başına eklenen, güncellenen, emekliye ayrılan ve değişmeyen satır sayılarını log'a yazar; aynı özeti, yazılacak her satırla birlikte, yayından önce `koala reference sync --dry-run` hiçbir şey yazmadan verir (ADR-0037). **Dikkat:** kuru koşu yeni imajla ama veritabanının bugünkü şemasıyla koşar; yayın referans tablolarına dokunan bir migration taşıyorsa (kolon, tablo, collation) kuru koşu o migration'lardan önce koşamaz ve hata verir ya da yanıltır. O yayında kuru koşu bir kopya veritabanında `migrate up`'tan sonra yapılır. Eşitleme bir tablonun kullanımdaki satırlarının %5'inden (en az 10) fazlasını emekliye ayıracaksa `migrate up` hiçbir şey yazmadan durur ve aşma değerini log'a yazar; bilinçliyse yalnız o yayın için `KOALA_REFERENCE_ALLOW_RETIRE=<tablo>:<n>@<veri sürümü>` verilir. İzin yalnız adlandırdığı veri sürümüne eşitlemede geçerlidir; değişken sonraki bir yayında unutulursa hiçbir şeyi açmaz ve `reference allowance ignored` uyarısı basılır, o zaman kaldırılır. Veritabanında imajdakinden yeni bir veri sürümü varsa (geri alınmış yayın) eşitleme hiçbir şey yazmaz ve uyarı basar; veri geri götürülmez.
 
 ### ICU yükseltmesi ve `turkish` collation'ı
 
@@ -31,7 +33,7 @@ Referans tablolarının `name` kolonları ICU'nun `tr-TR` collation'ını kullan
 
 1. `SELECT collname, collversion, pg_collation_actual_version(oid) FROM pg_collation WHERE collname = 'turkish';` ile sürümleri karşılaştır.
 2. `turkish` kullanan indeksleri bul: `SELECT indexrelid::regclass FROM pg_index i JOIN pg_collation c ON c.oid = ANY (i.indcollation::oid[]) WHERE c.collname = 'turkish';`. **Bir indeks varsa önce `REINDEX INDEX CONCURRENTLY <ad>`**: eski sıraya göre kurulmuş bir B-tree yeni kurallarla aranınca satır kaçırır. Bugün böyle bir indeks yok (`TestNoIndexUsesTheTurkishCollation`); ad üzerine indeks ekleyen PR o testi ve bu adımı birlikte günceller.
-3. `ALTER COLLATION turkish REFRESH VERSION;` (`koala_owner` olarak). `koala migrate down` production'da reddedilir; geri dönüş ileri bir migration ya da yedekten dönüşle yapılır.
+3. `ALTER COLLATION turkish REFRESH VERSION;` (`koala_owner` olarak).
 
 ## Haftalık bakım: River indeksleri
 
