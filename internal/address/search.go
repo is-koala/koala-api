@@ -83,9 +83,6 @@ const (
 	// every failure in a row, up to boundsRetryMax.
 	boundsRetry    = 10 * time.Minute
 	boundsRetryMax = 24 * time.Hour
-	// boundsTimeout bounds one refresh, whatever the request that started
-	// it.
-	boundsTimeout = 20 * time.Second
 )
 
 // cityBox is one service area city's bounds as the cache holds them.
@@ -660,9 +657,9 @@ func (x *search) restriction(ctx context.Context) *googlemaps.Rect {
 	}
 	x.mu.Unlock()
 	if leader {
-		refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), boundsTimeout)
-		x.refresh(refreshCtx, due)
-		cancel()
+		// Detached from the request: each provider call is bounded by the
+		// client's own timeout, and the database by the pool's.
+		x.refresh(context.WithoutCancel(ctx), due)
 		x.mu.Lock()
 		x.flight = nil
 		close(ch)
