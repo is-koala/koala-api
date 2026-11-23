@@ -925,7 +925,7 @@ func TestProviderFailureOverHTTP(t *testing.T) {
 	f.Enqueue(http.MethodGet, f.DetailsPath("ChIJ-moda"), fakes.GooglePlacesError(http.StatusServiceUnavailable, "UNAVAILABLE"))
 	wantStatus(t, a.call(t, http.MethodPost, resolve, tok, ""), http.StatusBadGateway, string(address.CodeProviderUnavailable))
 	sessionID := strings.TrimSuffix(strings.TrimPrefix(path, "/v1/me/address-search-sessions/"), "/suggestions")
-	if open := a.text(t, "SELECT (resolved_at IS NULL)::text FROM address_search_sessions WHERE id = $1", sessionID); open != "true" {
+	if open := a.text(t, "SELECT (ended_at IS NULL)::text FROM address_search_sessions WHERE id = $1", sessionID); open != "true" {
 		t.Error("MED-013: the failed resolve left its session ended")
 	}
 	f.Enqueue(http.MethodGet, f.GeocodePath(), fakes.GoogleGeocodeStatus("OVER_QUERY_LIMIT"))

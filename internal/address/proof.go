@@ -129,9 +129,8 @@ func (p prover) open(token string, user uuid.UUID, now time.Time) (proofClaims, 
 		!now.Before(time.Unix(c.Expires, 0)) {
 		return proofClaims{}, proofInvalid()
 	}
-	switch Source(c.Source) {
-	case SourceAutocomplete, SourceReverse:
-	default:
+	// Only a provider's source is ever signed; a manual entry has no proof.
+	if src := Source(c.Source); src != SourceAutocomplete && src != SourceReverse {
 		return proofClaims{}, proofInvalid()
 	}
 	return c, nil
