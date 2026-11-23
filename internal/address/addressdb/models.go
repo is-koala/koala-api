@@ -3,3 +3,20 @@
 //   sqlc v1.31.1
 
 package addressdb
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type AddressAreaBound struct {
+	CityID    uuid.UUID
+	South     *float64
+	West      *float64
+	North     *float64
+	East      *float64
+	FetchedAt *time.Time
+	Failures  int32
+	RetryAt   *time.Time
+}

@@ -96,8 +96,11 @@ Java'da hizmet alanı yalnız İstanbul'dur (`IstanbulServiceArea`): öneriler �
 - `KOALA_SERVICE_AREA_CITIES`: virgülle ayrılmış referans il kimlikleri. Ayarsızsa `config.DefaultServiceAreaCities` (İstanbul'un kimliği). **Kodda İstanbul'a özgü hiçbir şey yoktur**: dikdörtgen, ad ya da test varsayımı. Öntanım bir yapılandırma değeridir.
 - Kimlikler kablolamada ikilinin referans verisine karşı denetlenir: bilinmeyen bir il ve iki ülkeye yayılan liste sunucuyu açmaz (fail-closed, `TestServiceArea`).
 - **Google sınırlaması listeden türer.** Autocomplete'in `locationRestriction` dikdörtgeni, listedeki her ilin sınırlarının birleşimidir. Sınırlar Google'dan alınır (Geocoding, `components=country:TR|administrative_area:<il adı>`, yalnız `administrative_area_level_1` tipli sonuç; `bounds`'u yoksa `viewport`'u). Gerekçe: 81 ilin dikdörtgenini elle yazmak doğrulanamayan veri olurdu ve "il eklemek tek adım" olmazdı; Google'ın koşulları koordinatın 30 güne kadar önbelleklenmesine izin verir, bir gün içinde kalınır.
-- **Önbellek il başınadır.** Başarılı sonuç bir gün tutulur; bir ilin sorgusu başarısızsa yalnız o il geri çekilir: on dakika, her ardışık başarısızlıkta iki katı, en çok bir gün. Bütün iller geçerli sınıra sahip değilse sınırlama düşer (yalnız Türkiye); çözmedeki il denetimi her durumda nihai karardır. Her sınır sorgusu servisin kendi birimidir (`BOUNDS`) ve küresel tavana sayılır; tavan doluysa sorgu da yapılmaz ve geri çekilme işler. Google'ın hiç yanıt vermediği bir il geri çekilme başına bir birim harcar, istek başına değil (`TestFailingCityBoundsBackOff`).
-- **Yenileme tek uçuşludur (single-flight).** Süresi dolan bir ili ilk bulan istek yenilemeyi kendisi koşar, isteğin iptaliyle bitmeyen ayrı bir context'le (`context.WithoutCancel`; her Google çağrısı istemcinin 8 saniyelik zaman aşımıyla sınırlıdır); diğerleri onu ya da kendi süre sınırlarını bekler. Google çağrılırken hiçbir kilit tutulmaz.
+- **Sınırlar DB'de, il başına, örnekler arasında paylaşılır** (`address_area_bounds`, M5). Örnek sayısı ve yeniden başlatma maliyeti değiştirmez, geri çekilme de kalıcıdır. Tablo Google içeriğidir (koordinat dikdörtgeni): `fetched_at`'ten itibaren en çok 30 gün kullanılır ve adres temizliği daha eskisini siler.
+- **Tazelik ve yedek:** sınır bir gün tazedir; sonra yeniden sorulur. Yeni sorgu başarısız olur ya da bekletilirse eski sınır, Google'ın izin verdiği 30 gün içinde, yedek olarak kullanılır. Hiçbir sınırı olmayan il varsa sınırlama düşer (yalnız Türkiye); çözmedeki il denetimi her durumda nihai karardır.
+- **Geri çekilme:** Google'ın hatası on dakikadan başlayıp her ardışık hatada iki katına çıkan, en çok bir günlük bir beklemedir (`TestBackoffIsCappedAtADay`). Tavanın reddi sağlayıcı hatası değildir: o il 429'un beklemesi kadar bekler, hata sayılmaz, yani geri çekilme şişmez (`TestCapRefusalKeepsStaleBounds`). Her sorgu servisin kendi birimidir (`BOUNDS`) ve tavana sayılır; Google'ın hiç yanıt vermediği bir il geri çekilme başına bir birim harcar, istek başına değil (`TestFailingCityBoundsBackOff`).
+- **Tek uçuş:** örnek içinde süresi dolan bir ili ilk bulan istek yenilemeyi kendisi koşar, diğerleri onu ya da kendi süre sınırlarını bekler; örnekler arasında ilin satırı, yenileyen örneğe bir dakikalık kira (`retry_at`) olarak kilit altında verilir. Yenileme isteğin iptaliyle bitmeyen ayrı bir context'le koşar (`context.WithoutCancel` + 20 saniyelik toplam sınır; havuzdan bağlantı beklemek dahil). Google çağrılırken süreç kilidi ya da DB transaction'ı açık tutulmaz.
+- **Sıra:** öneri isteğinde sınırlama, birim rezerve edilmeden önce hesaplanır; yavaş bir yenileme başarısız bir isteğin arkasında harcanmış birim bırakmaz.
 - **Ters geocoding ön denetimi:** nokta hizmet alanının bilinen dikdörtgeni dışındaysa Google'a hiç gitmez ve birim harcamaz (Java paritesi, veri en aza indirme; `TestReverseOutsideTheBoundsSpendsNothing`). Sınır bilinmiyorsa istek gider ve il denetimi karar verir.
 - Birleşim dikdörtgeni uzak iki ilde aradaki illeri de kapsar; oradan gelen bir öneri çözmede 400 alır. Kabul edildi: daraltmak öneri metninden il ayıklamayı gerektirirdi, bu da Google'ın biçimine bağlı ikinci bir kural olurdu.
 - **Genişletme tek adımdır:** listeye il kimliği eklenir ve servis yeniden başlatılır (runbook "Hizmet alanına il ekleme"). İki illi test bunu bağlar (`TestServiceAreaIsTheConfiguredCities`).
@@ -140,9 +143,10 @@ Google Maps Platform politikası: yer kimliği önbellekleme kısıtından muaft
 | `formatted_address`, ham yanıt | Hiçbir yerde; istenmez, decode edilmez | — | ADR-0029 Karar 8 |
 | Adresin yer kimliği | `addresses.provider_place_id` | Süresiz, yenilenebilir | Yer kimliği muaf |
 | Adresin bileşenleri ve koordinatı | `addresses`, kaynağıyla (Karar 10) | Süresiz, temizlenebilir | Açık soru 1 |
-| İl sınırları | Süreç belleği | 1 gün | Koordinat ≤ 30 gün |
+| İl sınırları | `address_area_bounds` | 1 gün taze, en çok 30 gün yedek, sonra silinir | Koordinat ≤ 30 gün |
+| Kanıt (`proof`) | Yalnız yanıtta ve istemcide | Oturum ömrü (15 dk) | Bizim imzamız; yer kimliği ve bileşenlerimizi taşır |
 
-**Oturum:** çağırana bağlı, 15 dakika. Bir çözmeyle biter (Google'ın oturumu Place Details'le biter); bitmiş oturum, başkasının oturumu, süresi dolmuş ve hiç olmamış oturum aynı `404 ADDRESS_SEARCH_SESSION_NOT_FOUND`'u bayt bayt alır (MED-010). `404` alan istemci yeni bir oturum açar. Aday kimliği `c_<n>`, oturumun yer kimliği dizisindeki indekstir; oturumun hiç önermediği aday oturumun 404'üdür. Sağlayıcı çağrısı başarısız olursa bitiş geri alınır (birim harcanmış kalır; `TestProviderFailureOverHTTP`). Oturum bellekte değil tablodadır: birden çok örnek ve yeniden başlatma oturumu düşürmez (Java bellekte tutuyordu).
+**Oturum:** çağırana bağlı, 15 dakika. Bir çözmeyle biter (Google'ın oturumu Place Details'le biter); bitmiş oturum, başkasının oturumu, süresi dolmuş ve hiç olmamış oturum aynı `404 ADDRESS_SEARCH_SESSION_NOT_FOUND`'u bayt bayt alır (MED-010). On iki öneri isteğinden sonraki istek oturumu bitirir ve aynı 404'ü alır: oturum bir daha açılmayacağı için `429` + `Retry-After` istemciyi on beş dakika boyunca boşuna denemeye iterdi (`TestSessionSuggestionBound`). `404` alan istemci yeni bir oturum açar. Aday kimliği `c_<n>`, oturumun yer kimliği dizisindeki indekstir; oturumun hiç önermediği aday oturumun 404'üdür. Sağlayıcı çağrısı başarısız olursa bitiş geri alınır (birim harcanmış kalır; `TestProviderFailureOverHTTP`). Oturum bellekte değil tablodadır: birden çok örnek ve yeniden başlatma oturumu düşürmez (Java bellekte tutuyordu).
 
 **Idempotency-Key yok, gerekçeleri:** oturum açmanın tekrarı yeni bir oturum ve bir birim daha harcar, kaybolan oturum 15 dakikada ölür; çözmenin tekrarı bitmiş oturumda `404` alır ve istemci yeni oturumla yeniden arar (anahtar bir yanıtı geri verse de bitmiş oturumu açmazdı); ters aramanın tekrarı aynı noktayı yeniden çevirir ve bir birim daha harcar. Hiçbiri kayıt yazmaz; tekrarların bedeli bütçededir.
 
@@ -150,7 +154,7 @@ Google Maps Platform politikası: yer kimliği önbellekleme kısıtından muaft
 
 **Sayım birimi sağlayıcının faturaladığı çağrıdır**, ve oturum açılışı: `SESSION` (faturalanmaz, ama bir çağıranın kaç oturum çevirdiğini sınırlar), `AUTOCOMPLETE` (her öneri isteği; Essentials'ta faturalanır), `DETAILS` (çözme), `REVERSE` (ters geocoding), `BOUNDS` (servisin il sınırı sorgusu). Kırpıldıktan sonra üç karakterden kısa sorgu sağlayıcıya gitmez ve birim harcamaz.
 
-**Bir oturum en çok 12 öneri isteği yapar** (`SuggestionRequestsPerSession`): Essentials'la biten oturumun faturalanan kısmı budur, ve debounce yapan bir istemci bir adres için 6–12 istek gönderir. Sonrası `429 ADDRESS_LOOKUP_LIMIT_REACHED` (`Retry-After` = `RetryFloor`, 1 sn; istemci hemen yeni oturum açabilir).
+**Bir oturum en çok 12 öneri isteği yapar** (`SuggestionRequestsPerSession`): Essentials'la biten oturumun faturalanan kısmı budur, ve debounce yapan bir istemci bir adres için 6–12 istek gönderir. On üçüncü istek oturumu bitirir ve `404 ADDRESS_SEARCH_SESSION_NOT_FOUND` alır (Karar 6).
 
 **Tipik bir adres girişi:** 1 oturum + 6–12 öneri + 1 çözme = **8–14 birim**. Değerler bunun üzerinden:
 
@@ -159,6 +163,8 @@ Google Maps Platform politikası: yer kimliği önbellekleme kısıtından muaft
 | Kullanıcı, 24 saat (`KOALA_ADDRESS_LOOKUPS_PER_USER_DAY`) | **150** | ~10 tam adres girişi (14 × 10 = 140) ve yeniden denemeler; meşru bir kullanıcı günde birkaç adres girer |
 | İstemci adresi, 1 saat (`_PER_IP_HOUR`) | **600** | ~40 giriş/saat; mobil CGNAT bir çıkış adresini yüzlerce aboneye paylaştırır (ADR-0033'ün `verification_address` gerekçesi) |
 | Küresel, 24 saat (`_PER_DAY`) | **3000** | ~210 giriş/gün. En kötü durumda hepsi Place Details/Geocoding fiyatında (liste fiyatı 1000 başına 5 $ düzeyi) günde ~15 $, tipik karışımda (çoğu birim Autocomplete, 1000 başına ~2,8 $) daha az. Google'ın aylık ücretsiz kotası hesaba katılmadı |
+
+Servisin il sınırı sorguları (`BOUNDS`) DB'de paylaşıldığı için örnek sayısından ve yeniden başlatmadan bağımsızdır: hizmet alanındaki N il için günde N birim, Google'ın bir ili hiç vermediği günlerde o il için geri çekilme başına bir birim (en çok ~8/gün, sonra günde bir). Tek il (İstanbul) için günde 1 birim, tavanın %0,03'ü.
 
 İlk sürüm oturumdaki önerileri ücretsiz sayıyordu; 2000 birimlik tavan en kötü durumda ~40.000 faturalı isteğe denk geliyordu. Değerler ölçülmedi (gerçek trafik yok), yapılandırılabilir ve yeniden başlatmayla değişir.
 
@@ -172,7 +178,7 @@ Her ret `429 ADDRESS_LOOKUP_LIMIT_REACHED` ve `Retry-After`'dır: reddeden pence
 
 **Tavan neden 429, neden tek kod:** tavan sağlayıcının hatası değil faturanın sınırıdır; 502 olsaydı tavan dolduğunda `KoalaHighHttp5xxRate` çalardı ve gerçek sağlayıcı hatası ondan ayırt edilemezdi. 502 yalnız gerçek sağlayıcı hatasına ve yapılandırılmamış sağlayıcıya kalır. Ayrı bir `ADDRESS_LOOKUP_CAP_REACHED` seçilmedi: istemcinin çaresi dört durumda da aynıdır (bekle ya da adresi elle gir), tek kod hangi bütçenin dolduğunu söylemez ve dört dalı tek davranışa indirir. Hangi sınırın reddettiği metrikte görülür (`outcome` etiketi).
 
-**Yapısal bağ: sağlayıcıya ancak kendi türünden harcanmış birimle ulaşılır.** `spent[T]` birimin türünü tip parametresinde taşır (`autocompleteTag`, `detailsTag`, `reverseTag`, `boundsTag`, `sessionTag`); `metered`'in her çağrısı yalnız kendi türünün birimini alır, yani çözme bir oturumun birimiyle, öneri bir başkasıyla ödenemez. İlk sürümde `openSession` bir `spent` döndürüyordu ve çözmenin `DETAILS` birimi testsizdi; artık oturum hiç birim döndürmez. Paket içinde elle `spent` kurmayı tip engelleyemez; `TestOnlyReserveSpends` paketin kaynağını okur ve `reserve` dışındaki her `spent` literalini kırmızı sayar.
+**Yapısal bağ: sağlayıcıya ancak kendi türünden harcanmış birimle ulaşılır.** `spent[T]` birimin türünü tip parametresinde taşır (`autocompleteTag`, `detailsTag`, `reverseTag`, `boundsTag`, `sessionTag`) ve `_ T` alanıyla her tür kendi temel tipine sahiptir: türler arası dönüşüm (`spent[A](spent[B]{})`) derlenmez. `metered`'in her çağrısı yalnız kendi türünün birimini alır. İlk sürümde `openSession` bir `spent` döndürüyordu ve çözmenin `DETAILS` birimi testsizdi; artık oturum hiç birim döndürmez. **Tipin engelleyemediği:** paket içinde `reserve` dışında bir birim yapmak (literal, sıfır değer `var x spent[…]`, `new(spent[…])`, aynı türe dönüşüm). Üretim kodunda böyle bir yer yoktur (birimi bekleyen yerler işaretçi tutar); `TestOnlyReserveSpends` paketin kaynağını bu dört biçim için okur ve kendi örnek kaynağıyla her birini gördüğünü kanıtlar. Bu bir AST taramasıdır, tip denetimi değil: takma ad ya da başka pakete aktarım görülmez.
 
 **"Tek aktör herkesi durdurabilir mi?"** Kullanıcı ve adres bütçesi için hayır. Küresel tavan için: tek bir hesap en çok 150, tek bir adres saatte 600 birim harcar; tavanı birkaç hesap ya da dağıtık adreslerle doldurmak mümkündür. **Kabul edilen risk:** o gün meşru kullanıcılar adresi elle girer; tavanın varlık nedeni faturadır. Azaltma: metrik ve uyarılar, yeniden başlatmayla ayarlanan değerler.
 
@@ -197,6 +203,7 @@ Her ret `429 ADDRESS_LOOKUP_LIMIT_REACHED` ve `Retry-After`'dır: reddeden pence
 | `ADDRESS_SEARCH_SESSION_NOT_FOUND` | 404 | öneri, çözme |
 | `ADDRESS_OUTSIDE_SERVICE_AREA` | 400 | çözme, reverse |
 | `ADDRESS_LOOKUP_LIMIT_REACHED` (yeni) | 429 + `Retry-After` | oturum, öneri, çözme, reverse |
+| `ADDRESS_PROOF_INVALID` (yeni) | 400 | ekleme, değiştirme (Karar 10) |
 | `ADDRESS_PROVIDER_UNAVAILABLE` | 502 | oturum, öneri, çözme, reverse; yalnız sağlayıcı hatası ve yapılandırılmamış sağlayıcı |
 | `CURSOR_INVALID` | 400 | liste |
 
@@ -209,14 +216,23 @@ KVKK'nın yurt dışı aktarım kararı hukuk konusu ve açık (Açık sorular 2
 - Autocomplete gövdesi yalnız girdi, belirteç, dil/bölge ve dikdörtgen taşır (`TestAutocomplete` gövdenin anahtarlarını sayar). Çağıranın isteğinin hiçbir başlığı Google'a iletilmez.
 - **Log'a sorgu metni, yer kimliği, koordinat ve adres yazılmaz;** sağlayıcı hatasında yalnız çağrı adı ve nedeni yazılır.
 
-### 10. Kaynak kolonları
+### 10. Kaynak kolonları ve sağlayıcı kanıtı
 
 `addresses`'e iki kolon eklendi (ürün kararı 23.11.2026):
 
 - `components_source`: `MANUAL` (kullanıcının girişi), `AUTOCOMPLETE` (bir öneri çözmesi), `REVERSE_GEOCODE` (ters arama).
-- `coordinate_source`: `USER_PIN` ya da `PROVIDER`; koordinat yoksa `NULL`. `AUTOCOMPLETE`'te `PROVIDER`, diğerlerinde `USER_PIN`.
+- `coordinate_source`: `USER_PIN` ya da `PROVIDER`; koordinat yoksa `NULL`.
 
-İki kolon, iki ayrı hukuk sorusuna karşılık gelir: Google bileşenlerinin süresiz saklanması (ters aramanın bileşenleri Autocomplete istisnasının metninde yok) ve Google koordinatının 30 gün kuralı. Hukukçu "saklanamaz" derse temizlik bu kolonlarla bulunur. Kaynağı istemci gönderir (`AddressInput.source`; çözme ve ters arama `ResolvedAddress.source` olarak verir). Gönderilmezse yer kimliği taşıyan adres `AUTOCOMPLETE`, taşımayan `MANUAL` sayılır. Bu varsayılan muhafazakârdır: kaynağı bilinmeyen Google kaynaklı veri temizlikten kaçmaz. Çözülen adresin pinini kullanıcı sonradan oynatırsa koordinat yine `PROVIDER` kalır; yanılgı fazla silme yönündedir, eksik silme yönünde değil (`TestAddressSources`).
+İki kolon, iki ayrı hukuk sorusuna karşılık gelir: Google bileşenlerinin süresiz saklanması (ters aramanın bileşenleri Autocomplete istisnasının metninde yok) ve Google koordinatının 30 gün kuralı. Hukukçu "saklanamaz" derse temizlik bu kolonlarla bulunur. DB tutarlılığı tutar: `MANUAL` ⇔ yer kimliği yok; `REVERSE_GEOCODE` hiçbir zaman `PROVIDER` koordinat taşımaz. `Address` yanıtı `source` ve `providerPlaceId`'yi döner.
+
+**Kaynağı istemci beyan etmez, sunucu kanıtla belirler.** İlk sürümde `AddressInput.source` serbest bir beyandı ve `GET` kaynağı göstermiyordu. Sonuç: kat düzelten dürüst bir istemci adresi sessizce `MANUAL` yapıyordu, kötü niyetli bir istemci de istediğini yazabiliyordu. Java'nın `candidateToken`'ının karşılığı olarak:
+
+- **Kanıt (`ResolvedAddress.proof`):** çözme ve ters arama, çağıran, kaynak, yer kimliği, il, konumlayan bileşenler (ilçe, cadde, bina no) ve koordinat üzerinde sunucunun HMAC-SHA256 imzasını verir. Kanıtın ömrü oturumun ömrüdür (15 dakika). Anahtar giriş biberinden kendi HKDF bağlamıyla türer (`koala address proof v1`; ADR-0034'ün kalıbı). İddialar kanıtın içindedir; sunucu bir şey saklamaz.
+- **Ekleme ve değiştirme kanıtla:** kanıt geçerli olmalı (imza, çağıran, süre) ve adresi tutmalı: aynı il, sağlayıcı ilçe verdiyse aynı ilçe, aynı cadde ve bina no, başka bir yer kimliği değil. Tutmazsa `400 ADDRESS_PROOF_INVALID`. Bileşenler kanıtın kaynağını ve yer kimliğini alır. Koordinat çözmenin kendi konumuysa `PROVIDER`, değilse çağıranın pini (`USER_PIN`): taşınan pin çağıranın kendi verisidir, reddedilmez. Betimleyen satırlar (mahalle, site adı, posta kodu) ve çağıranın kendi satırları (kat, daire, blok, tarif) kanıta bağlı değildir; kullanıcı onları düzeltebilir.
+- **Kanıtsız:** yer kimliği yalnız satırın zaten taşıdığının yankısıysa kabul edilir, değilse `400 ADDRESS_PROOF_INVALID`. Ekleme `MANUAL`'dır.
+- **Kaynak geriye düşmez (değiştirme, alan grubu bazında):** konumlayan alanlar (il, ilçe, cadde, bina no) değişmediyse saklı kaynak ve yer kimliği kalır; değiştiyse adres başka bir yerdir: `MANUAL`, yer kimliği yok. Koordinat saklı noktaysa saklı kaynağı kalır, taşındıysa `USER_PIN` olur. Gerekçe: yer kimliği bir yeri adlandırır, konumlayan alanlar o yeri; betimleyen ve kişisel satırlar yeri değiştirmez.
+
+**Kapsadığı ve kapsamadığı.** Dürüst bir istemcinin düzenlemesi kaynağı düşürmez; istemci kaynak uyduramaz ve başkasının ya da süresi dolmuş kanıtı kullanamaz (`TestAddressProofs`, `TestProofOpensOnlyAsSigned`). Kanıtı hiç göndermeyen ve Google'ın metnini elle yazan bir istemcinin verisi `MANUAL` görünür; sunucu kullanıcının yazdığını Google'ın verdiğinden ayırt edemez. Temizlik, kanıtla kaydedilmiş Google verisini bulur; kanıtı atlayan istemcinin kopyaladığını bulamaz. Bir yanılgı payı da şudur: konumlayan bir alanı değiştirilen adresin geri kalan Google satırları (ör. mahalle) `MANUAL` olur.
 
 ## "Silinirse kırmızı olur mu?"
 
@@ -228,11 +244,13 @@ KVKK'nın yurt dışı aktarım kararı hukuk konusu ve açık (Açık sorular 2
 | Küresel tavan, her dalda, 429 | Oturum ya da reverse tavanı aşar, ya da 502 döner | `TestLookupRefusalsWriteNothing` (`Retry-After` = 86400, defter 6) |
 | Her öneri isteği bir birim | Yazım bütçeyi yemez, tavan doluyken öneri sürer | `TestSuggestionsSpendTheBudget`, `TestSessionSuggestionBound` |
 | Çözme bir `DETAILS` birimi | Çözme tavanı atlatır | `TestSuggestionsSpendTheBudget` (tavanda 429, normalde bir `DETAILS` satırı) |
-| Sağlayıcıya yalnız kendi türünden birimle | — | Derleyici (`spent[T]`) ve `TestOnlyReserveSpends` |
-| Oturum başına 12 öneri | 13. istek geçer | `TestSessionSuggestionBound` |
+| Sağlayıcıya yalnız kendi türünden birimle | Türler arası dönüşüm derlenir ya da paket içinde elle birim yapılır | Derleyici (`spent[T]{_ T}`) ve `TestOnlyReserveSpends` (dört biçim, örnek kaynakla) |
+| Oturum başına 12 öneri, sonra oturum biter | 13. istek geçer ya da 429 döner | `TestSessionSuggestionBound` (404, ikinci istek de 404) |
 | Kısa sorgu sağlayıcıya gitmez | Kırpılmış iki harf öneri alır | `TestAddressSearchOverHTTP` |
 | Sınır önbelleği il başına, geri çekilme | Başarısız il her istekte birim yer | `TestFailingCityBoundsBackOff` |
-| İl sınırı yalnız il tipli sonuçtan | Kasabanın sınırı ilin yerine geçer | `TestRegionBoundsNeedsTheProvince` |
+| Geri çekilmenin bir günlük üst sınırı | Bekleme bir günü geçer | `TestBackoffIsCappedAtADay` |
+| Tavan reddi hata sayılmaz, eski sınır yedek | Geri çekilme şişer ya da ön denetim kapanır | `TestCapRefusalKeepsStaleBounds` |
+| İl sınırı yalnız il tipli sonuçtan | Kasabanın sınırı ilin yerine geçer | `TestRegionBoundsNeedsTheProvince` (yalnız kasaba; kasaba önce, il sonra) |
 | Reverse ön denetimi | Alan dışı nokta Google'a gider ve birim yer | `TestReverseOutsideTheBoundsSpendsNothing` |
 | Oturum sahipliği (MED-010) | Başkası oturumu kullanır | `TestAddressSearchOverHTTP` |
 | Çözme oturumu bitirir | Aynı oturumda öneri sürer | `TestAddressSearchOverHTTP` |
@@ -240,7 +258,12 @@ KVKK'nın yurt dışı aktarım kararı hukuk konusu ve açık (Açık sorular 2
 | `formattedAddress` istenmez (MED-008) | Maskeye eklenirse | `TestDetails` (maske denetimi) |
 | Yer kimliği yazılır (MED-008) | `provider_place_id` boş kalır | `TestAddressSearchOverHTTP` |
 | Yer kimliği dışında öneri saklanmaz | `candidates` metin taşır | `TestAddressSearchOverHTTP` |
-| Kaynak kolonları | Yanlış kaynak yazılır | `TestAddressSources`, `TestAddressSearchOverHTTP` |
+| Kaynak yalnız kanıtla | Kanıtsız ya da sahte kanıtlı yer kimliği kabul edilir | `TestAddressProofs` (b) |
+| Kanıt başkasının ya da süresi dolmuşsa ret | Başka çağıranın kanıtı geçer | `TestAddressProofs` (c), `TestProofOpensOnlyAsSigned` |
+| Kanıt adresi tutmalı | Başka caddeli adres kanıtla `AUTOCOMPLETE` olur | `TestAddressProofs` |
+| Dürüst düzenleme kaynağı korur | Kat düzeltmek adresi `MANUAL` yapar | `TestAddressProofs` (a), (d) |
+| Pin ve cadde değişimi | Taşınan pin `PROVIDER` kalır, başka cadde yer kimliğini taşır | `TestAddressProofs` |
+| DB tutarlılığı | `MANUAL` yer kimliği taşır | `addresses_place_id_source_check` (DB) |
 | Koordinat tam saklanır (MED-009) | Yuvarlanarak yazılır | `TestAddressesOverHTTP` (DB'de 9 basamak), `TestRender` |
 | İlk adres birincil | Profil `null` kalır | `TestAddressesOverHTTP` |
 | Birincil silinince bağ ve niyet | Silme 409 alır ya da niyet yazılmaz | `TestAddressesOverHTTP` (`updated_at`) |
@@ -260,7 +283,7 @@ KVKK'nın yurt dışı aktarım kararı hukuk konusu ve açık (Açık sorular 2
 | Yönlendirme izlenmez | `CheckRedirect` silinir, istek anahtarla başka yola gider | `TestRedirectIsNotFollowed` |
 | Production'da sahte sürücü | Açılır | `TestLoadRejectsBadMapsValues`, `TestServeMapsErrors` |
 
-**Denenmeyenler:** profil yaması ile adres silmenin eşzamanlı yarışı (kilit sırası kod incelemesiyle); `Restore` bu kenarlarla; eşzamanlı rezervasyonda kullanıcı ve adres bütçesi (yalnız küresel tavan eşzamanlı sınandı); single-flight yenilemenin eşzamanlı istekleri gerçekten tek uçuşa indirmesi (testler sıralı; eşzamanlı bir sınır yenilemesi testi yok); yenilemenin isteğin iptalinden bağımsız sürmesi; il sınırı geri çekilmesinin bir günlük üst sınırı. Bu PR'daki hiçbir test yerelde koşturulmadı (yerelde ağır iş yok); hepsi CI'da koşar.
+**Denenmeyenler:** profil yaması ile adres silmenin eşzamanlı yarışı (kilit sırası kod incelemesiyle); `Restore` bu kenarlarla; eşzamanlı rezervasyonda kullanıcı ve adres bütçesi (yalnız küresel tavan eşzamanlı sınandı); tek uçuşun eşzamanlı istekleri gerçekten tek yenilemeye indirmesi, örnek içinde de örnekler arasında da (testler sıralı ve tek örnekli); yenilemenin isteğin iptalinden bağımsız sürmesi ve 20 saniyelik sınırı; sınırlamanın rezervasyondan önce hesaplanmasının yavaş yenilemede birim kurtarması; 30 günü geçen sınırın kullanılmaması ve temizlenmesi; değiştirmede yalnız betimleyen satır düzeltmesinin (mahalle) kaynağı koruması (cadde değişimi ve kat düzeltmesi denendi). Bu PR'daki hiçbir test yerelde koşturulmadı (yerelde ağır iş yok); hepsi CI'da koşar.
 
 ## Java paritesi
 
@@ -277,7 +300,7 @@ KVKK'nın yurt dışı aktarım kararı hukuk konusu ve açık (Açık sorular 2
 | Site adı | `premise` → `siteName` | aynı | Karar 4 |
 | Reverse | iki çağrı (bina, sonra alan) | tek çağrı, en ayrıntılı sonuç | maliyet |
 | Reverse koordinatı | kullanıcının pini | aynı | — |
-| Aday kanıtı (`candidateToken`) | ekleme kanıt ister | yok; kaynak kolonları kaydeder | Karar 10 |
+| Aday kanıtı (`candidateToken`) | sunucu belleğinde, eklemede tüketilir | imzalı kanıt (`proof`), iddialar içinde, oturum ömrü | Karar 10 |
 | Bütçe | yok | birim defteri, üç sınır, oturum başına 12 öneri | Karar 7 |
 | Birincil adres yayını | `UserManager.java:536` | `setPrimary` → `profilesync.Record` | ADR-0036 Karar 8 |
 
@@ -290,8 +313,9 @@ Dokuz operasyonun `x-not-implemented` işareti kalktı, iskele metotları silind
 - `startAddressSearchSession`, `listAddressSuggestions`, `resolveAddressCandidate`, `reverseLookupAddress`: `ADDRESS_LOOKUP_LIMIT_REACHED`; çözme ve reverse'e `ADDRESS_OUTSIDE_SERVICE_AREA`; açıklamalar bütçeyi, oturumun bitişini, istemcinin 404'te yeni oturum açmasını ve veri en aza indirmeyi yazar; üç `x-no-idempotency-key` gerekçesi gerçek yan etkileri anar (Karar 6).
 - `deleteMyAddress`, `replaceMyAddress`: açıklama.
 - `updateMyProfile`: `ADDRESS_NOT_FOUND` listeye döndü; açıklamadaki 501 cümlesi kalktı.
-- `AddressInput`: `siteName`, `block`, `source`; `postalCode` `pattern: ^[0-9]{5}$`. `Address`: `siteName`, `block`. `ResolvedAddress`: `districtId` nullable, `siteName`, `source`; açıklama "olduğu gibi" iddiasını `districtId` doluysa diye daraltır. Yeni `AddressSource` enum'u.
-- `ErrorCode`: `ADDRESS_LIMIT_REACHED` (409), `ADDRESS_LOOKUP_LIMIT_REACHED` (429) eklendi; `ADDRESS_PROVIDER_UNAVAILABLE`'ın düzyazısı tavanı anmaz; `ADDRESS_OUTSIDE_SERVICE_AREA` 400 kaldı.
+- `AddressInput`: `siteName`, `block`, `proof`; `postalCode` `pattern: ^[0-9]{5}$`. İlk sürümdeki serbest `source` beyanı kaldırıldı (uyumsuz, ama uç hiçbir istemcide yok). `Address`: `siteName`, `block`, `source`, `providerPlaceId`. `ResolvedAddress`: `districtId` nullable, `siteName`, `source`, `proof`; açıklama "olduğu gibi" iddiasını `districtId` doluysa diye daraltır. Yeni `AddressSource` enum'u.
+- `createMyAddress`, `replaceMyAddress`: `ADDRESS_PROOF_INVALID`; açıklamalar kanıtı ve "kaynak geriye düşmez" kuralını yazar. `listAddressSuggestions`: on üçüncü istek oturumu bitirir ve 404 alır.
+- `ErrorCode`: `ADDRESS_LIMIT_REACHED` (409), `ADDRESS_LOOKUP_LIMIT_REACHED` (429), `ADDRESS_PROOF_INVALID` (400) eklendi; `ADDRESS_PROVIDER_UNAVAILABLE`'ın düzyazısı tavanı anmaz; `ADDRESS_OUTSIDE_SERVICE_AREA` 400 kaldı.
 
 ## Yerine geçtiği
 
@@ -309,11 +333,11 @@ ADR-0007, ADR-0013, ADR-0014, ADR-0021, ADR-0026, ADR-0029, ADR-0033, ADR-0034, 
 - Şirket PR'ı şirket adresini bu tabloya bağlar: `addresses`'e şirket sahipliği ve `SOFT_DELETE_RESTRICTED`'in ilk gerçek tüketicisi o PR'dadır; kenarı `restrict` olmak zorundadır (`TestAddressConsumersAreRestrictEdges`).
 - İlan (Faz 3) konumu hizmet alanına bağlar ve haritayı `Render(PrecisionApproximate)` ile çizer.
 - Hizmet alanını yeniden başlatmadan değiştirmek ayrı bir iştir (Karar 3).
-- İstemciler önerileri harita olmadan gösterirken Google Maps atfını göstermek zorundadır (politika: "Google Maps" logosu ya da metni). Sunucu bunu sağlayamaz; istemci işine not edildi. İstemci kaydederken `ResolvedAddress.source`'u geri gönderir.
+- İstemciler önerileri harita olmadan gösterirken Google Maps atfını göstermek zorundadır (politika: "Google Maps" logosu ya da metni). Sunucu bunu sağlayamaz; istemci işine not edildi. İstemci kaydederken `ResolvedAddress.proof`'u geri gönderir; değiştirmede `GET`'in verdiği değerleri geri gönderir.
 - `privacy` PR'ı hesabı fiziksel olarak silmeden önce `users.address_id`'yi `NULL` yapar (Karar 5).
 
 ## Açık sorular
 
-1. **Google içeriğinin süresiz saklanması (hukukçu teyidi).** Politika son kullanıcının Autocomplete'te seçtiği adresi içerik kısıtlarının dışında tutuyor; koordinatı 30 günle sınırlıyor; metninde ters geocoding'i anmıyor. Sorulacaklar: (a) çözülen adresin bileşenleri ve koordinatı istisnaya giriyor mu; (b) ters geocoding'in bileşenleri (koordinat kullanıcının pinidir) istisnaya giriyor mu, girmiyorsa ne kadar saklanabilir. ADR-0029 açık soru 4 ile birlikte. Teyit "saklanamaz" derse `components_source` ve `coordinate_source` (Karar 10) temizlenecek satırları bulur; o güne kadar saklamaya devam edilir.
+1. **Google içeriğinin süresiz saklanması (hukukçu teyidi).** Politika son kullanıcının Autocomplete'te seçtiği adresi içerik kısıtlarının dışında tutuyor; koordinatı 30 günle sınırlıyor; metninde ters geocoding'i anmıyor. Sorulacaklar: (a) çözülen adresin bileşenleri ve koordinatı istisnaya giriyor mu; (b) ters geocoding'in bileşenleri (koordinat kullanıcının pinidir) istisnaya giriyor mu, girmiyorsa ne kadar saklanabilir. ADR-0029 açık soru 4 ile birlikte. Teyit "saklanamaz" derse `components_source` ve `coordinate_source` (Karar 10) kanıtla kaydedilmiş Google verisini bulur; o güne kadar saklamaya devam edilir. Kanıtı atlayıp Google metnini elle yazan bir istemcinin verisi bulunamaz (Karar 10'un sınırı).
 2. **KVKK yurt dışı aktarım:** kullanıcının yazdığı metin ve pini Google'a (ABD) gider. Java'nın ADR-0007'si Google kaynaklı verinin kalıcı kullanımını bu karara bağlamıştı. Hukuk konusu; Karar 9 aktarılanı en aza indirir. Prod yok, gerçek kullanıcı yok.
 3. **Değerler ölçülmedi:** 150/gün, 600/saat, 3000/gün, oturum başına 12 öneri ve fiyat varsayımları. İlk trafikte `koala_address_lookups_total` ve Google faturasıyla görülür.

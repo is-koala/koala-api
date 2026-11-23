@@ -30,6 +30,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/fakes"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/log"
+	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
@@ -88,7 +89,7 @@ func newAuthAppOn(t *testing.T, groups map[string]httpx.GroupLimits, maps config
 	}, Maps: maps}
 	mods := testModulesWith(t, cfg, database, clk)
 	if p != nil {
-		svc, h, err := wireAddressWith(cfg, database, clk, logger, prometheus.NewRegistry(), p)
+		svc, h, err := wireAddressWith(cfg, database, clk, logger, prometheus.NewRegistry(), tokenkeys.GeneratePepper(), p)
 		if err != nil {
 			t.Fatal(err)
 		}

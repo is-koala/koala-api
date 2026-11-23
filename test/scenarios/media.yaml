@@ -232,6 +232,7 @@ scenarios:
       - internal/app.TestAddressesOverHTTP
       - internal/app.TestAddressSearchOverHTTP
       - internal/address.TestResolvedComponents
+      - internal/app.TestAddressProofs
 
   - id: MED-009
     priority: P0

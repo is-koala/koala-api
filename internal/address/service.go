@@ -39,6 +39,7 @@ type Service struct {
 	logger   *slog.Logger
 	metrics  *Metrics
 	provider Provider
+	proofs   prover
 }
 
 // Config is what the service needs besides its dependencies.
@@ -49,6 +50,9 @@ type Config struct {
 	Area ServiceArea
 	// Budget is the lookup budget; a zero bound takes its default.
 	Budget Budget
+	// ProofSecret keys the provider's proofs (the login pepper; the key is
+	// derived with its own HKDF context).
+	ProofSecret []byte
 }
 
 // NewService returns the service on database. p is the map provider; nil
@@ -63,9 +67,13 @@ func NewService(database *db.DB, p Provider, deleter *softdelete.Deleter, clk cl
 	if len(cfg.Area.Cities()) == 0 {
 		return nil, errors.New("address: the service needs a service area")
 	}
+	proofs, err := newProver(cfg.ProofSecret)
+	if err != nil {
+		return nil, err
+	}
 	s := &Service{
 		db: database, reads: addressdb.New(database.Pool()), deleter: deleter, clock: clk, logger: logger,
-		metrics: metrics, provider: p,
+		metrics: metrics, provider: p, proofs: proofs,
 	}
 	s.search = newSearch(s, cfg)
 	return s, nil
@@ -178,14 +186,18 @@ func (s *Service) Create(ctx context.Context, p authn.UserPrincipal, in Input,
 		if err := checkReferences(ctx, q, in, uuid.Nil, uuid.Nil); err != nil {
 			return err
 		}
-		lat, lng, src, coordSrc := stored(in)
+		pv, err := s.provenanceOf(p.UserID, in, nil, now)
+		if err != nil {
+			return err
+		}
+		lat, lng := coordinates(in.Point)
 		err = q.InsertAddress(ctx, addressdb.InsertAddressParams{
 			ID: id, UserID: p.UserID, CityID: in.CityID, DistrictID: in.DistrictID,
 			Neighborhood: in.Neighborhood, Thoroughfare: in.Thoroughfare, BuildingNumber: in.BuildingNumber,
 			BuildingName: in.BuildingName, SiteName: in.SiteName, Block: in.Block, Floor: in.Floor,
 			UnitNumber: in.UnitNumber, PostalCode: in.PostalCode, AdditionalDirections: in.AdditionalDirections,
-			ProviderPlaceID: in.ProviderPlaceID, Latitude: lat, Longitude: lng, ComponentsSource: src,
-			CoordinateSource: coordSrc, CreatedAt: now,
+			ProviderPlaceID: pv.placeID, Latitude: lat, Longitude: lng, ComponentsSource: string(pv.components),
+			CoordinateSource: pv.coordinate, CreatedAt: now,
 		})
 		if err != nil {
 			return fmt.Errorf("address: insert the address: %w", err)
@@ -228,14 +240,25 @@ func (s *Service) Replace(ctx context.Context, p authn.UserPrincipal, id uuid.UU
 		if err := checkReferences(ctx, q, in, cur.CityID, cur.DistrictID); err != nil {
 			return err
 		}
-		lat, lng, src, coordSrc := stored(in)
+		was := &storedSource{
+			city: cur.CityID, district: cur.DistrictID, thoroughfare: cur.Thoroughfare, building: cur.BuildingNumber,
+			components: Source(cur.ComponentsSource), placeID: cur.ProviderPlaceID, coordinate: cur.CoordinateSource,
+		}
+		if cur.Latitude != nil && cur.Longitude != nil {
+			was.point = &Point{Lat: *cur.Latitude, Lng: *cur.Longitude}
+		}
+		pv, err := s.provenanceOf(p.UserID, in, was, now)
+		if err != nil {
+			return err
+		}
+		lat, lng := coordinates(in.Point)
 		err = q.ReplaceAddress(ctx, addressdb.ReplaceAddressParams{
 			ID: id, UserID: p.UserID, CityID: in.CityID, DistrictID: in.DistrictID,
 			Neighborhood: in.Neighborhood, Thoroughfare: in.Thoroughfare, BuildingNumber: in.BuildingNumber,
 			BuildingName: in.BuildingName, SiteName: in.SiteName, Block: in.Block, Floor: in.Floor,
 			UnitNumber: in.UnitNumber, PostalCode: in.PostalCode, AdditionalDirections: in.AdditionalDirections,
-			ProviderPlaceID: in.ProviderPlaceID, Latitude: lat, Longitude: lng, ComponentsSource: src,
-			CoordinateSource: coordSrc, UpdatedAt: now,
+			ProviderPlaceID: pv.placeID, Latitude: lat, Longitude: lng, ComponentsSource: string(pv.components),
+			CoordinateSource: pv.coordinate, UpdatedAt: now,
 		})
 		if err != nil {
 			return fmt.Errorf("address: replace the address: %w", err)
@@ -441,16 +464,12 @@ func referenceError(err error) error {
 	return fmt.Errorf("address: find the reference row: %w", err)
 }
 
-// stored are an input's coordinate and the sources the row records
-// (ADR-0039 Karar 10): the declared source, or the conservative default;
-// a coordinate's source only with a coordinate.
-func stored(in Input) (lat, lng *float64, components string, coordinate *string) {
-	src := sourceOf(in.Source, in.ProviderPlaceID)
-	if in.Point == nil {
-		return nil, nil, string(src), nil
+func coordinates(p *Point) (lat, lng *float64) {
+	if p == nil {
+		return nil, nil
 	}
-	la, ln, cs := in.Point.Lat, in.Point.Lng, src.coordinateSource()
-	return &la, &ln, string(src), &cs
+	la, ln := p.Lat, p.Lng
+	return &la, &ln
 }
 
 // load is one of the user's addresses; pgx.ErrNoRows when there is none.

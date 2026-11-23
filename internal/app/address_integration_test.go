@@ -36,11 +36,12 @@ var (
 	adiyamanMerkez  = uuid.MustParse("95bc3fc8-1260-4c44-9498-b3ca06367da4")
 )
 
-// addressBody is an AddressInput in İstanbul with a coordinate.
+// addressBody is an AddressInput in İstanbul with a coordinate, entered
+// by hand (no provider's place id: that needs a proof).
 func addressBody(district uuid.UUID, thoroughfare string) string {
 	return `{"cityId":"` + istanbulCity.String() + `","districtId":"` + district.String() +
 		`","thoroughfare":"` + thoroughfare + `","buildingNumber":"12","unitNumber":"7","neighborhood":"Caferağa",` +
-		`"postalCode":"34710","providerPlaceId":"ChIJ-test","coordinates":{"latitude":40.987654321,"longitude":29.025432109}}`
+		`"postalCode":"34710","coordinates":{"latitude":40.987654321,"longitude":29.025432109}}`
 }
 
 // addressAnswer is the part of an Address the tests read.
@@ -300,6 +301,8 @@ type resolvedAnswer struct {
 	PostalCode      *string    `json:"postalCode"`
 	ProviderPlaceID *string    `json:"providerPlaceId"`
 	Source          string     `json:"source"`
+	Proof           string     `json:"proof"`
+	BuildingNumber  *string    `json:"buildingNumber"`
 	Latitude        *float64   `json:"latitude"`
 	Longitude       *float64   `json:"longitude"`
 }
@@ -374,6 +377,16 @@ func TestAddressSearchOverHTTP(t *testing.T) {
 	ended := a.call(t, http.MethodGet, path+"?query=moda", tok, "")
 	wantStatus(t, ended, http.StatusNotFound, string(address.CodeSessionNotFound))
 
+	// The resolved value posts with its district set, and the address
+	// keeps the place id and the sources (MED-008, ADR-0039 Karar 10).
+	rec = a.createAddress(t, tok, resolvedBody(r, ""))
+	wantStatus(t, rec, http.StatusCreated, "")
+	created := decodeBody[addressAnswer](t, rec)
+	if got := a.text(t, "SELECT provider_place_id || ',' || components_source || ',' || coordinate_source FROM active_addresses WHERE id = $1",
+		created.ID); got != "canned-moda-caddesi-12,AUTOCOMPLETE,PROVIDER" {
+		t.Errorf("MED-008: the address keeps %s, want the place id and the provider's sources", got)
+	}
+
 	// MED-010: an expired session is a missing one too.
 	path = a.startSearch(t, tok)
 	a.clock.Advance(address.SessionTTL)
@@ -382,20 +395,6 @@ func TestAddressSearchOverHTTP(t *testing.T) {
 	wantStatus(t, expired, http.StatusNotFound, string(address.CodeSessionNotFound))
 	if expired.Body.String() != missingOwn.Body.String() {
 		t.Errorf("MED-010: an expired session %s, a missing one %s", expired.Body, missingOwn.Body)
-	}
-
-	// The resolved value posts with its district set, and the address
-	// keeps the place id and the sources (MED-008, ADR-0039 Karar 10).
-	body := `{"cityId":"` + r.CityID.String() + `","districtId":"` + r.DistrictID.String() + `","neighborhood":"` + *r.Neighborhood +
-		`","thoroughfare":"` + *r.Thoroughfare + `","postalCode":"` + *r.PostalCode + `","providerPlaceId":"` + *r.ProviderPlaceID +
-		`","source":"` + r.Source + `","coordinates":{"latitude":` + strconv.FormatFloat(*r.Latitude, 'f', -1, 64) +
-		`,"longitude":` + strconv.FormatFloat(*r.Longitude, 'f', -1, 64) + `}}`
-	rec = a.createAddress(t, tok, body)
-	wantStatus(t, rec, http.StatusCreated, "")
-	created := decodeBody[addressAnswer](t, rec)
-	if got := a.text(t, "SELECT provider_place_id || ',' || components_source || ',' || coordinate_source FROM active_addresses WHERE id = $1",
-		created.ID); got != "canned-moda-caddesi-12,AUTOCOMPLETE,PROVIDER" {
-		t.Errorf("MED-008: the address keeps %s, want the place id and the provider's sources", got)
 	}
 }
 
@@ -597,7 +596,8 @@ func TestSuggestionsSpendTheBudget(t *testing.T) {
 
 // A session asks the provider at most SuggestionRequestsPerSession times,
 // each a unit: the bound of what one session costs (ADR-0039 Karar 7).
-// Past it the caller opens a new session; the 429 carries Retry-After.
+// The next request ends the session and is its 404, as any ended
+// session's: the client opens a new one instead of retrying.
 func TestSessionSuggestionBound(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
@@ -606,11 +606,9 @@ func TestSessionSuggestionBound(t *testing.T) {
 	for i := range address.SuggestionRequestsPerSession {
 		wantStatus(t, a.call(t, http.MethodGet, path+"?query=moda"+strconv.Itoa(i), tok, ""), http.StatusOK, "")
 	}
-	rec := a.call(t, http.MethodGet, path+"?query=moda", tok, "")
-	wantStatus(t, rec, http.StatusTooManyRequests, string(address.CodeLookupLimitReached))
-	if rec.Header().Get("Retry-After") == "" {
-		t.Error("the session's bound answered without Retry-After")
-	}
+	wantStatus(t, a.call(t, http.MethodGet, path+"?query=moda", tok, ""), http.StatusNotFound, string(address.CodeSessionNotFound))
+	// The session stays ended: no further request, and no resolve.
+	wantStatus(t, a.call(t, http.MethodGet, path+"?query=moda", tok, ""), http.StatusNotFound, string(address.CodeSessionNotFound))
 	if n := a.text(t, "SELECT count(*)::text FROM address_lookups WHERE unit = 'AUTOCOMPLETE'"); n != strconv.Itoa(address.SuggestionRequestsPerSession) {
 		t.Errorf("AUTOCOMPLETE units = %s, want one per request", n)
 	}
@@ -705,29 +703,133 @@ func TestLookupCapHoldsUnderConcurrency(t *testing.T) {
 	}
 }
 
-// The sources an address records (ADR-0039 Karar 10): a manual entry is
-// MANUAL with the caller's pin; a place id without a declared source is
-// taken for a suggestion's (the conservative default); a reverse geocode
-// keeps the caller's pin as USER_PIN; no coordinate, no coordinate source.
-func TestAddressSources(t *testing.T) {
-	t.Parallel()
-	a := newAuthApp(t, unlimitedGroups())
-	tok := a.addSignedIn(t, "kaynak@example.com")
-	base := `{"cityId":"` + istanbulCity.String() + `","districtId":"` + kadikoyDistrict.String() + `"`
-	pin := `,"coordinates":{"latitude":40.98,"longitude":29.02}}`
-	for _, tt := range []struct{ body, want string }{
-		{base + pin, "MANUAL,USER_PIN"},
-		{base + `,"providerPlaceId":"ChIJ-x"` + pin, "AUTOCOMPLETE,PROVIDER"},
-		{base + `,"providerPlaceId":"ChIJ-x","source":"REVERSE_GEOCODE"` + pin, "REVERSE_GEOCODE,USER_PIN"},
-		{base + `}`, "MANUAL,"},
-	} {
-		rec := a.createAddress(t, tok, tt.body)
-		wantStatus(t, rec, http.StatusCreated, "")
-		id := decodeBody[addressAnswer](t, rec).ID
-		if got := a.text(t, "SELECT components_source || ',' || coalesce(coordinate_source, '') FROM active_addresses WHERE id = $1", id); got != tt.want {
-			t.Errorf("%s: sources %s, want %s", tt.body, got, tt.want)
+// resolvedBody is a resolved value posted as an AddressInput with its
+// proof; floor, when set, is a line of the caller's own.
+func resolvedBody(r resolvedAnswer, floor string) string {
+	var b strings.Builder
+	b.WriteString(`{"cityId":"` + r.CityID.String() + `","districtId":"` + r.DistrictID.String() + `"`)
+	for _, f := range []struct {
+		name string
+		v    *string
+	}{{"neighborhood", r.Neighborhood}, {"thoroughfare", r.Thoroughfare}, {"buildingNumber", r.BuildingNumber},
+		{"postalCode", r.PostalCode}, {"providerPlaceId", r.ProviderPlaceID}} {
+		if f.v != nil {
+			b.WriteString(`,"` + f.name + `":"` + *f.v + `"`)
 		}
 	}
+	if floor != "" {
+		b.WriteString(`,"floor":"` + floor + `"`)
+	}
+	b.WriteString(`,"proof":"` + r.Proof + `"`)
+	if r.Latitude != nil {
+		b.WriteString(`,"coordinates":{"latitude":` + strconv.FormatFloat(*r.Latitude, 'f', -1, 64) +
+			`,"longitude":` + strconv.FormatFloat(*r.Longitude, 'f', -1, 64) + `}`)
+	}
+	b.WriteString(`}`)
+	return b.String()
+}
+
+// resolveModa runs a search for Moda Caddesi and resolves it.
+func (a *authApp) resolveModa(t *testing.T, tok string) resolvedAnswer {
+	t.Helper()
+	path := a.startSearch(t, tok)
+	wantStatus(t, a.call(t, http.MethodGet, path+"?query=moda", tok, ""), http.StatusOK, "")
+	rec := a.call(t, http.MethodPost, strings.TrimSuffix(path, "/suggestions")+"/candidates/c_0/resolve", tok, "")
+	wantStatus(t, rec, http.StatusOK, "")
+	return decodeBody[resolvedAnswer](t, rec)
+}
+
+// sources is an address's recorded provenance: components, place id and
+// coordinate source.
+func (a *authApp) sources(t *testing.T, id uuid.UUID) string {
+	t.Helper()
+	return a.text(t, `SELECT components_source || ',' || coalesce(provider_place_id, '') || ',' || coalesce(coordinate_source, '')
+		FROM active_addresses WHERE id = $1`, id)
+}
+
+// The provider's proof (ADR-0039 Karar 10): the server records a
+// provider's source only with its own signed proof, and keeps it when an
+// honest edit leaves the address's locating fields and its point.
+func TestAddressProofs(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	tok := a.addSignedIn(t, "kanit@example.com")
+	manual := `{"cityId":"` + istanbulCity.String() + `","districtId":"` + kadikoyDistrict.String() + `"`
+	pin := `,"coordinates":{"latitude":40.98,"longitude":29.02}}`
+
+	// An address by hand: MANUAL, the caller's pin; no coordinate, no
+	// coordinate source.
+	rec := a.createAddress(t, tok, manual+pin)
+	wantStatus(t, rec, http.StatusCreated, "")
+	if got := a.sources(t, decodeBody[addressAnswer](t, rec).ID); got != "MANUAL,,USER_PIN" {
+		t.Errorf("by hand: %s", got)
+	}
+	rec = a.createAddress(t, tok, manual+`}`)
+	wantStatus(t, rec, http.StatusCreated, "")
+	if got := a.sources(t, decodeBody[addressAnswer](t, rec).ID); got != "MANUAL,," {
+		t.Errorf("by hand without a pin: %s", got)
+	}
+
+	// (b) A provider's claim without a proof, or with a forged one, is
+	// refused.
+	for _, body := range []string{
+		manual + `,"providerPlaceId":"ChIJ-x"` + pin,
+		manual + `,"proof":"e30.AAAA"` + pin,
+	} {
+		wantStatus(t, a.createAddress(t, tok, body), http.StatusBadRequest, string(address.CodeProofInvalid))
+	}
+
+	// A resolved value with its proof: the provider's components, place
+	// id and point.
+	r := a.resolveModa(t, tok)
+	rec = a.createAddress(t, tok, resolvedBody(r, ""))
+	wantStatus(t, rec, http.StatusCreated, "")
+	created := decodeBody[addressAnswer](t, rec)
+	if got := a.sources(t, created.ID); got != "AUTOCOMPLETE,canned-moda-caddesi-12,PROVIDER" {
+		t.Fatalf("MED-008: resolved: %s", got)
+	}
+	got := decodeBody[struct {
+		Source          string  `json:"source"`
+		ProviderPlaceID *string `json:"providerPlaceId"`
+	}](t, a.call(t, http.MethodGet, "/v1/me/addresses/"+created.ID.String(), tok, ""))
+	if got.Source != "AUTOCOMPLETE" || got.ProviderPlaceID == nil {
+		t.Errorf("the address answers source %q, place id %v", got.Source, got.ProviderPlaceID)
+	}
+
+	// A proof that does not hold the address (another street) is refused.
+	moved := r
+	other := "Bahariye Caddesi"
+	moved.Thoroughfare = &other
+	wantStatus(t, a.createAddress(t, tok, resolvedBody(moved, "")), http.StatusBadRequest, string(address.CodeProofInvalid))
+
+	// (a), (d) An honest edit without the proof (a floor) keeps the source,
+	// the place id and the point's source: what the client sends back is
+	// what GET gave, and a replace cannot drop the provenance to MANUAL.
+	noProof := strings.Replace(resolvedBody(r, "3"), `,"proof":"`+r.Proof+`"`, "", 1)
+	noProof = strings.Replace(noProof, `,"providerPlaceId":"canned-moda-caddesi-12"`, "", 1)
+	wantStatus(t, a.call(t, http.MethodPut, "/v1/me/addresses/"+created.ID.String(), tok, noProof), http.StatusOK, "")
+	if got := a.sources(t, created.ID); got != "AUTOCOMPLETE,canned-moda-caddesi-12,PROVIDER" {
+		t.Errorf("an honest edit changed the provenance: %s", got)
+	}
+	// Moving the pin makes it the caller's; changing the street makes the
+	// address the caller's.
+	movedPin := strings.Replace(noProof, `"latitude":40.9876`, `"latitude":40.9880`, 1)
+	wantStatus(t, a.call(t, http.MethodPut, "/v1/me/addresses/"+created.ID.String(), tok, movedPin), http.StatusOK, "")
+	if got := a.sources(t, created.ID); got != "AUTOCOMPLETE,canned-moda-caddesi-12,USER_PIN" {
+		t.Errorf("a moved pin: %s", got)
+	}
+	street := strings.Replace(movedPin, `"thoroughfare":"Moda Caddesi"`, `"thoroughfare":"Bahariye Caddesi"`, 1)
+	wantStatus(t, a.call(t, http.MethodPut, "/v1/me/addresses/"+created.ID.String(), tok, street), http.StatusOK, "")
+	if got := a.sources(t, created.ID); got != "MANUAL,,USER_PIN" {
+		t.Errorf("another street: %s", got)
+	}
+
+	// (c) Another caller's proof, and an expired one, are refused.
+	r2 := a.resolveModa(t, tok)
+	other2 := a.addSignedIn(t, "kanit2@example.com")
+	wantStatus(t, a.createAddress(t, other2, resolvedBody(r2, "")), http.StatusBadRequest, string(address.CodeProofInvalid))
+	a.clock.Advance(address.SessionTTL)
+	wantStatus(t, a.createAddress(t, tok, resolvedBody(r2, "")), http.StatusBadRequest, string(address.CodeProofInvalid))
 }
 
 // A reverse geocode outside the service area's known bounds goes nowhere:
@@ -834,4 +936,32 @@ func TestProviderFailureOverHTTP(t *testing.T) {
 	}
 	// The session was reopened: the retry resolves.
 	wantStatus(t, a.call(t, http.MethodPost, resolve, tok, ""), http.StatusOK, "")
+}
+
+// A refusal of the service's cap is not a provider failure (ADR-0039 Karar
+// 3): a stale city's lookup the cap refuses waits the refusal's
+// Retry-After, counts no failure, and the stale bounds, within the
+// provider's 30 days, still serve: the reverse precheck refuses a point
+// outside them without spending a unit.
+func TestCapRefusalKeepsStaleBounds(t *testing.T) {
+	t.Parallel()
+	a := newAuthAppWith(t, unlimitedGroups(), config.Maps{Driver: config.MapsDriverFake, LookupsPerDay: 3})
+	tok := a.addSignedIn(t, "bayat@example.com")
+	path := a.startSearch(t, tok)
+	wantStatus(t, a.call(t, http.MethodGet, path+"?query=moda", tok, ""), http.StatusOK, "") // bounds fetched
+	a.clock.Advance(address.ServiceWindow + time.Second)                                     // stale, the window empty
+	tok = a.addSignedIn(t, "bayat2@example.com")
+	for range 3 { // the cap spent on sessions
+		a.startSearch(t, tok)
+	}
+	wantStatus(t, a.call(t, http.MethodPost, "/v1/me/address-lookups/reverse", tok, `{"latitude":39.9208,"longitude":32.8541}`),
+		http.StatusBadRequest, string(address.CodeOutsideServiceArea))
+	if got := a.text(t, "SELECT failures::text || ',' || (retry_at >= $1)::text FROM address_area_bounds",
+		a.clock.Now().Add(23*time.Hour)); got != "0,true" {
+		t.Errorf("after the cap's refusal: failures, retry_at past 23h = %s; want no failure and the refusal's wait", got)
+	}
+	if n := a.text(t, "SELECT count(*)::text FROM address_lookups WHERE unit IN ('BOUNDS', 'REVERSE') AND created_at > $1",
+		a.clock.Now().Add(-time.Hour)); n != "0" {
+		t.Errorf("%s units spent under the cap", n)
+	}
 }

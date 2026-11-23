@@ -300,6 +300,9 @@ components:
         - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): konum ya da seçilen öneri hizmet alanındaki bir
           ile düşmüyor, ya da hiçbir adrese eşleşmiyor.
         - `ADDRESS_LIMIT_REACHED` (409): kullanıcının adres sayısı üst sınırda (ADR-0039).
+        - `ADDRESS_PROOF_INVALID` (400): adresin sağlayıcı kanıtı geçersiz, süresi dolmuş, başka
+          bir çağıranın ya da adresle tutmuyor; ya da kanıtsız bir yer kimliği gönderildi
+          (ADR-0039 Karar 10).
         - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): adres arama bütçesi doldu: çağıranın günlük
           bütçesi, istemci adresinin saatlik bütçesi, hizmetin günlük tavanı ya da arama
           oturumunun öneri sınırı. `Retry-After` taşır; hangisinin dolduğunu söylemez
@@ -418,6 +421,7 @@ components:
         - ADDRESS_OUTSIDE_SERVICE_AREA
         - ADDRESS_LIMIT_REACHED
         - ADDRESS_LOOKUP_LIMIT_REACHED
+        - ADDRESS_PROOF_INVALID
         - EDUCATION_NOT_FOUND
         - EDUCATION_PERIOD_INVALID
         - EDUCATION_LIMIT_REACHED

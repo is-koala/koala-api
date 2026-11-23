@@ -297,6 +297,9 @@ func TestRoleGrants(t *testing.T) {
 			// The address lookup budget's ledger (0049, ADR-0039):
 			// appended, counted and purged, never updated.
 			"address_lookups": {"SELECT", "INSERT", "DELETE"},
+			// The service area's bounds (0049, ADR-0039): a cache the
+			// application looks up, claims, refreshes and purges.
+			"address_area_bounds": dml,
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below

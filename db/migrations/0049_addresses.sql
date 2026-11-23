@@ -29,6 +29,15 @@
 -- of a suggestion is written. No foreign key: a session outlives nothing
 -- and its caller no longer authenticates once the user is gone.
 --
+-- address_area_bounds (M5): the service area cities' bounds, looked up
+-- from the provider and shared by every instance, so their cost does not
+-- grow with the instances or a restart (ADR-0039 Karar 3). It is the
+-- provider's content: a coordinate rectangle, which its terms let us keep
+-- at most 30 consecutive days; a row older than that is not used and the
+-- address purge deletes it. retry_at holds the backoff of a failed lookup
+-- and the claim of a running one, so one instance looks a city up at a
+-- time.
+--
 -- address_lookups (M2): the lookup budget's ledger, one row per unit (a
 -- session, an autocomplete request, a place details call, a reverse
 -- geocode, a service area bounds lookup), with the user, the client
@@ -83,6 +92,13 @@ CREATE TABLE addresses (
         AND (latitude IS NULL OR latitude BETWEEN -90 AND 90)
         AND (longitude IS NULL OR longitude BETWEEN -180 AND 180)),
     CONSTRAINT addresses_components_source_check CHECK (components_source IN ('MANUAL', 'AUTOCOMPLETE', 'REVERSE_GEOCODE')),
+    -- A provider's place id comes with the provider's components and only
+    -- with them (ADR-0039 Karar 10).
+    CONSTRAINT addresses_place_id_source_check CHECK ((components_source = 'MANUAL') = (provider_place_id IS NULL)),
+    -- A reverse geocode's coordinate is the caller's pin, never the
+    -- provider's.
+    CONSTRAINT addresses_reverse_pin_check CHECK (
+        NOT (components_source = 'REVERSE_GEOCODE' AND coordinate_source = 'PROVIDER')),
     -- A coordinate has a source, and only a coordinate has one.
     CONSTRAINT addresses_coordinate_source_check CHECK (
         (coordinate_source IS NULL) = (latitude IS NULL)
@@ -129,9 +145,9 @@ CREATE TABLE address_search_sessions (
     -- The place ids the suggestions offered, in order; a candidate is its
     -- index here.
     candidates text[] NOT NULL DEFAULT '{}',
-    -- Set when a resolve ended the session (the provider ends its session
-    -- with the place details call).
-    resolved_at timestamptz,
+    -- Set when the session ended: by a resolve (the provider ends its
+    -- session with the place details call) or by its request bound.
+    ended_at timestamptz,
     CONSTRAINT address_search_sessions_times_check CHECK (expires_at > created_at),
     CONSTRAINT address_search_sessions_requests_check CHECK (suggestion_requests >= 0),
     CONSTRAINT address_search_sessions_candidates_check CHECK (cardinality(candidates) <= 400),
@@ -141,6 +157,22 @@ CREATE TABLE address_search_sessions (
 -- The caller's session is found by (id, user_id); the purge goes by
 -- expiry.
 CREATE INDEX address_search_sessions_expires_at_idx ON address_search_sessions (expires_at);
+
+CREATE TABLE address_area_bounds (
+    city_id uuid PRIMARY KEY REFERENCES cities (id),
+    south double precision,
+    west double precision,
+    north double precision,
+    east double precision,
+    fetched_at timestamptz,
+    failures integer NOT NULL DEFAULT 0,
+    retry_at timestamptz,
+    CONSTRAINT address_area_bounds_rect_check CHECK (
+        (fetched_at IS NULL) = (south IS NULL) AND (south IS NULL) = (west IS NULL)
+        AND (west IS NULL) = (north IS NULL) AND (north IS NULL) = (east IS NULL)
+        AND (south IS NULL OR (south <= north AND west <= east))),
+    CONSTRAINT address_area_bounds_failures_check CHECK (failures >= 0)
+);
 
 CREATE TABLE address_lookups (
     id uuid PRIMARY KEY,
@@ -165,9 +197,11 @@ CREATE INDEX address_lookups_created_at_idx ON address_lookups (created_at);
 -- Written, read and purged by the application (koala_app).
 GRANT SELECT, INSERT, UPDATE, DELETE ON address_search_sessions TO koala_app;
 GRANT SELECT, INSERT, DELETE ON address_lookups TO koala_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON address_area_bounds TO koala_app;
 
 -- +goose Down
 DROP TABLE address_lookups;
+DROP TABLE address_area_bounds;
 DROP TABLE address_search_sessions;
 DROP VIEW active_users;
 ALTER TABLE users DROP COLUMN address_id;

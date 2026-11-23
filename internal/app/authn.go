@@ -116,7 +116,7 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
-	addressService, addressHTTP, err := wireAddress(ctx, cfg, database, clk, logger, reg)
+	addressService, addressHTTP, err := wireAddress(ctx, cfg, database, clk, logger, reg, pepper)
 	if err != nil {
 		return modules{}, err
 	}

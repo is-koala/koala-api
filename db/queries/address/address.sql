@@ -52,9 +52,11 @@ VALUES (sqlc.arg(id), sqlc.arg(user_id), sqlc.arg(city_id), sqlc.arg(district_id
 
 -- name: LockAddress :one
 -- LockAddress locks one of the user's active addresses; another user's is
--- not found. The references it names come back: a retired one it keeps
--- may stay.
-SELECT id, city_id, district_id
+-- not found. The references it names come back (a retired one it keeps
+-- may stay), and its provenance: a replace keeps it while the locating
+-- fields and the point stay (ADR-0039 Karar 10).
+SELECT id, city_id, district_id, thoroughfare, building_number, provider_place_id, components_source,
+       coordinate_source, latitude, longitude
 FROM active_addresses
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
 FOR UPDATE;
@@ -126,9 +128,9 @@ VALUES (sqlc.arg(id), sqlc.arg(user_id), sqlc.arg(provider_token), sqlc.arg(crea
 
 -- name: LockSession :one
 -- LockSession locks one of the user's search sessions; another user's is
--- not found. Expiry and the end by a resolve are the service's to judge,
--- so that every way a session is gone answers the same (MED-010).
-SELECT id, provider_token, expires_at, suggestion_requests, candidates, resolved_at
+-- not found. Expiry and the end are the service's to judge, so that every
+-- way a session is gone answers the same (MED-010).
+SELECT id, provider_token, expires_at, suggestion_requests, candidates, ended_at
 FROM address_search_sessions
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id)
 FOR UPDATE;
@@ -152,18 +154,18 @@ WHERE id = sqlc.arg(id)::uuid
 RETURNING cardinality(candidates)::integer AS held;
 
 -- name: EndSession :exec
--- EndSession marks the session ended by a resolve; the caller holds its
--- row (LockSession).
+-- EndSession marks the session ended, by a resolve or by its request
+-- bound; the caller holds its row (LockSession).
 UPDATE address_search_sessions
-SET resolved_at = sqlc.arg(resolved_at)::timestamptz
+SET ended_at = sqlc.arg(ended_at)::timestamptz
 WHERE id = sqlc.arg(id)::uuid;
 
 -- name: ReopenSession :exec
 -- ReopenSession takes back the end of a resolve whose provider call
--- failed, so the caller may try again; a later resolve's end stays.
+-- failed, so the caller may try again; a later end stays.
 UPDATE address_search_sessions
-SET resolved_at = NULL
-WHERE id = sqlc.arg(id)::uuid AND resolved_at = sqlc.arg(resolved_at)::timestamptz;
+SET ended_at = NULL
+WHERE id = sqlc.arg(id)::uuid AND ended_at = sqlc.arg(ended_at)::timestamptz;
 
 -- name: PurgeSessions :execrows
 -- PurgeSessions hard-deletes the sessions that expired before the bound
@@ -234,3 +236,57 @@ VALUES (sqlc.arg(id)::uuid, sqlc.narg(user_id)::uuid, sqlc.narg(client_key)::tex
 -- PurgeLookups hard-deletes the ledger rows written before the bound (M2,
 -- a day).
 DELETE FROM address_lookups WHERE created_at < $1;
+
+-- name: AreaBounds :many
+-- AreaBounds are the stored bounds of the service area's cities.
+SELECT city_id, south, west, north, east, fetched_at, failures, retry_at
+FROM address_area_bounds
+WHERE city_id = ANY(sqlc.arg(city_ids)::uuid[]);
+
+-- name: EnsureAreaBounds :exec
+-- EnsureAreaBounds adds an empty row for each city that has none, so a
+-- refresh has a row to lock.
+INSERT INTO address_area_bounds (city_id)
+SELECT unnest(sqlc.arg(city_ids)::uuid[])
+ON CONFLICT (city_id) DO NOTHING;
+
+-- name: LockAreaBounds :one
+-- LockAreaBounds locks one city's row for its refresh: whether it is
+-- still due is read under the lock another instance's claim takes.
+SELECT fetched_at, failures, retry_at
+FROM address_area_bounds
+WHERE city_id = $1
+FOR UPDATE;
+
+-- name: ClaimAreaBounds :exec
+-- ClaimAreaBounds holds the city off the other instances while this one
+-- looks it up (retry_at as a short lease), or until a refused
+-- reservation's wait has passed.
+UPDATE address_area_bounds
+SET retry_at = sqlc.arg(retry_at)::timestamptz
+WHERE city_id = sqlc.arg(city_id)::uuid;
+
+-- name: StoreAreaBounds :exec
+-- StoreAreaBounds keeps a looked-up rectangle and clears the backoff.
+UPDATE address_area_bounds
+SET south = sqlc.arg(south)::double precision,
+    west = sqlc.arg(west)::double precision,
+    north = sqlc.arg(north)::double precision,
+    east = sqlc.arg(east)::double precision,
+    fetched_at = sqlc.arg(fetched_at)::timestamptz,
+    failures = 0,
+    retry_at = NULL
+WHERE city_id = sqlc.arg(city_id)::uuid;
+
+-- name: FailAreaBounds :exec
+-- FailAreaBounds records a failed lookup and its backoff; the rectangle
+-- already kept stays.
+UPDATE address_area_bounds
+SET failures = sqlc.arg(failures)::integer,
+    retry_at = sqlc.arg(retry_at)::timestamptz
+WHERE city_id = sqlc.arg(city_id)::uuid;
+
+-- name: PurgeAreaBounds :execrows
+-- PurgeAreaBounds deletes the rectangles fetched before the bound: the
+-- provider's terms keep coordinates at most 30 days.
+DELETE FROM address_area_bounds WHERE fetched_at < sqlc.arg(before)::timestamptz;

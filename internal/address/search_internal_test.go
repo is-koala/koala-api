@@ -5,7 +5,9 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,50 +148,101 @@ func TestCandidateIndex(t *testing.T) {
 }
 
 // TestOnlyReserveSpends holds what the type of spent cannot: within this
-// package a spent value is built only in reserve, after the budget counted
-// it. A provider call paid with a hand-made unit would pass every budget
-// unseen; this reads the package's sources for such a literal.
+// package a spent value is made only in reserve, after the budget counted
+// it. It reads the package's sources for every way to make one: a
+// literal, a zero value (var x spent[…], a value, not a pointer), new and
+// a conversion. A provider call paid with a hand-made unit would pass
+// every budget unseen. The demo sources prove each form is seen.
 func TestOnlyReserveSpends(t *testing.T) {
 	t.Parallel()
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fset := token.NewFileSet()
 	found := 0
 	for _, name := range files {
 		if strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		f, err := parser.ParseFile(fset, name, nil, 0)
+		src, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, d := range f.Decls {
-			fn, ok := d.(*ast.FuncDecl)
-			if !ok {
-				continue
+		for _, m := range spentMakers(t, name, string(src)) {
+			found++
+			if m.fn != "reserve" || m.form != "literal" {
+				t.Errorf("%s: %s makes a spent unit (%s); only reserve may, by a literal", m.pos, m.fn, m.form)
 			}
-			ast.Inspect(fn, func(n ast.Node) bool {
-				lit, ok := n.(*ast.CompositeLit)
-				if !ok {
-					return true
-				}
-				idx, ok := lit.Type.(*ast.IndexExpr)
-				if !ok {
-					return true
-				}
-				if id, ok := idx.X.(*ast.Ident); ok && id.Name == "spent" {
-					found++
-					if fn.Name.Name != "reserve" {
-						t.Errorf("%s: %s builds a spent unit; only reserve may", fset.Position(lit.Pos()), fn.Name.Name)
-					}
-				}
-				return true
-			})
 		}
 	}
 	if found == 0 {
 		t.Fatal("no spent literal found; the check reads the wrong files")
 	}
+	demo := `package address
+func a() { var x spent[detailsTag]; _ = x }
+func b() { _ = new(spent[detailsTag]) }
+func c() { _ = spent[detailsTag](spent[detailsTag]{}) }
+func d() { var p *spent[detailsTag]; _ = p }
+`
+	var forms []string
+	for _, m := range spentMakers(t, "demo.go", demo) {
+		forms = append(forms, m.fn+" "+m.form)
+	}
+	if want := []string{"a zero value", "b new", "c conversion", "c literal"}; !slices.Equal(forms, want) {
+		t.Errorf("the demo's spent makers = %q, want %q (a pointer is no unit)", forms, want)
+	}
+}
+
+// spentMaker is one place a spent value is made.
+type spentMaker struct {
+	pos, fn, form string
+}
+
+// spentMakers lists the places src makes a spent value, in source order.
+func spentMakers(t *testing.T, name, src string) []spentMaker {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, name, src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	isSpent := func(e ast.Expr) bool {
+		idx, ok := e.(*ast.IndexExpr)
+		if !ok {
+			return false
+		}
+		id, ok := idx.X.(*ast.Ident)
+		return ok && id.Name == "spent"
+	}
+	var out []spentMaker
+	for _, d := range f.Decls {
+		fn, ok := d.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			form := ""
+			switch x := n.(type) {
+			case *ast.CompositeLit:
+				if isSpent(x.Type) {
+					form = "literal"
+				}
+			case *ast.ValueSpec:
+				if x.Type != nil && isSpent(x.Type) {
+					form = "zero value"
+				}
+			case *ast.CallExpr:
+				if id, ok := x.Fun.(*ast.Ident); ok && id.Name == "new" && len(x.Args) == 1 && isSpent(x.Args[0]) {
+					form = "new"
+				} else if isSpent(x.Fun) {
+					form = "conversion"
+				}
+			}
+			if form != "" {
+				out = append(out, spentMaker{pos: fset.Position(n.Pos()).String(), fn: fn.Name.Name, form: form})
+			}
+			return true
+		})
+	}
+	return out
 }

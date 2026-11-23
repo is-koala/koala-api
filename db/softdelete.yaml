@@ -336,6 +336,15 @@ tables:
       back. pii: what a user searched for, by its place ids, is personal
       data. No foreign key: its caller no longer authenticates once the user
       is gone.
+  address_area_bounds:
+    class: M5
+    reason: >-
+      The service area cities' bounds from the map provider (ADR-0039 Karar
+      3): a cache derived from the provider and shared by the instances, one
+      row per city with the rectangle, when it was fetched and the backoff
+      of a failed lookup. The provider's content: kept at most 30 days (its
+      terms for coordinates) and deleted by the address purge after. No
+      personal data.
   address_lookups:
     class: M2
     pii: true

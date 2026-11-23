@@ -2567,7 +2567,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: createMyAddress
-      x-error-codes: [REFERENCE_ITEM_NOT_FOUND, ADDRESS_LIMIT_REACHED]
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND, ADDRESS_LIMIT_REACHED, ADDRESS_PROOF_INVALID]
       tags: [address]
       summary: Çağırana yeni bir adres ekler.
       description: |
@@ -2581,6 +2581,12 @@ paths:
         kullanıcının kendi adresi hizmet alanından bağımsızdır (ADR-0039). Bir kullanıcının en
         çok on adresi olur (`ADDRESS_LIMIT_REACHED`). Birincil adresi olmayan kullanıcının
         eklediği adres birincil olur (profilin `addressId`'si).
+
+        Sağlayıcıdan gelen bir adres, çözmenin ya da ters aramanın verdiği `proof` ile
+        gönderilir; sunucu kaynağı ve yer kimliğini yalnız geçerli bir kanıtla kabul eder.
+        Kanıt geçersizse, süresi dolmuşsa, başka bir çağıranınsa, ili ya da konumlayan
+        bileşenleri (ilçe, cadde, bina no) tutmuyorsa, ya da kanıtsız bir `providerPlaceId`
+        gelirse `ADDRESS_PROOF_INVALID` (ADR-0039 Karar 10).
       x-authz-exempt: |
         Adres çağıranın kendi kaydıdır; henüz var olmayan nesne yetkilendirilemez.
       x-body-limit: 8192
@@ -2664,7 +2670,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     put:
       operationId: replaceMyAddress
-      x-error-codes: [ADDRESS_NOT_FOUND, REFERENCE_ITEM_NOT_FOUND]
+      x-error-codes: [ADDRESS_NOT_FOUND, REFERENCE_ITEM_NOT_FOUND, ADDRESS_PROOF_INVALID]
       tags: [address]
       summary: Çağıranın bir adresini tümden değiştirir.
       description: |
@@ -2672,6 +2678,12 @@ paths:
         adresin tamamını gönderir (stil rehberi §3). Başkasına ait adres var olmayandan
         ayırt edilemez; başkasının adresi için referans denetimi hiç koşmaz. Adresin
         referansları emekliye ayrıldıysa aynı referansı yeniden göndermek kabul edilir.
+
+        Kaynak geriye düşmez: kanıtsız bir değiştirmede konumlayan bileşenler (il, ilçe, cadde,
+        bina no) değişmediyse saklı kaynak ve yer kimliği kalır, koordinat değişmediyse
+        koordinatın kaynağı kalır. Kat, daire gibi alanları düzeltmek kaynağa dokunmaz.
+        Konumlayan bir bileşeni değiştirmek adresi `MANUAL` yapar; pini taşımak koordinatı
+        `USER_PIN` yapar. Kanıt kuralları eklemedekiyle aynıdır (ADR-0039 Karar 10).
       x-authz-exempt: |
         Değiştirme çağıranın kendi adresleriyle sınırlıdır; başkasınınki yok sayılır.
       x-body-limit: 8192
@@ -2801,9 +2813,9 @@ paths:
         Kırpıldıktan sonra üç karakterden kısa sorgu sağlayıcıya gitmez, birim harcamaz ve boş
         liste alır. Sağlayıcıya giden her öneri isteği bütçeden bir birim harcar (sağlayıcı
         bunları tek tek faturalar); bütçe ya da tavan doluysa `ADDRESS_LOOKUP_LIMIT_REACHED`
-        ve `Retry-After`. Bir oturum en çok on iki öneri isteği yapar; sonrası da
-        `ADDRESS_LOOKUP_LIMIT_REACHED` alır ve istemci yeni bir oturum açar (ADR-0039).
-        `404` alan istemci (oturum bitti ya da süresi doldu) yeni bir oturum açar.
+        ve `Retry-After`. Bir oturum en çok on iki öneri isteği yapar; on üçüncü istek oturumu
+        bitirir ve `404 ADDRESS_SEARCH_SESSION_NOT_FOUND` alır (ADR-0039). `404` alan istemci
+        (oturum bitti, sınırına ulaştı ya da süresi doldu) yeni bir oturum açar.
       x-authz-exempt: |
         Arama çağıranın kendi oturumuyla sınırlıdır; başkasınınki yok sayılır.
       x-resource: address_search_sessions
@@ -6051,8 +6063,15 @@ components:
             Sağlayıcının yer kimliği. Kalıcı değil, yenilenebilir bir işaretçi olarak tutulur
             (MED-008).
           examples: [ChIJAbCdEfGhIjKlMnOpQrStUv]
-        source:
-          $ref: "#/components/schemas/AddressSource"
+        proof:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: |
+            Çözmenin ya da ters aramanın verdiği kanıt (`ResolvedAddress.proof`). Adresin
+            sağlayıcıdan geldiğini sunucuya bu kanıtlar; kaynak beyan edilmez (ADR-0039
+            Karar 10).
+          examples: [eyJ2IjoxfQ.c2lnbmF0dXJl]
         coordinates:
           $ref: "#/components/schemas/CoordinatesInput"
 
@@ -6064,7 +6083,7 @@ components:
       required:
         [id, city, district, neighborhood, thoroughfare, buildingNumber, buildingName, siteName,
         block, floor, unitNumber, postalCode, additionalDirections, displayLine, coordinates,
-        createdAt]
+        source, providerPlaceId, createdAt]
       properties:
         id:
           type: string
@@ -6121,6 +6140,12 @@ components:
           type: string
           description: Kendi bileşenlerimizden üretilen görünen adres metni.
           examples: ["Moda Caddesi 12/7, Caferağa, Kadıköy, İstanbul"]
+        source:
+          $ref: "#/components/schemas/AddressSource"
+        providerPlaceId:
+          type: [string, "null"]
+          description: Sağlayıcının yer kimliği; sağlayıcıdan gelmemiş adreste `null`.
+          examples: [ChIJAbCdEfGhIjKlMnOpQrStUv]
         coordinates:
           oneOf:
             - $ref: "#/components/schemas/Coordinates"
@@ -6147,13 +6172,13 @@ components:
       type: object
       description: |
         Bir önerinin ya da harita konumunun bizim bileşenlerimize çözülmüş hâli. `districtId`
-        doluysa istemci bunu `source` ve koordinatla birlikte `POST /v1/me/addresses`'e
+        doluysa istemci bunu `proof` ve koordinatla birlikte `POST /v1/me/addresses`'e
         verebilir; `null` ise kullanıcı önce ilçeyi seçer. Sağlayıcının biçimlendirdiği metin
         ve ham yanıtı dönmez (MED-008). Koordinat çözmede sağlayıcının konumu, ters aramada
         çağıranın kendi pinidir; ikisi de sahibine tam verilir.
       required:
         [cityId, districtId, neighborhood, thoroughfare, buildingNumber, siteName, postalCode,
-        providerPlaceId, latitude, longitude, source]
+        providerPlaceId, latitude, longitude, source, proof]
       properties:
         cityId:
           type: string
@@ -6207,6 +6232,13 @@ components:
           maximum: 180
           description: Boylam; sağlayıcı vermediyse `null`.
           examples: [29.0254]
+        proof:
+          type: string
+          description: |
+            Bu çözmenin kanıtı: kaynak, yer kimliği, il ve konumlayan bileşenler, koordinat ve
+            çağıran üzerinde sunucunun imzası; arama oturumu kadar (15 dakika) geçerlidir.
+            İstemci adresi kaydederken olduğu gibi geri gönderir (ADR-0039 Karar 10).
+          examples: [eyJ2IjoxfQ.c2lnbmF0dXJl]
 
     AddressSource:
       type: string
@@ -6214,9 +6246,9 @@ components:
         Adres bileşenlerinin ve koordinatın kaynağı (ADR-0039 Karar 10). `MANUAL` kullanıcının
         kendi girişidir, koordinatı da kendi pinidir. `AUTOCOMPLETE` bir öneri çözmesinden
         gelir, bileşenleri ve koordinatı sağlayıcınındır. `REVERSE_GEOCODE` ters aramadan gelir,
-        bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. Çözme ve ters arama bunu
-        `ResolvedAddress.source` olarak verir; istemci adresi kaydederken geri gönderir.
-        Gönderilmezse yer kimliği taşıyan adres `AUTOCOMPLETE`, taşımayan `MANUAL` sayılır.
+        bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. İstemci kaynağı beyan
+        etmez: sunucu onu çözmenin ya da ters aramanın kanıtından (`proof`) ve saklı adresten
+        belirler.
       enum: [MANUAL, AUTOCOMPLETE, REVERSE_GEOCODE]
 
     AddressSearchSession:

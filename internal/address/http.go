@@ -224,6 +224,8 @@ func ownView(a Address) apiv1.Address {
 		PostalCode:           a.PostalCode,
 		AdditionalDirections: a.AdditionalDirections,
 		DisplayLine:          a.DisplayLine(),
+		Source:               apiv1.AddressSource(a.ComponentsSource),
+		ProviderPlaceID:      a.ProviderPlaceID,
 		CreatedAt:            jsontime.From(a.CreatedAt),
 	}
 	if a.Point != nil {
@@ -244,7 +246,7 @@ func resolvedView(r Resolved) apiv1.ResolvedAddress {
 	out := apiv1.ResolvedAddress{
 		CityID: r.CityID, DistrictID: r.DistrictID, Neighborhood: r.Neighborhood, Thoroughfare: r.Thoroughfare,
 		BuildingNumber: r.BuildingNumber, SiteName: r.SiteName, PostalCode: r.PostalCode, ProviderPlaceID: r.PlaceID,
-		Source: apiv1.AddressSource(r.Source),
+		Source: apiv1.AddressSource(r.Source), Proof: r.Proof,
 	}
 	if r.Point != nil {
 		lat, lng := r.Point.Lat, r.Point.Lng
@@ -267,10 +269,7 @@ func input(b *apiv1.AddressInput) Input {
 		},
 		ProviderPlaceID: b.ProviderPlaceID,
 	}
-	if b.Source != nil {
-		src := Source(*b.Source)
-		in.Source = &src
-	}
+	in.Proof = b.Proof
 	if b.Coordinates != nil {
 		in.Point = &Point{Lat: b.Coordinates.Latitude, Lng: b.Coordinates.Longitude}
 	}

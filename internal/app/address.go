@@ -25,22 +25,25 @@ import (
 // (local and test without a key: the search answers
 // ADDRESS_PROVIDER_UNAVAILABLE and the start says why;
 // config.ServeMapsErrors refuses that in staging and production).
+//
+// The provider's proofs are keyed by secret, the login pepper (ADR-0039
+// Karar 10).
 func wireAddress(ctx context.Context, cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
-	reg prometheus.Registerer,
+	reg prometheus.Registerer, secret []byte,
 ) (*address.Service, *address.HTTP, error) {
 	switch {
 	case cfg.Maps.Driver == config.MapsDriverFake:
 		logger.WarnContext(ctx, "map provider is the fake driver; address search answers canned places")
-		return wireAddressWith(cfg, database, clk, logger, reg, googlemaps.Canned{})
+		return wireAddressWith(cfg, database, clk, logger, reg, secret, googlemaps.Canned{})
 	case cfg.Maps.APIKey != "":
 		client, err := googlemaps.New(googlemaps.Config{APIKey: cfg.Maps.APIKey.Reveal()})
 		if err != nil {
 			return nil, nil, fmt.Errorf("wire address: %w", err)
 		}
-		return wireAddressWith(cfg, database, clk, logger, reg, client)
+		return wireAddressWith(cfg, database, clk, logger, reg, secret, client)
 	default:
 		logger.WarnContext(ctx, "map provider not configured; address search answers 502")
-		return wireAddressWith(cfg, database, clk, logger, reg, nil)
+		return wireAddressWith(cfg, database, clk, logger, reg, secret, nil)
 	}
 }
 
@@ -48,7 +51,7 @@ func wireAddress(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 // the service area checked against the reference data the binary carries
 // (an unknown city stops the server) and the lookup budget.
 func wireAddressWith(cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
-	reg prometheus.Registerer, p address.Provider,
+	reg prometheus.Registerer, secret []byte, p address.Provider,
 ) (*address.Service, *address.HTTP, error) {
 	data, err := referencedata.Load()
 	if err != nil {
@@ -74,7 +77,7 @@ func wireAddressWith(cfg config.Config, database *db.DB, clk clock.Clock, logger
 		PerUser: cfg.Maps.LookupsPerUserDay, PerClient: cfg.Maps.LookupsPerIPHour, PerDay: cfg.Maps.LookupsPerDay,
 	}
 	svc, err := address.NewService(database, p, softdelete.New(catalog), clk,
-		address.Config{Places: places, Area: area, Budget: budget}, logger, metrics)
+		address.Config{Places: places, Area: area, Budget: budget, ProofSecret: secret}, logger, metrics)
 	if err != nil {
 		return nil, nil, fmt.Errorf("wire address: %w", err)
 	}
@@ -85,9 +88,9 @@ func wireAddressWith(cfg config.Config, database *db.DB, clk clock.Clock, logger
 // 15 minutes and the ledger a day, so hourly keeps both small.
 const addressPurgeInterval = time.Hour
 
-// addressPurgeArgs is the periodic purge of the address module's M2
-// tables: expired search sessions and the lookup ledger past its longest
-// window (ADR-0039).
+// addressPurgeArgs is the periodic purge of the address module's M2 and
+// M5 tables: expired search sessions, the lookup ledger past its longest
+// window and the area bounds past the provider's 30 days (ADR-0039).
 type addressPurgeArgs struct{}
 
 // Kind is the job kind in River's tables.
@@ -103,12 +106,13 @@ type addressPurgeWorker struct {
 
 // Work purges both tables and logs how many rows it removed.
 func (w *addressPurgeWorker) Work(ctx context.Context, _ *river.Job[addressPurgeArgs]) error {
-	sessions, lookups, err := w.service.Purge(ctx)
+	sessions, lookups, bounds, err := w.service.Purge(ctx)
 	if err != nil {
 		return fmt.Errorf("address purge: %w", err)
 	}
 	w.logger.InfoContext(ctx, "address purge",
-		slog.Int64("address_search_sessions", sessions), slog.Int64("address_lookups", lookups))
+		slog.Int64("address_search_sessions", sessions), slog.Int64("address_lookups", lookups),
+		slog.Int64("address_area_bounds", bounds))
 	return nil
 }
 

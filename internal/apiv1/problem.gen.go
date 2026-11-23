@@ -9,6 +9,7 @@ const (
 	ErrorCodeADDRESSLOOKUPLIMITREACHED           ErrorCode = "ADDRESS_LOOKUP_LIMIT_REACHED"
 	ErrorCodeADDRESSNOTFOUND                     ErrorCode = "ADDRESS_NOT_FOUND"
 	ErrorCodeADDRESSOUTSIDESERVICEAREA           ErrorCode = "ADDRESS_OUTSIDE_SERVICE_AREA"
+	ErrorCodeADDRESSPROOFINVALID                 ErrorCode = "ADDRESS_PROOF_INVALID"
 	ErrorCodeADDRESSPROVIDERUNAVAILABLE          ErrorCode = "ADDRESS_PROVIDER_UNAVAILABLE"
 	ErrorCodeADDRESSSEARCHSESSIONNOTFOUND        ErrorCode = "ADDRESS_SEARCH_SESSION_NOT_FOUND"
 	ErrorCodeAPPVERSIONUNSUPPORTED               ErrorCode = "APP_VERSION_UNSUPPORTED"
@@ -127,6 +128,8 @@ func (e ErrorCode) Valid() bool {
 	case ErrorCodeADDRESSNOTFOUND:
 		return true
 	case ErrorCodeADDRESSOUTSIDESERVICEAREA:
+		return true
+	case ErrorCodeADDRESSPROOFINVALID:
 		return true
 	case ErrorCodeADDRESSPROVIDERUNAVAILABLE:
 		return true
@@ -560,6 +563,9 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): konum ya da seçilen öneri hizmet alanındaki bir
 //     ile düşmüyor, ya da hiçbir adrese eşleşmiyor.
 //   - `ADDRESS_LIMIT_REACHED` (409): kullanıcının adres sayısı üst sınırda (ADR-0039).
+//   - `ADDRESS_PROOF_INVALID` (400): adresin sağlayıcı kanıtı geçersiz, süresi dolmuş, başka
+//     bir çağıranın ya da adresle tutmuyor; ya da kanıtsız bir yer kimliği gönderildi
+//     (ADR-0039 Karar 10).
 //   - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): adres arama bütçesi doldu: çağıranın günlük
 //     bütçesi, istemci adresinin saatlik bütçesi, hizmetin günlük tavanı ya da arama
 //     oturumunun öneri sınırı. `Retry-After` taşır; hangisinin dolduğunu söylemez
@@ -775,6 +781,9 @@ type Problem struct {
 	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): konum ya da seçilen öneri hizmet alanındaki bir
 	//   ile düşmüyor, ya da hiçbir adrese eşleşmiyor.
 	// - `ADDRESS_LIMIT_REACHED` (409): kullanıcının adres sayısı üst sınırda (ADR-0039).
+	// - `ADDRESS_PROOF_INVALID` (400): adresin sağlayıcı kanıtı geçersiz, süresi dolmuş, başka
+	//   bir çağıranın ya da adresle tutmuyor; ya da kanıtsız bir yer kimliği gönderildi
+	//   (ADR-0039 Karar 10).
 	// - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): adres arama bütçesi doldu: çağıranın günlük
 	//   bütçesi, istemci adresinin saatlik bütçesi, hizmetin günlük tavanı ya da arama
 	//   oturumunun öneri sınırı. `Retry-After` taşır; hangisinin dolduğunu söylemez
@@ -1021,6 +1030,9 @@ type ProblemField struct {
 	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): konum ya da seçilen öneri hizmet alanındaki bir
 	//   ile düşmüyor, ya da hiçbir adrese eşleşmiyor.
 	// - `ADDRESS_LIMIT_REACHED` (409): kullanıcının adres sayısı üst sınırda (ADR-0039).
+	// - `ADDRESS_PROOF_INVALID` (400): adresin sağlayıcı kanıtı geçersiz, süresi dolmuş, başka
+	//   bir çağıranın ya da adresle tutmuyor; ya da kanıtsız bir yer kimliği gönderildi
+	//   (ADR-0039 Karar 10).
 	// - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): adres arama bütçesi doldu: çağıranın günlük
 	//   bütçesi, istemci adresinin saatlik bütçesi, hizmetin günlük tavanı ya da arama
 	//   oturumunun öneri sınırı. `Retry-After` taşır; hangisinin dolduğunu söylemez

@@ -339,4 +339,17 @@ func TestRegionBoundsNeedsTheProvince(t *testing.T) {
 	if _, err := newClient(t, f, testKey).RegionBounds(t.Context(), "İstanbul", "TR"); !errors.Is(err, googlemaps.ErrNoResult) {
 		t.Errorf("a town's bounds: %v, want ErrNoResult", err)
 	}
+	// A town first and the province second: the province's bounds.
+	box := func(s, w, n, e float64) map[string]any {
+		b := map[string]any{"northeast": map[string]any{"lat": n, "lng": e}, "southwest": map[string]any{"lat": s, "lng": w}}
+		return map[string]any{"bounds": b}
+	}
+	f.Enqueue(http.MethodGet, f.GeocodePath(), fakes.JSON(http.StatusOK, map[string]any{"status": "OK", "results": []any{
+		map[string]any{"place_id": "town", "types": []string{"locality", "political"}, "geometry": box(40, 28, 41, 29)},
+		map[string]any{"place_id": "il", "types": []string{"administrative_area_level_1", "political"}, "geometry": box(40.8, 27.9, 41.6, 29.9)},
+	}}))
+	got, err := newClient(t, f, testKey).RegionBounds(t.Context(), "İstanbul", "TR")
+	if err != nil || got != (googlemaps.Rect{South: 40.8, West: 27.9, North: 41.6, East: 29.9}) {
+		t.Errorf("the second result's bounds = %+v, %v; want the province's", got, err)
+	}
 }

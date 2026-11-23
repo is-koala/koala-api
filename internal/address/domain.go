@@ -55,13 +55,17 @@ const (
 	// four: the client's remedy is the same (wait, or enter the address by
 	// hand) and the answer does not tell which bound a caller hit.
 	CodeLookupLimitReached apperr.Code = "ADDRESS_LOOKUP_LIMIT_REACHED"
+	// CodeProofInvalid: the provider's proof of an address is not valid,
+	// expired, another caller's or does not hold the address; or a place
+	// id came without one.
+	CodeProofInvalid apperr.Code = "ADDRESS_PROOF_INVALID"
 )
 
 // Codes lists every code this package defines, for the contract test.
 func Codes() []apperr.Code {
 	return []apperr.Code{
 		CodeAddressNotFound, CodeSessionNotFound, CodeProviderUnavailable, CodeReferenceNotFound,
-		CodeOutsideServiceArea, CodeAddressLimitReached, CodeLookupLimitReached,
+		CodeOutsideServiceArea, CodeAddressLimitReached, CodeLookupLimitReached, CodeProofInvalid,
 	}
 }
 
@@ -229,29 +233,6 @@ const (
 	coordinateProvider = "PROVIDER"
 )
 
-// coordinateSource is where a coordinate of the source came from: the
-// provider's only for a resolved suggestion. A pin the caller moved after
-// a resolve stays PROVIDER: the column is kept for a cleanup, and it errs
-// on the side that removes too much rather than keeps too much.
-func (s Source) coordinateSource() string {
-	if s == SourceAutocomplete {
-		return coordinateProvider
-	}
-	return coordinateUserPin
-}
-
-// sourceOf is the source an input declares, or the conservative default:
-// an address with a provider's place id came from a suggestion.
-func sourceOf(declared *Source, placeID *string) Source {
-	if declared != nil {
-		return *declared
-	}
-	if placeID != nil {
-		return SourceAutocomplete
-	}
-	return SourceManual
-}
-
 // Address is one of the caller's addresses as stored.
 type Address struct {
 	ID       uuid.UUID
@@ -321,10 +302,10 @@ type Input struct {
 	DistrictID uuid.UUID
 	Lines
 	ProviderPlaceID *string
-	// Source is the source the caller declares, nil when not sent
-	// (sourceOf gives the default).
-	Source *Source
-	Point  *Point
+	// Proof is the provider's proof the caller sends back with a resolved
+	// value; nil for an address entered by hand (ADR-0039 Karar 10).
+	Proof *string
+	Point *Point
 }
 
 // normalized is in with every free line trimmed and an empty one cleared.
@@ -374,6 +355,8 @@ type Resolved struct {
 	// for a reverse geocode.
 	Point  *Point
 	Source Source
+	// Proof is the signed proof of this value (proof.go).
+	Proof string
 }
 
 // The contract's bounds of the free lines a resolve fills (AddressInput):

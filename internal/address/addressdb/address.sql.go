@@ -36,6 +36,61 @@ func (q *Queries) AppendCandidates(ctx context.Context, arg AppendCandidatesPara
 	return held, err
 }
 
+const areaBounds = `-- name: AreaBounds :many
+SELECT city_id, south, west, north, east, fetched_at, failures, retry_at
+FROM address_area_bounds
+WHERE city_id = ANY($1::uuid[])
+`
+
+// AreaBounds are the stored bounds of the service area's cities.
+func (q *Queries) AreaBounds(ctx context.Context, cityIds []uuid.UUID) ([]AddressAreaBound, error) {
+	rows, err := q.db.Query(ctx, areaBounds, cityIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AddressAreaBound
+	for rows.Next() {
+		var i AddressAreaBound
+		if err := rows.Scan(
+			&i.CityID,
+			&i.South,
+			&i.West,
+			&i.North,
+			&i.East,
+			&i.FetchedAt,
+			&i.Failures,
+			&i.RetryAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const claimAreaBounds = `-- name: ClaimAreaBounds :exec
+UPDATE address_area_bounds
+SET retry_at = $1::timestamptz
+WHERE city_id = $2::uuid
+`
+
+type ClaimAreaBoundsParams struct {
+	RetryAt time.Time
+	CityID  uuid.UUID
+}
+
+// ClaimAreaBounds holds the city off the other instances while this one
+// looks it up (retry_at as a short lease), or until a refused
+// reservation's wait has passed.
+func (q *Queries) ClaimAreaBounds(ctx context.Context, arg ClaimAreaBoundsParams) error {
+	_, err := q.db.Exec(ctx, claimAreaBounds, arg.RetryAt, arg.CityID)
+	return err
+}
+
 const countAddresses = `-- name: CountAddresses :one
 SELECT count(*)
 FROM active_addresses
@@ -117,19 +172,52 @@ func (q *Queries) CountUserLookups(ctx context.Context, arg CountUserLookupsPara
 
 const endSession = `-- name: EndSession :exec
 UPDATE address_search_sessions
-SET resolved_at = $1::timestamptz
+SET ended_at = $1::timestamptz
 WHERE id = $2::uuid
 `
 
 type EndSessionParams struct {
-	ResolvedAt time.Time
-	ID         uuid.UUID
+	EndedAt time.Time
+	ID      uuid.UUID
 }
 
-// EndSession marks the session ended by a resolve; the caller holds its
-// row (LockSession).
+// EndSession marks the session ended, by a resolve or by its request
+// bound; the caller holds its row (LockSession).
 func (q *Queries) EndSession(ctx context.Context, arg EndSessionParams) error {
-	_, err := q.db.Exec(ctx, endSession, arg.ResolvedAt, arg.ID)
+	_, err := q.db.Exec(ctx, endSession, arg.EndedAt, arg.ID)
+	return err
+}
+
+const ensureAreaBounds = `-- name: EnsureAreaBounds :exec
+INSERT INTO address_area_bounds (city_id)
+SELECT unnest($1::uuid[])
+ON CONFLICT (city_id) DO NOTHING
+`
+
+// EnsureAreaBounds adds an empty row for each city that has none, so a
+// refresh has a row to lock.
+func (q *Queries) EnsureAreaBounds(ctx context.Context, cityIds []uuid.UUID) error {
+	_, err := q.db.Exec(ctx, ensureAreaBounds, cityIds)
+	return err
+}
+
+const failAreaBounds = `-- name: FailAreaBounds :exec
+UPDATE address_area_bounds
+SET failures = $1::integer,
+    retry_at = $2::timestamptz
+WHERE city_id = $3::uuid
+`
+
+type FailAreaBoundsParams struct {
+	Failures int32
+	RetryAt  time.Time
+	CityID   uuid.UUID
+}
+
+// FailAreaBounds records a failed lookup and its backoff; the rectangle
+// already kept stays.
+func (q *Queries) FailAreaBounds(ctx context.Context, arg FailAreaBoundsParams) error {
+	_, err := q.db.Exec(ctx, failAreaBounds, arg.Failures, arg.RetryAt, arg.CityID)
 	return err
 }
 
@@ -442,7 +530,8 @@ func (q *Queries) ListAddresses(ctx context.Context, userID uuid.UUID) ([]ListAd
 }
 
 const lockAddress = `-- name: LockAddress :one
-SELECT id, city_id, district_id
+SELECT id, city_id, district_id, thoroughfare, building_number, provider_place_id, components_source,
+       coordinate_source, latitude, longitude
 FROM active_addresses
 WHERE id = $1 AND user_id = $2
 FOR UPDATE
@@ -454,18 +543,59 @@ type LockAddressParams struct {
 }
 
 type LockAddressRow struct {
-	ID         uuid.UUID
-	CityID     uuid.UUID
-	DistrictID uuid.UUID
+	ID               uuid.UUID
+	CityID           uuid.UUID
+	DistrictID       uuid.UUID
+	Thoroughfare     *string
+	BuildingNumber   *string
+	ProviderPlaceID  *string
+	ComponentsSource string
+	CoordinateSource *string
+	Latitude         *float64
+	Longitude        *float64
 }
 
 // LockAddress locks one of the user's active addresses; another user's is
-// not found. The references it names come back: a retired one it keeps
-// may stay.
+// not found. The references it names come back (a retired one it keeps
+// may stay), and its provenance: a replace keeps it while the locating
+// fields and the point stay (ADR-0039 Karar 10).
 func (q *Queries) LockAddress(ctx context.Context, arg LockAddressParams) (LockAddressRow, error) {
 	row := q.db.QueryRow(ctx, lockAddress, arg.ID, arg.UserID)
 	var i LockAddressRow
-	err := row.Scan(&i.ID, &i.CityID, &i.DistrictID)
+	err := row.Scan(
+		&i.ID,
+		&i.CityID,
+		&i.DistrictID,
+		&i.Thoroughfare,
+		&i.BuildingNumber,
+		&i.ProviderPlaceID,
+		&i.ComponentsSource,
+		&i.CoordinateSource,
+		&i.Latitude,
+		&i.Longitude,
+	)
+	return i, err
+}
+
+const lockAreaBounds = `-- name: LockAreaBounds :one
+SELECT fetched_at, failures, retry_at
+FROM address_area_bounds
+WHERE city_id = $1
+FOR UPDATE
+`
+
+type LockAreaBoundsRow struct {
+	FetchedAt *time.Time
+	Failures  int32
+	RetryAt   *time.Time
+}
+
+// LockAreaBounds locks one city's row for its refresh: whether it is
+// still due is read under the lock another instance's claim takes.
+func (q *Queries) LockAreaBounds(ctx context.Context, cityID uuid.UUID) (LockAreaBoundsRow, error) {
+	row := q.db.QueryRow(ctx, lockAreaBounds, cityID)
+	var i LockAreaBoundsRow
+	err := row.Scan(&i.FetchedAt, &i.Failures, &i.RetryAt)
 	return i, err
 }
 
@@ -510,7 +640,7 @@ func (q *Queries) LockOwner(ctx context.Context, id uuid.UUID) (LockOwnerRow, er
 }
 
 const lockSession = `-- name: LockSession :one
-SELECT id, provider_token, expires_at, suggestion_requests, candidates, resolved_at
+SELECT id, provider_token, expires_at, suggestion_requests, candidates, ended_at
 FROM address_search_sessions
 WHERE id = $1 AND user_id = $2
 FOR UPDATE
@@ -527,12 +657,12 @@ type LockSessionRow struct {
 	ExpiresAt          time.Time
 	SuggestionRequests int32
 	Candidates         []string
-	ResolvedAt         *time.Time
+	EndedAt            *time.Time
 }
 
 // LockSession locks one of the user's search sessions; another user's is
-// not found. Expiry and the end by a resolve are the service's to judge,
-// so that every way a session is gone answers the same (MED-010).
+// not found. Expiry and the end are the service's to judge, so that every
+// way a session is gone answers the same (MED-010).
 func (q *Queries) LockSession(ctx context.Context, arg LockSessionParams) (LockSessionRow, error) {
 	row := q.db.QueryRow(ctx, lockSession, arg.ID, arg.UserID)
 	var i LockSessionRow
@@ -542,7 +672,7 @@ func (q *Queries) LockSession(ctx context.Context, arg LockSessionParams) (LockS
 		&i.ExpiresAt,
 		&i.SuggestionRequests,
 		&i.Candidates,
-		&i.ResolvedAt,
+		&i.EndedAt,
 	)
 	return i, err
 }
@@ -630,6 +760,20 @@ func (q *Queries) OwnAddress(ctx context.Context, arg OwnAddressParams) (uuid.UU
 	return id, err
 }
 
+const purgeAreaBounds = `-- name: PurgeAreaBounds :execrows
+DELETE FROM address_area_bounds WHERE fetched_at < $1::timestamptz
+`
+
+// PurgeAreaBounds deletes the rectangles fetched before the bound: the
+// provider's terms keep coordinates at most 30 days.
+func (q *Queries) PurgeAreaBounds(ctx context.Context, before time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, purgeAreaBounds, before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const purgeLookups = `-- name: PurgeLookups :execrows
 DELETE FROM address_lookups WHERE created_at < $1
 `
@@ -660,19 +804,19 @@ func (q *Queries) PurgeSessions(ctx context.Context, expiresAt time.Time) (int64
 
 const reopenSession = `-- name: ReopenSession :exec
 UPDATE address_search_sessions
-SET resolved_at = NULL
-WHERE id = $1::uuid AND resolved_at = $2::timestamptz
+SET ended_at = NULL
+WHERE id = $1::uuid AND ended_at = $2::timestamptz
 `
 
 type ReopenSessionParams struct {
-	ID         uuid.UUID
-	ResolvedAt time.Time
+	ID      uuid.UUID
+	EndedAt time.Time
 }
 
 // ReopenSession takes back the end of a resolve whose provider call
-// failed, so the caller may try again; a later resolve's end stays.
+// failed, so the caller may try again; a later end stays.
 func (q *Queries) ReopenSession(ctx context.Context, arg ReopenSessionParams) error {
-	_, err := q.db.Exec(ctx, reopenSession, arg.ID, arg.ResolvedAt)
+	_, err := q.db.Exec(ctx, reopenSession, arg.ID, arg.EndedAt)
 	return err
 }
 
@@ -766,5 +910,39 @@ type SetPrimaryAddressParams struct {
 // address, the address's row (OwnAddress).
 func (q *Queries) SetPrimaryAddress(ctx context.Context, arg SetPrimaryAddressParams) error {
 	_, err := q.db.Exec(ctx, setPrimaryAddress, arg.AddressID, arg.ID)
+	return err
+}
+
+const storeAreaBounds = `-- name: StoreAreaBounds :exec
+UPDATE address_area_bounds
+SET south = $1::double precision,
+    west = $2::double precision,
+    north = $3::double precision,
+    east = $4::double precision,
+    fetched_at = $5::timestamptz,
+    failures = 0,
+    retry_at = NULL
+WHERE city_id = $6::uuid
+`
+
+type StoreAreaBoundsParams struct {
+	South     float64
+	West      float64
+	North     float64
+	East      float64
+	FetchedAt time.Time
+	CityID    uuid.UUID
+}
+
+// StoreAreaBounds keeps a looked-up rectangle and clears the backoff.
+func (q *Queries) StoreAreaBounds(ctx context.Context, arg StoreAreaBoundsParams) error {
+	_, err := q.db.Exec(ctx, storeAreaBounds,
+		arg.South,
+		arg.West,
+		arg.North,
+		arg.East,
+		arg.FetchedAt,
+		arg.CityID,
+	)
 	return err
 }
