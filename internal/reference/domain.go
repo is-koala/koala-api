@@ -47,14 +47,21 @@ const (
 // given degree can name (EducationDegree, ADR-0038): an associate degree
 // names an associate degree program; a bachelor's, a master's and a
 // doctorate name a bachelor's program, since the data has no graduate
-// programs and a graduate record names its field by one. It is the one
-// place the rule is written: the lists filter by it and the education
-// records check their department by it (internal/users).
+// programs and a graduate record names its field by one (product
+// decision, 23.11.2026). It is the one place the rule is written: the
+// lists filter by it and the education records check their department by
+// it (internal/users). A degree it does not know names no program (""):
+// a value added to the contract matches nothing until it is decided here,
+// and TestProgramDegree reads the contract's enum to make that red.
 func ProgramDegree(educationDegree string) string {
-	if educationDegree == ProgramAssociate {
+	switch educationDegree {
+	case "ASSOCIATE":
 		return ProgramAssociate
+	case "BACHELOR", "MASTER", "DOCTORATE":
+		return ProgramBachelor
+	default:
+		return ""
 	}
-	return ProgramBachelor
 }
 
 // Item is one row of a reference list.

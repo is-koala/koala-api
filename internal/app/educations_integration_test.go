@@ -402,8 +402,8 @@ func TestEducationDegreeNamesItsProgram(t *testing.T) {
 	tok := a.addSignedIn(t, "myo@example.com")
 	var (
 		thk       = uuid.MustParse("20b200c7-d3d3-4e77-ba67-2b01c96b92a8")
-		myo       = uuid.MustParse("ac516b1c-e4df-5e38-9798-b8517d93a586") // Ankara Havacılık MYO
-		associate = uuid.MustParse("21b4021b-3ed3-5339-897d-f1a4e16d08fa") // Uçak Teknolojisi
+		myo       = uuid.MustParse("01a207cf-0348-7890-bf14-c44956448609") // Ankara Havacılık MYO
+		associate = uuid.MustParse("01a207cf-03cc-7a3c-9df7-92d5f5825c58") // Uçak Teknolojisi
 	)
 	engineering := named(t, a.list(t, "/v1/reference/universities/"+thk.String()+"/faculties"), "Mühendislik Fakültesi")
 	bachelor := a.list(t, "/v1/reference/faculties/"+engineering.ID.String()+"/departments")[0]

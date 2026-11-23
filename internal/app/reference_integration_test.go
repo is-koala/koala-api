@@ -577,9 +577,9 @@ func TestReferenceListsFilterByDegree(t *testing.T) {
 	owner := a.dbt.Open(t, db.RoleOwner)
 	const (
 		thk     = "/v1/reference/universities/20b200c7-d3d3-4e77-ba67-2b01c96b92a8/faculties"
-		myo     = "ac516b1c-e4df-5e38-9798-b8517d93a586" // Ankara Havacılık MYO
+		myo     = "01a207cf-0348-7890-bf14-c44956448609" // Ankara Havacılık MYO
 		aof     = "/v1/reference/faculties/75739eb2-88b3-403d-a2d4-5ea29f72db64/departments"
-		konakID = "8e80d3bd-d3f9-5731-8968-ee80cd0efee1" // İZMİR KONAK MESLEK YÜKSEKOKULU
+		konakID = "01a207cf-033b-777f-9064-34e3659cbf35" // İZMİR KONAK MESLEK YÜKSEKOKULU
 	)
 	ids := func(items []referenceItem) []uuid.UUID {
 		out := make([]uuid.UUID, 0, len(items))

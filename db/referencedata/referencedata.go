@@ -75,8 +75,10 @@ const (
 // SourceCode is one source code of a department: an ÖSYM program code
 // (YÖK Atlas's "program kodu", nine digits). A department merged from a
 // program's quota and fee variants has the code of each (ADR-0038). The
-// code is what matches a department to next year's list; a code that
-// moves to another department is refused like a moved row.
+// files list a code once. In the table a row is a (code, department) pair
+// that never changes: a code given to another program (decided in the id
+// ledger, tools/id_decisions.csv) retires its old pair and adds a new one.
+// The department's id comes from the ledger, never from the code.
 type SourceCode struct {
 	Code       string
 	Department uuid.UUID
@@ -290,7 +292,8 @@ func parseSourceCodes(data []byte) ([]SourceCode, error) {
 // version is positive, ids are set and unique within a table, every row's
 // parent is a row of the parent table, names are 1 to 200 characters with
 // no control or invisible format character (Cf: U+200B, U+202E, U+FEFF
-// ...) and no surrounding space, and country codes are two capital letters
+// ...), no line or paragraph separator (U+2028, U+2029) and no private use
+// character (Co), and no surrounding space, and country codes are two capital letters
 // and unique. A row whose parent the files drop has to be dropped too:
 // retiring a university retires its faculties. A department's degree is
 // ASSOCIATE or BACHELOR; a source code is nine digits, listed once, and
@@ -372,6 +375,10 @@ func checkName(name string) error {
 		return errors.New("control character")
 	case strings.ContainsFunc(name, func(r rune) bool { return unicode.Is(unicode.Cf, r) }):
 		return errors.New("invisible format character (Cf)")
+	case strings.ContainsFunc(name, func(r rune) bool { return unicode.In(r, unicode.Zl, unicode.Zp) }):
+		return errors.New("line or paragraph separator (Zl, Zp)")
+	case strings.ContainsFunc(name, func(r rune) bool { return unicode.Is(unicode.Co, r) }):
+		return errors.New("private use character (Co)")
 	}
 	return nil
 }

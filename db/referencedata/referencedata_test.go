@@ -1,11 +1,17 @@
 package referencedata
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -65,55 +71,189 @@ func TestDatasetCounts(t *testing.T) {
 	}
 }
 
-// namespace is the UUIDv5 namespace of the ids tools/from_yok.py derives:
-// uuid5(NAMESPACE_URL, the reference data's URL) (ADR-0038).
-func namespace() uuid.UUID {
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("https://github.com/is-koala/koala-api/tree/main/db/referencedata"))
+// ledgerRow is a row of tools/id_ledger.csv, the append-only id ledger of
+// tools/from_yok.py (ADR-0038 Karar 6).
+type ledgerRow struct {
+	key     string
+	id      uuid.UUID
+	parent  string
+	name    string
+	version int
+	origin  string
 }
 
-// TestAssociatePrograms binds the associate degree programs to their
-// source (ADR-0038): every one has an ÖSYM code and its id is derived
-// from one of them, so the same YÖK list gives the same ids again; every
-// code names an associate degree program (the bachelor's programs of the
-// Java snapshot have none yet); and the names carry no quota suffix (the
-// quota variants were merged, their codes kept).
-func TestAssociatePrograms(t *testing.T) {
+var ledgerKey = regexp.MustCompile(`^(yok:university:\d+|yok:unit:\d+|osym:\d{9})$`)
+
+// readLedger reads the ledger and its bytes; the test runs in this
+// package's directory.
+func readLedger(t *testing.T) ([]ledgerRow, []byte) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("tools", "id_ledger.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := csv.NewReader(bytes.NewReader(raw)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) == 0 || !slices.Equal(records[0], []string{"key", "id", "parent", "name", "version", "origin"}) {
+		t.Fatalf("id_ledger.csv: header %v", records[:min(1, len(records))])
+	}
+	rows := make([]ledgerRow, 0, len(records)-1)
+	for _, rec := range records[1:] {
+		id, err := uuid.Parse(rec[1])
+		if err != nil {
+			t.Fatalf("id_ledger.csv %v: %v", rec, err)
+		}
+		v, err := strconv.Atoi(rec[4])
+		if err != nil {
+			t.Fatalf("id_ledger.csv %v: %v", rec, err)
+		}
+		rows = append(rows, ledgerRow{key: rec[0], id: id, parent: rec[2], name: rec[3], version: v, origin: rec[5]})
+	}
+	return rows, raw
+}
+
+// publishedLedger maps every data version to the ledger it published: the
+// number of rows and the checksum of the file's header and those rows. A
+// published row is never changed or removed: a later version appends its
+// rows after them and adds its line here; the old lines stay.
+func publishedLedger() map[int]struct {
+	rows int
+	sum  string
+} {
+	return map[int]struct {
+		rows int
+		sum  string
+	}{
+		2: {10438, "82b6edfffb93766e6c09b2987def6cd14141131f9c6dd392ab2ab10bec85fbcf"},
+	}
+}
+
+// TestIDLedgerIsAppendOnly binds the ledger to its published versions: the
+// file starts with every published version's rows, byte for byte, and the
+// current version has published every row it holds. A row rewritten or
+// removed, or a row added without a new VERSION, is red here.
+func TestIDLedgerIsAppendOnly(t *testing.T) {
 	t.Parallel()
 
 	d := load(t)
-	if got := namespace(); got != uuid.MustParse("c1f995d4-bea2-5c30-870f-ea391ab09716") {
-		t.Fatalf("namespace = %s, the one tools/from_yok.py writes out", got)
+	rows, raw := readLedger(t)
+	lines := bytes.SplitAfter(raw, []byte("\n"))
+	for v, p := range publishedLedger() {
+		if p.rows > len(rows) {
+			t.Errorf("version %d published %d ledger rows; the file has %d", v, p.rows, len(rows))
+			continue
+		}
+		sum := sha256.Sum256(bytes.Join(lines[:p.rows+1], nil))
+		if got := hex.EncodeToString(sum[:]); got != p.sum {
+			t.Errorf("version %d: the first %d ledger rows sum to %s, published %s; the ledger is appended to, never rewritten",
+				v, p.rows, got, p.sum)
+		}
+		for _, r := range rows[:p.rows] {
+			if r.version > v {
+				t.Errorf("%s: added in version %d, among the rows version %d published", r.key, r.version, v)
+			}
+		}
 	}
+	if p, ok := publishedLedger()[d.Version]; !ok || p.rows != len(rows) {
+		t.Errorf("VERSION %d published %d ledger rows, the file has %d; a new row needs a new VERSION and a line in publishedLedger()",
+			d.Version, p.rows, len(rows))
+	}
+	for i := 1; i < len(rows); i++ {
+		if rows[i].version < rows[i-1].version {
+			t.Errorf("%s (version %d) after %s (version %d): rows are appended in version order",
+				rows[i].key, rows[i].version, rows[i-1].key, rows[i-1].version)
+		}
+	}
+}
+
+// TestIDLedger binds the files to the ledger (ADR-0038 Karar 6): every key
+// is well formed; a minted id is a UUIDv7, never derived from an outside
+// code; every associate degree program has a code and every code's latest
+// ledger row names its department under its faculty, so the next year's
+// list finds the program by any of its codes, and losing the one it was
+// first seen under loses nothing.
+func TestIDLedger(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	rows, _ := readLedger(t)
+	latest := map[string]ledgerRow{}
+	for _, r := range rows {
+		if !ledgerKey.MatchString(r.key) || (r.origin != "minted" && r.origin != "matched") || r.version < 1 || r.version > d.Version {
+			t.Errorf("ledger row %+v: malformed", r)
+		}
+		if r.origin == "minted" && r.id.Version() != 7 {
+			t.Errorf("ledger row %s: a minted id %s is not a UUIDv7", r.key, r.id)
+		}
+		latest[r.key] = r
+	}
+	parent := map[uuid.UUID]uuid.UUID{}
 	degree := map[uuid.UUID]string{}
 	for _, r := range d.Departments {
-		degree[r.ID] = r.Degree
+		parent[r.ID], degree[r.ID] = r.Parent, r.Degree
 	}
-	codes := map[uuid.UUID][]string{}
+	codes := map[uuid.UUID]int{}
 	for _, c := range d.DepartmentSourceCodes {
-		if degree[c.Department] != DegreeAssociate {
+		codes[c.Department]++
+		r, ok := latest["osym:"+c.Code]
+		switch {
+		case !ok:
+			t.Errorf("code %s is not in the ledger", c.Code)
+		case r.id != c.Department || r.parent != parent[c.Department].String():
+			t.Errorf("code %s names %s under %s; the ledger %s under %s", c.Code, c.Department, parent[c.Department], r.id, r.parent)
+		case degree[c.Department] != DegreeAssociate:
 			t.Errorf("code %s names %s, a %s department", c.Code, c.Department, degree[c.Department])
 		}
-		codes[c.Department] = append(codes[c.Department], c.Code)
 	}
 	merged := 0
 	for _, r := range d.Departments {
-		if r.Degree != DegreeAssociate {
-			continue
-		}
-		cs := codes[r.ID]
-		if len(cs) == 0 {
+		switch {
+		case r.Degree == DegreeAssociate && codes[r.ID] == 0:
 			t.Errorf("associate program %s %q has no source code", r.ID, r.Name)
-			continue
-		}
-		if len(cs) > 1 {
+		case codes[r.ID] > 1:
 			merged++
-		}
-		if r.ID.Version() != 5 || !slices.ContainsFunc(cs, func(c string) bool { return uuid.NewSHA1(namespace(), []byte("osym:"+c)) == r.ID }) {
-			t.Errorf("associate program %s %q: the id is not derived from one of its codes %v", r.ID, r.Name, cs)
 		}
 	}
 	if merged == 0 {
 		t.Error("no associate program has more than one code: the quota variants were not merged")
+	}
+	universities := map[uuid.UUID]bool{}
+	for _, u := range d.Universities {
+		universities[u.ID] = true
+	}
+	faculties := map[uuid.UUID]uuid.UUID{}
+	for _, f := range d.Faculties {
+		faculties[f.ID] = f.Parent
+	}
+	for key, r := range latest {
+		switch {
+		case strings.HasPrefix(key, "yok:university:") && !universities[r.id]:
+			t.Errorf("%s: %s is not a university of the files", key, r.id)
+		case strings.HasPrefix(key, "yok:unit:") && faculties[r.id].String() != r.parent:
+			t.Errorf("%s: %s is not a faculty of %s in the files", key, r.id, r.parent)
+		}
+	}
+}
+
+// TestFromYokSelfTest runs tools/from_yok.py --self-test (ADR-0038 Karar
+// 6): on made-up data, a code ÖSYM reuses for another program, or one
+// that moves to another unit, stops the run until it is decided; "new"
+// gives a new id, "same" keeps it and cannot keep a moved one; a program
+// that loses its first code keeps its id; a second run changes nothing;
+// the ledger is only appended to. The verify job has python3 (make
+// generate runs pairs.py with it).
+func TestFromYokSelfTest(t *testing.T) {
+	t.Parallel()
+
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Fatalf("python3 is needed to run tools/from_yok.py --self-test: %v", err)
+	}
+	out, err := exec.CommandContext(t.Context(), python, "-I", filepath.Join("tools", "from_yok.py"), "--self-test").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "self-test: ok") {
+		t.Fatalf("from_yok.py --self-test: %v\n%s", err, out)
 	}
 }
 
@@ -141,21 +281,21 @@ func TestAssociateWitnesses(t *testing.T) {
 		id, parent, name, degree string
 	}{
 		// Türk Hava Kurumu Üniversitesi, Ankara Havacılık MYO.
-		{"ac516b1c-e4df-5e38-9798-b8517d93a586", "20b200c7-d3d3-4e77-ba67-2b01c96b92a8", "Ankara Havacılık Meslek Yüksekokulu", ""},
-		{"21b4021b-3ed3-5339-897d-f1a4e16d08fa", "ac516b1c-e4df-5e38-9798-b8517d93a586", "Uçak Teknolojisi", DegreeAssociate},
+		{"01a207cf-0348-7890-bf14-c44956448609", "20b200c7-d3d3-4e77-ba67-2b01c96b92a8", "Ankara Havacılık Meslek Yüksekokulu", ""},
+		{"01a207cf-03cc-7a3c-9df7-92d5f5825c58", "01a207cf-0348-7890-bf14-c44956448609", "Uçak Teknolojisi", DegreeAssociate},
 		// Sağlık Bilimleri Üniversitesi, Gülhane SMYO: "(Ankara) (Erkek)
 		// (Milli Savunma Bakanlığı Adına)" and its other variant are one
 		// program; the campus stays.
-		{"1aded20f-bd17-5f77-9b80-f65197acdef7", "7ae61a3a-d91a-4155-9319-bec58eba1c33", "Gülhane Sağlık Meslek Yüksekokulu (Ankara)", ""},
-		{"fa1a2c85-ba3b-5cdd-9794-738be74df07b", "1aded20f-bd17-5f77-9b80-f65197acdef7", "Tıbbi Görüntüleme Teknikleri (Ankara)", DegreeAssociate},
+		{"01a207cf-0355-7356-a698-0e102b1a814d", "7ae61a3a-d91a-4155-9319-bec58eba1c33", "Gülhane Sağlık Meslek Yüksekokulu (Ankara)", ""},
+		{"01a207cf-050b-738c-a8ff-e13d44acdd15", "01a207cf-0355-7356-a698-0e102b1a814d", "Tıbbi Görüntüleme Teknikleri (Ankara)", DegreeAssociate},
 		// İzmir Konak MYO: a foundation vocational school of its own.
-		{"8e80d3bd-d3f9-5731-8968-ee80cd0efee1", "", "İZMİR KONAK MESLEK YÜKSEKOKULU", ""},
-		{"e60ea554-1f4a-5fe1-a3e4-08b8439b5760", "8e80d3bd-d3f9-5731-8968-ee80cd0efee1", "İzmir Konak Meslek Yüksekokulu", ""},
+		{"01a207cf-033b-777f-9064-34e3659cbf35", "", "İZMİR KONAK MESLEK YÜKSEKOKULU", ""},
+		{"01a207cf-0346-7b3b-b802-c401a8d4b895", "01a207cf-033b-777f-9064-34e3659cbf35", "İzmir Konak Meslek Yüksekokulu", ""},
 		// Atatürk Üniversitesi's Açıköğretim Fakültesi (Java's id) teaches
 		// both degrees; the associate program of a bachelor's program's
 		// name is told apart as YÖK does.
 		{"bf9ed268-ffb0-4eae-9892-dc91dd6d9bd5", "75739eb2-88b3-403d-a2d4-5ea29f72db64", "Halkla İlişkiler ve Tanıtım (Açıköğretim)", DegreeBachelor},
-		{"76d91665-3e46-56a1-bae8-e3b1b72e5f90", "75739eb2-88b3-403d-a2d4-5ea29f72db64", "Halkla İlişkiler ve Tanıtım (Önlisans) (Açıköğretim)", DegreeAssociate},
+		{"01a207cf-06d2-7ce9-8325-f1f68dc55b80", "75739eb2-88b3-403d-a2d4-5ea29f72db64", "Halkla İlişkiler ve Tanıtım (Önlisans) (Açıköğretim)", DegreeAssociate},
 	} {
 		r, ok := byID[uuid.MustParse(tc.id)]
 		if !ok {
@@ -167,8 +307,8 @@ func TestAssociateWitnesses(t *testing.T) {
 		}
 	}
 	for code, dept := range map[string]string{
-		"205750094": "21b4021b-3ed3-5339-897d-f1a4e16d08fa", "205750101": "21b4021b-3ed3-5339-897d-f1a4e16d08fa",
-		"111050204": "fa1a2c85-ba3b-5cdd-9794-738be74df07b", "111091387": "fa1a2c85-ba3b-5cdd-9794-738be74df07b",
+		"205750094": "01a207cf-03cc-7a3c-9df7-92d5f5825c58", "205750101": "01a207cf-03cc-7a3c-9df7-92d5f5825c58",
+		"111050204": "01a207cf-050b-738c-a8ff-e13d44acdd15", "111091387": "01a207cf-050b-738c-a8ff-e13d44acdd15",
 	} {
 		if codeOf[code] != uuid.MustParse(dept) {
 			t.Errorf("code %s names %s, want %s", code, codeOf[code], dept)
@@ -393,6 +533,9 @@ func TestValidate(t *testing.T) {
 		"surrounding space":    {func(d *Dataset) { d.Cities[0].Name = "ADANA " }, "surrounding space"},
 		"control character":    {func(d *Dataset) { d.Cities[0].Name = "ADA\tNA" }, "control character"},
 		"zero width space":     {func(d *Dataset) { d.Cities[0].Name = "ADA\u200bNA" }, "invisible format character"},
+		"line separator":       {func(d *Dataset) { d.Cities[0].Name = "ADA\u2028NA" }, "line or paragraph separator"},
+		"paragraph separator":  {func(d *Dataset) { d.Faculties[0].Name = "Fen\u2029Fakültesi" }, "line or paragraph separator"},
+		"private use":          {func(d *Dataset) { d.Departments[0].Name = "Fizik\ue000" }, "private use character"},
 		"right-to-left":        {func(d *Dataset) { d.Faculties[0].Name = "Fen \u202eFakültesi" }, "invisible format character"},
 		"byte order mark":      {func(d *Dataset) { d.Departments[0].Name = "\ufeffFizik" }, "invisible format character"},
 		"NBSP inside":          {func(d *Dataset) { d.Cities[0].Name = "ADA\u00a0NA" }, ""},
@@ -560,7 +703,7 @@ func published() map[int]string {
 		1: "ca194cde236561690ec3585df93bc42469169a4532037b646ffc26bcb874f289",
 		// YÖK's associate degree programs, the departments' degree and
 		// their source codes (ADR-0038).
-		2: "726ae5ca6ce5905d04473afec495fc0a9c1a8b59f62d809b59139dc1ccb8c744",
+		2: "ebd3dced24348f16920ce196cfd04f60fe34141fe5a84cb798d9211840cd01b9",
 	}
 }
 

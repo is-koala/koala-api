@@ -3,15 +3,25 @@
 package referencedata_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"errors"
+	"fmt"
+	"log/slog"
+	"maps"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/is-koala/koala-api/db/migrations"
 	"github.com/is-koala/koala-api/db/referencedata"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
@@ -158,7 +168,7 @@ func TestTemplateHoldsTheReferenceData(t *testing.T) {
 	err := owner.Pool().QueryRow(t.Context(), `
 		SELECT (SELECT count(*) FROM departments WHERE degree = 'ASSOCIATE'),
 		       (SELECT count(*) FROM department_source_codes
-		        WHERE department_id = '21b4021b-3ed3-5339-897d-f1a4e16d08fa' AND code IN ('205750094', '205750101'))`).
+		        WHERE department_id = '01a207cf-03cc-7a3c-9df7-92d5f5825c58' AND code IN ('205750094', '205750101'))`).
 		Scan(&associate, &codes)
 	if err != nil || associate != 7144 || codes != 2 {
 		t.Errorf("associate programs %d (want 7144), Uçak Teknolojisi's codes %d (want 2): %v", associate, codes, err)
@@ -345,18 +355,26 @@ func TestSyncStopsAtTheRetireLimit(t *testing.T) {
 // TestSourceCodesHoldTheRetireLimit: the source codes are a reference
 // table like the others (ADR-0038). Codes dropped while their departments
 // stay (a cut department_source_codes.csv) are retired under the same
-// limit, 5 % of the codes in use, and nothing is written above it; within
-// it they are retired, and listed again they are back in use.
+// limit, 5 % of the pairs in use, and nothing is written above it; retired
+// pairs from earlier years do not count (5,000 of them here). Within the
+// limit the codes are retired, and listed again they are back in use.
 func TestSourceCodesHoldTheRetireLimit(t *testing.T) {
 	t.Parallel()
 
 	owner := dbtest.New(t).Open(t, db.RoleOwner)
+	if _, err := owner.Pool().Exec(t.Context(), `
+		INSERT INTO department_source_codes (code, department_id, retired_at)
+		SELECT '9' || lpad(n::text, 8, '0'), '01a207cf-03cc-7a3c-9df7-92d5f5825c58', now()
+		FROM generate_series(1, 5000) AS n`); err != nil {
+		t.Fatal(err)
+	}
 	over := load(t)
 	over.DepartmentSourceCodes = over.DepartmentSourceCodes[463:]
 	_, wrote, err := runSync(t, owner, over, referencedata.Options{})
 	var limit *referencedata.RetireLimitError
-	if !errors.As(err, &limit) || limit.Table != "department_source_codes" || limit.Retire != 463 || limit.Limit != 462 || wrote {
-		t.Fatalf("463 codes dropped: %v (wrote %v), want the codes' limit before any write", err, wrote)
+	if !errors.As(err, &limit) || limit.Table != "department_source_codes" || limit.Retire != 463 || limit.Limit != 462 ||
+		limit.Active != 9254 || wrote {
+		t.Fatalf("463 codes dropped next to 5,000 retired pairs: %v (wrote %v), want the limit of 462 over 9,254 pairs in use", err, wrote)
 	}
 	at := load(t)
 	at.DepartmentSourceCodes = at.DepartmentSourceCodes[462:]
@@ -364,7 +382,7 @@ func TestSourceCodesHoldTheRetireLimit(t *testing.T) {
 	if c := of(res, "department_source_codes"); err != nil || len(c.Retired) != 462 || c.Retired[0].Code == "" || c.Retired[0].ID != uuid.Nil {
 		t.Fatalf("462 codes dropped: %v, %+v", err, c)
 	}
-	if active, retired := counts(t, owner); active["department_source_codes"] != 9254-462 || retired["department_source_codes"] != 462 {
+	if active, retired := counts(t, owner); active["department_source_codes"] != 9254-462 || retired["department_source_codes"] != 5462 {
 		t.Fatalf("codes: %d in use, %d retired", active["department_source_codes"], retired["department_source_codes"])
 	}
 	res, _, err = runSync(t, owner, load(t), referencedata.Options{})
@@ -373,98 +391,194 @@ func TestSourceCodesHoldTheRetireLimit(t *testing.T) {
 	}
 }
 
-// TestSyncRefusesAMovedCode: a source code the database has under one
-// department and the files give under another is refused, and nothing is
-// written: a code names one program, and pointing it elsewhere would match
-// next year's list to the wrong row (ADR-0038).
-func TestSyncRefusesAMovedCode(t *testing.T) {
+// codePairs reads the (department, retired) pairs of a code.
+func codePairs(t *testing.T, owner *db.DB, code string) map[uuid.UUID]bool {
+	t.Helper()
+	rows, err := owner.Pool().Query(t.Context(), "SELECT department_id, retired_at IS NOT NULL FROM department_source_codes WHERE code = $1", code)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[uuid.UUID]bool{}
+	var dept uuid.UUID
+	var retired bool
+	if _, err := pgx.ForEachRow(rows, []any{&dept, &retired}, func() error { out[dept] = retired; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// TestSyncReassignsACode: a row of department_source_codes is a (code,
+// department) pair that never changes (ADR-0038). A code the files give to
+// another department, as tools/id_decisions.csv decides when ÖSYM reuses
+// a code, is the old pair retired and the new one inserted, in one sync
+// and both in the result; the old program keeps its id. At most one pair
+// per code is in use, in the database too. A code dropped and later given
+// to a third department is a new pair beside the retired ones; listed
+// again under its first department, that pair comes back and the other
+// retires.
+func TestSyncReassignsACode(t *testing.T) {
 	t.Parallel()
 
 	owner := dbtest.New(t).Open(t, db.RoleOwner)
 	d := load(t)
-	moved := d.DepartmentSourceCodes[0]
+	code, first := d.DepartmentSourceCodes[0].Code, d.DepartmentSourceCodes[0].Department
+	var others []uuid.UUID
 	for _, c := range d.DepartmentSourceCodes {
-		if c.Department != moved.Department {
-			d.DepartmentSourceCodes[0].Department = c.Department
+		if c.Department != first && !slices.Contains(others, c.Department) {
+			others = append(others, c.Department)
+		}
+		if len(others) == 2 {
 			break
 		}
 	}
-	d.Universities[0].Name = "BU YAZILMAMALI"
-	_, wrote, err := runSync(t, owner, d, referencedata.Options{})
-	if err == nil || !strings.Contains(err.Error(), moved.Code) || !strings.Contains(err.Error(), "a code names one program") || wrote {
-		t.Fatalf("sync = %v (wrote %v), want the moved code refused before any write", err, wrote)
+	second, third := others[0], others[1]
+	with := func(department uuid.UUID) *referencedata.Dataset {
+		d := load(t)
+		if department == uuid.Nil {
+			d.DepartmentSourceCodes = d.DepartmentSourceCodes[1:]
+		} else {
+			d.DepartmentSourceCodes[0].Department = department
+		}
+		return d
 	}
+	pairs := func(want map[uuid.UUID]bool) {
+		t.Helper()
+		if got := codePairs(t, owner, code); !maps.Equal(got, want) {
+			t.Fatalf("code %s: pairs %v (department: retired), want %v", code, got, want)
+		}
+	}
+
+	res, _, err := runSync(t, owner, with(second), referencedata.Options{})
+	c := of(res, "department_source_codes")
+	if err != nil || len(c.Retired) != 1 || c.Retired[0].Code != code || c.Retired[0].Parent != first ||
+		len(c.Inserted) != 1 || c.Inserted[0].Code != code || c.Inserted[0].Parent != second || len(c.Updated) != 0 {
+		t.Fatalf("the code given to another department: %v, %+v", err, c)
+	}
+	if dep := of(res, "departments"); len(dep.Retired)+len(dep.Updated)+len(dep.Inserted) != 0 {
+		t.Errorf("departments: %+v, want them as they are", dep)
+	}
+	pairs(map[uuid.UUID]bool{first: true, second: false})
+
+	// The database holds one pair in use per code.
+	_, err = owner.Pool().Exec(t.Context(), "UPDATE department_source_codes SET retired_at = NULL WHERE code = $1 AND department_id = $2", code, first)
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+		t.Fatalf("a second pair in use: %v, want a unique violation", err)
+	}
+
+	// Dropped, then given to a third department: a new pair.
+	if _, _, err := runSync(t, owner, with(uuid.Nil), referencedata.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	pairs(map[uuid.UUID]bool{first: true, second: true})
+	res, _, err = runSync(t, owner, with(third), referencedata.Options{})
+	if c := of(res, "department_source_codes"); err != nil || len(c.Inserted) != 1 || c.Inserted[0].Parent != third || len(c.Retired)+len(c.Updated) != 0 {
+		t.Fatalf("a retired code given to a third department: %v, %+v", err, c)
+	}
+	pairs(map[uuid.UUID]bool{first: true, second: true, third: false})
+
+	// Under its first department again: that pair is back, the third's
+	// retires, in one sync.
+	res, _, err = runSync(t, owner, load(t), referencedata.Options{})
+	if c := of(res, "department_source_codes"); err != nil || len(c.Updated) != 1 || c.Updated[0].Parent != first || !c.Updated[0].Restored ||
+		len(c.Retired) != 1 || c.Retired[0].Parent != third || len(c.Inserted) != 0 {
+		t.Fatalf("the code back under its first department: %v, %+v", err, c)
+	}
+	pairs(map[uuid.UUID]bool{first: false, second: true, third: true})
 }
 
 // TestSyncRefusesADegreeChange: a department whose degree the files
 // change is refused, and nothing is written: an associate degree program
 // is not a bachelor's program, and records that name it hold a degree
-// (ADR-0038).
+// (ADR-0038). A retired department the files bring back with another
+// degree is refused too: the degree check comes before the restore, so a
+// row cannot change its degree by leaving and coming back.
 func TestSyncRefusesADegreeChange(t *testing.T) {
 	t.Parallel()
 
 	owner := dbtest.New(t).Open(t, db.RoleOwner)
-	for _, from := range []string{referencedata.DegreeBachelor, referencedata.DegreeAssociate} {
-		d := load(t)
-		i := slices.IndexFunc(d.Departments, func(r referencedata.Row) bool { return r.Degree == from })
-		changed := d.Departments[i]
-		d.Departments[i].Degree = map[string]string{
-			referencedata.DegreeBachelor: referencedata.DegreeAssociate, referencedata.DegreeAssociate: referencedata.DegreeBachelor,
-		}[from]
-		d.Universities[0].Name = "BU YAZILMAMALI"
-		_, wrote, err := runSync(t, owner, d, referencedata.Options{})
-		if err == nil || !strings.Contains(err.Error(), changed.ID.String()) || !strings.Contains(err.Error(), "another degree") || wrote {
-			t.Fatalf("%s %s changed: sync = %v (wrote %v), want it refused before any write", from, changed.ID, err, wrote)
+	other := map[string]string{
+		referencedata.DegreeBachelor: referencedata.DegreeAssociate, referencedata.DegreeAssociate: referencedata.DegreeBachelor,
+	}
+	for _, retired := range []bool{false, true} {
+		for _, from := range []string{referencedata.DegreeBachelor, referencedata.DegreeAssociate} {
+			d := load(t)
+			i := slices.IndexFunc(d.Departments, func(r referencedata.Row) bool { return r.Degree == from })
+			if retired {
+				i = slices.IndexFunc(d.Departments[i+1:], func(r referencedata.Row) bool { return r.Degree == from }) + i + 1
+			}
+			changed := d.Departments[i]
+			if retired {
+				if _, err := owner.Pool().Exec(t.Context(), "UPDATE departments SET retired_at = now() WHERE id = $1", changed.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			d.Departments[i].Degree = other[from]
+			d.Universities[0].Name = "BU YAZILMAMALI"
+			_, wrote, err := runSync(t, owner, d, referencedata.Options{})
+			if err == nil || !strings.Contains(err.Error(), changed.ID.String()) || !strings.Contains(err.Error(), "another degree") || wrote {
+				t.Fatalf("%s %s (retired %v) changed: sync = %v (wrote %v), want it refused before any write", from, changed.ID, retired, err, wrote)
+			}
+			var stillRetired bool
+			var degree string
+			if err := owner.Pool().QueryRow(t.Context(), "SELECT retired_at IS NOT NULL, degree FROM departments WHERE id = $1", changed.ID).
+				Scan(&stillRetired, &degree); err != nil || stillRetired != retired || degree != from {
+				t.Fatalf("after the refusal: retired %v, degree %s (%v); want %v and %s", stillRetired, degree, err, retired, from)
+			}
 		}
 	}
 }
 
-// TestSyncFromVersionOne drives the update this version is: a database
-// that holds version 1 (the bachelor's programs of the Java snapshot)
-// syncs to version 2 and only gains rows (ADR-0038): the universities,
-// vocational schools, associate degree programs and source codes YÖK
-// lists; nothing is renamed, brought back or retired, so no table comes
-// near its retirement limit; the version is recorded; and a second run
-// writes nothing.
-//
-// The database at version 1 is the template's with version 2's rows taken
-// out: every row version 2 added has an id derived from YÖK's codes
-// (UUIDv5); version 1's are Java's (v4) and DERECİK's (v7).
-func TestSyncFromVersionOne(t *testing.T) {
-	t.Parallel()
-
-	owner := dbtest.New(t).Open(t, db.RoleOwner)
-	for _, stmt := range []string{
-		"DELETE FROM department_source_codes",
-		"DELETE FROM departments WHERE degree = 'ASSOCIATE'",
-		"DELETE FROM faculties WHERE substr(id::text, 15, 1) = '5'",
-		"DELETE FROM universities WHERE substr(id::text, 15, 1) = '5'",
-		"UPDATE reference_data_version SET version = 1",
-	} {
-		if _, err := owner.Pool().Exec(t.Context(), stmt); err != nil {
-			t.Fatal(err)
+// mintedIDs reads the ids tools/from_yok.py minted, from its ledger: the
+// universities, faculties and departments version 2 added to the Java
+// snapshot (ADR-0038). The test runs in this package's directory.
+func mintedIDs(t *testing.T) map[uuid.UUID]bool {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("tools", "id_ledger.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := csv.NewReader(bytes.NewReader(raw)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := map[uuid.UUID]bool{}
+	for _, rec := range records[1:] {
+		if rec[5] == "minted" {
+			out[uuid.MustParse(rec[1])] = true
 		}
 	}
+	return out
+}
+
+// versionOne is data version 1: the files without the rows version 2
+// added (the ledger's minted ids) and without source codes.
+func versionOne(t *testing.T) *referencedata.Dataset {
+	t.Helper()
+	minted := mintedIDs(t)
 	v1 := load(t)
 	v1.Version = 1
 	v1.DepartmentSourceCodes = nil
 	keep := func(rows []referencedata.Row) []referencedata.Row {
-		return slices.DeleteFunc(rows, func(r referencedata.Row) bool { return r.ID.Version() == 5 })
+		return slices.DeleteFunc(rows, func(r referencedata.Row) bool { return minted[r.ID] })
 	}
 	v1.Universities, v1.Faculties, v1.Departments = keep(v1.Universities), keep(v1.Faculties), keep(v1.Departments)
 	if len(v1.Universities) != 223 || len(v1.Faculties) != 2043 || len(v1.Departments) != 7567 {
 		t.Fatalf("version 1 is %d universities, %d faculties, %d departments; want 223, 2043, 7567",
 			len(v1.Universities), len(v1.Faculties), len(v1.Departments))
 	}
-	// The database is at version 1: its files find nothing to do.
-	if res, wrote, err := runSync(t, owner, v1, referencedata.Options{}); err != nil || wrote || res.Changed() {
-		t.Fatalf("version 1 over version 1: %+v (wrote %v), %v", res, wrote, err)
+	for _, r := range v1.Departments {
+		if r.Degree != referencedata.DegreeBachelor {
+			t.Fatalf("version 1 has the %s department %s", r.Degree, r.ID)
+		}
 	}
+	return v1
+}
 
-	res, _, err := runSync(t, owner, load(t), referencedata.Options{})
-	if err != nil || res.DatabaseVersion != 1 || res.DataVersion != dataVersion {
-		t.Fatalf("version 2 over version 1: %+v, %v", res, err)
-	}
+// wantOnlyInserts checks a sync from version 1 to version 2: it inserts
+// exactly version 2's rows and updates and retires nothing.
+func wantOnlyInserts(t *testing.T, res referencedata.Result) {
+	t.Helper()
 	inserted := map[string]int{"universities": 8, "faculties": 979, "departments": 7144, "department_source_codes": 9254}
 	for _, table := range referencedata.Tables() {
 		c := of(res, table)
@@ -478,11 +592,180 @@ func TestSyncFromVersionOne(t *testing.T) {
 			t.Errorf("inserted department %s %q is %s, want ASSOCIATE", c.ID, c.Name, c.Degree)
 		}
 	}
+}
+
+// TestSyncFromVersionOne drives the update this version is: a database
+// that holds version 1 (the bachelor's programs of the Java snapshot)
+// syncs to version 2 and only gains rows (ADR-0038): the universities,
+// vocational schools, associate degree programs and source codes YÖK
+// lists; nothing is renamed, brought back or retired, so no table comes
+// near its retirement limit; the version is recorded; and a second run
+// writes nothing. The database at version 1 is the template's with
+// version 2's rows (the ledger's minted ids) taken out;
+// TestMigrationGivesVersionOneItsDegree builds one through the migrations.
+func TestSyncFromVersionOne(t *testing.T) {
+	t.Parallel()
+
+	owner := dbtest.New(t).Open(t, db.RoleOwner)
+	minted := slices.Collect(maps.Keys(mintedIDs(t)))
+	for _, stmt := range []string{
+		"DELETE FROM department_source_codes",
+		"DELETE FROM departments WHERE degree = 'ASSOCIATE'",
+		"DELETE FROM faculties WHERE id = ANY ($1::uuid[])",
+		"DELETE FROM universities WHERE id = ANY ($1::uuid[])",
+		"UPDATE reference_data_version SET version = 1",
+	} {
+		args := []any{}
+		if strings.Contains(stmt, "$1") {
+			args = append(args, minted)
+		}
+		if _, err := owner.Pool().Exec(t.Context(), stmt, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	v1 := versionOne(t)
+	// The database is at version 1: its files find nothing to do.
+	if res, wrote, err := runSync(t, owner, v1, referencedata.Options{}); err != nil || wrote || res.Changed() {
+		t.Fatalf("version 1 over version 1: %+v (wrote %v), %v", res, wrote, err)
+	}
+
+	res, _, err := runSync(t, owner, load(t), referencedata.Options{})
+	if err != nil || res.DatabaseVersion != 1 || res.DataVersion != dataVersion {
+		t.Fatalf("version 2 over version 1: %+v, %v", res, err)
+	}
+	wantOnlyInserts(t, res)
 	if v := version(t, owner); v != dataVersion {
 		t.Errorf("recorded version %d, want %d", v, dataVersion)
 	}
 	if res, wrote, err := runSync(t, owner, load(t), referencedata.Options{}); err != nil || wrote || res.Changed() {
 		t.Fatalf("version 2 again: %+v (wrote %v), %v; want nothing written", res, wrote, err)
+	}
+}
+
+// TestMigrationGivesVersionOneItsDegree runs 0048 over version 1 as 0047
+// held it (ADR-0038): the migrations up to 0047, version 1's rows written
+// as that schema takes them, then 0048. Every department is BACHELOR and
+// version 2's sync only inserts. 0048's down deletes the associate degree
+// programs, keeps the rest and the version, and the next up and sync put
+// them back under their ids; an education record that names one stops the
+// down with a message instead.
+func TestMigrationGivesVersionOneItsDegree(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	database := dbtest.NewEmpty(t)
+	migrator, err := db.NewMigrator(database.URL(db.RoleOwner), migrations.FS, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = migrator.Close() })
+	step := func(up bool) error {
+		t.Helper()
+		if up {
+			if _, err := migrator.Up(ctx); err != nil {
+				return fmt.Errorf("up: %w", err)
+			}
+			return nil
+		}
+		if _, err := migrator.Down(ctx); err != nil {
+			return fmt.Errorf("down: %w", err)
+		}
+		return nil
+	}
+	// Up to 0047: every migration, then 0048 down on its empty tables.
+	if err := step(true); err != nil {
+		t.Fatal(err)
+	}
+	if err := step(false); err != nil {
+		t.Fatal(err)
+	}
+	owner := database.Open(t, db.RoleOwner)
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := owner.Pool().Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+	v1 := versionOne(t)
+	type columns struct {
+		ids, parents []uuid.UUID
+		codes, names []string
+	}
+	cols := func(rows []referencedata.Row) columns {
+		var c columns
+		for _, r := range rows {
+			c.ids, c.parents = append(c.ids, r.ID), append(c.parents, r.Parent)
+			c.codes, c.names = append(c.codes, r.Code), append(c.names, r.Name)
+		}
+		return c
+	}
+	c := cols(v1.Countries)
+	exec("INSERT INTO countries (id, code, name) SELECT * FROM unnest($1::uuid[], $2::text[], $3::text[])", c.ids, c.codes, c.names)
+	for _, tc := range []struct {
+		table, column string
+		rows          []referencedata.Row
+	}{
+		{"cities", "country_id", v1.Cities}, {"districts", "city_id", v1.Districts},
+		{"faculties", "university_id", v1.Faculties}, {"departments", "faculty_id", v1.Departments},
+	} {
+		if tc.table == "faculties" {
+			c := cols(v1.Universities)
+			exec("INSERT INTO universities (id, name) SELECT * FROM unnest($1::uuid[], $2::text[])", c.ids, c.names)
+		}
+		c := cols(tc.rows)
+		exec("INSERT INTO "+tc.table+" (id, "+tc.column+", name) SELECT * FROM unnest($1::uuid[], $2::uuid[], $3::text[])",
+			c.ids, c.parents, c.names)
+	}
+	exec("INSERT INTO reference_data_version (singleton, version, revision, synced_at) VALUES (true, 1, 1, now())")
+
+	// 0048 over version 1.
+	if err := step(true); err != nil {
+		t.Fatal(err)
+	}
+	var all, bachelor int
+	if err := owner.Pool().QueryRow(ctx, "SELECT count(*), count(*) FILTER (WHERE degree = 'BACHELOR') FROM departments").
+		Scan(&all, &bachelor); err != nil || all != 7567 || bachelor != 7567 {
+		t.Fatalf("after 0048: %d departments, %d BACHELOR (%v); want 7567 and 7567", all, bachelor, err)
+	}
+	if res, wrote, err := runSync(t, owner, v1, referencedata.Options{}); err != nil || wrote || res.Changed() {
+		t.Fatalf("version 1 over 0048: %+v (wrote %v), %v; want nothing to do", res, wrote, err)
+	}
+	res, _, err := runSync(t, owner, load(t), referencedata.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantOnlyInserts(t, res)
+
+	// Down deletes the associate degree programs and keeps the version;
+	// up and the sync put them back.
+	if err := step(false); err != nil {
+		t.Fatalf("0048 down: %v", err)
+	}
+	if err := owner.Pool().QueryRow(ctx, "SELECT count(*) FROM departments").Scan(&all); err != nil || all != 7567 || version(t, owner) != dataVersion {
+		t.Fatalf("after 0048 down: %d departments (%v), version %d; want 7567 and %d", all, err, version(t, owner), dataVersion)
+	}
+	if err := step(true); err != nil {
+		t.Fatal(err)
+	}
+	res, _, err = runSync(t, owner, load(t), referencedata.Options{})
+	if err != nil || len(of(res, "departments").Inserted) != 7144 || len(of(res, "department_source_codes").Inserted) != 9254 ||
+		len(of(res, "departments").Updated)+len(of(res, "departments").Retired) != 0 {
+		t.Fatalf("the sync after down and up: %v, departments %+v", err, of(res, "departments"))
+	}
+
+	// An education record that names an associate degree program stops the
+	// down, and nothing changes.
+	user := uuid.New()
+	exec(`INSERT INTO users (id, email, status, first_name, last_name, employer, email_verified, created_at)
+		VALUES ($1, 'myo@example.com', 'ACTIVE', 'Ayşe', 'Yılmaz', false, true, now())`, user)
+	exec(`INSERT INTO educations (id, user_id, university_id, faculty_id, department_id, degree, start_year, created_at)
+		VALUES ($1, $2, '20b200c7-d3d3-4e77-ba67-2b01c96b92a8', '01a207cf-0348-7890-bf14-c44956448609',
+		        '01a207cf-03cc-7a3c-9df7-92d5f5825c58', 'ASSOCIATE', 2018, now())`, uuid.New(), user)
+	if err := step(false); err == nil || !strings.Contains(err.Error(), "education records name associate degree programs") {
+		t.Fatalf("0048 down under a record: %v, want the refusal", err)
+	}
+	if err := owner.Pool().QueryRow(ctx, "SELECT count(*) FROM departments WHERE degree = 'ASSOCIATE'").Scan(&all); err != nil || all != 7144 {
+		t.Fatalf("after the refused down: %d associate programs (%v), want 7144", all, err)
 	}
 }
 
