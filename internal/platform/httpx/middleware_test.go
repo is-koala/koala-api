@@ -385,6 +385,43 @@ func TestSecurityHeaders(t *testing.T) {
 	}
 }
 
+// TestCombineListFields: the root chain joins the field lines of a list
+// field into one value (RFC 9110 §5.3), so a client that sends
+// If-None-Match on two lines reaches the handler with one, which the
+// generated binding accepts; one line and no line are left as they are.
+func TestCombineListFields(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := newLogger()
+	r := newRouter(t, logger, httpx.NewHealth(logger))
+	r.Get("/v1/lists", func(w http.ResponseWriter, req *http.Request) {
+		w.Header().Set("X-Seen", strings.Join(req.Header.Values("If-None-Match"), "|"))
+		w.Header().Set("X-Seen-Lines", strconv.Itoa(len(req.Header.Values("If-None-Match"))))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	for name, tc := range map[string]struct {
+		lines []string
+		seen  string
+		count string
+	}{
+		"two lines": {[]string{`"a"`, `W/"b"`}, `"a", W/"b"`, "1"},
+		"one line":  {[]string{`"a", "b"`}, `"a", "b"`, "1"},
+		"none":      {nil, "", "0"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			header := http.Header{}
+			for _, l := range tc.lines {
+				header.Add("If-None-Match", l)
+			}
+			rec := do(r, http.MethodGet, "/v1/lists", header)
+			if rec.Header().Get("X-Seen") != tc.seen || rec.Header().Get("X-Seen-Lines") != tc.count {
+				t.Errorf("handler saw %q on %s line(s), want %q on %s", rec.Header().Get("X-Seen"), rec.Header().Get("X-Seen-Lines"), tc.seen, tc.count)
+			}
+		})
+	}
+}
+
 func TestHealthEndpointsAcceptHead(t *testing.T) {
 	t.Parallel()
 

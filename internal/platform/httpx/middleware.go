@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -219,6 +220,28 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// listFields are the request fields RFC 9110 defines as comma-separated
+// lists that the contract binds as one header parameter (If-None-Match on
+// the reference lists, ADR-0037; If-Match for the operations that will
+// take it). The generated binding accepts one field line and answers a
+// second with 400.
+func listFields() []string { return []string{"If-None-Match", "If-Match"} }
+
+// CombineListFields joins the field lines of each list field into one
+// value, separated by ", ": RFC 9110 §5.3 lets a recipient combine them
+// so, and a client or proxy may send the list on several lines. A single
+// line is left as it is.
+func CombineListFields(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for _, name := range listFields() {
+			if values := r.Header.Values(name); len(values) > 1 {
+				r.Header.Set(name, strings.Join(values, ", "))
+			}
+		}
 		next.ServeHTTP(w, r)
 	})
 }

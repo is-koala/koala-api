@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
+	"strconv"
 	"text/tabwriter"
 	"time"
 
 	"github.com/is-koala/koala-api/db/migrations"
+	"github.com/is-koala/koala-api/db/referencedata"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/log"
@@ -16,7 +19,8 @@ import (
 
 const migrateUsage = `usage: koala migrate <up|down|status>
 
-  up      apply every pending migration
+  up      apply every pending migration, then bring the reference data
+          in line with the files of this binary (koala reference sync)
   down    roll back the most recent migration; development only: refused
           when KOALA_ENV=production, River's down migrations drop job
           tables with their rows, NO TRANSACTION files are not atomic
@@ -82,6 +86,29 @@ func runMigrate(ctx context.Context, args []string, sio IO) int {
 			return ExitError
 		}
 		logger.InfoContext(ctx, "migrations up to date", slog.Int("applied", len(res)))
+		// The reference data is part of the schema's state: every up
+		// brings it in line with the files of this binary (ADR-0037).
+		allow, err := referencedata.ParseAllowRetire(cfg.ReferenceAllowRetire)
+		if err != nil {
+			logger.ErrorContext(ctx, "migrate failed", slog.String("error", config.VarReferenceAllowRetire+": "+err.Error()))
+			return ExitError
+		}
+		synced, err := syncReference(ctx, cfg.OwnerDatabaseURL.Reveal(), logger, referencedata.Options{AllowRetire: allow}, false)
+		if err != nil {
+			if limit := (*referencedata.RetireLimitError)(nil); errors.As(err, &limit) {
+				logger.ErrorContext(ctx, "migrate failed: the reference sync would retire too many rows",
+					slog.Any("error", err), slog.String("table", limit.Table), slog.Int("retire", limit.Retire), slog.Int("limit", limit.Limit),
+					slog.String("allow_with", config.VarReferenceAllowRetire+"="+limit.Table+":"+strconv.Itoa(limit.Retire)+"@"+strconv.Itoa(limit.Version)))
+				return ExitError
+			}
+			logger.ErrorContext(ctx, "migrate failed", slog.Any("error", err))
+			return ExitError
+		}
+		for _, c := range synced.Tables {
+			logger.InfoContext(ctx, "reference data synced", slog.String("table", c.Table),
+				slog.Int("inserted", len(c.Inserted)), slog.Int("updated", len(c.Updated)),
+				slog.Int("retired", len(c.Retired)), slog.Int("unchanged", c.Unchanged))
+		}
 	case "down":
 		res, err := migrator.Down(ctx)
 		if err != nil {

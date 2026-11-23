@@ -5,13 +5,16 @@
 #   scripts/release-db.sh ghcr.io/is-koala/koala-api:v1.2.3
 #
 # 1. koala bootstrap   creates the group roles if missing (idempotent)
-# 2. koala migrate up  applies pending migrations as koala_owner
+# 2. koala migrate up  applies pending migrations as koala_owner, then
+#                      brings the reference data in line with the files
+#                      built into the image (db/referencedata, ADR-0037)
 #
 # Each step stops the release on failure. Variables are passed to the
 # container by name only (docker run -e NAME), so no value appears on the
 # command line: KOALA_ENV, KOALA_BOOTSTRAP_DATABASE_URL (non-superuser,
 # CREATEROLE, to the postgres database), KOALA_OWNER_DATABASE_URL (a member
-# of koala_owner). The
+# of koala_owner) and, for the one release that retires many reference
+# rows on purpose, KOALA_REFERENCE_ALLOW_RETIRE (ADR-0037). The
 # runbook (docs/runbook/veritabani.md) explains the logins.
 set -euo pipefail
 
@@ -25,7 +28,7 @@ done
 
 run() {
 	docker run --rm --network host \
-		-e KOALA_ENV -e KOALA_BOOTSTRAP_DATABASE_URL -e KOALA_OWNER_DATABASE_URL \
+		-e KOALA_ENV -e KOALA_BOOTSTRAP_DATABASE_URL -e KOALA_OWNER_DATABASE_URL -e KOALA_REFERENCE_ALLOW_RETIRE \
 		"$image" "$@"
 }
 

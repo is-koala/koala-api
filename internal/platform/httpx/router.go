@@ -81,6 +81,7 @@ func NewRouter(logger *slog.Logger, health *Health, opts RouterOptions) (*Router
 		RequestID,
 		lookupRoute(root),
 		SecurityHeaders,
+		CombineListFields,
 		AccessLog(logger),
 		opts.Metrics.instrument(rt.isStream),
 		Recover(logger),

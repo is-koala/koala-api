@@ -69,13 +69,35 @@ func TestMigrateCommand(t *testing.T) {
 		return n
 	}
 
+	// up also loads the reference data (ADR-0037): a release that forgot
+	// the step would serve empty lists and refuse every education.
+	referenceRows := func() (departments, districts int) {
+		t.Helper()
+		err := owner.Pool().QueryRow(t.Context(),
+			"SELECT (SELECT count(*) FROM departments WHERE retired_at IS NULL), (SELECT count(*) FROM districts WHERE retired_at IS NULL)").
+			Scan(&departments, &districts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return departments, districts
+	}
+
 	wantStatus(0)
-	migrate("up", ExitOK)
+	out := migrate("up", ExitOK)
 	wantStatus(total)
 	if riverTables() == 0 {
 		t.Fatal("no River tables after up")
 	}
-	migrate("up", ExitOK) // nothing pending: still success
+	if dep, dis := referenceRows(); dep != 7567 || dis != 973 {
+		t.Fatalf("after up: %d departments, %d districts; want 7567 and 973\n%s", dep, dis, out)
+	}
+	if !strings.Contains(out, `"msg":"reference data synced"`) || !strings.Contains(out, `"inserted":7567`) {
+		t.Errorf("up logged no reference summary:\n%s", out)
+	}
+	out = migrate("up", ExitOK) // nothing pending: still success, nothing to sync
+	if strings.Contains(out, `"inserted":1`) || strings.Contains(out, `"updated":1`) || strings.Contains(out, `"retired":1`) {
+		t.Errorf("the second up changed reference rows:\n%s", out)
+	}
 
 	for range total {
 		migrate("down", ExitOK)
@@ -88,6 +110,9 @@ func TestMigrateCommand(t *testing.T) {
 
 	migrate("up", ExitOK)
 	wantStatus(total)
+	if dep, dis := referenceRows(); dep != 7567 || dis != 973 {
+		t.Fatalf("after down and up: %d departments, %d districts; want 7567 and 973", dep, dis)
+	}
 }
 
 // TestMigrateRefusesNonOwner: a login that is not a member of koala_owner
@@ -137,6 +162,8 @@ func TestOwnerCommandsRefuseSuperuser(t *testing.T) {
 	}{
 		{[]string{"migrate", "status"}, "KOALA_OWNER_DATABASE_URL=" + super.URL},
 		{[]string{"maint", "reindex"}, "KOALA_OWNER_DATABASE_URL=" + super.URL},
+		{[]string{"reference", "sync"}, "KOALA_OWNER_DATABASE_URL=" + super.URL},
+		{[]string{"reference", "sync", "--dry-run"}, "KOALA_OWNER_DATABASE_URL=" + super.URL},
 		{[]string{"bootstrap"}, "KOALA_BOOTSTRAP_DATABASE_URL=" + super.URLFor("postgres")},
 	}
 	for _, tt := range tests {

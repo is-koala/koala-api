@@ -317,9 +317,16 @@ scenarios:
       - "Okumalar kimliksiz çalışır"
       - "Değiştirme işlemi sözleşmede yoktur"
       - "Şehir ülkeye, ilçe şehre bağlıdır: zincir ülke, şehir, ilçe sırasıyla okunur"
+    target: >
+      Doğal sıra Türkçe harf sırasıyla addır (Ç C'den sonra, I İ'den önce gelir), eşit adlarda
+      kimliktir. Emekliye ayrılmış satır listede görünmez; var olmayan ya da emekliye ayrılmış
+      ebeveynin listesi bilinmeyen referans hatası alır, satırı olmayan ebeveyn boş liste alır.
+      Satırlar uygulamanın değil sürümle gelen veri dosyalarının işidir (ADR-0037).
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/AcademicReferenceManager.java:1-60"
-    go_test: null
+    go_test:
+      - internal/app.TestReferenceOverHTTP
+      - internal/app.TestReferenceHasNoWriteOperation
 
   - id: MED-013
     priority: P1

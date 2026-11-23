@@ -273,11 +273,17 @@ func TestRoleGrants(t *testing.T) {
 			// The daily upload budget's ledger (0045, ADR-0035): appended,
 			// counted and purged, never updated.
 			"media_upload_starts": {"SELECT", "INSERT", "DELETE"},
-			// Academic reference data (0046, ADR-0036): M4, read-only;
-			// its rows come by migration.
+			// Reference data (0046, 0047; ADR-0036, ADR-0037): M4,
+			// read-only; its rows come from db/referencedata through
+			// koala migrate up, as koala_owner.
 			"universities": {"SELECT"},
 			"faculties":    {"SELECT"},
 			"departments":  {"SELECT"},
+			"countries":    {"SELECT"},
+			"cities":       {"SELECT"},
+			"districts":    {"SELECT"},
+			// The lists' ETag (0047, ADR-0037).
+			"reference_data_version": {"SELECT"},
 			// The profile sync outbox (0046, ADR-0036): written by the
 			// profile changes, marked published by the dispatcher; never
 			// deleted by the application yet.

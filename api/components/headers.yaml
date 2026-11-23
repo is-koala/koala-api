@@ -43,6 +43,19 @@ components:
         pattern: '^([A-Za-z0-9_.:-]{8,255}|"[A-Za-z0-9_.:-]{8,255}")$'
         examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10, '"0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"']
 
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      description: |
+        RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
+        ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
+        yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
+        birleştirilir (RFC 9110 §5.3).
+      schema:
+        type: string
+        maxLength: 1024
+        examples: ['"reference-v1.1"']
+
     XRequestId:
       name: X-Request-Id
       in: header
@@ -106,6 +119,19 @@ components:
         $ref: "#/components/schemas/ClientPlatform"
 
   headers:
+    ETag:
+      description: |
+        RFC 9110 §8.8.3. Temsilin sürümü; istemci onu `If-None-Match`'te geri gönderir.
+      required: true
+      schema:
+        type: string
+        examples: ['"reference-v1.1"']
+    CacheControl:
+      description: RFC 9111 §5.2. Yanıtın önbellekte ne kadar ve kimde tutulabileceği.
+      required: true
+      schema:
+        type: string
+        examples: ["public, max-age=86400"]
     IdempotentReplayed:
       description: |
         `true`: yanıt, aynı `Idempotency-Key` ve aynı istekle önceden verilmiş yanıtın

@@ -22,6 +22,7 @@ commands:
   serve        run the HTTP server
   bootstrap    create the database group roles (idempotent; before migrate)
   migrate      apply database migrations: up, down, status (goose)
+  reference    sync the reference data with the built-in files: sync [--dry-run]
   maint        maintenance tasks for scheduled ops jobs: reindex, audit-purge
   staff        staff accounts as koala_maint: create, disable
   healthcheck  probe the local server's /livez (Docker HEALTHCHECK)
@@ -53,6 +54,8 @@ func Run(ctx context.Context, args []string, sio IO) int {
 		return runBootstrap(ctx, rest, sio)
 	case "migrate":
 		return runMigrate(ctx, rest, sio)
+	case "reference":
+		return runReference(ctx, rest, sio)
 	case "maint":
 		return runMaint(ctx, rest, sio)
 	case "staff":
