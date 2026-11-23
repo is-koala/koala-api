@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -534,5 +535,79 @@ func TestSearchWithoutProvider(t *testing.T) {
 		http.StatusBadGateway, string(address.CodeProviderUnavailable))
 	if n := a.text(t, "SELECT count(*)::text FROM address_lookups"); n != "0" {
 		t.Errorf("MED-013: ledger rows = %s, want none", n)
+	}
+}
+
+// The cap of AddressesPerUser holds under concurrency: the count and the
+// insert happen under the caller's row lock (lockOwner, FOR UPDATE), so
+// racing creates cannot pass it together. Without the lock, more than one
+// of the racers would land.
+func TestAddressLimitHoldsUnderConcurrency(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	tok := a.addSignedIn(t, "yaris@example.com")
+	for i := range address.AddressesPerUser - 1 {
+		wantStatus(t, a.createAddress(t, tok, addressBody(kadikoyDistrict, "Sokak "+strconv.Itoa(i))), http.StatusCreated, "")
+	}
+	const racers = 6
+	codes := make([]int, racers)
+	var wg sync.WaitGroup
+	for i := range racers {
+		wg.Go(func() {
+			codes[i] = a.createAddress(t, tok, addressBody(kadikoyDistrict, "Yarış "+strconv.Itoa(i))).Code
+		})
+	}
+	wg.Wait()
+	created := 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusCreated:
+			created++
+		case http.StatusConflict:
+		default:
+			t.Errorf("a racing create answered %d", c)
+		}
+	}
+	if created != 1 {
+		t.Fatalf("%d racing creates passed the cap, want 1 (%v)", created, codes)
+	}
+	if n := a.text(t, "SELECT count(*)::text FROM active_addresses a JOIN active_users u ON u.id = a.user_id WHERE u.email = $1",
+		"yaris@example.com"); n != strconv.Itoa(address.AddressesPerUser) {
+		t.Fatalf("%s addresses, want %d", n, address.AddressesPerUser)
+	}
+}
+
+// The service's cap holds under concurrency: every reservation counts and
+// spends under one advisory lock (LockLookups), so racing starts of
+// different users from different addresses cannot pass it together.
+func TestLookupCapHoldsUnderConcurrency(t *testing.T) {
+	t.Parallel()
+	const limit = 3
+	a := newAuthAppWith(t, unlimitedGroups(), config.Maps{Driver: config.MapsDriverFake, LookupsPerDay: limit})
+	const racers = 8
+	toks := make([]string, racers)
+	for i := range racers {
+		toks[i] = a.addSignedIn(t, "tavan"+strconv.Itoa(i)+"@example.com")
+	}
+	codes := make([]int, racers)
+	var wg sync.WaitGroup
+	for i := range racers {
+		wg.Go(func() {
+			codes[i] = a.callFrom(t, "198.51.100."+strconv.Itoa(10+i), http.MethodPost, "/v1/me/address-search-sessions", toks[i], "").Code
+		})
+	}
+	wg.Wait()
+	created := 0
+	for _, c := range codes {
+		switch c {
+		case http.StatusCreated:
+			created++
+		case http.StatusBadGateway:
+		default:
+			t.Errorf("a racing start answered %d", c)
+		}
+	}
+	if created != limit {
+		t.Fatalf("%d racing starts passed, want the cap %d (%v)", created, limit, codes)
 	}
 }

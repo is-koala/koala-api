@@ -207,6 +207,8 @@ KVKK'nın yurt dışı aktarım kararı hukuk konusu ve açık (Açık sorular 2
 | Başkasının adresine bağ | Bağ kurulur | `TestProfilePrimaryAddressLink` |
 | Yanlış parola bağı da geri alır | Bağ yazılır | `TestProfilePrimaryAddressLink` |
 | Adres sınırı (10) | 11. eklenir | `TestAddressRulesOverHTTP` |
+| Sınır eşzamanlılıkta (kullanıcının satır kilidi) | Yarışan eklemelerden birden çoğu geçer | `TestAddressLimitHoldsUnderConcurrency` |
+| Tavan eşzamanlılıkta (`LockLookups`) | Yarışan başlatmalar tavanı aşar | `TestLookupCapHoldsUnderConcurrency` |
 | İlçe ilinin ilçesi | Çankaya İstanbul'a eklenir | `TestAddressRulesOverHTTP` |
 | Hizmet alanı listeden | Ankara İstanbul alanında çözülür | `TestServiceAreaIsTheConfiguredCities`, `TestResolvedServiceArea` |
 | Sınırlama listeden türer, çok il | Ankara iki illi alanda önerilmez | `TestServiceAreaIsTheConfiguredCities` |
@@ -216,7 +218,7 @@ KVKK'nın yurt dışı aktarım kararı hukuk konusu ve açık (Açık sorular 2
 | Anahtar hataya düşmez | Hata URL taşır | `TestFailures` |
 | Production'da sahte sürücü | Açılır | `TestLoadRejectsBadMapsValues`, `TestServeMapsErrors` |
 
-**Denenmeyenler:** eşzamanlı eklemeyle adres sınırı (kilit eğitim kaydının kalıbıdır, `TestEducationLimitHoldsUnderConcurrency` gibi bir test yazılmadı); eşzamanlı rezervasyonla tavan (aynı advisory kilit; eşzamanlı test yok); profil yaması ile adres silmenin eşzamanlı yarışı; `Restore` bu kenarlarla. Sınır önbelleğinin 24 saatlik süresi ve 10 dakikalık yeniden deneme saatle sınanmadı.
+**Denenmeyenler:** profil yaması ile adres silmenin eşzamanlı yarışı (kilit sırası kod incelemesiyle); `Restore` bu kenarlarla; eşzamanlı rezervasyonda kullanıcı ve adres bütçesi (tavanla aynı kilit, yalnız tavan eşzamanlı sınandı). Sınır önbelleğinin 24 saatlik süresi ve 10 dakikalık yeniden deneme saatle sınanmadı; `fake` sürücüsü sınır sorgusunun başarısızlığını üretemez. CI'da koşmadan önce hiçbir test yerelde koşturulmadı (yerelde ağır iş yok).
 
 ## Java paritesi
 
