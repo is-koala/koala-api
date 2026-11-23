@@ -23,7 +23,7 @@ Bu sayfa yalnız açıklamadır; kararlar ve gerekçeleri ADR-0013 ve ADR-0017'd
 
 ## Yayın
 
-`scripts/release-db.sh <imaj>` yeni imaj trafiğe açılmadan önce çalışır: önce `koala bootstrap`, sonra `koala migrate up`. Biri başarısız olursa yayın durur. `koala migrate down` production'da reddedilir; geri dönüş ileri bir migration ya da yedekten dönüşle yapılır.
+`scripts/release-db.sh <imaj>` yeni imaj trafiğe açılmadan önce çalışır: önce `koala bootstrap`, sonra `koala migrate up`. Biri başarısız olursa yayın durur. `migrate up` migration'lardan sonra referans verisini imajdaki dosyalara eşitler ve tablo başına eklenen, güncellenen, emekliye ayrılan ve değişmeyen satır sayılarını log'a yazar; aynı özeti yayından önce `koala reference sync --dry-run` hiçbir şey yazmadan verir (ADR-0037). `koala migrate down` production'da reddedilir; geri dönüş ileri bir migration ya da yedekten dönüşle yapılır.
 
 ## Haftalık bakım: River indeksleri
 
