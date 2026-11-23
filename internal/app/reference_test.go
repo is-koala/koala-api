@@ -51,7 +51,10 @@ func TestReferenceHasNoWriteOperation(t *testing.T) {
 			read[table] = true
 		}
 	}
-	if len(read) != len(tables) {
-		t.Errorf("the reference operations read %v; want one list per table %v", slices.Sorted(maps.Keys(read)), tables)
+	// The departments' source codes have no list: they match next year's
+	// YÖK list to the rows and are not served (ADR-0038).
+	listed := slices.DeleteFunc(slices.Clone(tables), func(table string) bool { return table == "department_source_codes" })
+	if len(listed) != len(tables)-1 || !slices.Equal(slices.Sorted(maps.Keys(read)), slices.Sorted(slices.Values(listed))) {
+		t.Errorf("the reference operations read %v; want one list per table %v", slices.Sorted(maps.Keys(read)), listed)
 	}
 }

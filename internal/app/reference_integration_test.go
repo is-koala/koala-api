@@ -140,8 +140,8 @@ func TestReferenceOverHTTP(t *testing.T) {
 	inTurkishOrder(t, districts)
 
 	universities := a.list(t, "/v1/reference/universities")
-	if len(universities) != 223 {
-		t.Fatalf("%d universities, want 223", len(universities))
+	if len(universities) != 231 {
+		t.Fatalf("%d universities, want 231", len(universities))
 	}
 	// Under the root collation IŞIK sorts before ISPARTA (Ş with S) and
 	// İBN HALDUN first of all (İ with I); under the byte order IĞDIR
@@ -230,7 +230,7 @@ func TestReferenceListsHideRetiredRows(t *testing.T) {
 	universities := a.list(t, "/v1/reference/universities")
 	odtu := named(t, universities, "ORTA DOĞU TEKNİK ÜNİVERSİTESİ")
 	retire("universities", odtu.ID)
-	if got := a.list(t, "/v1/reference/universities"); len(got) != 222 || position(got, odtu.Name) >= 0 {
+	if got := a.list(t, "/v1/reference/universities"); len(got) != 230 || position(got, odtu.Name) >= 0 {
 		t.Errorf("after retiring ODTÜ: %d universities", len(got))
 	}
 	gone("/v1/reference/universities/" + odtu.ID.String() + "/faculties")
@@ -279,9 +279,9 @@ func TestReferenceOrderBreaksTiesByID(t *testing.T) {
 		{"INSERT INTO faculties (id, university_id, name) VALUES ($1, 'a1c346d6-2872-4194-9b98-3f0ea5b838ec', 'Sıra Fakültesi')", []any{faculty}},
 		// The larger id first: a heap scan without the id tie-break would
 		// return it first.
-		{"INSERT INTO departments (id, faculty_id, name) VALUES ($1, $2, 'Aynı Ad')", []any{high, faculty}},
-		{"INSERT INTO departments (id, faculty_id, name) VALUES ($1, $2, 'Aynı Ad')", []any{low, faculty}},
-		{"INSERT INTO departments (id, faculty_id, name) VALUES ($1, $2, 'Ayna')", []any{uuid.New(), faculty}},
+		{"INSERT INTO departments (id, faculty_id, degree, name) VALUES ($1, $2, 'BACHELOR', 'Aynı Ad')", []any{high, faculty}},
+		{"INSERT INTO departments (id, faculty_id, degree, name) VALUES ($1, $2, 'BACHELOR', 'Aynı Ad')", []any{low, faculty}},
+		{"INSERT INTO departments (id, faculty_id, degree, name) VALUES ($1, $2, 'BACHELOR', 'Ayna')", []any{uuid.New(), faculty}},
 	} {
 		if _, err := owner.Pool().Exec(t.Context(), stmt.sql, stmt.args...); err != nil {
 			t.Fatal(err)
@@ -311,7 +311,7 @@ func TestReferenceListsAreCacheable(t *testing.T) {
 		"/v1/reference/universities/b8cf7211-a21b-4e1f-ad1a-7bacdd914fc3/faculties",
 		"/v1/reference/faculties/a8004de5-6f16-41ea-9841-42ed646684cf/departments",
 	}
-	const tag = `"reference-v1.1"`
+	const tag = `"reference-v2.1"`
 	for _, path := range paths {
 		rec := a.conditional(t, path)
 		wantStatus(t, rec, http.StatusOK, "")
@@ -342,17 +342,23 @@ func TestReferenceListsAreCacheable(t *testing.T) {
 		t.Fatalf("reference sync: exit %d\n%s\n%s", code, stdout, stderr)
 	}
 	rec := a.conditional(t, "/v1/reference/universities", tag)
-	if rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"reference-v1.2"` ||
+	if rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"reference-v2.2"` ||
 		position(decodeBody[referenceList](t, rec).Items, "ADIYAMAN ÜNİVERSİTESİ") < 0 {
 		t.Fatalf("after the repair with the old tag: %d, ETag %q", rec.Code, rec.Header().Get("ETag"))
 	}
 
-	if _, err := owner.Pool().Exec(t.Context(), "UPDATE reference_data_version SET version = 2"); err != nil {
+	if _, err := owner.Pool().Exec(t.Context(), "UPDATE reference_data_version SET version = 3"); err != nil {
 		t.Fatal(err)
 	}
-	rec = a.conditional(t, paths[0], `"reference-v1.2"`)
-	if rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"reference-v2.2"` {
-		t.Fatalf("after version 2 with the old tag: %d, ETag %q", rec.Code, rec.Header().Get("ETag"))
+	rec = a.conditional(t, paths[0], `"reference-v2.2"`)
+	if rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"reference-v3.2"` {
+		t.Fatalf("after version 3 with the old tag: %d, ETag %q", rec.Code, rec.Header().Get("ETag"))
+	}
+	// A filtered list is the same representation's selection: it carries
+	// the same tag and answers the same If-None-Match.
+	filtered := a.conditional(t, "/v1/reference/universities?degree=ASSOCIATE", `"reference-v3.2"`)
+	if filtered.Code != http.StatusNotModified || filtered.Header().Get("ETag") != `"reference-v3.2"` {
+		t.Fatalf("a filtered list with the current tag: %d, ETag %q", filtered.Code, filtered.Header().Get("ETag"))
 	}
 }
 
@@ -366,9 +372,9 @@ func TestEducationOnTheSeededReference(t *testing.T) {
 	a := newAuthApp(t, unlimitedGroups())
 	tok := a.addSignedIn(t, "odtu@example.com")
 
-	odtu := named(t, a.list(t, "/v1/reference/universities"), "ORTA DOĞU TEKNİK ÜNİVERSİTESİ")
-	faculty := a.list(t, "/v1/reference/universities/"+odtu.ID.String()+"/faculties")[0]
-	department := a.list(t, "/v1/reference/faculties/"+faculty.ID.String()+"/departments")[0]
+	odtu := named(t, a.list(t, "/v1/reference/universities?degree=BACHELOR"), "ORTA DOĞU TEKNİK ÜNİVERSİTESİ")
+	faculty := a.list(t, "/v1/reference/universities/"+odtu.ID.String()+"/faculties?degree=BACHELOR")[0]
+	department := a.list(t, "/v1/reference/faculties/"+faculty.ID.String()+"/departments?degree=BACHELOR")[0]
 
 	rec := a.createEducation(t, tok, educationBody(odtu.ID, &faculty.ID, &department.ID, 2010, year(2014)))
 	wantStatus(t, rec, http.StatusCreated, "")
@@ -424,7 +430,7 @@ func TestReferenceSyncCommand(t *testing.T) {
 	for _, stmt := range []string{
 		"UPDATE universities SET name = 'ELLE DEĞİŞTİRİLDİ' WHERE id = '" + university + "'",
 		"UPDATE departments SET retired_at = now() WHERE id = '" + department + "'",
-		"INSERT INTO departments (id, faculty_id, name) VALUES ('" + extra.String() + "', '" + faculty + "', 'Fazladan Bölüm')",
+		"INSERT INTO departments (id, faculty_id, degree, name) VALUES ('" + extra.String() + "', '" + faculty + "', 'BACHELOR', 'Fazladan Bölüm')",
 	} {
 		if _, err := owner.Pool().Exec(t.Context(), stmt); err != nil {
 			t.Fatal(err)
@@ -451,7 +457,8 @@ func TestReferenceSyncCommand(t *testing.T) {
 	}
 	wantSummary := map[string][4]int{
 		"countries": {0, 0, 0, 1}, "cities": {0, 0, 0, 81}, "districts": {0, 0, 0, 973},
-		"universities": {0, 1, 0, 222}, "faculties": {0, 0, 0, 2043}, "departments": {0, 1, 1, 7566},
+		"universities": {0, 1, 0, 230}, "faculties": {0, 0, 0, 3022}, "departments": {0, 1, 1, 14710},
+		"department_source_codes": {0, 0, 0, 9254},
 	}
 	// The rows, each with its id and name: the rename with both names, the
 	// department back in use, the one retired.
@@ -462,7 +469,7 @@ func TestReferenceSyncCommand(t *testing.T) {
 	}
 
 	s, stdout := syncCmd("reference", "sync", "--dry-run")
-	if !strings.Contains(stdout, "dry run: nothing was written") || !strings.Contains(stdout, "data version 1, database version 1") {
+	if !strings.Contains(stdout, "dry run: nothing was written") || !strings.Contains(stdout, "data version 2, database version 2") {
 		t.Fatalf("dry run: stdout %s; want the dry run and the versions said", stdout)
 	}
 	if !maps.Equal(s, wantSummary) {
@@ -494,7 +501,7 @@ func TestReferenceSyncCommand(t *testing.T) {
 			t.Errorf("third run: %s %v, want nothing to do", table, n)
 		}
 	}
-	if len(s) != 6 || strings.Contains(stdout, "\n+ ") || strings.Contains(stdout, "\n- ") {
+	if len(s) != 7 || strings.Contains(stdout, "\n+ ") || strings.Contains(stdout, "\n- ") {
 		t.Errorf("third run: %v\n%s", s, stdout)
 	}
 }
@@ -508,11 +515,11 @@ func TestMigrateUpHoldsTheRetireLimit(t *testing.T) {
 	d := dbtest.New(t)
 	owner := d.Open(t, db.RoleOwner)
 	environ := []string{"KOALA_ENV=test", "KOALA_OWNER_DATABASE_URL=" + d.URL(db.RoleOwner)}
-	// 400 departments the files do not list: with 7,967 rows in use the
-	// limit is 398 (5 %), so retiring them all is above it.
+	// 800 departments the files do not list: with 15,511 rows in use the
+	// limit is 775 (5 %), so retiring them all is above it.
 	if _, err := owner.Pool().Exec(t.Context(), `
-		INSERT INTO departments (id, faculty_id, name)
-		SELECT gen_random_uuid(), 'a8004de5-6f16-41ea-9841-42ed646684cf', 'Fazla ' || n FROM generate_series(1, 400) AS n`); err != nil {
+		INSERT INTO departments (id, faculty_id, degree, name)
+		SELECT gen_random_uuid(), 'a8004de5-6f16-41ea-9841-42ed646684cf', 'BACHELOR', 'Fazla ' || n FROM generate_series(1, 800) AS n`); err != nil {
 		t.Fatal(err)
 	}
 	inUse := func() int {
@@ -525,33 +532,146 @@ func TestMigrateUpHoldsTheRetireLimit(t *testing.T) {
 	}
 
 	code, stdout, _ := run([]string{"migrate", "up"}, environ...)
-	if code != ExitError || !strings.Contains(stdout, `"table":"departments"`) || !strings.Contains(stdout, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400@1") {
+	if code != ExitError || !strings.Contains(stdout, `"table":"departments"`) || !strings.Contains(stdout, "KOALA_REFERENCE_ALLOW_RETIRE=departments:800@2") {
 		t.Fatalf("migrate up over the limit: exit %d\n%s", code, stdout)
 	}
-	if n := inUse(); n != 7967 {
-		t.Fatalf("after the refusal %d departments in use, want 7967", n)
+	if n := inUse(); n != 15511 {
+		t.Fatalf("after the refusal %d departments in use, want 15511", n)
 	}
 	// An allowance left over from another data version lifts nothing and
 	// says so.
-	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400@2")...)
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:800@3")...)
 	if code != ExitError || !strings.Contains(stdout, "another data version and was ignored") {
-		t.Fatalf("an allowance for version 2: exit %d\n%s", code, stdout)
+		t.Fatalf("an allowance for version 3: exit %d\n%s", code, stdout)
 	}
-	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400@1")...)
-	if code != ExitOK || !strings.Contains(stdout, `"retired":400`) {
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:800@2")...)
+	if code != ExitOK || !strings.Contains(stdout, `"retired":800`) {
 		t.Fatalf("migrate up allowed: exit %d\n%s", code, stdout)
 	}
-	if n := inUse(); n != 7567 {
-		t.Fatalf("after the allowed sync %d departments in use, want 7567", n)
+	if n := inUse(); n != 14711 {
+		t.Fatalf("after the allowed sync %d departments in use, want 14711", n)
 	}
 	// The allowance stays set in the next release: nothing to retire, it
 	// lifts nothing and the up succeeds.
-	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400@2")...)
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:800@3")...)
 	if code != ExitOK || !strings.Contains(stdout, "reference allowance ignored") {
 		t.Fatalf("a stale allowance with nothing to retire: exit %d\n%s", code, stdout)
 	}
 	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=users:1@1")...)
 	if code != ExitError || !strings.Contains(stdout, "KOALA_REFERENCE_ALLOW_RETIRE") {
 		t.Fatalf("an allowance for another table: exit %d\n%s", code, stdout)
+	}
+}
+
+// TestReferenceListsFilterByDegree: the academic lists take the degree of
+// an education record (ADR-0038). ASSOCIATE lists the associate degree
+// programs and the faculties and universities that have one in use; every
+// other degree lists the bachelor's programs (MASTER as BACHELOR); without
+// one the lists are whole. A parent whose children are all of the other
+// degree is an empty list, not a 404, and a degree outside the contract is
+// refused before the handler. Each retired_at filter inside the degree
+// filters is bound by a step of its own.
+func TestReferenceListsFilterByDegree(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	owner := a.dbt.Open(t, db.RoleOwner)
+	const (
+		thk     = "/v1/reference/universities/20b200c7-d3d3-4e77-ba67-2b01c96b92a8/faculties"
+		myo     = "ac516b1c-e4df-5e38-9798-b8517d93a586" // Ankara Havacılık MYO
+		aof     = "/v1/reference/faculties/75739eb2-88b3-403d-a2d4-5ea29f72db64/departments"
+		konakID = "8e80d3bd-d3f9-5731-8968-ee80cd0efee1" // İZMİR KONAK MESLEK YÜKSEKOKULU
+	)
+	ids := func(items []referenceItem) []uuid.UUID {
+		out := make([]uuid.UUID, 0, len(items))
+		for _, it := range items {
+			out = append(out, it.ID)
+		}
+		return out
+	}
+
+	// Universities: 197 with an associate program, 223 with a bachelor's.
+	all := a.list(t, "/v1/reference/universities")
+	associate := a.list(t, "/v1/reference/universities?degree=ASSOCIATE")
+	bachelor := a.list(t, "/v1/reference/universities?degree=BACHELOR")
+	if len(all) != 231 || len(associate) != 197 || len(bachelor) != 223 {
+		t.Fatalf("universities: %d, %d with an associate program, %d with a bachelor's; want 231, 197, 223",
+			len(all), len(associate), len(bachelor))
+	}
+	if position(associate, "İZMİR KONAK MESLEK YÜKSEKOKULU") < 0 || position(bachelor, "İZMİR KONAK MESLEK YÜKSEKOKULU") >= 0 ||
+		position(associate, "ORTA DOĞU TEKNİK ÜNİVERSİTESİ") >= 0 || position(bachelor, "ORTA DOĞU TEKNİK ÜNİVERSİTESİ") < 0 {
+		t.Errorf("İzmir Konak MYO teaches associate programs only, ODTÜ bachelor's only")
+	}
+	for _, degree := range []string{"MASTER", "DOCTORATE"} {
+		if got := a.list(t, "/v1/reference/universities?degree="+degree); !slices.Equal(ids(got), ids(bachelor)) {
+			t.Errorf("%s: %d universities, want the bachelor's list", degree, len(got))
+		}
+	}
+
+	// Faculties: Türk Hava Kurumu's two vocational schools and its four
+	// faculties.
+	faculties := a.list(t, thk)
+	thkAssociate := a.list(t, thk+"?degree=ASSOCIATE")
+	thkBachelor := a.list(t, thk+"?degree=BACHELOR")
+	if len(faculties) != 6 || len(thkAssociate) != 2 || len(thkBachelor) != 4 ||
+		position(thkAssociate, "Ankara Havacılık Meslek Yüksekokulu") < 0 || position(thkBachelor, "Mühendislik Fakültesi") < 0 {
+		t.Fatalf("THK faculties: %+v; associate %+v; bachelor %+v", faculties, thkAssociate, thkBachelor)
+	}
+
+	// Departments: Atatürk's Açıköğretim Fakültesi teaches both degrees.
+	departments := a.list(t, aof)
+	aofAssociate := a.list(t, aof+"?degree=ASSOCIATE")
+	aofBachelor := a.list(t, aof+"?degree=BACHELOR")
+	if len(aofAssociate) == 0 || len(aofBachelor) == 0 || len(aofAssociate)+len(aofBachelor) != len(departments) {
+		t.Fatalf("Açıköğretim: %d departments, %d associate, %d bachelor's", len(departments), len(aofAssociate), len(aofBachelor))
+	}
+	if position(aofAssociate, "Halkla İlişkiler ve Tanıtım (Önlisans) (Açıköğretim)") < 0 ||
+		position(aofBachelor, "Halkla İlişkiler ve Tanıtım (Açıköğretim)") < 0 ||
+		position(aofAssociate, "Halkla İlişkiler ve Tanıtım (Açıköğretim)") >= 0 {
+		t.Errorf("Açıköğretim's two Halkla İlişkiler programs are not where their degrees say")
+	}
+	// A vocational school has no bachelor's program: an empty list.
+	if got := a.list(t, "/v1/reference/faculties/"+myo+"/departments?degree=BACHELOR"); len(got) != 0 {
+		t.Errorf("Ankara Havacılık MYO's bachelor's programs: %+v", got)
+	}
+	if got := a.list(t, "/v1/reference/universities/"+konakID+"/faculties?degree=BACHELOR"); len(got) != 0 {
+		t.Errorf("İzmir Konak MYO's faculties with a bachelor's program: %+v", got)
+	}
+	for _, path := range []string{"/v1/reference/universities?degree=PHD", thk + "?degree=associate", aof + "?degree=LISANS"} {
+		wantStatus(t, a.call(t, http.MethodGet, path, "", ""), http.StatusBadRequest, "REQUEST_INVALID")
+	}
+
+	// The retired_at filters inside the degree filters, one at a time.
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := owner.Pool().Exec(t.Context(), sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A retired associate program leaves the list of its degree.
+	retired := named(t, aofAssociate, "Halkla İlişkiler ve Tanıtım (Önlisans) (Açıköğretim)")
+	exec("UPDATE departments SET retired_at = now() WHERE id = $1", retired.ID)
+	if got := a.list(t, aof+"?degree=ASSOCIATE"); len(got) != len(aofAssociate)-1 || position(got, retired.Name) >= 0 {
+		t.Errorf("after retiring %q: %d associate programs", retired.Name, len(got))
+	}
+	// A faculty whose associate programs are all retired leaves the
+	// faculties with one (ListFaculties' EXISTS).
+	exec("UPDATE departments SET retired_at = now() WHERE faculty_id = $1", myo)
+	if got := a.list(t, thk+"?degree=ASSOCIATE"); len(got) != 1 || position(got, "Ankara Havacılık Meslek Yüksekokulu") >= 0 {
+		t.Errorf("after retiring Ankara Havacılık MYO's programs: %+v", got)
+	}
+	// A university whose only school is retired, with its programs in
+	// use, leaves the universities with one (ListUniversities' faculty
+	// filter).
+	exec("UPDATE faculties SET retired_at = now() WHERE university_id = $1", konakID)
+	if got := a.list(t, "/v1/reference/universities?degree=ASSOCIATE"); len(got) != 196 || position(got, "İZMİR KONAK MESLEK YÜKSEKOKULU") >= 0 {
+		t.Errorf("after retiring İzmir Konak's school: %d universities", len(got))
+	}
+	// A university whose faculties are in use but whose associate programs
+	// are all retired leaves it too (ListUniversities' department filter):
+	// Türk Hava Kurumu, once İzmir Havacılık MYO's programs follow.
+	exec(`UPDATE departments SET retired_at = now() WHERE faculty_id IN (
+		SELECT id FROM faculties WHERE university_id = '20b200c7-d3d3-4e77-ba67-2b01c96b92a8')`)
+	if got := a.list(t, "/v1/reference/universities?degree=ASSOCIATE"); len(got) != 195 || position(got, "TÜRK HAVA KURUMU ÜNİVERSİTESİ") >= 0 {
+		t.Errorf("after retiring THK's programs: %d universities", len(got))
 	}
 }

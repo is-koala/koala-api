@@ -1,26 +1,29 @@
 # Referans verisi
 
-M4 referans tablolarının satırları (ADR-0029 Karar 8, ADR-0036 Karar 7, ADR-0037). Dosyalar ikiliye gömülür; `koala migrate up` migration'lardan sonra tabloları bu dosyalara eşitler (`Sync`), `koala reference sync --dry-run` yazacağı her satırı gösterir ve hiçbir şeyi değiştirmez. Bu düzen ADR-0012 Karar 3'ün `0002_seed.sql`'inin yerine geçer.
+M4 referans tablolarının satırları (ADR-0029 Karar 8, ADR-0036 Karar 7, ADR-0037, ADR-0038). Dosyalar ikiliye gömülür; `koala migrate up` migration'lardan sonra tabloları bu dosyalara eşitler (`Sync`), `koala reference sync --dry-run` yazacağı her satırı gösterir ve hiçbir şeyi değiştirmez. Bu düzen ADR-0012 Karar 3'ün `0002_seed.sql`'inin yerine geçer.
 
 | Dosya | Tablo | Ebeveyn | Satır |
 |---|---|---|---|
 | `countries.csv` | `countries` | — | 1 |
 | `cities.csv` | `cities` | `country_id` | 81 |
 | `districts.csv` | `districts` | `city_id` | 973 |
-| `universities.csv` | `universities` | — | 223 |
-| `faculties.csv` | `faculties` | `university_id` | 2.043 |
-| `departments.csv` | `departments` | `faculty_id` | 7.567 |
-| `VERSION` | `reference_data_version` | — | sürüm 1 |
+| `universities.csv` | `universities` | — | 231 |
+| `faculties.csv` | `faculties` | `university_id` | 3.022 |
+| `departments.csv` | `departments` | `faculty_id` | 14.711 (7.567 `BACHELOR`, 7.144 `ASSOCIATE`) |
+| `department_source_codes.csv` | `department_source_codes` | `department_id` | 9.254 |
+| `VERSION` | `reference_data_version` | — | sürüm 2 |
 
-Sayılar testle bağlıdır (`TestDatasetCounts`, `TestTemplateHoldsTheReferenceData`, `TestMigrateCommand`); bir dosyayı değiştiren PR bu tabloyu, `VERSION`'ı ve testleri birlikte günceller.
+Sayılar testle bağlıdır (`TestDatasetCounts`, `TestTemplateHoldsTheReferenceData`, `TestMigrateCommand`); bir dosyayı değiştiren PR bu tabloyu, `VERSION`'ı ve testleri birlikte günceller. Sürüm 1, Java'nın lisans verisiydi (223 / 2.043 / 7.567); sürüm 2 YÖK'ün önlisans programlarını ekledi ve hiçbir satırı değiştirmedi ya da emekliye ayırmadı (ADR-0038 Karar 8).
 
 ## Kurallar
 
-- Biçim RFC 4180 CSV, UTF-8, ilk satır başlıktır. Başlık ve kolon sırası dosyaya göre sabittir: `id,name`; `id,<ebeveyn>_id,name`; ülkelerde `id,code,name`.
+- Biçim RFC 4180 CSV, UTF-8, ilk satır başlıktır. Başlık ve kolon sırası dosyaya göre sabittir: `id,name`; `id,<ebeveyn>_id,name`; ülkelerde `id,code,name`; bölümlerde `id,faculty_id,degree,name`; kodlarda `code,department_id`.
+- **Bölümün derecesi** (`degree`) `ASSOCIATE` (önlisans) ya da `BACHELOR` (lisans) değeridir ve değişmez: derecesi değişen bölüm, taşınan satır gibi reddedilir (ADR-0038 Karar 2). Meslek yüksekokulu bir fakülte satırıdır; derece birimin değil programın özelliğidir.
+- **Kaynak kodu** (`department_source_codes.csv`) ÖSYM program kodudur (9 hane). Kontenjan varyantları birleşen bir bölüm her varyantın kodunu taşır. Kod tekildir, dosyadaki bir bölümü adlandırır, başka bölüme taşınmaz (eşitleme reddeder). Düşen kod emekliye ayrılır ve emeklilik sınırı koda da ayrıca uygulanır. Lisans bölümlerinin kodu henüz yok (ADR-0038 Karar 5).
 - Dosya **kullanımdaki** satırları listeler. Dosyadan düşen satır silinmez, emekliye ayrılır (`retired_at`); geri gelen satır yeniden etkinleşir.
 - **`VERSION` her değişiklikte artar.** Veritabanında daha yeni bir sürüm varsa (eski imaja geri alınmış bir yayın) eşitleme hiçbir şey yazmaz ve bir uyarı basar; veriyi geri götürmez. Aynı sürüm yeniden eşitlenebilir (elle yapılmış bir sapmayı onarır).
 - **Kimlik hiç değişmez.** Adı değişen satır aynı kimlikle kalır. Başka bir ebeveynin altına taşınan satır yeni bir satırdır ve yeni kimlik alır; araç eski kimliği başka ebeveynle görürse reddeder (eğitim kaydı (fakülte, üniversite) çiftini tutar, ADR-0036 Karar 6). İlk yükleme bunun tek istisnasıydı: hiçbir veritabanı satırları tutmuyordu (aşağıda İYTE ve fakülte birleştirmesi).
-- Yeni satırın kimliği UUIDv7'dir (ADR-0012 Karar 5); başka bir kayıttan türetilmez.
+- Elle eklenen yeni satırın kimliği UUIDv7'dir (ADR-0012 Karar 5). **YÖK'ten gelen** yeni satırın kimliği YÖK kodundan türeyen bir UUIDv5'tir: namespace `c1f995d4-bea2-5c30-870f-ea391ab09716`, ad `yok:university:<YÖK id>`, `yok:unit:<YÖK birim id>` ya da `osym:<program kodu>` (ADR-0038 Karar 6). Aynı kaynak aynı kimliği üretir; var olan satır kimliğini korur.
 - Ebeveyni dosyada olmayan satır reddedilir: bir üniversiteyi düşürmek fakültelerini ve bölümlerini de düşürmeyi gerektirir.
 - Ad 1–200 karakterdir; baştaki ve sondaki boşluk, kontrol karakteri ve görünmez biçim karakteri (Cf: U+200B, U+202E, U+FEFF…) reddedilir. Aynı ebeveyn altında aynı ad kısıtla engellenmez; temizlenmiş veride yoktur.
 - **Emeklilik sınırı:** bir tablonun kullanımdaki satırlarının %5'inden (en az 10) fazlasını emekliye ayıracak eşitleme hiçbir şey yazmadan durur. Yalnız başlık satırı kalmış bir dosya böyle yakalanır. Bilinçli bir büyük emeklilik `--allow-retire=<tablo>:<n>@<sürüm>` ya da `KOALA_REFERENCE_ALLOW_RETIRE` ister; izin yalnız adlandırdığı veri sürümüne eşitlemede geçerlidir (ADR-0037 Karar 3a).
@@ -28,9 +31,10 @@ Sayılar testle bağlıdır (`TestDatasetCounts`, `TestTemplateHoldsTheReference
 ## Kaynak
 
 - **Anlık görüntü:** Java `is-koala/koala-backend` `origin/main` 0cbbce69, `src/main/resources/db/changelog/data/*.csv`. Kimlikler Java'nınkilerle aynıdır.
-- **Akademik veri** (üniversite, fakülte, bölüm): Yükseköğretim Kurulu'nun (YÖK) kamuya açık lisans programı listelerinden; Java'daki satırların tarihi 22.08.2025. Önlisans programları (meslek yüksekokulları) **yoktur**; ayrı bir PR'da eklenecek (Yusuf onayladı, 23.11.2026).
+- **Akademik veri, lisans** (sürüm 1): Yükseköğretim Kurulu'nun (YÖK) kamuya açık lisans programı listelerinden; Java'daki satırların tarihi 22.08.2025.
+- **Akademik veri, önlisans** (sürüm 2, ADR-0038; Yusuf onayladı, 23.11.2026): YÖK Atlas, 2026 ÖSYM tercih kılavuzunun önlisans programları. Çekim tarihi 23.11.2026. Uç `POST https://yokatlas.yok.gov.tr/api/tercih-kilavuz/search`, gövde `{"filters":{"birimTuruId":47},"page":0,"size":10000,"sortBy":"basariSirasi","direction":"ASC"}`; 9.254 kayıt tek yanıtta geldi. Uç, YÖK Atlas sayfasının (`https://yokatlas.yok.gov.tr/onlisans-anasayfa.php`, tek sayfalık uygulama) kendi kullandığı açık uçtur ve kimlik istemez. `https://yokatlas.yok.gov.tr/robots.txt` yönerge taşımıyor. Toplam 7 istek atıldı: `robots.txt`, ana sayfa, sayfanın betiği (uç adresini bulmak için), iki deneme isteği (2 ve 1.000 kayıt), tam liste, ve eşleşmeyen dokuz kurumun **lisans** birimleri (`birimTuruId` 46; ad değişikliklerini doğrulamak için, ADR-0038 Karar 4). Ham yanıt depoya girmez. Kılavuz yalnız o yıl öğrenci alan programları listeler.
 - **Yer verisi** (ülke, il, ilçe): Türkiye'nin 81 ili ve ilçeleri; Java'daki satırların tarihi 23.08.2025. Java'nın kaynağı belgelenmemiş.
-- **Lisans:** Kamu kurumlarının yayımladığı olgusal listelerdir; YÖK'ün bu listeler için açık bir veri lisansı yayımladığı doğrulanamadı (ADR-0037, açık soru). Dosyalar yalnız Koala'nın referans tablolarını doldurmak için tutulur.
+- **Lisans:** Kamu kurumlarının yayımladığı olgusal listelerdir; YÖK'ün bu listeler için açık bir veri lisansı yayımladığı doğrulanamadı (ADR-0037, açık soru; önlisans için Yusuf bilerek onayladı). Dosyalar yalnız Koala'nın referans tablolarını doldurmak için tutulur.
 
 ## Dönüşüm ve temizlik (ADR-0037 Karar 4a)
 
@@ -57,9 +61,31 @@ python3 -I db/referencedata/tools/clean.py db/referencedata
 
 Öğretim dili ("(İngilizce)"), uzaktan öğretim ve açıköğretim, ortak lisans programları ("(UOLP-…)") ve yerleşke ("(Kahta)") programın parçası olarak kalır: YÖK onları ayrı program olarak listeler. İkinci öğretim (İÖ) ise aynı programın akşam öğretimidir ve ek sayılır.
 
+`clean.py` sürüm 2'de: kural 7 (fakülte, **derece**, eksiz ad) üzerinden gruplar ve birleşen bölümün kodlarını kalan bölüme taşır. `from_java.py` Java'nın bölümlerine `BACHELOR` yazar ve boş bir kod dosyası üretir.
+
+### Önlisans: `from_yok.py` (ADR-0038 Karar 7)
+
+```sh
+python3 -I db/referencedata/tools/from_yok.py <onlisans.json> db/referencedata
+python3 -I db/referencedata/tools/clean.py db/referencedata
+```
+
+`<onlisans.json>` yukarıdaki ucun yanıtıdır. Betik kuralları `clean.py`'den dosya yoluyla yükler (`QUOTA`, `without_quota`, `spaces`). İdempotenttir: aynı kaynakla ikinci koşu hiçbir şey değiştirmez, sonrasında `clean.py` de değiştirmez. Java'nın anlık görüntüsünden `from_java.py` → `clean.py` → `from_yok.py` → `clean.py` sürüm 2'nin dosyalarını bayt bayt üretir (23.11.2026'da denendi). Kurallar ve 2026'daki etkileri:
+
+| # | Kural | Etki |
+|---|---|---|
+| 1 | Kurum `tools/yok_universities.csv` ile eşleşir (YÖK kimliği → bizim kimlik ya da `new`); tabloda olmayan ya da adı farklı gelen kurum betiği durdurur | 197 kurum: 189 eşleşti (5'i ad değişikliği, eski adla kaldı), 8 yeni (4'ü bağımsız vakıf MYO) |
+| 2 | Var olan birim `tools/yok_units.csv` ile bağlanır; sonra türetilmiş kimlikle, sonra aynı üniversitede aynı adla | 7 birim bağlandı, 979 yeni fakülte (977 MYO) |
+| 3 | Aynı üniversitede aynı adı taşıyan iki YÖK birimi tek fakültedir | 1 |
+| 4 | Birim adı Türkçe büyük-küçük harfle yazılır ("Ankara Havacılık Meslek Yüksekokulu"); kısaltmalar ve iki istisna betikte | 979 |
+| 5 | Kontenjan ve ücret ekleri (`QUOTA`) birleşir: her (birim, eksiz ad) için tek bölüm, bütün kodlarıyla | 9.254 kayıt → 7.144 program |
+| 6 | Aynı birimde aynı adlı lisans programı varsa "(Önlisans)" eklenir, YÖK'ün yazımıyla | 2 |
+| 7 | Önlisans programı kodlarıyla eşleşir, sonra aynı birimde aynı ad ve dereceyle; başka birime düşen kod betiği durdurur | (ilk yükleme) |
+
 ## Yıllık güncelleme
 
-1. Yeni YÖK listesini mevcut satırlarla eşleştir: aynı ebeveyn altında aynı ad aynı kimliği korur, yeni satır yeni kimlik (UUIDv7) alır, kapanan program dosyadan çıkar. **Bu kural tek başına yetmez:** bir ad değiştiyse (yeni adla eski satır), bir program başka fakülteye geçtiyse ya da aynı ebeveyn altında aynı adı taşıyan iki satır oluştuysa eşleştirme belirsizdir; bu gruplar elle, kimlik kimlik eşleştirilir ve PR'da listelenir. Kararlı bir eşleştirme YÖK program kodunu ister (ADR-0037, açık soru).
+0. **Önlisans:** ucu yeniden çek, `from_yok.py` ve `clean.py`'yi koş. Programlar kodlarıyla eşleşir; kapanan program kodlarıyla birlikte dosyadan çıkar; yeni kurum ya da ad değişikliği betiği durdurur ve `tools/yok_universities.csv`'de karara bağlanır.
+1. Yeni YÖK listesini mevcut satırlarla eşleştir: aynı ebeveyn altında aynı ad aynı kimliği korur, yeni satır yeni kimlik (UUIDv7) alır, kapanan program dosyadan çıkar. **Bu kural tek başına yetmez:** bir ad değiştiyse (yeni adla eski satır), bir program başka fakülteye geçtiyse ya da aynı ebeveyn altında aynı adı taşıyan iki satır oluştuysa eşleştirme belirsizdir; bu gruplar elle, kimlik kimlik eşleştirilir ve PR'da listelenir. Kararlı bir eşleştirme YÖK program kodunu ister: önlisansta `department_source_codes.csv` bunu yapar, lisans bölümlerinin kodu henüz yok (ADR-0038 açık soru 1).
 2. Kontenjan ekleri ve benzeri yeni bozukluklar için `clean.py`'yi koş (gerekirse kuralı genişlet).
 3. `VERSION`'ı artır ve `referencedata_test.go`'daki `published()`'a yeni sürümün özet satırını ekle (eski satırlara dokunma; `TestVersionNamesTheData` doğru özeti hata iletisinde yazar); README'deki sayı tablosunu ve sayı testlerini aynı PR'da değiştir.
 4. Yayından önce `koala reference sync --dry-run` eklenecek, yeniden adlandırılacak, geri gelecek ve emekliye ayrılacak satırları kimlik ve adla yazar. Emeklilik sınırı aşılıyorsa ve bu bilinçliyse yayında `KOALA_REFERENCE_ALLOW_RETIRE=<tablo>:<n>@<yeni sürüm>` verilir; `koala migrate up` uygular. İzin yalnız o sürüme eşitlemede geçerlidir; sonraki yayında unutulursa yok sayılır ve uyarı basılır.

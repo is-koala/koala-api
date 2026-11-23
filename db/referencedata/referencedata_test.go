@@ -24,7 +24,8 @@ func load(t *testing.T) *Dataset {
 // TestDatasetCounts binds the embedded files to their row counts after the
 // cleanup (README.md): a file cut short, a lost line, a cleanup undone or
 // a file that stopped being embedded is red here, before any database is
-// involved.
+// involved. Version 2 added YÖK's associate degree programs (ADR-0038):
+// the bachelor's programs of version 1 are all still there.
 func TestDatasetCounts(t *testing.T) {
 	t.Parallel()
 
@@ -37,19 +38,141 @@ func TestDatasetCounts(t *testing.T) {
 		{"countries", d.Countries, 1},
 		{"cities", d.Cities, 81},
 		{"districts", d.Districts, 973},
-		{"universities", d.Universities, 223},
-		{"faculties", d.Faculties, 2043},
-		{"departments", d.Departments, 7567},
+		{"universities", d.Universities, 231},
+		{"faculties", d.Faculties, 3022},
+		{"departments", d.Departments, 14711},
 	} {
 		if len(tc.rows) != tc.want {
 			t.Errorf("%s: %d rows, want %d", tc.table, len(tc.rows), tc.want)
 		}
 	}
-	if d.Version != 1 {
-		t.Errorf("Version = %d, want 1", d.Version)
+	if n := len(d.DepartmentSourceCodes); n != 9254 {
+		t.Errorf("department_source_codes: %d rows, want 9254", n)
 	}
-	if got, want := Tables(), []string{"countries", "cities", "districts", "universities", "faculties", "departments"}; !slices.Equal(got, want) {
+	degrees := map[string]int{}
+	for _, r := range d.Departments {
+		degrees[r.Degree]++
+	}
+	if degrees[DegreeBachelor] != 7567 || degrees[DegreeAssociate] != 7144 || len(degrees) != 2 {
+		t.Errorf("departments by degree: %v, want 7567 BACHELOR and 7144 ASSOCIATE", degrees)
+	}
+	if d.Version != 2 {
+		t.Errorf("Version = %d, want 2", d.Version)
+	}
+	want := []string{"countries", "cities", "districts", "universities", "faculties", "departments", "department_source_codes"}
+	if got := Tables(); !slices.Equal(got, want) {
 		t.Errorf("Tables() = %v, want %v (parents first)", got, want)
+	}
+}
+
+// namespace is the UUIDv5 namespace of the ids tools/from_yok.py derives:
+// uuid5(NAMESPACE_URL, the reference data's URL) (ADR-0038).
+func namespace() uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("https://github.com/is-koala/koala-api/tree/main/db/referencedata"))
+}
+
+// TestAssociatePrograms binds the associate degree programs to their
+// source (ADR-0038): every one has an ÖSYM code and its id is derived
+// from one of them, so the same YÖK list gives the same ids again; every
+// code names an associate degree program (the bachelor's programs of the
+// Java snapshot have none yet); and the names carry no quota suffix (the
+// quota variants were merged, their codes kept).
+func TestAssociatePrograms(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	if got := namespace(); got != uuid.MustParse("c1f995d4-bea2-5c30-870f-ea391ab09716") {
+		t.Fatalf("namespace = %s, the one tools/from_yok.py writes out", got)
+	}
+	degree := map[uuid.UUID]string{}
+	for _, r := range d.Departments {
+		degree[r.ID] = r.Degree
+	}
+	codes := map[uuid.UUID][]string{}
+	for _, c := range d.DepartmentSourceCodes {
+		if degree[c.Department] != DegreeAssociate {
+			t.Errorf("code %s names %s, a %s department", c.Code, c.Department, degree[c.Department])
+		}
+		codes[c.Department] = append(codes[c.Department], c.Code)
+	}
+	merged := 0
+	for _, r := range d.Departments {
+		if r.Degree != DegreeAssociate {
+			continue
+		}
+		cs := codes[r.ID]
+		if len(cs) == 0 {
+			t.Errorf("associate program %s %q has no source code", r.ID, r.Name)
+			continue
+		}
+		if len(cs) > 1 {
+			merged++
+		}
+		if r.ID.Version() != 5 || !slices.ContainsFunc(cs, func(c string) bool { return uuid.NewSHA1(namespace(), []byte("osym:"+c)) == r.ID }) {
+			t.Errorf("associate program %s %q: the id is not derived from one of its codes %v", r.ID, r.Name, cs)
+		}
+	}
+	if merged == 0 {
+		t.Error("no associate program has more than one code: the quota variants were not merged")
+	}
+}
+
+// TestAssociateWitnesses spot-checks known vocational schools and
+// programs: a school of a foundation university, one of a state university
+// with its quota variants merged and its campus kept, a foundation
+// vocational school that belongs to no university (a university row of
+// its own), a unit that had bachelor's programs already, and the name an
+// associate program takes beside a bachelor's program of the same name.
+func TestAssociateWitnesses(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	byID := map[uuid.UUID]Row{}
+	for _, rows := range [][]Row{d.Universities, d.Faculties, d.Departments} {
+		for _, r := range rows {
+			byID[r.ID] = r
+		}
+	}
+	codeOf := map[string]uuid.UUID{}
+	for _, c := range d.DepartmentSourceCodes {
+		codeOf[c.Code] = c.Department
+	}
+	for _, tc := range []struct {
+		id, parent, name, degree string
+	}{
+		// Türk Hava Kurumu Üniversitesi, Ankara Havacılık MYO.
+		{"ac516b1c-e4df-5e38-9798-b8517d93a586", "20b200c7-d3d3-4e77-ba67-2b01c96b92a8", "Ankara Havacılık Meslek Yüksekokulu", ""},
+		{"21b4021b-3ed3-5339-897d-f1a4e16d08fa", "ac516b1c-e4df-5e38-9798-b8517d93a586", "Uçak Teknolojisi", DegreeAssociate},
+		// Sağlık Bilimleri Üniversitesi, Gülhane SMYO: "(Ankara) (Erkek)
+		// (Milli Savunma Bakanlığı Adına)" and its other variant are one
+		// program; the campus stays.
+		{"1aded20f-bd17-5f77-9b80-f65197acdef7", "7ae61a3a-d91a-4155-9319-bec58eba1c33", "Gülhane Sağlık Meslek Yüksekokulu (Ankara)", ""},
+		{"fa1a2c85-ba3b-5cdd-9794-738be74df07b", "1aded20f-bd17-5f77-9b80-f65197acdef7", "Tıbbi Görüntüleme Teknikleri (Ankara)", DegreeAssociate},
+		// İzmir Konak MYO: a foundation vocational school of its own.
+		{"8e80d3bd-d3f9-5731-8968-ee80cd0efee1", "", "İZMİR KONAK MESLEK YÜKSEKOKULU", ""},
+		{"e60ea554-1f4a-5fe1-a3e4-08b8439b5760", "8e80d3bd-d3f9-5731-8968-ee80cd0efee1", "İzmir Konak Meslek Yüksekokulu", ""},
+		// Atatürk Üniversitesi's Açıköğretim Fakültesi (Java's id) teaches
+		// both degrees; the associate program of a bachelor's program's
+		// name is told apart as YÖK does.
+		{"bf9ed268-ffb0-4eae-9892-dc91dd6d9bd5", "75739eb2-88b3-403d-a2d4-5ea29f72db64", "Halkla İlişkiler ve Tanıtım (Açıköğretim)", DegreeBachelor},
+		{"76d91665-3e46-56a1-bae8-e3b1b72e5f90", "75739eb2-88b3-403d-a2d4-5ea29f72db64", "Halkla İlişkiler ve Tanıtım (Önlisans) (Açıköğretim)", DegreeAssociate},
+	} {
+		r, ok := byID[uuid.MustParse(tc.id)]
+		if !ok {
+			t.Errorf("%s (%s) is missing", tc.id, tc.name)
+			continue
+		}
+		if r.Name != tc.name || r.Degree != tc.degree || (tc.parent != "" && r.Parent != uuid.MustParse(tc.parent)) {
+			t.Errorf("%s = %+v, want %q under %s, degree %q", tc.id, r, tc.name, tc.parent, tc.degree)
+		}
+	}
+	for code, dept := range map[string]string{
+		"205750094": "21b4021b-3ed3-5339-897d-f1a4e16d08fa", "205750101": "21b4021b-3ed3-5339-897d-f1a4e16d08fa",
+		"111050204": "fa1a2c85-ba3b-5cdd-9794-738be74df07b", "111091387": "fa1a2c85-ba3b-5cdd-9794-738be74df07b",
+	} {
+		if codeOf[code] != uuid.MustParse(dept) {
+			t.Errorf("code %s names %s, want %s", code, codeOf[code], dept)
+		}
 	}
 }
 
@@ -233,15 +356,16 @@ func TestCleanupHolds(t *testing.T) {
 // small is a valid dataset with one row per table.
 func small() *Dataset {
 	country, city := uuid.New(), uuid.New()
-	university, faculty := uuid.New(), uuid.New()
+	university, faculty, department := uuid.New(), uuid.New(), uuid.New()
 	return &Dataset{
-		Version:      1,
-		Countries:    []Row{{ID: country, Code: "TR", Name: "TÜRKİYE"}},
-		Cities:       []Row{{ID: city, Parent: country, Name: "ADANA"}},
-		Districts:    []Row{{ID: uuid.New(), Parent: city, Name: "SEYHAN"}},
-		Universities: []Row{{ID: university, Name: "Örnek Üniversitesi"}},
-		Faculties:    []Row{{ID: faculty, Parent: university, Name: "Mühendislik Fakültesi"}},
-		Departments:  []Row{{ID: uuid.New(), Parent: faculty, Name: "Bilgisayar Mühendisliği"}},
+		Version:               1,
+		Countries:             []Row{{ID: country, Code: "TR", Name: "TÜRKİYE"}},
+		Cities:                []Row{{ID: city, Parent: country, Name: "ADANA"}},
+		Districts:             []Row{{ID: uuid.New(), Parent: city, Name: "SEYHAN"}},
+		Universities:          []Row{{ID: university, Name: "Örnek Üniversitesi"}},
+		Faculties:             []Row{{ID: faculty, Parent: university, Name: "Mühendislik Fakültesi"}},
+		Departments:           []Row{{ID: department, Parent: faculty, Degree: DegreeBachelor, Name: "Bilgisayar Mühendisliği"}},
+		DepartmentSourceCodes: []SourceCode{{Code: "102710001", Department: department}},
 	}
 }
 
@@ -276,7 +400,20 @@ func TestValidate(t *testing.T) {
 		"bad code":             {func(d *Dataset) { d.Countries[0].Code = "tr" }, "not ISO 3166-1 alpha-2"},
 		"code twice":           {func(d *Dataset) { d.Countries = append(d.Countries, Row{ID: uuid.New(), Code: "TR", Name: "X"}) }, "code TR listed twice"},
 		"code outside country": {func(d *Dataset) { d.Cities[0].Code = "TR" }, "cities has no code"},
-		"header only leaf":     {func(d *Dataset) { d.Departments = nil }, ""},
+		"header only leaf":     {func(d *Dataset) { d.Departments, d.DepartmentSourceCodes = nil, nil }, ""},
+		"associate":            {func(d *Dataset) { d.Departments[0].Degree = DegreeAssociate }, ""},
+		"no degree":            {func(d *Dataset) { d.Departments[0].Degree = "" }, `degree ""`},
+		"graduate degree":      {func(d *Dataset) { d.Departments[0].Degree = "MASTER" }, `degree "MASTER"`},
+		"degree outside":       {func(d *Dataset) { d.Faculties[0].Degree = DegreeBachelor }, "faculties has no degree"},
+		"short code":           {func(d *Dataset) { d.DepartmentSourceCodes[0].Code = "10271000" }, "not an ÖSYM program code"},
+		"code with a letter":   {func(d *Dataset) { d.DepartmentSourceCodes[0].Code = "10271000x" }, "not an ÖSYM program code"},
+		"source code twice": {func(d *Dataset) {
+			d.DepartmentSourceCodes = append(d.DepartmentSourceCodes, d.DepartmentSourceCodes[0])
+		}, "listed twice"},
+		"code of no department": {func(d *Dataset) { d.DepartmentSourceCodes[0].Department = uuid.New() }, "is not a row of departments"},
+		"code of a dropped department": {func(d *Dataset) {
+			d.Departments = nil
+		}, "is not a row of departments"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -297,9 +434,9 @@ func TestValidate(t *testing.T) {
 func TestParse(t *testing.T) {
 	t.Parallel()
 
-	faculties := tables()[4]
-	if faculties.name != "faculties" {
-		t.Fatalf("tables()[4] = %s", faculties.name)
+	faculties, departments := tables()[4], tables()[5]
+	if faculties.name != "faculties" || departments.name != "departments" {
+		t.Fatalf("tables()[4:6] = %s, %s", faculties.name, departments.name)
 	}
 	id, parent := uuid.New(), uuid.New()
 	for name, tc := range map[string]struct {
@@ -330,9 +467,32 @@ func TestParse(t *testing.T) {
 			}
 		})
 	}
+	// A department carries its degree between its faculty and its name.
+	rows, err := parse(departments, []byte("id,faculty_id,degree,name\n"+id.String()+","+parent.String()+",ASSOCIATE,Anestezi\n"))
+	if err != nil || len(rows) != 1 || rows[0] != (Row{ID: id, Parent: parent, Degree: DegreeAssociate, Name: "Anestezi"}) {
+		t.Fatalf("departments: %+v, %v", rows, err)
+	}
+	if _, err := parse(departments, []byte("id,faculty_id,name\n")); err == nil || !strings.Contains(err.Error(), "header") {
+		t.Fatalf("departments without the degree column: %v, want the header refused", err)
+	}
+	// The source codes: a code and its department.
+	codes, err := parseSourceCodes([]byte("code,department_id\n205750101," + id.String() + "\n"))
+	if err != nil || len(codes) != 1 || codes[0] != (SourceCode{Code: "205750101", Department: id}) {
+		t.Fatalf("source codes: %+v, %v", codes, err)
+	}
+	for name, data := range map[string]string{
+		"header":       "department_id,code\n",
+		"empty":        "",
+		"bad id":       "code,department_id\n205750101,x\n",
+		"extra column": "code,department_id\n205750101," + id.String() + ",x\n",
+	} {
+		if _, err := parseSourceCodes([]byte(data)); err == nil {
+			t.Errorf("source codes, %s: parsed", name)
+		}
+	}
 	// A header and nothing else is a valid file: it lists no row. Sync's
 	// retirement limit, not Validate, stops it (TestSyncStopsAtTheRetireLimit).
-	rows, err := parse(faculties, []byte("id,university_id,name\n"))
+	rows, err = parse(faculties, []byte("id,university_id,name\n"))
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("header only: %v, %v", rows, err)
 	}
@@ -383,7 +543,7 @@ func TestParseAllowRetire(t *testing.T) {
 func TestRetireLimit(t *testing.T) {
 	t.Parallel()
 
-	for active, want := range map[int]int{0: 10, 81: 10, 199: 10, 220: 11, 973: 48, 7567: 378} {
+	for active, want := range map[int]int{0: 10, 81: 10, 199: 10, 220: 11, 973: 48, 3022: 151, 7567: 378, 9254: 462, 14711: 735} {
 		if got := RetireLimit(active); got != want {
 			t.Errorf("RetireLimit(%d) = %d, want %d", active, got, want)
 		}
@@ -398,6 +558,9 @@ func TestRetireLimit(t *testing.T) {
 func published() map[int]string {
 	return map[int]string{
 		1: "ca194cde236561690ec3585df93bc42469169a4532037b646ffc26bcb874f289",
+		// YÖK's associate degree programs, the departments' degree and
+		// their source codes (ADR-0038).
+		2: "726ae5ca6ce5905d04473afec495fc0a9c1a8b59f62d809b59139dc1ccb8c744",
 	}
 }
 

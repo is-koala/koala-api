@@ -29,20 +29,28 @@ func (q *Queries) CountEducations(ctx context.Context, userID uuid.UUID) (int64,
 const getDepartmentOf = `-- name: GetDepartmentOf :one
 SELECT id
 FROM departments
-WHERE id = $1 AND faculty_id = $2
-  AND (retired_at IS NULL OR $3::boolean)
+WHERE id = $1 AND faculty_id = $2 AND degree = $3
+  AND (retired_at IS NULL OR $4::boolean)
 `
 
 type GetDepartmentOfParams struct {
 	ID           uuid.UUID
 	FacultyID    uuid.UUID
+	Degree       string
 	AllowRetired bool
 }
 
 // GetDepartmentOf finds a department of the faculty that may be chosen
-// (allow_retired as GetUniversity).
+// (allow_retired as GetUniversity) for the record's degree: degree is the
+// program degree the record's degree names (reference.ProgramDegree,
+// ADR-0038), so an associate degree names an associate degree program.
 func (q *Queries) GetDepartmentOf(ctx context.Context, arg GetDepartmentOfParams) (uuid.UUID, error) {
-	row := q.db.QueryRow(ctx, getDepartmentOf, arg.ID, arg.FacultyID, arg.AllowRetired)
+	row := q.db.QueryRow(ctx, getDepartmentOf,
+		arg.ID,
+		arg.FacultyID,
+		arg.Degree,
+		arg.AllowRetired,
+	)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
