@@ -62,7 +62,7 @@ func cannedBounds() map[string]Rect {
 }
 
 // cannedRadius is how far, in degrees, a reverse geocode finds a canned
-// place: about two kilometres.
+// place: about two kilometers.
 const cannedRadius = 0.02
 
 // Autocomplete returns the places whose lines hold every word of input,

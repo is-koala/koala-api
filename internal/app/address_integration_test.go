@@ -504,9 +504,10 @@ func TestLookupBudgetOrder(t *testing.T) {
 	// The cap counts every unit alike: a reverse lookup is refused too.
 	wantStatus(t, a.callFrom(t, home, http.MethodPost, "/v1/me/address-lookups/reverse", u4, `{"latitude":40.98765,"longitude":29.02545}`),
 		http.StatusBadGateway, string(address.CodeProviderUnavailable))
-	// A day later the window has moved on.
+	// A day later the window has moved on (a fresh sign-in: the access
+	// tokens of a day ago have expired).
 	a.clock.Advance(address.UserWindow + time.Second)
-	if c := start(home, u4); c != http.StatusCreated {
+	if c := start(home, a.addSignedIn(t, "butce5@example.com")); c != http.StatusCreated {
 		t.Errorf("after the window: %d", c)
 	}
 }

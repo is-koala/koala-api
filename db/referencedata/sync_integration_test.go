@@ -667,12 +667,21 @@ func TestMigrationGivesVersionOneItsDegree(t *testing.T) {
 			}
 			return nil
 		}
-		if _, err := migrator.Down(ctx); err != nil {
-			return fmt.Errorf("down: %w", err)
+		// Down to 0047: the migrations after 0048 roll back first (they
+		// come back with the next up), so the test does not depend on 0048
+		// being the last one.
+		for {
+			res, err := migrator.Down(ctx)
+			if err != nil {
+				return fmt.Errorf("down: %w", err)
+			}
+			if res.Source.Version == 48 {
+				return nil
+			}
 		}
-		return nil
 	}
-	// Up to 0047: every migration, then 0048 down on its empty tables.
+	// Up to 0047: every migration, then down through 0048 on its empty
+	// tables.
 	if err := step(true); err != nil {
 		t.Fatal(err)
 	}

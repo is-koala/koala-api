@@ -58,7 +58,7 @@ type GoogleRect struct {
 //     location ({latitude, longitude}); formattedAddress only when the mask
 //     names it or is "*". An unknown id is 404 NOT_FOUND.
 //   - GET /maps/api/geocode/json with latlng answers the place within about
-//     a kilometre (the result carries formatted_address and geometry as
+//     a kilometer (the result carries formatted_address and geometry as
 //     the real one does), else ZERO_RESULTS; with components
 //     "country:XX|administrative_area:Name" the region's bounds; without
 //     either, INVALID_REQUEST. The key travels in the key query parameter.
@@ -86,7 +86,7 @@ func NewGoogleMaps(tb testing.TB, key string) *GoogleMaps {
 	return f
 }
 
-// AutocompletePath, DetailsPath and GeocodePath are the endpoints' paths.
+// AutocompletePath is the Autocomplete (New) path.
 func (f *GoogleMaps) AutocompletePath() string { return googleAutocompletePath }
 
 // DetailsPath is the Place Details path of id.
@@ -261,7 +261,7 @@ func (f *GoogleMaps) details(r Request) Response {
 }
 
 // googleReverseRadius is how far, in degrees, a reverse geocode finds a
-// place: about a kilometre.
+// place: about a kilometer.
 const googleReverseRadius = 0.01
 
 func (f *GoogleMaps) geocode(r Request) Response {
