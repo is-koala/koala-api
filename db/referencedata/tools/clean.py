@@ -20,13 +20,26 @@ Rules, in order:
    province has a "Merkez" district any more. The other 51 provinces keep
    theirs. The script stops if the metropolitan list does not name 30 of
    the cities.
+   Districts: DERECİK (Hakkari) is added. It was split from Şemdinli in
+   2018 and is missing from Java's snapshot; with it every province has
+   its official number of districts (973 in all; checked by the
+   coordination's review, 23.11.2026). Its id is a UUIDv7 made once for
+   this row (ADR-0012 Karar 5).
 3. Faculties: the two rows whose "name" is YÖK's note on the universities
    abroad (Hoca Ahmet Yesevi, Manas) are removed; they are no academic
    unit and have no departments.
-4. Faculties: İzmir Yüksek Teknoloji Enstitüsü, listed as a faculty of
-   İzmir Katip Çelebi Üniversitesi, is a state university of its own. It
-   becomes a row of universities.csv under the same id (no database holds
-   the faculty yet: this is the first load).
+4. İzmir Yüksek Teknoloji Enstitüsü, listed as a faculty of İzmir Katip
+   Çelebi Üniversitesi, is a state university of its own. It becomes a row
+   of universities.csv under the same id, and the three faculties YÖK's
+   list gives right after it (Fen, Mimarlık, Mühendislik; their
+   departments are İYTE's programs: Fotonik, Biyomühendislik, Şehir ve
+   Bölge Planlama ...) move under it with their ids (no database holds
+   them yet: this is the first load).
+   "İÇİŞLERİ BAKANLIĞI VE MİLLİ SAVUNMA BAKANLIĞI ADINA SAĞLIK BİLİMLERİ
+   ÜNİVERSİTESİNDE EĞİTİM ALACAKLAR" is a quota note, not a university:
+   every faculty and department under it is, without its quota suffix and
+   campus, one of Sağlık Bilimleri Üniversitesi's. It is removed with
+   them; the script stops if one of them is not such a copy.
 5. Faculties: a faculty without departments whose sibling (same
    university, same name) has departments is removed.
 6. Faculties: a quota or fee suffix ("(Burslu)", "(%50 İndirimli)",
@@ -66,6 +79,18 @@ ABROAD_NOTES = {
 
 IYTE = "f458e88f-1201-4231-b4f7-7ede110e9c05"
 IYTE_NAME = "İZMİR YÜKSEK TEKNOLOJİ ENSTİTÜSÜ"
+IKCU = "2b04c0a9-d5da-457f-a1f6-975fe0545667"
+IYTE_FACULTIES = {
+    "8119fff5-7078-4943-979e-6aa702c2be72",  # Fen Fakültesi
+    "b2903de4-251f-4475-b434-bc033f0c4bd4",  # Mimarlık Fakültesi
+    "54fc7dd0-cad2-434b-ba49-7c896ffc3e54",  # Mühendislik Fakültesi
+}
+
+SBU = "7ae61a3a-d91a-4155-9319-bec58eba1c33"  # SAĞLIK BİLİMLERİ ÜNİVERSİTESİ
+SBU_QUOTA_NOTE = "147a9f46-e2e4-41df-9fd9-e11a086e224f"
+
+HAKKARI = "3eaa6616-f66c-409c-a49b-4342d879fa2c"
+DERECIK = {"id": "01a2077d-d01b-7bb5-8d9b-9c94173f5c34", "city_id": HAKKARI, "name": "DERECİK"}
 
 QUOTA = {
     "Burslu", "%25 İndirimli", "%50 İndirimli", "%75 İndirimli", "Ücretli", "İÖ", "KKTC Uyruklu",
@@ -82,6 +107,7 @@ HEADERS = {
 }
 
 SUFFIX = re.compile(r"\s*\(([^()]*)\)")
+ANY_SUFFIX = re.compile(r"\s*\([^()]*\)")
 
 
 def read(root, table):
@@ -106,6 +132,12 @@ def spaces(name):
 
 def without_quota(name):
     return spaces(SUFFIX.sub(lambda m: "" if m.group(1) in QUOTA else m.group(0), name))
+
+
+def unit(name):
+    """The unit a name names, for the copy check: without its quota
+    suffixes and without a campus in parentheses."""
+    return spaces(ANY_SUFFIX.sub("", without_quota(name)))
 
 
 def main():
@@ -134,6 +166,13 @@ def main():
     before = len(data["districts"])
     data["districts"] = [r for r in data["districts"] if not (r["name"] == "MERKEZ" and r["city_id"] in metro)]
     report.append(("districts: MERKEZ of a metropolitan province, removed", before - len(data["districts"])))
+    added = 0
+    if not any(r["id"] == DERECIK["id"] for r in data["districts"]):
+        if any(r["city_id"] == HAKKARI and r["name"] == DERECIK["name"] for r in data["districts"]):
+            sys.exit("districts.csv: DERECİK is listed under another id")
+        data["districts"].append(dict(DERECIK))
+        added = 1
+    report.append(("districts: DERECİK (Hakkari, 2018) added", added))
 
     # 3. YÖK's note as a faculty name.
     before = len(data["faculties"])
@@ -146,6 +185,36 @@ def main():
     if moved:
         data["universities"].append({"id": IYTE, "name": IYTE_NAME})
     report.append(("faculties: İYTE, moved to universities under the same id", len(moved)))
+    n = 0
+    for r in data["faculties"]:
+        if r["id"] in IYTE_FACULTIES and r["university_id"] != IYTE:
+            if r["university_id"] != IKCU:
+                sys.exit(f"faculty {r['id']} is under {r['university_id']}, not İzmir Katip Çelebi")
+            r["university_id"] = IYTE
+            n += 1
+    report.append(("faculties: İYTE's Fen, Mimarlık and Mühendislik, moved under İYTE", n))
+
+    # The SBÜ quota note: a copy of SBÜ's units, removed after the check.
+    note_faculties = [r for r in data["faculties"] if r["university_id"] == SBU_QUOTA_NOTE]
+    note_ids = {r["id"] for r in note_faculties}
+    sbu_units = {unit(r["name"]): r["id"] for r in data["faculties"] if r["university_id"] == SBU}
+    sbu_departments = {}
+    for r in data["departments"]:
+        sbu_departments.setdefault(r["faculty_id"], set()).add(unit(r["name"]))
+    for f in note_faculties:
+        target = sbu_units.get(unit(f["name"]))
+        if target is None:
+            sys.exit(f"the SBÜ quota note's faculty {f['name']!r} is not one of SBÜ's")
+        for r in data["departments"]:
+            if r["faculty_id"] == f["id"] and unit(r["name"]) not in sbu_departments.get(target, set()):
+                sys.exit(f"the SBÜ quota note's department {r['name']!r} is not one of SBÜ's")
+    before = (len(data["universities"]), len(data["faculties"]), len(data["departments"]))
+    data["universities"] = [r for r in data["universities"] if r["id"] != SBU_QUOTA_NOTE]
+    data["faculties"] = [r for r in data["faculties"] if r["id"] not in note_ids]
+    data["departments"] = [r for r in data["departments"] if r["faculty_id"] not in note_ids]
+    report.append(("universities: the SBÜ quota note, removed", before[0] - len(data["universities"])))
+    report.append(("faculties: its copies of SBÜ's faculties, removed", before[1] - len(data["faculties"])))
+    report.append(("departments: its copies of SBÜ's departments, removed", before[2] - len(data["departments"])))
 
     # 5. Empty twins.
     with_departments = {r["faculty_id"] for r in data["departments"]}

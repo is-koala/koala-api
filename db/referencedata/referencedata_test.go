@@ -36,10 +36,10 @@ func TestDatasetCounts(t *testing.T) {
 	}{
 		{"countries", d.Countries, 1},
 		{"cities", d.Cities, 81},
-		{"districts", d.Districts, 972},
-		{"universities", d.Universities, 224},
-		{"faculties", d.Faculties, 2047},
-		{"departments", d.Departments, 7571},
+		{"districts", d.Districts, 973},
+		{"universities", d.Universities, 223},
+		{"faculties", d.Faculties, 2043},
+		{"departments", d.Departments, 7567},
 	} {
 		if len(tc.rows) != tc.want {
 			t.Errorf("%s: %d rows, want %d", tc.table, len(tc.rows), tc.want)
@@ -72,8 +72,15 @@ func TestDatasetKeepsJavaIDs(t *testing.T) {
 		{d.Faculties, "a8004de5-6f16-41ea-9841-42ed646684cf", "b8cf7211-a21b-4e1f-ad1a-7bacdd914fc3", "İnsan ve Toplum Bilimleri Fakültesi"},
 		{d.Departments, "97d43fdf-0a52-4f95-9dab-8d5adbf2d37f", "a8004de5-6f16-41ea-9841-42ed646684cf", "Psikoloji (İngilizce)"},
 		// İYTE: listed as a faculty of İzmir Katip Çelebi, a university of
-		// its own under the same id (the cleanup, rule 4).
+		// its own under the same id, with its three faculties (the
+		// cleanup, rule 4).
 		{d.Universities, "f458e88f-1201-4231-b4f7-7ede110e9c05", "", "İZMİR YÜKSEK TEKNOLOJİ ENSTİTÜSÜ"},
+		{d.Faculties, "8119fff5-7078-4943-979e-6aa702c2be72", "f458e88f-1201-4231-b4f7-7ede110e9c05", "Fen Fakültesi"},
+		{d.Faculties, "b2903de4-251f-4475-b434-bc033f0c4bd4", "f458e88f-1201-4231-b4f7-7ede110e9c05", "Mimarlık Fakültesi"},
+		{d.Faculties, "54fc7dd0-cad2-434b-ba49-7c896ffc3e54", "f458e88f-1201-4231-b4f7-7ede110e9c05", "Mühendislik Fakültesi"},
+		// DERECİK (Hakkari), split from Şemdinli in 2018: the one row with
+		// an id of its own (rule 2).
+		{d.Districts, "01a2077d-d01b-7bb5-8d9b-9c94173f5c34", "3eaa6616-f66c-409c-a49b-4342d879fa2c", "DERECİK"},
 	} {
 		i := slices.IndexFunc(tc.rows, func(r Row) bool { return r.ID == uuid.MustParse(tc.id) })
 		if i < 0 {
@@ -145,13 +152,60 @@ func TestCleanupHolds(t *testing.T) {
 	if merkez != 51 {
 		t.Errorf("%d MERKEZ districts, want one per non-metropolitan province (51)", merkez)
 	}
-	// 3 and 4. YÖK's note and İYTE are no faculties.
+	// Every province has its official number of districts: Hakkari five
+	// with DERECİK, 973 in all.
+	hakkari := uuid.MustParse("3eaa6616-f66c-409c-a49b-4342d879fa2c")
+	inHakkari := 0
+	for _, r := range d.Districts {
+		if r.Parent == hakkari {
+			inHakkari++
+		}
+	}
+	if inHakkari != 5 {
+		t.Errorf("Hakkari has %d districts, want 5 (Çukurca, Derecik, Merkez, Şemdinli, Yüksekova)", inHakkari)
+	}
+	// 3 and 4. YÖK's note and İYTE are no faculties, and the SBÜ quota
+	// note is no university.
 	for _, id := range []string{
 		"9c91f25a-d029-452b-8008-768f117bb9e4", "339d2654-b490-4863-8963-35f4b27980e8", "f458e88f-1201-4231-b4f7-7ede110e9c05",
 	} {
 		if slices.ContainsFunc(d.Faculties, func(r Row) bool { return r.ID == uuid.MustParse(id) }) {
 			t.Errorf("faculty %s is listed", id)
 		}
+	}
+	for _, r := range d.Universities {
+		if strings.Contains(r.Name, "EĞİTİM ALACAKLAR") || r.ID == uuid.MustParse("147a9f46-e2e4-41df-9fd9-e11a086e224f") {
+			t.Errorf("university %s %q: the SBÜ quota note", r.ID, r.Name)
+		}
+	}
+	// İYTE has its three faculties, and İzmir Katip Çelebi no longer has
+	// two departments of one name (İYTE's programs under it).
+	iyte, ikcu := uuid.MustParse("f458e88f-1201-4231-b4f7-7ede110e9c05"), uuid.MustParse("2b04c0a9-d5da-457f-a1f6-975fe0545667")
+	universityOf := map[uuid.UUID]uuid.UUID{}
+	iyteFaculties := 0
+	for _, f := range d.Faculties {
+		universityOf[f.ID] = f.Parent
+		if f.Parent == iyte {
+			iyteFaculties++
+		}
+	}
+	if iyteFaculties != 3 {
+		t.Errorf("İYTE has %d faculties, want 3 (Fen, Mimarlık, Mühendislik)", iyteFaculties)
+	}
+	ikcuNames, iyteDepartments := map[string]bool{}, 0
+	for _, r := range d.Departments {
+		switch universityOf[r.Parent] {
+		case ikcu:
+			if ikcuNames[r.Name] {
+				t.Errorf("İzmir Katip Çelebi has two departments named %q", r.Name)
+			}
+			ikcuNames[r.Name] = true
+		case iyte:
+			iyteDepartments++
+		}
+	}
+	if iyteDepartments != 18 {
+		t.Errorf("İYTE has %d departments, want 18", iyteDepartments)
 	}
 	// 5 to 7. One row per (parent, name), and no quota or fee suffix.
 	quota := regexp.MustCompile(`\((Burslu|%\d+ İndirimli|Ücretli|İÖ|KKTC Uyruklu|M\.T\.O\.K\.|Erkek|Kız|Milli Savunma Bakanlığı Adına|İçişleri Bakanlığı Adına)\)`)
@@ -300,18 +354,25 @@ func TestParseVersion(t *testing.T) {
 	}
 }
 
-// TestParseAllowRetire reads --allow-retire and its variable.
+// TestParseAllowRetire reads --allow-retire and its variable: every entry
+// names a table, a row count and the data version it is for.
 func TestParseAllowRetire(t *testing.T) {
 	t.Parallel()
 
-	got, err := ParseAllowRetire("departments:120, faculties:0")
-	if err != nil || len(got) != 2 || got["departments"] != 120 || got["faculties"] != 0 {
+	got, err := ParseAllowRetire("departments:120@2, faculties:0@3")
+	if err != nil || len(got) != 2 || got["departments"] != (Allowance{Rows: 120, Version: 2}) || got["faculties"] != (Allowance{Rows: 0, Version: 3}) {
 		t.Fatalf("ParseAllowRetire = %v, %v", got, err)
+	}
+	if got["departments"].String() != "120@2" {
+		t.Errorf("String() = %s", got["departments"])
 	}
 	if got, err := ParseAllowRetire(""); err != nil || len(got) != 0 {
 		t.Fatalf("empty: %v, %v", got, err)
 	}
-	for _, s := range []string{"departments", "departments:-1", "departments:x", "users:3", "departments:1,departments:2", ","} {
+	for _, s := range []string{
+		"departments", "departments:120", "departments:120@", "departments:-1@2", "departments:x@2", "departments:1@0",
+		"departments:1@x", "users:3@1", "departments:1@1,departments:2@1", ",",
+	} {
 		if _, err := ParseAllowRetire(s); err == nil {
 			t.Errorf("ParseAllowRetire(%q) succeeded", s)
 		}
@@ -322,7 +383,7 @@ func TestParseAllowRetire(t *testing.T) {
 func TestRetireLimit(t *testing.T) {
 	t.Parallel()
 
-	for active, want := range map[int]int{0: 10, 81: 10, 199: 10, 220: 11, 972: 48, 7571: 378} {
+	for active, want := range map[int]int{0: 10, 81: 10, 199: 10, 220: 11, 973: 48, 7567: 378} {
 		if got := RetireLimit(active); got != want {
 			t.Errorf("RetireLimit(%d) = %d, want %d", active, got, want)
 		}
@@ -336,7 +397,7 @@ func TestRetireLimit(t *testing.T) {
 // stay, so a rewritten one shows in review.
 func published() map[int]string {
 	return map[int]string{
-		1: "d46c474bb5b1aa8709469480419441c7f57f1d09fd7011a635e45329a615466b",
+		1: "ca194cde236561690ec3585df93bc42469169a4532037b646ffc26bcb874f289",
 	}
 }
 

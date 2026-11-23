@@ -750,9 +750,9 @@ e256dc90-1905-492c-a1e7-9db8b253d0f6,2b04c0a9-d5da-457f-a1f6-975fe0545667,Orman 
 ceb59094-7f58-4a42-bfbf-3c225c80758c,2b04c0a9-d5da-457f-a1f6-975fe0545667,Su Ürünleri Fakültesi
 0f61bec9-d6f2-4d96-870c-8078ce3fb721,2b04c0a9-d5da-457f-a1f6-975fe0545667,Tıp Fakültesi
 6650c48f-4424-4d69-b857-b5c2e4fbd2b3,2b04c0a9-d5da-457f-a1f6-975fe0545667,Turizm Fakültesi
-8119fff5-7078-4943-979e-6aa702c2be72,2b04c0a9-d5da-457f-a1f6-975fe0545667,Fen Fakültesi
-b2903de4-251f-4475-b434-bc033f0c4bd4,2b04c0a9-d5da-457f-a1f6-975fe0545667,Mimarlık Fakültesi
-54fc7dd0-cad2-434b-ba49-7c896ffc3e54,2b04c0a9-d5da-457f-a1f6-975fe0545667,Mühendislik Fakültesi
+8119fff5-7078-4943-979e-6aa702c2be72,f458e88f-1201-4231-b4f7-7ede110e9c05,Fen Fakültesi
+b2903de4-251f-4475-b434-bc033f0c4bd4,f458e88f-1201-4231-b4f7-7ede110e9c05,Mimarlık Fakültesi
+54fc7dd0-cad2-434b-ba49-7c896ffc3e54,f458e88f-1201-4231-b4f7-7ede110e9c05,Mühendislik Fakültesi
 8dcddeb4-2caa-42f2-9717-ea5cef911b7f,663b6177-5eb3-49df-93b8-d3cb929b016e,Dede Korkut Eğitim Fakültesi
 3005b9c3-bc71-40ff-8d80-45d39dccf72c,663b6177-5eb3-49df-93b8-d3cb929b016e,Diş Hekimliği Fakültesi
 05ad39f3-e102-4021-976b-94af51f783c2,663b6177-5eb3-49df-93b8-d3cb929b016e,Fen-Edebiyat Fakültesi
@@ -1396,10 +1396,6 @@ f6254df0-5a2c-4d16-8d33-038a712c3328,24d84324-a7c3-4345-8d40-8dd59be78acb,İleti
 ea11f987-81d1-4816-b517-64bfe2e2bf9f,24d84324-a7c3-4345-8d40-8dd59be78acb,Sağlık Bilimleri Fakültesi
 f7ba4d6e-c2b7-4c38-94af-d4d2448e97c3,24d84324-a7c3-4345-8d40-8dd59be78acb,Tıp Fakültesi
 79148c7d-2cfe-4938-a195-a8702e461c25,24d84324-a7c3-4345-8d40-8dd59be78acb,Uygulamalı Bilimler Yüksekokulu
-2a14e00e-681c-4e4d-ae5d-bfed25d26383,147a9f46-e2e4-41df-9fd9-e11a086e224f,Gülhane Diş Hekimliği Fakültesi (Ankara)
-dcdd3fe3-ea10-4cfb-b008-af31719f5f72,147a9f46-e2e4-41df-9fd9-e11a086e224f,Gülhane Eczacılık Fakültesi (Ankara)
-ad26fed9-2f75-405a-9766-a9050429a307,147a9f46-e2e4-41df-9fd9-e11a086e224f,Gülhane Tıp Fakültesi
-acf4a947-b5bc-412c-bebf-0d507ba1cfcc,147a9f46-e2e4-41df-9fd9-e11a086e224f,Hamidiye Tıp Fakültesi (İstanbul)
 6f2b9e59-381e-4816-a421-bfd8bf9b3b0e,4afcc96b-3e07-413c-af53-c99a5fdef3b1,Beşeri Bilimler Fakültesi
 cc276697-a623-4a04-b07b-5ea1b5d3d6ac,4afcc96b-3e07-413c-af53-c99a5fdef3b1,Diş Hekimliği Fakültesi
 c1fa9969-85e0-4fe5-b52a-ae1caaba866d,4afcc96b-3e07-413c-af53-c99a5fdef3b1,Edebiyat Fakültesi
