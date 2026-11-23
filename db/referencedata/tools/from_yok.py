@@ -38,24 +38,32 @@ What the script writes:
 - tools/id_ledger.csv: the id ledger, appended to, never rewritten.
 
 The id ledger (ADR-0038 Karar 6). Every source key the script has met is a
-row: key, id, parent, name, the data version that added the row, and its
-origin. The keys are "yok:university:<YÖK id>", "yok:unit:<YÖK id>" and
-"osym:<ÖSYM code>". The latest row of a key is its current meaning. A new
-id is a UUIDv7 ("minted"): it is never derived from an outside code, so a
-code ÖSYM gives to another program cannot take the old program's id with
-it. A key matched to a row that existed before (a university or a unit of
-the Java snapshot) is "matched".
+row: key, id, parent, name, the data version that added the row, its
+origin and the decision that added it. The keys are
+"yok:university:<YÖK id>", "yok:unit:<YÖK id>" and "osym:<ÖSYM code>". The
+latest row of a key is its current meaning. A new id is a UUIDv7
+("minted"): it is never derived from an outside code, so a code ÖSYM gives
+to another program cannot take the old program's id with it. A key matched
+to a row that existed before (a university or a unit of the Java snapshot),
+or a dropped id back in the files, is "matched"; a unit or university that
+leaves the files gets a "dropped" row.
 
 - A key of the ledger gets the ledger's id, as long as it comes under the
-  same parent and with the same name (compared without case, circumflex and
-  extra space). Otherwise the script stops: a renamed or reused code, or
-  one that moved, is decided by a person in tools/id_decisions.csv ("same":
-  the same program, renamed, under the same parent; "new": another
-  program, a new id). The decision is recorded as a new ledger row, so the
-  next run has nothing to decide.
+  same parent and with the same name, compared without case and extra
+  white space only: a circumflex counts ("kar" and "kâr" are two names).
+  Otherwise the script stops and prints the decision line to fill in: a
+  renamed or reused code, or one that moved, is decided by a person in
+  tools/id_decisions.csv ("same": the same program, renamed, under the same
+  parent; "new": another program, a new id). A decision names the data
+  version and the state it was made for (the ledger's parent and name, the
+  source's parent key and name); it applies only in that version and to
+  exactly that state, and any other decision stops the run. It is recorded
+  as a new ledger row, so the file holds the current version's decisions
+  only.
 - A program takes the id of any of its codes in the ledger, so one that
   loses the code it was first seen under keeps its id. Codes of one
-  program naming two ids stop the script.
+  program naming two ids stop the script, and so does a code decided "new"
+  whose program keeps the old id through another code.
 - A key the ledger does not have: a university is matched only by
   tools/yok_universities.csv (YÖK id -> our id, or "new"); a unit by
   tools/yok_units.csv, then by the same name under the same university; a
@@ -69,9 +77,8 @@ dropped here.
 
 The script is idempotent: run again on the files it wrote, with the same
 source, it changes nothing and appends nothing to the ledger. --self-test
-runs the rules above on small made-up data in a temporary directory: the
-reused code stops the run, the decisions resolve it, a program keeps its id
-without its first code, the ledger only grows.
+runs the rules above on small made-up data in a temporary directory, step
+by step (see self_test).
 """
 
 import csv
@@ -738,6 +745,17 @@ def self_test():
         merge = [record(100000002, *myo, "Anestezi"), record(100000003, *myo, "Anestezi (Burslu)")]
         step("v7: codes of one program name two ids", 7, merge,
              [decide(7, "osym:100000003", "same", "yok:unit:10", "Anestezi")], stops="in the ledger")
+
+        # A code decided "new" whose sibling, decided "same", keeps the
+        # program's old id: the "new" code would keep it too, so the run
+        # stops instead (check_new).
+        sibling = [record(100000002, *myo, "Anestezi"), record(100000004, *myo, "Anestezi (Burslu)")]
+        assert step("v7: a new code joins the program, which keeps its id", 7, sibling)["Anestezi"] == first["Anestezi"]
+        turizm = [record(100000002, *myo, "Turizm"), record(100000004, *myo, "Turizm (Burslu)")]
+        step("v8: one code decided new, its sibling decided same", 8, turizm,
+             [decide(8, "osym:100000002", "same", "yok:unit:10", "Turizm"),
+              decide(8, "osym:100000004", "new", "yok:unit:10", "Turizm")],
+             stops="decided new, but its program keeps")
 
         # The code moves to another unit: "same" cannot keep it, "new" can.
         moved = [record(100000002, *other, "Anestezi"), renamed[1]]
