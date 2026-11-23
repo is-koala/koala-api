@@ -120,8 +120,9 @@ func TestReadTestOnTheContract(t *testing.T) {
 			}
 			id := uuid.Must(uuid.NewV7())
 			_, err = q.Exec(ctx, `
-				INSERT INTO active_addresses (id, user_id, city_id, district_id, thoroughfare, created_at, updated_at)
-				VALUES ($1, $2, $3, $4, 'Moda Caddesi', $5, $5)`, id, owner, istanbulCity, kadikoyDistrict, a.clock.Now())
+				INSERT INTO active_addresses (id, user_id, city_id, district_id, thoroughfare, components_source, created_at,
+				    updated_at)
+				VALUES ($1, $2, $3, $4, 'Moda Caddesi', 'MANUAL', $5, $5)`, id, owner, istanbulCity, kadikoyDistrict, a.clock.Now())
 			if err != nil {
 				return uuid.Nil, fmt.Errorf("insert address: %w", err)
 			}

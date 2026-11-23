@@ -31,10 +31,7 @@ type Provider interface {
 	RegionBounds(ctx context.Context, name, countryCode string) (googlemaps.Rect, error)
 }
 
-// unitTag names a unit at the type level: spent[T] is a unit of T's kind.
-type unitTag interface{ unit() Unit }
-
-// The unit tags, one per kind of unit.
+// The unit tags, one per kind of unit: spent[T] is a unit of T's kind.
 type (
 	sessionTag      struct{}
 	autocompleteTag struct{}
@@ -43,11 +40,27 @@ type (
 	boundsTag       struct{}
 )
 
-func (sessionTag) unit() Unit      { return UnitSession }
-func (autocompleteTag) unit() Unit { return UnitAutocomplete }
-func (detailsTag) unit() Unit      { return UnitDetails }
-func (reverseTag) unit() Unit      { return UnitReverse }
-func (boundsTag) unit() Unit       { return UnitBounds }
+// unitTag is the set of the unit tags.
+type unitTag interface {
+	sessionTag | autocompleteTag | detailsTag | reverseTag | boundsTag
+}
+
+// unitOf is the unit of tag T.
+func unitOf[T unitTag]() Unit {
+	var tag T
+	switch any(tag).(type) {
+	case sessionTag:
+		return UnitSession
+	case autocompleteTag:
+		return UnitAutocomplete
+	case detailsTag:
+		return UnitDetails
+	case reverseTag:
+		return UnitReverse
+	default:
+		return UnitBounds
+	}
+}
 
 // spent is a unit of kind T reserved before a provider call (ADR-0039
 // Karar 7). Only reserve makes one, and each metered call takes the spent
@@ -165,9 +178,10 @@ func callerOf(p authn.UserPrincipal, client string) caller {
 // Every refusal is 429 ADDRESS_LOOKUP_LIMIT_REACHED with the wait until
 // the window that refused frees a unit: the cap is the provider's bill,
 // not the provider's failure, so it is no 5xx.
+//
+//nolint:unparam // spent's value is always the zero value: its type, the unit's kind, is what a provider call checks
 func reserve[T unitTag](ctx context.Context, x *search, q *addressdb.Queries, c *caller, now time.Time) (spent[T], error) {
-	var tag T
-	unit := tag.unit()
+	unit := unitOf[T]()
 	if err := q.LockLookups(ctx, lookupLockClass); err != nil {
 		return spent[T]{}, fmt.Errorf("address: lock the lookup budget: %w", err)
 	}
