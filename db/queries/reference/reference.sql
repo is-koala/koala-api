@@ -6,6 +6,13 @@
 -- A child list reads its parent with a LEFT JOIN: no row means the parent
 -- is missing or retired (404), one row with a NULL child means a parent in
 -- use without children (an empty list). One statement answers both.
+--
+-- The academic lists take an optional program degree (ADR-0038): NULL
+-- lists every row; ASSOCIATE or BACHELOR lists the departments of that
+-- degree, the faculties with such a department in use and the
+-- universities with such a faculty. The filter of a child list is in the
+-- join, so a parent in use whose children are all of the other degree is
+-- an empty list, not a 404.
 
 -- name: ListCountries :many
 SELECT id, name
@@ -28,15 +35,22 @@ WHERE p.id = sqlc.arg(city_id) AND p.retired_at IS NULL
 ORDER BY c.name, c.id;
 
 -- name: ListUniversities :many
-SELECT id, name
-FROM universities
-WHERE retired_at IS NULL
-ORDER BY name, id;
+SELECT u.id, u.name
+FROM universities u
+WHERE u.retired_at IS NULL
+  AND (sqlc.narg(degree)::text IS NULL OR EXISTS (
+    SELECT FROM faculties f
+    JOIN departments d ON d.faculty_id = f.id AND d.retired_at IS NULL AND d.degree = sqlc.narg(degree)::text
+    WHERE f.university_id = u.id AND f.retired_at IS NULL))
+ORDER BY u.name, u.id;
 
 -- name: ListFaculties :many
 SELECT c.id, c.name
 FROM universities p
 LEFT JOIN faculties c ON c.university_id = p.id AND c.retired_at IS NULL
+  AND (sqlc.narg(degree)::text IS NULL OR EXISTS (
+    SELECT FROM departments d
+    WHERE d.faculty_id = c.id AND d.retired_at IS NULL AND d.degree = sqlc.narg(degree)::text))
 WHERE p.id = sqlc.arg(university_id) AND p.retired_at IS NULL
 ORDER BY c.name, c.id;
 
@@ -44,6 +58,7 @@ ORDER BY c.name, c.id;
 SELECT c.id, c.name
 FROM faculties p
 LEFT JOIN departments c ON c.faculty_id = p.id AND c.retired_at IS NULL
+  AND (sqlc.narg(degree)::text IS NULL OR c.degree = sqlc.narg(degree)::text)
 WHERE p.id = sqlc.arg(faculty_id) AND p.retired_at IS NULL
 ORDER BY c.name, c.id;
 

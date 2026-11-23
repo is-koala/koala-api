@@ -15,6 +15,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
+	"github.com/is-koala/koala-api/internal/reference"
 	"github.com/is-koala/koala-api/internal/users/usersdb"
 )
 
@@ -195,7 +196,11 @@ func keeps(kept uuid.NullUUID, id uuid.UUID) bool {
 
 // checkReferences finds the university, the faculty under it and the
 // department under the faculty. A retired row cannot be chosen anew, but a
-// record keeps the one it names already (M4, ADR-0036). The reference rows
+// record keeps the one it names already (M4, ADR-0036). The department is
+// a program of the degree the record's degree names (an associate degree
+// names an associate degree program; reference.ProgramDegree), whether
+// the record named it already or not: a mismatch is REFERENCE_ITEM_NOT_FOUND,
+// as a department of another faculty is (ADR-0038). The reference rows
 // are never deleted, so what is found here stays; the composite foreign
 // keys hold the same in the database.
 func checkReferences(ctx context.Context, q *usersdb.Queries, in EducationInput, kept references) error {
@@ -220,7 +225,8 @@ func checkReferences(ctx context.Context, q *usersdb.Queries, in EducationInput,
 			return apperr.New(apperr.KindNotFound, CodeReferenceNotFound)
 		}
 		_, err := q.GetDepartmentOf(ctx, usersdb.GetDepartmentOfParams{
-			ID: *in.DepartmentID, FacultyID: *in.FacultyID, AllowRetired: keeps(kept.department, *in.DepartmentID),
+			ID: *in.DepartmentID, FacultyID: *in.FacultyID, Degree: reference.ProgramDegree(in.Degree),
+			AllowRetired: keeps(kept.department, *in.DepartmentID),
 		})
 		if err != nil {
 			return referenceError(err)

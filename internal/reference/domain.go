@@ -1,6 +1,8 @@
 // Package reference serves the reference lists of /v1/reference: countries,
 // a country's cities, a city's districts; universities, a university's
-// faculties, a faculty's departments (ADR-0029 Karar 8, ADR-0037).
+// faculties, a faculty's departments (ADR-0029 Karar 8, ADR-0037). The
+// academic lists can be filtered by the degree of an education record
+// (ProgramDegree, ADR-0038).
 //
 // The data is M4: read-only for the application. Its rows come from the
 // versioned files of db/referencedata, which `koala migrate up` brings the
@@ -32,6 +34,28 @@ const CodeReferenceItemNotFound apperr.Code = "REFERENCE_ITEM_NOT_FOUND"
 
 // Codes lists every code this package defines, for the contract test.
 func Codes() []apperr.Code { return []apperr.Code{CodeReferenceItemNotFound} }
+
+// The degrees of a program (a department): an associate degree program
+// (önlisans) or a bachelor's program (lisans); departments.degree
+// (ADR-0038).
+const (
+	ProgramAssociate = "ASSOCIATE"
+	ProgramBachelor  = "BACHELOR"
+)
+
+// ProgramDegree is the degree of the programs an education record of the
+// given degree can name (EducationDegree, ADR-0038): an associate degree
+// names an associate degree program; a bachelor's, a master's and a
+// doctorate name a bachelor's program, since the data has no graduate
+// programs and a graduate record names its field by one. It is the one
+// place the rule is written: the lists filter by it and the education
+// records check their department by it (internal/users).
+func ProgramDegree(educationDegree string) string {
+	if educationDegree == ProgramAssociate {
+		return ProgramAssociate
+	}
+	return ProgramBachelor
+}
 
 // Item is one row of a reference list.
 type Item struct {

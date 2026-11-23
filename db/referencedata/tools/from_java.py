@@ -7,7 +7,8 @@ Usage, from the repository root:
     python3 -I db/referencedata/tools/clean.py db/referencedata
 
 <dir> holds Java's six CSV files (koala-backend 0cbbce69). The ids and
-names are kept; the audit columns (created_at, updated_at, created_by_id,
+names are kept, every department is a bachelor's program (degree
+BACHELOR) and no source code is written; the audit columns (created_at, updated_at, created_by_id,
 updated_by_id) are dropped, and Eminönü, which Java retired in its
 2026-09-05-04 changelog (merged into Fatih in 2008), is left out. clean.py
 then applies the cleanup. Only the standard library is used.
@@ -25,8 +26,13 @@ COLUMNS = {
     "districts": ["id", "city_id", "name"],
     "universities": ["id", "name"],
     "faculties": ["id", "university_id", "name"],
-    "departments": ["id", "faculty_id", "name"],
+    "departments": ["id", "faculty_id", "degree", "name"],
 }
+
+# Java's departments are YÖK's bachelor's programs; it has no source codes,
+# so department_source_codes.csv is written with its header alone
+# (ADR-0038).
+DEGREE = "BACHELOR"
 
 
 def main():
@@ -45,8 +51,12 @@ def main():
             w = csv.writer(f, lineterminator="\n")
             w.writerow(cols)
             for r in rows:
+                if table == "departments":
+                    r["degree"] = DEGREE
                 w.writerow([r[c] for c in cols])
         print(f"{len(rows):6d}  rows in {table}.csv")
+    with open(os.path.join(dst, "department_source_codes.csv"), "w", encoding="utf-8", newline="") as f:
+        csv.writer(f, lineterminator="\n").writerow(["code", "department_id"])
 
 
 if __name__ == "__main__":

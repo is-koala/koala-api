@@ -50,9 +50,20 @@ func (s *Service) Countries(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
-// Universities lists the universities in use.
-func (s *Service) Universities(ctx context.Context) ([]Item, error) {
-	rows, err := s.reads.ListUniversities(ctx)
+// programDegree is the filter of the academic lists: nil for every row,
+// else the program degree an education record of educationDegree names.
+func programDegree(educationDegree *string) *string {
+	if educationDegree == nil {
+		return nil
+	}
+	d := ProgramDegree(*educationDegree)
+	return &d
+}
+
+// Universities lists the universities in use; with a degree, those with a
+// program of it in use.
+func (s *Service) Universities(ctx context.Context, degree *string) ([]Item, error) {
+	rows, err := s.reads.ListUniversities(ctx, programDegree(degree))
 	if err != nil {
 		return nil, fmt.Errorf("reference: list the universities: %w", err)
 	}
@@ -89,9 +100,10 @@ func (s *Service) Districts(ctx context.Context, cityID uuid.UUID) ([]Item, erro
 	return children(out)
 }
 
-// Faculties lists the faculties of a university in use.
-func (s *Service) Faculties(ctx context.Context, universityID uuid.UUID) ([]Item, error) {
-	rows, err := s.reads.ListFaculties(ctx, universityID)
+// Faculties lists the faculties of a university in use; with a degree,
+// those with a program of it in use.
+func (s *Service) Faculties(ctx context.Context, universityID uuid.UUID, degree *string) ([]Item, error) {
+	rows, err := s.reads.ListFaculties(ctx, referencedb.ListFacultiesParams{UniversityID: universityID, Degree: programDegree(degree)})
 	if err != nil {
 		return nil, fmt.Errorf("reference: list the faculties: %w", err)
 	}
@@ -102,9 +114,10 @@ func (s *Service) Faculties(ctx context.Context, universityID uuid.UUID) ([]Item
 	return children(out)
 }
 
-// Departments lists the departments of a faculty in use.
-func (s *Service) Departments(ctx context.Context, facultyID uuid.UUID) ([]Item, error) {
-	rows, err := s.reads.ListDepartments(ctx, facultyID)
+// Departments lists the departments of a faculty in use; with a degree,
+// the programs of it.
+func (s *Service) Departments(ctx context.Context, facultyID uuid.UUID, degree *string) ([]Item, error) {
+	rows, err := s.reads.ListDepartments(ctx, referencedb.ListDepartmentsParams{FacultyID: facultyID, Degree: programDegree(degree)})
 	if err != nil {
 		return nil, fmt.Errorf("reference: list the departments: %w", err)
 	}

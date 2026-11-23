@@ -4,7 +4,8 @@ Usage, from the repository root:
 
     python3 -I db/referencedata/tools/clean.py db/referencedata
 
-The files came from Java's snapshot (0cbbce69). This script applies the
+The files came from Java's snapshot (0cbbce69), and the associate degree
+programs from YÖK (from_yok.py, ADR-0038). This script applies the
 cleanup decided on 23.11.2026, before the first load. It is idempotent:
 run on files it already cleaned, it changes nothing and reports zeros.
 Each rule prints what it removed or renamed. Only the standard library is
@@ -51,9 +52,12 @@ Rules, in order:
    smallest id. It takes the name without the suffixes; the departments of
    the others move under it (no database holds them yet: first load), and
    the others are removed.
-7. Departments: the same rule per (faculty, name without the suffixes):
-   the row without a suffix, else the smallest id, takes the plain name;
-   the others are removed.
+7. Departments: the same rule per (faculty, degree, name without the
+   suffixes): the row without a suffix, else the smallest id, takes the
+   plain name; the others are removed, and their source codes
+   (department_source_codes.csv) move to it. An associate degree program
+   and a bachelor's program of one name under one unit are two programs
+   (ADR-0038).
 
 The language of instruction, distance and open education, joint programs
 (UOLP) and campuses stay part of a name: YÖK lists them as programs of
@@ -103,7 +107,8 @@ HEADERS = {
     "districts": ["id", "city_id", "name"],
     "universities": ["id", "name"],
     "faculties": ["id", "university_id", "name"],
-    "departments": ["id", "faculty_id", "name"],
+    "departments": ["id", "faculty_id", "degree", "name"],
+    "department_source_codes": ["code", "department_id"],
 }
 
 SUFFIX = re.compile(r"\s*\(([^()]*)\)")
@@ -149,7 +154,9 @@ def main():
 
     # 1. Whitespace.
     n = 0
-    for rows in data.values():
+    for table, rows in data.items():
+        if "name" not in HEADERS[table]:
+            continue
         for r in rows:
             clean = spaces(r["name"])
             if clean != r["name"]:
@@ -261,13 +268,15 @@ def main():
     # 7. Department variants.
     groups = {}
     for r in data["departments"]:
-        groups.setdefault((r["faculty_id"], without_quota(r["name"])), []).append(r)
-    keep = {}
+        groups.setdefault((r["faculty_id"], r["degree"], without_quota(r["name"])), []).append(r)
+    keep, merged_into = {}, {}
     renamed = 0
-    for (_, plain), rows in groups.items():
+    for (_, _, plain), rows in groups.items():
         chosen = min(rows, key=lambda r: (r["name"] != plain, r["id"]))
         keep[chosen["id"]] = plain
         renamed += chosen["name"] != plain
+        for r in rows:
+            merged_into[r["id"]] = chosen["id"]
     before = len(data["departments"])
     kept = []
     for r in data["departments"]:
@@ -277,11 +286,22 @@ def main():
     data["departments"] = kept
     report.append(("departments: quota or fee variant (or a duplicate after a faculty merge), removed", before - len(kept)))
     report.append(("departments: kept row renamed to the program's name", renamed))
+    moved_codes = 0
+    for r in data["department_source_codes"]:
+        target = merged_into.get(r["department_id"], r["department_id"])
+        if target != r["department_id"]:
+            r["department_id"] = target
+            moved_codes += 1
+    report.append(("department source codes: moved to the kept department", moved_codes))
 
     faculty_ids = {r["id"] for r in data["faculties"]}
     orphans = [r["id"] for r in data["departments"] if r["faculty_id"] not in faculty_ids]
     if orphans:
         sys.exit(f"departments left without their faculty: {orphans[:5]}")
+    department_ids = {r["id"] for r in data["departments"]}
+    orphans = [r["code"] for r in data["department_source_codes"] if r["department_id"] not in department_ids]
+    if orphans:
+        sys.exit(f"source codes left without their department: {orphans[:5]}")
 
     for table, rows in data.items():
         write(root, table, rows)
