@@ -47,6 +47,10 @@ func TestRunUsage(t *testing.T) {
 		{"staff disable without email", []string{"staff", "disable"}, ExitUsage},
 		{"staff help", []string{"staff", "help"}, ExitOK},
 		{"bootstrap with args", []string{"bootstrap", "now"}, ExitUsage},
+		{"reference without command", []string{"reference"}, ExitUsage},
+		{"reference unknown command", []string{"reference", "load"}, ExitUsage},
+		{"reference unknown flag", []string{"reference", "sync", "--force"}, ExitUsage},
+		{"reference help", []string{"reference", "help"}, ExitOK},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -92,6 +96,8 @@ func TestCommandsRequireTheirDatabaseURL(t *testing.T) {
 		{[]string{"migrate", "up"}, "KOALA_OWNER_DATABASE_URL"},
 		{[]string{"migrate", "status"}, "KOALA_OWNER_DATABASE_URL"},
 		{[]string{"maint", "reindex"}, "KOALA_OWNER_DATABASE_URL"},
+		{[]string{"reference", "sync"}, "KOALA_OWNER_DATABASE_URL"},
+		{[]string{"reference", "sync", "--dry-run"}, "KOALA_OWNER_DATABASE_URL"},
 		{[]string{"maint", "audit-purge"}, "KOALA_MAINT_DATABASE_URL"},
 		{[]string{"bootstrap"}, "KOALA_BOOTSTRAP_DATABASE_URL"},
 	}

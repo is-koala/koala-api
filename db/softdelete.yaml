@@ -250,23 +250,45 @@ tables:
     class: M4
     reason: >-
       Academic reference data (ADR-0029 Karar 8): the universities an
-      education record names. Read-only for the application; rows come by
-      migration and are retired with retired_at, never deleted, since
-      education records name them (ADR-0036).
+      education record names. Read-only for the application; rows come from
+      db/referencedata through koala migrate up and are retired with
+      retired_at, never deleted, since education records name them
+      (ADR-0036, ADR-0037).
   faculties:
     class: M4
     reason: >-
       Academic reference data (ADR-0029 Karar 8): a university's faculties.
-      Read-only for the application; rows come by migration and are retired
-      with retired_at, never deleted, since education records name them
-      (ADR-0036).
+      Read-only for the application; rows come from db/referencedata through
+      koala migrate up and are retired with retired_at, never deleted, since
+      education records name them (ADR-0036, ADR-0037).
   departments:
     class: M4
     reason: >-
       Academic reference data (ADR-0029 Karar 8): a faculty's departments.
-      Read-only for the application; rows come by migration and are retired
-      with retired_at, never deleted, since education records name them
-      (ADR-0036).
+      Read-only for the application; rows come from db/referencedata through
+      koala migrate up and are retired with retired_at, never deleted, since
+      education records name them (ADR-0036, ADR-0037).
+  countries:
+    class: M4
+    reason: >-
+      Place reference data (ADR-0029 Karar 8): the countries cities belong
+      to. Read-only for the application; rows come from db/referencedata
+      through koala migrate up and are retired with retired_at, never
+      deleted (ADR-0037).
+  cities:
+    class: M4
+    reason: >-
+      Place reference data (ADR-0029 Karar 8): a country's cities, which
+      addresses name. Read-only for the application; rows come from
+      db/referencedata through koala migrate up and are retired with
+      retired_at, never deleted (ADR-0037).
+  districts:
+    class: M4
+    reason: >-
+      Place reference data (ADR-0029 Karar 8): a city's districts, which
+      addresses name. Read-only for the application; rows come from
+      db/referencedata through koala migrate up and are retired with
+      retired_at, never deleted (ADR-0037).
   educations:
     class: soft_delete
     pii: true

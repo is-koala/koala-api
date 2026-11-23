@@ -11,7 +11,9 @@
 // A template database holds the group roles' schema: every migration in
 // db/migrations plus the example migrations in testdata, applied by a login
 // that is a member of koala_owner through the same db.Migrator that
-// `koala migrate up` uses. Its name contains a hash of that SQL; a test
+// `koala migrate up` uses, and then the reference data of db/referencedata
+// through the same referencedata.Sync (ADR-0037). Its name contains a hash
+// of that SQL and of the reference files; a test
 // process that finds no template for its hash builds one. Each test clones
 // the template (CREATE DATABASE … TEMPLATE, a file copy of a small
 // database) and gets fresh login users, one per group role, with generated
@@ -35,6 +37,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -51,6 +54,7 @@ import (
 	dbsrc "github.com/is-koala/koala-api/db"
 	"github.com/is-koala/koala-api/db/bootstrap"
 	"github.com/is-koala/koala-api/db/migrations"
+	"github.com/is-koala/koala-api/db/referencedata"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
@@ -194,7 +198,7 @@ func New(t *testing.T) DB {
 	defer closeConn(ctx, conn)
 
 	fsys := migrationFS(t)
-	name := templateName(fsys)
+	name := templateName(fsys, referenceFS())
 	for range cloneAttempts {
 		withLock(ctx, t, conn, false, func() {
 			prepare(ctx, t, conn)
@@ -367,22 +371,45 @@ func migrationFS(t *testing.T) fstest.MapFS {
 	return merged
 }
 
-// templateName hashes everything that shapes the template.
-func templateName(fsys fstest.MapFS) string {
+// templateName hashes everything that shapes the template: the roles, the
+// migrations and the reference files. A reference file left out would keep
+// a template with last year's rows after the file changed.
+func templateName(fsys, reference fstest.MapFS) string {
 	h := sha256.New()
 	h.Write([]byte(bootstrap.RolesSQL))
-	files := make([]string, 0, len(fsys))
-	for name := range fsys {
-		files = append(files, name)
-	}
-	slices.Sort(files)
-	for _, name := range files {
-		h.Write([]byte(name))
-		h.Write([]byte{0})
-		h.Write(fsys[name].Data)
-		h.Write([]byte{0})
+	for _, set := range []fstest.MapFS{fsys, reference} {
+		files := make([]string, 0, len(set))
+		for name := range set {
+			files = append(files, name)
+		}
+		slices.Sort(files)
+		for _, name := range files {
+			h.Write([]byte(name))
+			h.Write([]byte{0})
+			h.Write(set[name].Data)
+			h.Write([]byte{0})
+		}
 	}
 	return templatePrefix + hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// referenceFS copies the embedded reference files, as templateName hashes
+// them.
+func referenceFS() fstest.MapFS {
+	out := fstest.MapFS{}
+	entries, err := fs.ReadDir(referencedata.FS, ".")
+	if err != nil {
+		// The files are embedded at build time; reading them cannot fail.
+		panic("dbtest: embedded reference data: " + err.Error())
+	}
+	for _, e := range entries {
+		data, err := fs.ReadFile(referencedata.FS, e.Name())
+		if err != nil {
+			panic("dbtest: embedded reference data: " + err.Error())
+		}
+		out["reference/"+e.Name()] = &fstest.MapFile{Data: data}
+	}
+	return out
 }
 
 type templateRow struct {
@@ -434,12 +461,16 @@ func ensureTemplate(ctx context.Context, t *testing.T, conn *pgx.Conn, name stri
 	user, password := createLogin(ctx, t, conn, newStamp(t)+"_build", LoginOptions{Roles: []string{db.RoleOwner}})
 	c := conn.Config()
 
-	migrator, err := db.NewMigrator(loginURL(c.Host, c.Port, user, password, name), fsys, slog.New(slog.DiscardHandler))
+	buildURL := loginURL(c.Host, c.Port, user, password, name)
+	migrator, err := db.NewMigrator(buildURL, fsys, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("dbtest: %v", err)
 	}
 	_, upErr := migrator.Up(ctx)
 	_ = migrator.Close()
+	if upErr == nil {
+		upErr = syncReference(ctx, buildURL)
+	}
 	dropRoles(ctx, t, user)
 	if upErr != nil {
 		t.Fatalf("dbtest: build template: %v", upErr)
@@ -448,6 +479,30 @@ func ensureTemplate(ctx context.Context, t *testing.T, conn *pgx.Conn, name stri
 	// CREATE DATABASE … TEMPLATE needs a template nobody is connected to.
 	exec(ctx, t, conn, "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()", name)
 	exec(ctx, t, conn, "ALTER DATABASE "+ident+" WITH IS_TEMPLATE true ALLOW_CONNECTIONS false")
+}
+
+// syncReference loads the reference data as `koala migrate up` does
+// after the migrations: referencedata.Sync in one koala_owner transaction.
+func syncReference(ctx context.Context, ownerURL string) error {
+	data, err := referencedata.Load()
+	if err != nil {
+		return fmt.Errorf("load reference data: %w", err)
+	}
+	owner, err := db.Open(ctx, db.Config{URL: ownerURL, Role: db.RoleOwner, Logger: slog.New(slog.DiscardHandler)})
+	if err != nil {
+		return fmt.Errorf("open owner pool: %w", err)
+	}
+	defer owner.Close()
+	err = owner.InTx(ctx, func(ctx context.Context, q db.Querier) error {
+		if _, err := referencedata.Sync(ctx, q, data); err != nil {
+			return fmt.Errorf("sync reference data: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("reference data: %w", err)
+	}
+	return nil
 }
 
 type aclRow struct {

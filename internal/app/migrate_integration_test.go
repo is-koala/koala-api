@@ -69,13 +69,35 @@ func TestMigrateCommand(t *testing.T) {
 		return n
 	}
 
+	// up also loads the reference data (ADR-0037): a release that forgot
+	// the step would serve empty lists and refuse every education.
+	referenceRows := func() (departments, districts int) {
+		t.Helper()
+		err := owner.Pool().QueryRow(t.Context(),
+			"SELECT (SELECT count(*) FROM departments WHERE retired_at IS NULL), (SELECT count(*) FROM districts WHERE retired_at IS NULL)").
+			Scan(&departments, &districts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return departments, districts
+	}
+
 	wantStatus(0)
-	migrate("up", ExitOK)
+	out := migrate("up", ExitOK)
 	wantStatus(total)
 	if riverTables() == 0 {
 		t.Fatal("no River tables after up")
 	}
-	migrate("up", ExitOK) // nothing pending: still success
+	if dep, dis := referenceRows(); dep != 11250 || dis != 995 {
+		t.Fatalf("after up: %d departments, %d districts; want 11250 and 995\n%s", dep, dis, out)
+	}
+	if !strings.Contains(out, `"msg":"reference data synced"`) || !strings.Contains(out, `"inserted":11250`) {
+		t.Errorf("up logged no reference summary:\n%s", out)
+	}
+	out = migrate("up", ExitOK) // nothing pending: still success, nothing to sync
+	if strings.Contains(out, `"inserted":1`) || strings.Contains(out, `"updated":1`) || strings.Contains(out, `"retired":1`) {
+		t.Errorf("the second up changed reference rows:\n%s", out)
+	}
 
 	for range total {
 		migrate("down", ExitOK)
@@ -88,6 +110,9 @@ func TestMigrateCommand(t *testing.T) {
 
 	migrate("up", ExitOK)
 	wantStatus(total)
+	if dep, dis := referenceRows(); dep != 11250 || dis != 995 {
+		t.Fatalf("after down and up: %d departments, %d districts; want 11250 and 995", dep, dis)
+	}
 }
 
 // TestMigrateRefusesNonOwner: a login that is not a member of koala_owner

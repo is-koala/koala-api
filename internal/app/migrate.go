@@ -16,7 +16,8 @@ import (
 
 const migrateUsage = `usage: koala migrate <up|down|status>
 
-  up      apply every pending migration
+  up      apply every pending migration, then bring the reference data
+          in line with the files of this binary (koala reference sync)
   down    roll back the most recent migration; development only: refused
           when KOALA_ENV=production, River's down migrations drop job
           tables with their rows, NO TRANSACTION files are not atomic
@@ -82,6 +83,18 @@ func runMigrate(ctx context.Context, args []string, sio IO) int {
 			return ExitError
 		}
 		logger.InfoContext(ctx, "migrations up to date", slog.Int("applied", len(res)))
+		// The reference data is part of the schema's state: every up
+		// brings it in line with the files of this binary (ADR-0037).
+		summary, err := syncReference(ctx, cfg.OwnerDatabaseURL.Reveal(), logger, false)
+		if err != nil {
+			logger.ErrorContext(ctx, "migrate failed", slog.Any("error", err))
+			return ExitError
+		}
+		for _, c := range summary {
+			logger.InfoContext(ctx, "reference data synced", slog.String("table", c.Table),
+				slog.Int64("inserted", c.Inserted), slog.Int64("updated", c.Updated),
+				slog.Int64("retired", c.Retired), slog.Int64("unchanged", c.Unchanged))
+		}
 	case "down":
 		res, err := migrator.Down(ctx)
 		if err != nil {
