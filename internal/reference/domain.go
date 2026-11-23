@@ -12,8 +12,8 @@
 // public (MED-012).
 //
 // A list is cacheable for a day and carries an ETag derived from the data
-// version the tables hold (reference_data_version); a matching
-// If-None-Match is 304 without a body.
+// version the tables hold and its revision (reference_data_version); a
+// matching If-None-Match is 304 without a body.
 package reference
 
 import (
@@ -43,12 +43,21 @@ type Item struct {
 // once a year at most, cacheable by clients and shared caches for a day.
 const CacheControl = "public, max-age=86400"
 
-// ETag is the entity tag of every list at a data version. Every list of
-// one version is one representation per URL, so the version names it; a
-// change of the representation itself (a new field of ReferenceItem) must
-// change this prefix.
-func ETag(version int32) string {
-	return `"reference-v` + strconv.FormatInt(int64(version), 10) + `"`
+// DataVersion is the data version the tables hold and its revision: a
+// sync that repairs the rows under the same version moves the revision.
+type DataVersion struct {
+	Version  int32
+	Revision int32
+}
+
+// ETag is the entity tag of every list at a data version and revision.
+// Every list of one revision is one representation per URL, so the pair
+// names it: a repair changes the tag as a new version does, and a client
+// that holds the repaired list gets the new one. A change of the
+// representation itself (a new field of ReferenceItem) must change this
+// prefix.
+func ETag(v DataVersion) string {
+	return `"reference-v` + strconv.FormatInt(int64(v.Version), 10) + "." + strconv.FormatInt(int64(v.Revision), 10) + `"`
 }
 
 // Matches reports whether an If-None-Match header value matches etag:

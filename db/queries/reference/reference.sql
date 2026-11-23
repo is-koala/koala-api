@@ -48,6 +48,7 @@ WHERE p.id = sqlc.arg(faculty_id) AND p.retired_at IS NULL
 ORDER BY c.name, c.id;
 
 -- name: GetDataVersion :one
--- GetDataVersion is the version of db/referencedata the tables hold; 0
--- before the first sync. The lists' ETag derives from it.
-SELECT coalesce((SELECT version FROM reference_data_version), 0)::integer AS version;
+-- GetDataVersion is the data version the tables hold and its revision,
+-- both 0 before the first sync. The lists' ETag derives from them.
+SELECT coalesce(max(version), 0)::integer AS version, coalesce(max(revision), 0)::integer AS revision
+FROM reference_data_version;

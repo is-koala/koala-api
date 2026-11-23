@@ -89,8 +89,9 @@ const (
 	// hourly budget of verification starts (ADR-0033).
 	VarVerificationStartsPerIPHour = "KOALA_VERIFICATION_STARTS_PER_IP_HOUR"
 	// VarReferenceAllowRetire lets `koala migrate up` retire more reference
-	// rows than the sync's limit: comma-separated <table>:<rows> pairs, set
-	// for the one release that means it (ADR-0037).
+	// rows than the sync's limit: comma-separated <table>:<rows>@<data
+	// version> entries, for the one release that means it; an entry for
+	// another data version is ignored with a warning (ADR-0037).
 	VarReferenceAllowRetire = "KOALA_REFERENCE_ALLOW_RETIRE"
 )
 
@@ -215,8 +216,8 @@ type Config struct {
 	// that are not the text message account's (ADR-0033).
 	Verification Verification
 	// ReferenceAllowRetire is VarReferenceAllowRetire as given, shape-checked
-	// here (<table>:<rows>, comma-separated); migrate up hands it to the
-	// reference sync, which knows the tables. Empty: the limit holds.
+	// here (<table>:<rows>@<version>, comma-separated); migrate up hands it
+	// to the reference sync, which knows the tables. Empty: the limit holds.
 	ReferenceAllowRetire string
 }
 
@@ -431,7 +432,7 @@ func Load(environ []string) (Config, error) {
 	if v, ok := vars[VarReferenceAllowRetire]; ok {
 		v = strings.TrimSpace(v)
 		if !allowRetire.MatchString(v) {
-			errs = append(errs, fmt.Errorf("%s: %w: want <table>:<rows>, comma-separated", VarReferenceAllowRetire, errInvalidValue))
+			errs = append(errs, fmt.Errorf("%s: %w: want <table>:<rows>@<data version>, comma-separated", VarReferenceAllowRetire, errInvalidValue))
 		}
 		cfg.ReferenceAllowRetire = v
 	}
@@ -446,7 +447,7 @@ func Load(environ []string) (Config, error) {
 var errInvalidValue = errors.New("invalid value")
 
 // allowRetire is the shape of VarReferenceAllowRetire.
-var allowRetire = regexp.MustCompile(`^[a-z_]+:\d{1,9}( *, *[a-z_]+:\d{1,9})*$`)
+var allowRetire = regexp.MustCompile(`^[a-z_]+:\d{1,9}@\d{1,9}( *, *[a-z_]+:\d{1,9}@\d{1,9})*$`)
 
 // loadEdge reads the variables of the HTTP edge: the client version gate,
 // the trusted proxies and the metrics listener (ADR-0021).

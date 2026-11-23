@@ -26,23 +26,43 @@ func load(t *testing.T) *referencedata.Dataset {
 	return d
 }
 
-// runSync runs Sync in its own owner transaction and commits it. It also
-// reports whether the transaction was given an id, which a transaction
-// gets with its first write: a sync that wrote nothing has none.
+// runSync runs Sync in its own owner transaction and commits it unless
+// Sync fails. It also reports whether the transaction was given an id,
+// which a transaction gets with its first write: a sync that wrote
+// nothing has none. The id is read after a failed Sync too, before the
+// rollback, so a refusal can be shown to come before any write.
 func runSync(t *testing.T, owner *db.DB, d *referencedata.Dataset, opts referencedata.Options) (referencedata.Result, bool, error) {
 	t.Helper()
 	var (
-		res   referencedata.Result
-		wrote bool
+		res     referencedata.Result
+		wrote   bool
+		syncErr error
 	)
 	err := owner.InTx(t.Context(), func(ctx context.Context, q db.Querier) error {
-		var err error
-		if res, err = referencedata.Sync(ctx, q, d, opts); err != nil {
+		res, syncErr = referencedata.Sync(ctx, q, d, opts)
+		if err := q.QueryRow(ctx, "SELECT pg_current_xact_id_if_assigned() IS NOT NULL").Scan(&wrote); err != nil {
 			return err
 		}
-		return q.QueryRow(ctx, "SELECT pg_current_xact_id_if_assigned() IS NOT NULL").Scan(&wrote)
+		return syncErr
 	})
+	if syncErr != nil {
+		return res, wrote, syncErr
+	}
 	return res, wrote, err
+}
+
+// allow is an allowance for data version 1, the files' version.
+func allow(table string, rows int) referencedata.Options {
+	return referencedata.Options{AllowRetire: map[string]referencedata.Allowance{table: {Rows: rows, Version: 1}}}
+}
+
+func revision(t *testing.T, owner *db.DB) int {
+	t.Helper()
+	var r int
+	if err := owner.Pool().QueryRow(t.Context(), "SELECT coalesce((SELECT revision FROM reference_data_version), 0)").Scan(&r); err != nil {
+		t.Fatal(err)
+	}
+	return r
 }
 
 // counts reads, per table, the rows in use and the retired ones.
@@ -90,8 +110,8 @@ func TestTemplateHoldsTheReferenceData(t *testing.T) {
 	owner := dbtest.New(t).Open(t, db.RoleOwner)
 	active, retired := counts(t, owner)
 	want := map[string]int{
-		"countries": 1, "cities": 81, "districts": 972,
-		"universities": 224, "faculties": 2047, "departments": 7571,
+		"countries": 1, "cities": 81, "districts": 973,
+		"universities": 223, "faculties": 2043, "departments": 7567,
 	}
 	for table, n := range want {
 		if active[table] != n || retired[table] != 0 {
@@ -182,7 +202,7 @@ func TestSyncFollowsTheFiles(t *testing.T) {
 		}
 	}
 	active, retired := counts(t, owner)
-	if retired["departments"] != len(dropped) || active["departments"] != 7571-len(dropped)+1 {
+	if retired["departments"] != len(dropped) || active["departments"] != 7567-len(dropped)+1 {
 		t.Errorf("departments: %d in use, %d retired", active["departments"], retired["departments"])
 	}
 
@@ -207,8 +227,8 @@ func TestSyncFollowsTheFiles(t *testing.T) {
 		}
 	}
 	active, retired = counts(t, owner)
-	if active["departments"] != 7571 || retired["departments"] != 1 {
-		t.Errorf("departments: %d in use and %d retired, want 7571 and 1", active["departments"], retired["departments"])
+	if active["departments"] != 7567 || retired["departments"] != 1 {
+		t.Errorf("departments: %d in use and %d retired, want 7567 and 1", active["departments"], retired["departments"])
 	}
 }
 
@@ -223,20 +243,25 @@ func TestSyncStopsAtTheRetireLimit(t *testing.T) {
 	d := load(t)
 	d.Departments = nil
 
-	_, _, err := runSync(t, owner, d, referencedata.Options{})
+	_, wrote, err := runSync(t, owner, d, referencedata.Options{})
 	var limit *referencedata.RetireLimitError
-	if !errors.As(err, &limit) || limit.Table != "departments" || limit.Retire != 7571 || limit.Limit != 378 {
+	if !errors.As(err, &limit) || limit.Table != "departments" || limit.Retire != 7567 || limit.Limit != 378 {
 		t.Fatalf("sync = %v, want the departments' retirement limit", err)
 	}
-	if active, _ := counts(t, owner); active["departments"] != 7571 {
-		t.Fatalf("after the refusal %d departments in use, want 7571", active["departments"])
+	// Plan, then limit, then write: the refused sync's transaction never
+	// wrote a row, so it was never given an id.
+	if wrote {
+		t.Fatal("the refused sync wrote before the limit stopped it")
 	}
-	_, _, err = runSync(t, owner, d, referencedata.Options{AllowRetire: map[string]int{"departments": 7570}})
+	if active, _ := counts(t, owner); active["departments"] != 7567 {
+		t.Fatalf("after the refusal %d departments in use, want 7567", active["departments"])
+	}
+	_, _, err = runSync(t, owner, d, allow("departments", 7566))
 	if !errors.As(err, &limit) {
 		t.Fatalf("an allowance one short: %v, want the limit", err)
 	}
 
-	// At the limit: 378 of 7571 pass, 379 do not.
+	// At the limit: 378 of 7567 pass, 379 do not.
 	at := load(t)
 	at.Departments = at.Departments[378:]
 	over := load(t)
@@ -251,9 +276,82 @@ func TestSyncStopsAtTheRetireLimit(t *testing.T) {
 
 	// The whole table, allowed.
 	fresh := dbtest.New(t).Open(t, db.RoleOwner)
-	res, _, err = runSync(t, fresh, d, referencedata.Options{AllowRetire: map[string]int{"departments": 7571}})
-	if err != nil || len(of(res, "departments").Retired) != 7571 {
+	res, _, err = runSync(t, fresh, d, allow("departments", 7567))
+	if err != nil || len(of(res, "departments").Retired) != 7567 {
 		t.Fatalf("allowed: %v, %d retired", err, len(of(res, "departments").Retired))
+	}
+}
+
+// TestRetireLimitCountsRowsInUse: the limit is 5 % of the rows in use,
+// not of every row. Retired rows from earlier years stay in the table; if
+// they counted, a table with many of them would let a cut file through.
+// Here 5,000 retired departments sit next to the 7,567 in use: retiring
+// 379 is still above 378.
+func TestRetireLimitCountsRowsInUse(t *testing.T) {
+	t.Parallel()
+
+	owner := dbtest.New(t).Open(t, db.RoleOwner)
+	if _, err := owner.Pool().Exec(t.Context(), `
+		INSERT INTO departments (id, faculty_id, name, retired_at)
+		SELECT gen_random_uuid(), 'a8004de5-6f16-41ea-9841-42ed646684cf', 'Eski ' || n, now()
+		FROM generate_series(1, 5000) AS n`); err != nil {
+		t.Fatal(err)
+	}
+	over := load(t)
+	over.Departments = over.Departments[379:]
+	_, _, err := runSync(t, owner, over, referencedata.Options{})
+	var limit *referencedata.RetireLimitError
+	if !errors.As(err, &limit) || limit.Active != 7567 || limit.Limit != 378 {
+		t.Fatalf("379 retirements next to 5,000 retired rows: %v, want the limit of 378 over 7,567 rows in use", err)
+	}
+}
+
+// TestAllowanceIsForOneVersion: an allowance names the data version it is
+// for. One for another version, left over from an earlier release, lifts
+// nothing: the limit stops the sync and names the ignored allowance; a
+// sync it does not concern reports it as ignored.
+func TestAllowanceIsForOneVersion(t *testing.T) {
+	t.Parallel()
+
+	owner := dbtest.New(t).Open(t, db.RoleOwner)
+	d := load(t)
+	d.Departments = d.Departments[400:]
+	stale := referencedata.Options{AllowRetire: map[string]referencedata.Allowance{"departments": {Rows: 400, Version: 2}}}
+	_, _, err := runSync(t, owner, d, stale)
+	var limit *referencedata.RetireLimitError
+	if !errors.As(err, &limit) || limit.Allowed != 0 || limit.Ignored == nil || limit.Ignored.Version != 2 ||
+		!strings.Contains(err.Error(), "another data version") || !strings.Contains(err.Error(), "departments:400@1") {
+		t.Fatalf("an allowance for version 2 syncing version 1: %v", err)
+	}
+	if _, _, err := runSync(t, owner, d, allow("departments", 400)); err != nil {
+		t.Fatalf("the allowance for version 1: %v", err)
+	}
+	res, _, err := runSync(t, owner, load(t), stale)
+	if err != nil || res.Ignored["departments"] != (referencedata.Allowance{Rows: 400, Version: 2}) {
+		t.Fatalf("a sync the stale allowance does not concern: %+v, %v; want it reported as ignored", res.Ignored, err)
+	}
+}
+
+// TestRepairMovesTheRevision: a sync that writes rows moves the revision,
+// also under the same data version, so the lists' ETag changes and a
+// client holding a 304 sees the repair; a sync that writes nothing does
+// not move it.
+func TestRepairMovesTheRevision(t *testing.T) {
+	t.Parallel()
+
+	owner := dbtest.New(t).Open(t, db.RoleOwner)
+	if r := revision(t, owner); r != 1 {
+		t.Fatalf("revision after the first load %d, want 1", r)
+	}
+	if _, _, err := runSync(t, owner, load(t), referencedata.Options{}); err != nil || revision(t, owner) != 1 {
+		t.Fatalf("a sync with nothing to do: revision %d, %v; want 1", revision(t, owner), err)
+	}
+	if _, err := owner.Pool().Exec(t.Context(), "UPDATE universities SET name = 'EL İLE' WHERE id = 'a1c346d6-2872-4194-9b98-3f0ea5b838ec'"); err != nil {
+		t.Fatal(err)
+	}
+	res, _, err := runSync(t, owner, load(t), referencedata.Options{})
+	if err != nil || len(of(res, "universities").Updated) != 1 || revision(t, owner) != 2 || version(t, owner) != 1 {
+		t.Fatalf("the repair: %+v, %v; revision %d, version %d; want revision 2 under version 1", res, err, revision(t, owner), version(t, owner))
 	}
 }
 
@@ -344,10 +442,10 @@ func TestSyncRefusesInvalidData(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "is not a row of") {
 		t.Fatalf("sync = %v, want the orphans refused", err)
 	}
-	if active, _ := counts(t, owner); active["universities"] != 224 {
-		t.Errorf("universities: %d in use after a refused sync; want 224", active["universities"])
+	if active, _ := counts(t, owner); active["universities"] != 223 {
+		t.Errorf("universities: %d in use after a refused sync; want 223", active["universities"])
 	}
-	_, _, err = runSync(t, owner, load(t), referencedata.Options{AllowRetire: map[string]int{"users": 1}})
+	_, _, err = runSync(t, owner, load(t), referencedata.Options{AllowRetire: map[string]referencedata.Allowance{"users": {Rows: 1, Version: 1}}})
 	if err == nil || !strings.Contains(err.Error(), "not a reference table") {
 		t.Fatalf("an allowance for users: %v", err)
 	}

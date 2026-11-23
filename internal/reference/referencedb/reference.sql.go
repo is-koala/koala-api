@@ -12,16 +12,22 @@ import (
 )
 
 const getDataVersion = `-- name: GetDataVersion :one
-SELECT coalesce((SELECT version FROM reference_data_version), 0)::integer AS version
+SELECT coalesce(max(version), 0)::integer AS version, coalesce(max(revision), 0)::integer AS revision
+FROM reference_data_version
 `
 
-// GetDataVersion is the version of db/referencedata the tables hold; 0
-// before the first sync. The lists' ETag derives from it.
-func (q *Queries) GetDataVersion(ctx context.Context) (int32, error) {
+type GetDataVersionRow struct {
+	Version  int32
+	Revision int32
+}
+
+// GetDataVersion is the data version the tables hold and its revision,
+// both 0 before the first sync. The lists' ETag derives from them.
+func (q *Queries) GetDataVersion(ctx context.Context) (GetDataVersionRow, error) {
 	row := q.db.QueryRow(ctx, getDataVersion)
-	var version int32
-	err := row.Scan(&version)
-	return version, err
+	var i GetDataVersionRow
+	err := row.Scan(&i.Version, &i.Revision)
+	return i, err
 }
 
 const listCities = `-- name: ListCities :many

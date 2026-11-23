@@ -97,8 +97,8 @@ func runMigrate(ctx context.Context, args []string, sio IO) int {
 		if err != nil {
 			if limit := (*referencedata.RetireLimitError)(nil); errors.As(err, &limit) {
 				logger.ErrorContext(ctx, "migrate failed: the reference sync would retire too many rows",
-					slog.String("table", limit.Table), slog.Int("retire", limit.Retire), slog.Int("limit", limit.Limit),
-					slog.String("allow_with", config.VarReferenceAllowRetire+"="+limit.Table+":"+strconv.Itoa(limit.Retire)))
+					slog.Any("error", err), slog.String("table", limit.Table), slog.Int("retire", limit.Retire), slog.Int("limit", limit.Limit),
+					slog.String("allow_with", config.VarReferenceAllowRetire+"="+limit.Table+":"+strconv.Itoa(limit.Retire)+"@"+strconv.Itoa(limit.Version)))
 				return ExitError
 			}
 			logger.ErrorContext(ctx, "migrate failed", slog.Any("error", err))

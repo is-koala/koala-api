@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
+	"slices"
 	"text/tabwriter"
 
 	"github.com/is-koala/koala-api/db/referencedata"
@@ -15,7 +17,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/log"
 )
 
-const referenceUsage = `usage: koala reference sync [--dry-run] [--allow-retire=<table>:<rows>[,...]]
+const referenceUsage = `usage: koala reference sync [--dry-run] [--allow-retire=<table>:<rows>@<version>[,...]]
 
   sync            bring the reference tables (countries, cities, districts,
                   universities, faculties, departments) in line with the
@@ -26,9 +28,11 @@ const referenceUsage = `usage: koala reference sync [--dry-run] [--allow-retire=
                   the migrations.
   --dry-run       print what sync would do and roll it back
   --allow-retire  let sync retire more than the limit of a table (5 % of
-                  its rows in use, at least 10), up to <rows>; without it
-                  such a sync writes nothing and names the table. migrate
-                  up reads the same from KOALA_REFERENCE_ALLOW_RETIRE.
+                  its rows in use, at least 10), up to <rows>, when it
+                  syncs data version <version>; without it such a sync
+                  writes nothing and names the table. An allowance for
+                  another version is ignored with a warning. migrate up
+                  reads the same from KOALA_REFERENCE_ALLOW_RETIRE.
 
 The data version: a database that holds a newer one than this binary
 (a rolled-back release) is left as it is, with a warning.
@@ -125,6 +129,11 @@ func syncReference(ctx context.Context, ownerURL string, logger *slog.Logger, op
 	if res.Skipped {
 		logger.WarnContext(ctx, "reference data left as it is: the database holds a newer version",
 			slog.Int("data_version", res.DataVersion), slog.Int("database_version", res.DatabaseVersion))
+	}
+	for _, table := range slices.Sorted(maps.Keys(res.Ignored)) {
+		logger.WarnContext(ctx, "reference allowance ignored: it names another data version",
+			slog.String("table", table), slog.String("allowance", res.Ignored[table].String()),
+			slog.Int("data_version", res.DataVersion))
 	}
 	return res, nil
 }

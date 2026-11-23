@@ -16,7 +16,9 @@
 -- reference_data_version: the version of db/referencedata the tables were
 -- last brought in line with (db/referencedata/VERSION). A sync with an
 -- older version writes nothing, so a rolled-back release does not take the
--- data back; the lists derive their ETag from it. One row.
+-- data back. revision grows with every sync that writes a row, also one
+-- that repairs a drift under the same version; the lists derive their
+-- ETag from both. One row.
 --
 -- turkish: an ICU collation for the reference names. The lists are
 -- ordered by name and the names are Turkish: under the byte order Ç, Ğ,
@@ -68,9 +70,11 @@ CREATE INDEX districts_city_idx ON districts (city_id);
 CREATE TABLE reference_data_version (
     singleton boolean PRIMARY KEY DEFAULT true,
     version integer NOT NULL,
+    revision integer NOT NULL,
     synced_at timestamptz NOT NULL,
     CONSTRAINT reference_data_version_singleton_check CHECK (singleton),
-    CONSTRAINT reference_data_version_version_check CHECK (version >= 1)
+    CONSTRAINT reference_data_version_version_check CHECK (version >= 1),
+    CONSTRAINT reference_data_version_revision_check CHECK (revision >= 1)
 );
 
 -- Reference data: read-only for the application; its rows come from

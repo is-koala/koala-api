@@ -2900,8 +2900,9 @@ paths:
         eşit adlarda kimliktir. Şehir yoksa ya da emekliye ayrılmışsa
         `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan şehir boş liste alır
         (ADR-0037).
-        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
-        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden ve
+        revizyonundan türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304`
+        alır (ADR-0037).
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
@@ -2944,8 +2945,9 @@ paths:
         Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
         Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
         eşit adlarda kimliktir (ADR-0037).
-        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
-        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden ve
+        revizyonundan türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304`
+        alır (ADR-0037).
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
@@ -2996,8 +2998,9 @@ paths:
         eşit adlarda kimliktir. Üniversite yoksa ya da emekliye ayrılmışsa
         `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan üniversite boş liste alır
         (ADR-0037).
-        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
-        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden ve
+        revizyonundan türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304`
+        alır (ADR-0037).
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
@@ -3050,8 +3053,9 @@ paths:
         eşit adlarda kimliktir. Fakülte yoksa ya da emekliye ayrılmışsa
         `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan fakülte boş liste alır
         (ADR-0037).
-        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
-        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden ve
+        revizyonundan türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304`
+        alır (ADR-0037).
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
@@ -3965,8 +3969,9 @@ paths:
         Salt okunur referans verisi; kimlik istemez ve tek sayfadır (MED-012).
         Emekliye ayrılmış satırlar listede yoktur; sıra Türkçe harf sırasıyla addır,
         eşit adlarda kimliktir (ADR-0037).
-        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
-        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden ve
+        revizyonundan türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304`
+        alır (ADR-0037).
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
@@ -4018,8 +4023,9 @@ paths:
         eşit adlarda kimliktir. Ülke yoksa ya da emekliye ayrılmışsa
         `REFERENCE_ITEM_NOT_FOUND` döner; satırı olmayan ülke boş liste alır
         (ADR-0037).
-        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden
-        türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304` alır (ADR-0037).
+        Yanıt `Cache-Control: public, max-age=86400` ve veri kümesinin sürümünden ve
+        revizyonundan türeyen bir `ETag` taşır; eşleşen `If-None-Match` gövdesiz `304`
+        alır (ADR-0037).
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"

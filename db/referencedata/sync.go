@@ -22,32 +22,47 @@ type Tx interface {
 
 // Options are a sync's exceptions to its limits.
 type Options struct {
-	// AllowRetire lifts a table's retirement limit up to the given number
-	// of rows: a release that means to retire many rows says so, by table.
-	AllowRetire map[string]int
+	// AllowRetire lifts a table's retirement limit up to Rows rows, for
+	// the sync to data Version only: a release that means to retire many
+	// rows says so by table and by the version that retires them, so an
+	// allowance left in place does nothing in a later release.
+	AllowRetire map[string]Allowance
+}
+
+// Allowance is one table's exception to the retirement limit.
+type Allowance struct {
+	Rows    int
+	Version int
+}
+
+// String is the allowance as it is written: <rows>@<version>.
+func (a Allowance) String() string {
+	return strconv.Itoa(a.Rows) + "@" + strconv.Itoa(a.Version)
 }
 
 // ParseAllowRetire reads the --allow-retire value (and
-// KOALA_REFERENCE_ALLOW_RETIRE): comma-separated "<table>:<rows>" pairs,
-// each table once and a reference table.
-func ParseAllowRetire(s string) (map[string]int, error) {
-	out := map[string]int{}
+// KOALA_REFERENCE_ALLOW_RETIRE): comma-separated "<table>:<rows>@<version>"
+// entries, each table once and a reference table.
+func ParseAllowRetire(s string) (map[string]Allowance, error) {
+	out := map[string]Allowance{}
 	if s == "" {
 		return out, nil
 	}
-	for _, pair := range strings.Split(s, ",") {
-		name, count, ok := strings.Cut(strings.TrimSpace(pair), ":")
-		n, err := strconv.Atoi(count)
+	for _, entry := range strings.Split(s, ",") {
+		name, value, ok := strings.Cut(strings.TrimSpace(entry), ":")
+		rows, version, okAt := strings.Cut(value, "@")
+		n, errRows := strconv.Atoi(rows)
+		v, errVersion := strconv.Atoi(version)
 		switch {
-		case !ok || err != nil || n < 0:
-			return nil, fmt.Errorf("referencedata: allow-retire %q: want <table>:<rows>", pair)
+		case !ok || !okAt || errRows != nil || errVersion != nil || n < 0 || v < 1:
+			return nil, fmt.Errorf("referencedata: allow-retire %q: want <table>:<rows>@<data version>", entry)
 		case !slices.Contains(Tables(), name):
-			return nil, fmt.Errorf("referencedata: allow-retire %q: %s is not a reference table %v", pair, name, Tables())
+			return nil, fmt.Errorf("referencedata: allow-retire %q: %s is not a reference table %v", entry, name, Tables())
 		}
 		if _, dup := out[name]; dup {
 			return nil, fmt.Errorf("referencedata: allow-retire: %s given twice", name)
 		}
-		out[name] = n
+		out[name] = Allowance{Rows: n, Version: v}
 	}
 	return out, nil
 }
@@ -67,15 +82,22 @@ type RetireLimitError struct {
 	Retire  int // rows the sync would retire
 	Active  int // rows in use before it
 	Limit   int // RetireLimit(Active)
-	Allowed int // Options.AllowRetire[Table]
+	Allowed int // the allowance for this data version, 0 if none
+	Version int // the data version being synced
+	// Ignored is an allowance given for another data version.
+	Ignored *Allowance
 }
 
 // Error names the table, the counts and the allowance that lets it
 // through.
 func (e *RetireLimitError) Error() string {
-	return fmt.Sprintf("referencedata: %s: the files would retire %d of its %d rows in use, above the limit of %d "+
-		"(allowed %d); nothing was written. If that is meant, allow it: %s:%d",
-		e.Table, e.Retire, e.Active, e.Limit, e.Allowed, e.Table, e.Retire)
+	msg := fmt.Sprintf("referencedata: %s: the files would retire %d of its %d rows in use, above the limit of %d "+
+		"(allowed %d); nothing was written. If that is meant, allow it: %s:%d@%d",
+		e.Table, e.Retire, e.Active, e.Limit, e.Allowed, e.Table, e.Retire, e.Version)
+	if e.Ignored != nil {
+		msg += fmt.Sprintf(" (the allowance %s:%s names another data version and was ignored)", e.Table, e.Ignored)
+	}
+	return msg
 }
 
 // Change is one row a sync writes.
@@ -115,6 +137,9 @@ type Result struct {
 	// what a rolled-back release meets. Nothing was written; the newer data
 	// stays.
 	Skipped bool
+	// Ignored are the allowances given for another data version than the
+	// files': left over from an earlier release, they lift nothing.
+	Ignored map[string]Allowance
 	Tables  []TableResult
 }
 
@@ -148,17 +173,29 @@ const lockClass = 0x5244
 //     faculty that moves to another university is another faculty, with a
 //     new id, since education records hold the pair (ADR-0036 Karar 6).
 //  5. Limit: a table that would retire more than RetireLimit of its rows
-//     in use, and more than opts allows, stops the sync (RetireLimitError).
-//  6. Write: updates, inserts and retirements, exactly the planned rows.
+//     in use, and more than opts allows for d's version, stops the sync
+//     (RetireLimitError).
+//  6. Write: updates, inserts and retirements, exactly the planned rows;
+//     then the version and its revision, if anything was written or the
+//     version is new.
 //
-// Steps 1 to 5 write nothing.
+// Steps 1 to 5 write nothing. An allowance for another data version than
+// d's is ignored and named in the result (Result.Ignored) and in a
+// RetireLimitError.
 func Sync(ctx context.Context, tx Tx, d *Dataset, opts Options) (Result, error) {
 	if err := d.Validate(); err != nil {
 		return Result{}, err
 	}
-	for name, n := range opts.AllowRetire {
-		if !slices.Contains(Tables(), name) || n < 0 {
-			return Result{}, fmt.Errorf("referencedata: allow-retire %s:%d: not a reference table and a row count", name, n)
+	allowed := map[string]int{}
+	ignored := map[string]Allowance{}
+	for name, a := range opts.AllowRetire {
+		if !slices.Contains(Tables(), name) || a.Rows < 0 || a.Version < 1 {
+			return Result{}, fmt.Errorf("referencedata: allow-retire %s:%s: not a reference table, a row count and a version", name, a)
+		}
+		if a.Version == d.Version {
+			allowed[name] = a.Rows
+		} else {
+			ignored[name] = a
 		}
 	}
 	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1::integer, 0)", lockClass); err != nil {
@@ -168,7 +205,7 @@ func Sync(ctx context.Context, tx Tx, d *Dataset, opts Options) (Result, error) 
 	if err := tx.QueryRow(ctx, "SELECT coalesce((SELECT version FROM reference_data_version), 0)").Scan(&current); err != nil {
 		return Result{}, fmt.Errorf("referencedata: read the version: %w", err)
 	}
-	res := Result{DataVersion: d.Version, DatabaseVersion: current}
+	res := Result{DataVersion: d.Version, DatabaseVersion: current, Ignored: ignored}
 	if d.Version < current {
 		res.Skipped = true
 		return res, nil
@@ -182,10 +219,14 @@ func Sync(ctx context.Context, tx Tx, d *Dataset, opts Options) (Result, error) 
 		res.Tables = append(res.Tables, p)
 	}
 	for _, p := range res.Tables {
-		if limit := RetireLimit(p.Active); len(p.Retired) > limit && len(p.Retired) > opts.AllowRetire[p.Table] {
-			return Result{}, &RetireLimitError{
-				Table: p.Table, Retire: len(p.Retired), Active: p.Active, Limit: limit, Allowed: opts.AllowRetire[p.Table],
+		if limit := RetireLimit(p.Active); len(p.Retired) > limit && len(p.Retired) > allowed[p.Table] {
+			e := &RetireLimitError{
+				Table: p.Table, Retire: len(p.Retired), Active: p.Active, Limit: limit, Allowed: allowed[p.Table], Version: d.Version,
 			}
+			if a, ok := ignored[p.Table]; ok {
+				e.Ignored = &a
+			}
+			return Result{}, e
 		}
 	}
 	ts := tables()
@@ -194,10 +235,14 @@ func Sync(ctx context.Context, tx Tx, d *Dataset, opts Options) (Result, error) 
 			return Result{}, err
 		}
 	}
-	if d.Version > current {
+	// A new version, or a repair under the same one, moves the revision:
+	// the lists' ETag changes and a client that holds the old lists gets
+	// the new ones. A sync that writes nothing writes no revision either.
+	if d.Version > current || res.Changed() {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO reference_data_version (singleton, version, synced_at) VALUES (true, $1, now())
-			ON CONFLICT (singleton) DO UPDATE SET version = EXCLUDED.version, synced_at = EXCLUDED.synced_at`, d.Version)
+			INSERT INTO reference_data_version (singleton, version, revision, synced_at) VALUES (true, $1, 1, now())
+			ON CONFLICT (singleton) DO UPDATE
+			SET version = EXCLUDED.version, revision = reference_data_version.revision + 1, synced_at = EXCLUDED.synced_at`, d.Version)
 		if err != nil {
 			return Result{}, fmt.Errorf("referencedata: record the version: %w", err)
 		}

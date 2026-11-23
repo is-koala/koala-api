@@ -3107,7 +3107,8 @@ type ListMyVerificationsParams struct {
 type ListDistrictsParams struct {
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
-	// yanıt gövdesiz `304 Not Modified`'dır.
+	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
+	// birleştirilir (RFC 9110 §5.3).
 	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
 }
 
@@ -3115,7 +3116,8 @@ type ListDistrictsParams struct {
 type ListCountriesParams struct {
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
-	// yanıt gövdesiz `304 Not Modified`'dır.
+	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
+	// birleştirilir (RFC 9110 §5.3).
 	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
 }
 
@@ -3123,7 +3125,8 @@ type ListCountriesParams struct {
 type ListCitiesParams struct {
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
-	// yanıt gövdesiz `304 Not Modified`'dır.
+	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
+	// birleştirilir (RFC 9110 §5.3).
 	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
 }
 
@@ -3131,7 +3134,8 @@ type ListCitiesParams struct {
 type ListDepartmentsParams struct {
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
-	// yanıt gövdesiz `304 Not Modified`'dır.
+	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
+	// birleştirilir (RFC 9110 §5.3).
 	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
 }
 
@@ -3139,7 +3143,8 @@ type ListDepartmentsParams struct {
 type ListUniversitiesParams struct {
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
-	// yanıt gövdesiz `304 Not Modified`'dır.
+	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
+	// birleştirilir (RFC 9110 §5.3).
 	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
 }
 
@@ -3147,7 +3152,8 @@ type ListUniversitiesParams struct {
 type ListFacultiesParams struct {
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
-	// yanıt gövdesiz `304 Not Modified`'dır.
+	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
+	// birleştirilir (RFC 9110 §5.3).
 	IfNoneMatch *IfNoneMatch `json:"If-None-Match,omitempty"`
 }
 

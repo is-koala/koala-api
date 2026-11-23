@@ -33,7 +33,7 @@ type ClientPlatform string
 // IdempotencyKey Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10, "0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"
 type IdempotencyKey = string
 
-// IfNoneMatch Examples: "reference-v1"
+// IfNoneMatch Examples: "reference-v1.1"
 type IfNoneMatch = string
 
 // XAppVersion Examples: 0.9.32, 1.4.0-beta.1, 1.1.1+3

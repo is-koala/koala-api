@@ -49,11 +49,12 @@ components:
       description: |
         RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
         ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
-        yanıt gövdesiz `304 Not Modified`'dır.
+        yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
+        birleştirilir (RFC 9110 §5.3).
       schema:
         type: string
         maxLength: 1024
-        examples: ['"reference-v1"']
+        examples: ['"reference-v1.1"']
 
     XRequestId:
       name: X-Request-Id
@@ -124,7 +125,7 @@ components:
       required: true
       schema:
         type: string
-        examples: ['"reference-v1"']
+        examples: ['"reference-v1.1"']
     CacheControl:
       description: RFC 9111 §5.2. Yanıtın önbellekte ne kadar ve kimde tutulabileceği.
       required: true

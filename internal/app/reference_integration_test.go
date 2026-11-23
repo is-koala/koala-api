@@ -85,15 +85,16 @@ func inTurkishOrder(t *testing.T, items []referenceItem) {
 	}
 }
 
-// conditional sends a GET with If-None-Match, without a bearer.
-func (a *authApp) conditional(t *testing.T, path, ifNoneMatch string) *httptest.ResponseRecorder {
+// conditional sends a GET without a bearer, with one If-None-Match field
+// line per value.
+func (a *authApp) conditional(t *testing.T, path string, ifNoneMatch ...string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, http.NoBody)
 	req.RemoteAddr = "192.0.2.1:40000"
 	req.Header.Set(httpx.HeaderRequestID, "req-reference")
 	setClient(req.Header)
-	if ifNoneMatch != "" {
-		req.Header.Set("If-None-Match", ifNoneMatch)
+	for _, v := range ifNoneMatch {
+		req.Header.Add("If-None-Match", v)
 	}
 	rec := httptest.NewRecorder()
 	a.router.ServeHTTP(rec, req)
@@ -139,8 +140,8 @@ func TestReferenceOverHTTP(t *testing.T) {
 	inTurkishOrder(t, districts)
 
 	universities := a.list(t, "/v1/reference/universities")
-	if len(universities) != 224 {
-		t.Fatalf("%d universities, want 224", len(universities))
+	if len(universities) != 223 {
+		t.Fatalf("%d universities, want 223", len(universities))
 	}
 	// Under the root collation IŞIK sorts before ISPARTA (Ş with S) and
 	// İBN HALDUN first of all (İ with I); under the byte order IĞDIR
@@ -229,7 +230,7 @@ func TestReferenceListsHideRetiredRows(t *testing.T) {
 	universities := a.list(t, "/v1/reference/universities")
 	odtu := named(t, universities, "ORTA DOĞU TEKNİK ÜNİVERSİTESİ")
 	retire("universities", odtu.ID)
-	if got := a.list(t, "/v1/reference/universities"); len(got) != 223 || position(got, odtu.Name) >= 0 {
+	if got := a.list(t, "/v1/reference/universities"); len(got) != 222 || position(got, odtu.Name) >= 0 {
 		t.Errorf("after retiring ODTÜ: %d universities", len(got))
 	}
 	gone("/v1/reference/universities/" + odtu.ID.String() + "/faculties")
@@ -293,10 +294,12 @@ func TestReferenceOrderBreaksTiesByID(t *testing.T) {
 }
 
 // TestReferenceListsAreCacheable: every list is public for a day and
-// carries the data version's ETag; a matching If-None-Match (exact, weak
-// or in a list) is 304 without a body, another tag or none is 200, and a
-// missing parent stays 404 whatever the client sends. A new data version
-// changes the tag.
+// carries the ETag of the data version and its revision; a matching
+// If-None-Match (exact, weak, in a list, on several field lines, or *) is
+// 304 without a body, another tag or none is 200, and a missing parent
+// stays 404 whatever the client sends. A repair under the same version
+// and a new version each change the tag, and the old one gets the new
+// list.
 func TestReferenceListsAreCacheable(t *testing.T) {
 	t.Parallel()
 	a := newAuthApp(t, unlimitedGroups())
@@ -308,32 +311,47 @@ func TestReferenceListsAreCacheable(t *testing.T) {
 		"/v1/reference/universities/b8cf7211-a21b-4e1f-ad1a-7bacdd914fc3/faculties",
 		"/v1/reference/faculties/a8004de5-6f16-41ea-9841-42ed646684cf/departments",
 	}
-	const tag = `"reference-v1"`
+	const tag = `"reference-v1.1"`
 	for _, path := range paths {
-		rec := a.conditional(t, path, "")
+		rec := a.conditional(t, path)
 		wantStatus(t, rec, http.StatusOK, "")
 		if rec.Header().Get("ETag") != tag || rec.Header().Get("Cache-Control") != "public, max-age=86400" {
 			t.Errorf("%s: ETag %q, Cache-Control %q", path, rec.Header().Get("ETag"), rec.Header().Get("Cache-Control"))
 		}
-		for _, inm := range []string{tag, "W/" + tag, `"other", ` + tag, "*"} {
-			rec := a.conditional(t, path, inm)
+		for _, inm := range [][]string{{tag}, {"W/" + tag}, {`"other", ` + tag}, {"*"}, {`"other"`, tag}} {
+			rec := a.conditional(t, path, inm...)
 			if rec.Code != http.StatusNotModified || rec.Body.Len() != 0 || rec.Header().Get("ETag") != tag ||
 				rec.Header().Get("Cache-Control") != "public, max-age=86400" {
-				t.Errorf("%s with If-None-Match %s: %d %q (ETag %q)", path, inm, rec.Code, rec.Body, rec.Header().Get("ETag"))
+				t.Errorf("%s with If-None-Match %q: %d %q (ETag %q)", path, inm, rec.Code, rec.Body, rec.Header().Get("ETag"))
 			}
 		}
-		if rec := a.conditional(t, path, `"reference-v0"`); rec.Code != http.StatusOK {
+		if rec := a.conditional(t, path, `"reference-v0.0"`); rec.Code != http.StatusOK {
 			t.Errorf("%s with another tag: %d", path, rec.Code)
 		}
 	}
 	missing := a.conditional(t, "/v1/reference/faculties/"+uuid.NewString()+"/departments", "*")
 	wantStatus(t, missing, http.StatusNotFound, string(reference.CodeReferenceItemNotFound))
 
-	if _, err := a.dbt.Open(t, db.RoleOwner).Pool().Exec(t.Context(), "UPDATE reference_data_version SET version = 2"); err != nil {
+	// A repair under the same version: the sync writes the row and moves
+	// the revision; the client's 304 tag now gets the repaired list.
+	owner := a.dbt.Open(t, db.RoleOwner)
+	if _, err := owner.Pool().Exec(t.Context(), "UPDATE universities SET name = 'BOZUK AD' WHERE id = 'a1c346d6-2872-4194-9b98-3f0ea5b838ec'"); err != nil {
 		t.Fatal(err)
 	}
-	rec := a.conditional(t, paths[0], tag)
-	if rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"reference-v2"` {
+	if code, stdout, stderr := run([]string{"reference", "sync"}, "KOALA_ENV=test", "KOALA_OWNER_DATABASE_URL="+a.dbt.URL(db.RoleOwner)); code != ExitOK {
+		t.Fatalf("reference sync: exit %d\n%s\n%s", code, stdout, stderr)
+	}
+	rec := a.conditional(t, "/v1/reference/universities", tag)
+	if rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"reference-v1.2"` ||
+		position(decodeBody[referenceList](t, rec).Items, "ADIYAMAN ÜNİVERSİTESİ") < 0 {
+		t.Fatalf("after the repair with the old tag: %d, ETag %q", rec.Code, rec.Header().Get("ETag"))
+	}
+
+	if _, err := owner.Pool().Exec(t.Context(), "UPDATE reference_data_version SET version = 2"); err != nil {
+		t.Fatal(err)
+	}
+	rec = a.conditional(t, paths[0], `"reference-v1.2"`)
+	if rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"reference-v2.2"` {
 		t.Fatalf("after version 2 with the old tag: %d, ETag %q", rec.Code, rec.Header().Get("ETag"))
 	}
 }
@@ -432,8 +450,8 @@ func TestReferenceSyncCommand(t *testing.T) {
 		return summaryOf(t, stdout), stdout
 	}
 	wantSummary := map[string][4]int{
-		"countries": {0, 0, 0, 1}, "cities": {0, 0, 0, 81}, "districts": {0, 0, 0, 972},
-		"universities": {0, 1, 0, 223}, "faculties": {0, 0, 0, 2047}, "departments": {0, 1, 1, 7570},
+		"countries": {0, 0, 0, 1}, "cities": {0, 0, 0, 81}, "districts": {0, 0, 0, 973},
+		"universities": {0, 1, 0, 222}, "faculties": {0, 0, 0, 2043}, "departments": {0, 1, 1, 7566},
 	}
 	// The rows, each with its id and name: the rename with both names, the
 	// department back in use, the one retired.
@@ -490,7 +508,7 @@ func TestMigrateUpHoldsTheRetireLimit(t *testing.T) {
 	d := dbtest.New(t)
 	owner := d.Open(t, db.RoleOwner)
 	environ := []string{"KOALA_ENV=test", "KOALA_OWNER_DATABASE_URL=" + d.URL(db.RoleOwner)}
-	// 400 departments the files do not list: with 7,971 rows in use the
+	// 400 departments the files do not list: with 7,967 rows in use the
 	// limit is 398 (5 %), so retiring them all is above it.
 	if _, err := owner.Pool().Exec(t.Context(), `
 		INSERT INTO departments (id, faculty_id, name)
@@ -507,20 +525,32 @@ func TestMigrateUpHoldsTheRetireLimit(t *testing.T) {
 	}
 
 	code, stdout, _ := run([]string{"migrate", "up"}, environ...)
-	if code != ExitError || !strings.Contains(stdout, `"table":"departments"`) || !strings.Contains(stdout, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400") {
+	if code != ExitError || !strings.Contains(stdout, `"table":"departments"`) || !strings.Contains(stdout, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400@1") {
 		t.Fatalf("migrate up over the limit: exit %d\n%s", code, stdout)
 	}
-	if n := inUse(); n != 7971 {
-		t.Fatalf("after the refusal %d departments in use, want 7971", n)
+	if n := inUse(); n != 7967 {
+		t.Fatalf("after the refusal %d departments in use, want 7967", n)
 	}
-	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400")...)
+	// An allowance left over from another data version lifts nothing and
+	// says so.
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400@2")...)
+	if code != ExitError || !strings.Contains(stdout, "another data version and was ignored") {
+		t.Fatalf("an allowance for version 2: exit %d\n%s", code, stdout)
+	}
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400@1")...)
 	if code != ExitOK || !strings.Contains(stdout, `"retired":400`) {
 		t.Fatalf("migrate up allowed: exit %d\n%s", code, stdout)
 	}
-	if n := inUse(); n != 7571 {
-		t.Fatalf("after the allowed sync %d departments in use, want 7571", n)
+	if n := inUse(); n != 7567 {
+		t.Fatalf("after the allowed sync %d departments in use, want 7567", n)
 	}
-	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=users:1")...)
+	// The allowance stays set in the next release: nothing to retire, it
+	// lifts nothing and the up succeeds.
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=departments:400@2")...)
+	if code != ExitOK || !strings.Contains(stdout, "reference allowance ignored") {
+		t.Fatalf("a stale allowance with nothing to retire: exit %d\n%s", code, stdout)
+	}
+	code, stdout, _ = run([]string{"migrate", "up"}, append(environ, "KOALA_REFERENCE_ALLOW_RETIRE=users:1@1")...)
 	if code != ExitError || !strings.Contains(stdout, "KOALA_REFERENCE_ALLOW_RETIRE") {
 		t.Fatalf("an allowance for another table: exit %d\n%s", code, stdout)
 	}
