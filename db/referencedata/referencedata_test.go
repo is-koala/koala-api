@@ -1,11 +1,17 @@
 package referencedata
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"maps"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -24,7 +30,8 @@ func load(t *testing.T) *Dataset {
 // TestDatasetCounts binds the embedded files to their row counts after the
 // cleanup (README.md): a file cut short, a lost line, a cleanup undone or
 // a file that stopped being embedded is red here, before any database is
-// involved.
+// involved. Version 2 added YÖK's associate degree programs (ADR-0038):
+// the bachelor's programs of version 1 are all still there.
 func TestDatasetCounts(t *testing.T) {
 	t.Parallel()
 
@@ -37,19 +44,381 @@ func TestDatasetCounts(t *testing.T) {
 		{"countries", d.Countries, 1},
 		{"cities", d.Cities, 81},
 		{"districts", d.Districts, 973},
-		{"universities", d.Universities, 223},
-		{"faculties", d.Faculties, 2043},
-		{"departments", d.Departments, 7567},
+		{"universities", d.Universities, 231},
+		{"faculties", d.Faculties, 3022},
+		{"departments", d.Departments, 14711},
 	} {
 		if len(tc.rows) != tc.want {
 			t.Errorf("%s: %d rows, want %d", tc.table, len(tc.rows), tc.want)
 		}
 	}
-	if d.Version != 1 {
-		t.Errorf("Version = %d, want 1", d.Version)
+	if n := len(d.DepartmentSourceCodes); n != 9254 {
+		t.Errorf("department_source_codes: %d rows, want 9254", n)
 	}
-	if got, want := Tables(), []string{"countries", "cities", "districts", "universities", "faculties", "departments"}; !slices.Equal(got, want) {
+	degrees := map[string]int{}
+	for _, r := range d.Departments {
+		degrees[r.Degree]++
+	}
+	if degrees[DegreeBachelor] != 7567 || degrees[DegreeAssociate] != 7144 || len(degrees) != 2 {
+		t.Errorf("departments by degree: %v, want 7567 BACHELOR and 7144 ASSOCIATE", degrees)
+	}
+	if d.Version != 2 {
+		t.Errorf("Version = %d, want 2", d.Version)
+	}
+	want := []string{"countries", "cities", "districts", "universities", "faculties", "departments", "department_source_codes"}
+	if got := Tables(); !slices.Equal(got, want) {
 		t.Errorf("Tables() = %v, want %v (parents first)", got, want)
+	}
+}
+
+// ledgerRow is a row of tools/id_ledger.csv, the append-only id ledger of
+// tools/from_yok.py (ADR-0038 Karar 6).
+type ledgerRow struct {
+	key      string
+	id       uuid.UUID
+	parent   string
+	name     string
+	version  int
+	origin   string
+	decision string
+}
+
+var ledgerKey = regexp.MustCompile(`^(yok:university:\d+|yok:unit:\d+|osym:\d{9})$`)
+
+// readLedger reads the ledger and its bytes; the test runs in this
+// package's directory.
+func readLedger(t *testing.T) ([]ledgerRow, []byte) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("tools", "id_ledger.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := csv.NewReader(bytes.NewReader(raw)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) == 0 || !slices.Equal(records[0], []string{"key", "id", "parent", "name", "version", "origin", "decision"}) {
+		t.Fatalf("id_ledger.csv: header %v", records[:min(1, len(records))])
+	}
+	rows := make([]ledgerRow, 0, len(records)-1)
+	for _, rec := range records[1:] {
+		id, err := uuid.Parse(rec[1])
+		if err != nil {
+			t.Fatalf("id_ledger.csv %v: %v", rec, err)
+		}
+		v, err := strconv.Atoi(rec[4])
+		if err != nil {
+			t.Fatalf("id_ledger.csv %v: %v", rec, err)
+		}
+		rows = append(rows, ledgerRow{key: rec[0], id: id, parent: rec[2], name: rec[3], version: v, origin: rec[5], decision: rec[6]})
+	}
+	return rows, raw
+}
+
+// publishedLedger maps every data version to the ledger it published: the
+// number of rows and the checksum of the file's header and those rows. A
+// published row is never changed or removed: a later version appends its
+// rows after them and adds its line here; the old lines stay.
+func publishedLedger() map[int]struct {
+	rows int
+	sum  string
+} {
+	return map[int]struct {
+		rows int
+		sum  string
+	}{
+		2: {10438, "3116e0cb8aa8543a7d46c7f301d29b5de395c7156ec9a08b5f85933c512f618a"},
+	}
+}
+
+// TestIDLedgerIsAppendOnly binds the ledger to its published versions: the
+// file starts with every published version's rows, byte for byte, and the
+// current version has published every row it holds. A row rewritten or
+// removed, or a row added without a new VERSION, is red here.
+func TestIDLedgerIsAppendOnly(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	rows, raw := readLedger(t)
+	lines := bytes.SplitAfter(raw, []byte("\n"))
+	for v, p := range publishedLedger() {
+		if p.rows > len(rows) {
+			t.Errorf("version %d published %d ledger rows; the file has %d", v, p.rows, len(rows))
+			continue
+		}
+		sum := sha256.Sum256(bytes.Join(lines[:p.rows+1], nil))
+		if got := hex.EncodeToString(sum[:]); got != p.sum {
+			t.Errorf("version %d: the first %d ledger rows sum to %s, published %s; the ledger is appended to, never rewritten",
+				v, p.rows, got, p.sum)
+		}
+		for _, r := range rows[:p.rows] {
+			if r.version > v {
+				t.Errorf("%s: added in version %d, among the rows version %d published", r.key, r.version, v)
+			}
+		}
+	}
+	if p, ok := publishedLedger()[d.Version]; !ok || p.rows != len(rows) {
+		t.Errorf("VERSION %d published %d ledger rows, the file has %d; a new row needs a new VERSION and a line in publishedLedger()",
+			d.Version, p.rows, len(rows))
+	}
+	for i := 1; i < len(rows); i++ {
+		if rows[i].version < rows[i-1].version {
+			t.Errorf("%s (version %d) after %s (version %d): rows are appended in version order",
+				rows[i].key, rows[i].version, rows[i-1].key, rows[i-1].version)
+		}
+	}
+}
+
+// TestIDLedger binds the files to the ledger (ADR-0038 Karar 6): every key
+// is well formed; a minted id is a UUIDv7, never derived from an outside
+// code; a key's history changes only through a decision (same: the id and
+// parent stay; new: another id), a drop or a return after one; every
+// associate degree program has a code and every code's latest ledger row
+// names its department under its faculty, so the next year's list finds the
+// program by any of its codes, and losing the one it was first seen under
+// loses nothing; a unit or university key names a row of the files unless
+// its latest row says the id was dropped, and then the files do not have
+// it.
+func TestIDLedger(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	rows, _ := readLedger(t)
+	latest := map[string]ledgerRow{}
+	for _, r := range rows {
+		if !ledgerKey.MatchString(r.key) || !slices.Contains([]string{"minted", "matched", "dropped"}, r.origin) ||
+			!slices.Contains([]string{"", "same", "new"}, r.decision) || r.version < 1 || r.version > d.Version {
+			t.Errorf("ledger row %+v: malformed", r)
+		}
+		if r.origin == "minted" && r.id.Version() != 7 {
+			t.Errorf("ledger row %s: a minted id %s is not a UUIDv7", r.key, r.id)
+		}
+		prev, seen := latest[r.key]
+		switch {
+		case !seen && (r.decision != "" || r.origin == "dropped"):
+			t.Errorf("ledger row %+v: a key's first row is neither decided nor dropped", r)
+		case !seen:
+		case r.origin == "dropped":
+			if r.decision != "" || r.id != prev.id || r.parent != prev.parent || r.name != prev.name || prev.origin == "dropped" {
+				t.Errorf("ledger row %+v: a drop repeats the key's row, %+v", r, prev)
+			}
+		case prev.origin == "dropped" && r.decision == "":
+			if r.id != prev.id || r.origin != "matched" {
+				t.Errorf("ledger row %+v: a dropped id comes back as it was, %+v", r, prev)
+			}
+		case r.decision == "same":
+			if r.id != prev.id || r.parent != prev.parent {
+				t.Errorf("ledger row %+v: decided same, but the id or the parent changed from %+v", r, prev)
+			}
+		case r.decision == "new":
+			if r.id == prev.id {
+				t.Errorf("ledger row %+v: decided new, but the id stayed", r)
+			}
+		default:
+			t.Errorf("ledger row %+v: changes %+v without a decision", r, prev)
+		}
+		latest[r.key] = r
+	}
+	parent := map[uuid.UUID]uuid.UUID{}
+	degree := map[uuid.UUID]string{}
+	for _, r := range d.Departments {
+		parent[r.ID], degree[r.ID] = r.Parent, r.Degree
+	}
+	codes := map[uuid.UUID]int{}
+	for _, c := range d.DepartmentSourceCodes {
+		codes[c.Department]++
+		r, ok := latest["osym:"+c.Code]
+		switch {
+		case !ok:
+			t.Errorf("code %s is not in the ledger", c.Code)
+		case r.id != c.Department || r.parent != parent[c.Department].String():
+			t.Errorf("code %s names %s under %s; the ledger %s under %s", c.Code, c.Department, parent[c.Department], r.id, r.parent)
+		case degree[c.Department] != DegreeAssociate:
+			t.Errorf("code %s names %s, a %s department", c.Code, c.Department, degree[c.Department])
+		}
+	}
+	merged := 0
+	for _, r := range d.Departments {
+		switch {
+		case r.Degree == DegreeAssociate && codes[r.ID] == 0:
+			t.Errorf("associate program %s %q has no source code", r.ID, r.Name)
+		case codes[r.ID] > 1:
+			merged++
+		}
+	}
+	if merged == 0 {
+		t.Error("no associate program has more than one code: the quota variants were not merged")
+	}
+	universities := map[uuid.UUID]bool{}
+	for _, u := range d.Universities {
+		universities[u.ID] = true
+	}
+	faculties := map[uuid.UUID]uuid.UUID{}
+	for _, f := range d.Faculties {
+		faculties[f.ID] = f.Parent
+	}
+	for key, r := range latest {
+		_, isFaculty := faculties[r.id]
+		switch {
+		case strings.HasPrefix(key, "yok:university:") && r.origin == "dropped" && universities[r.id]:
+			t.Errorf("%s: %s is dropped in the ledger but a university of the files", key, r.id)
+		case strings.HasPrefix(key, "yok:university:") && r.origin != "dropped" && !universities[r.id]:
+			t.Errorf("%s: %s is not a university of the files", key, r.id)
+		case strings.HasPrefix(key, "yok:unit:") && r.origin == "dropped" && isFaculty:
+			t.Errorf("%s: %s is dropped in the ledger but a faculty of the files", key, r.id)
+		case strings.HasPrefix(key, "yok:unit:") && r.origin != "dropped" && faculties[r.id].String() != r.parent:
+			t.Errorf("%s: %s is not a faculty of %s in the files", key, r.id, r.parent)
+		}
+	}
+}
+
+// TestIDDecisions binds tools/id_decisions.csv to the ledger (ADR-0038
+// Karar 6): the file holds the current version's decisions only (the
+// ledger keeps the earlier ones), and each decision is a ledger row of
+// this version with the same key and decision, made for the state it
+// names: the key's row before it has the decision's ledger parent and
+// name, the row has its source name, and its parent is the id of the
+// decision's source parent. Every decided row of this version has its
+// decision in the file.
+func TestIDDecisions(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	rows, _ := readLedger(t)
+	raw, err := os.ReadFile(filepath.Join("tools", "id_decisions.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := csv.NewReader(bytes.NewReader(raw)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"key", "version", "decision", "ledger_parent", "ledger_name", "source_parent", "source_name", "note"}
+	if len(records) == 0 || !slices.Equal(records[0], want) {
+		t.Fatalf("id_decisions.csv: header %v, want %v", records[:min(1, len(records))], want)
+	}
+	latest := map[string]ledgerRow{}
+	type decided struct {
+		row, before ledgerRow
+		parentIDs   map[string]uuid.UUID // source keys' ids when the row was added
+	}
+	byKey := map[string]decided{}
+	for _, r := range rows {
+		if r.decision != "" && r.version == d.Version {
+			ids := map[string]uuid.UUID{}
+			for k, l := range latest {
+				ids[k] = l.id
+			}
+			byKey[r.key] = decided{row: r, before: latest[r.key], parentIDs: ids}
+		}
+		latest[r.key] = r
+	}
+	listed := map[string]bool{}
+	for _, rec := range records[1:] {
+		key, version, decision := rec[0], rec[1], rec[2]
+		listed[key] = true
+		if version != strconv.Itoa(d.Version) {
+			t.Errorf("decision %v: version %s, VERSION %d; the file holds the current version's decisions only", rec, version, d.Version)
+			continue
+		}
+		x, ok := byKey[key]
+		if !ok || x.row.decision != decision {
+			t.Errorf("decision %v: no ledger row of version %d with that decision", rec, d.Version)
+			continue
+		}
+		// The ledger records a run's universities, then its units, then its
+		// codes: a decided key's source parent has its row by then.
+		sourceParent := x.row.parent
+		if rec[5] != "" {
+			sourceParent = x.parentIDs[rec[5]].String()
+		}
+		if rec[3] != x.before.parent || rec[4] != x.before.name || rec[6] != x.row.name || sourceParent != x.row.parent {
+			t.Errorf("decision %v: made for another state than the ledger's: before %+v, row %+v", rec, x.before, x.row)
+		}
+	}
+	for key, x := range byKey {
+		if !listed[key] {
+			t.Errorf("ledger row %+v: decided in version %d, but id_decisions.csv does not have it", x.row, d.Version)
+		}
+	}
+}
+
+// TestFromYokSelfTest runs tools/from_yok.py --self-test (ADR-0038 Karar
+// 6): on made-up data, a code ÖSYM reuses for another program, or one
+// that moves to another unit, stops the run until it is decided; "new"
+// gives a new id, "same" keeps it and cannot keep a moved one; a program
+// that loses its first code keeps its id; a second run changes nothing;
+// the ledger is only appended to. The verify job has python3 (make
+// generate runs pairs.py with it).
+func TestFromYokSelfTest(t *testing.T) {
+	t.Parallel()
+
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Fatalf("python3 is needed to run tools/from_yok.py --self-test: %v", err)
+	}
+	out, err := exec.CommandContext(t.Context(), python, "-I", filepath.Join("tools", "from_yok.py"), "--self-test").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "self-test: ok") {
+		t.Fatalf("from_yok.py --self-test: %v\n%s", err, out)
+	}
+}
+
+// TestAssociateWitnesses spot-checks known vocational schools and
+// programs: a school of a foundation university, one of a state university
+// with its quota variants merged and its campus kept, a foundation
+// vocational school that belongs to no university (a university row of
+// its own), a unit that had bachelor's programs already, and the name an
+// associate program takes beside a bachelor's program of the same name.
+func TestAssociateWitnesses(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	byID := map[uuid.UUID]Row{}
+	for _, rows := range [][]Row{d.Universities, d.Faculties, d.Departments} {
+		for _, r := range rows {
+			byID[r.ID] = r
+		}
+	}
+	codeOf := map[string]uuid.UUID{}
+	for _, c := range d.DepartmentSourceCodes {
+		codeOf[c.Code] = c.Department
+	}
+	for _, tc := range []struct {
+		id, parent, name, degree string
+	}{
+		// Türk Hava Kurumu Üniversitesi, Ankara Havacılık MYO.
+		{"01a207cf-0348-7890-bf14-c44956448609", "20b200c7-d3d3-4e77-ba67-2b01c96b92a8", "Ankara Havacılık Meslek Yüksekokulu", ""},
+		{"01a207cf-03cc-7a3c-9df7-92d5f5825c58", "01a207cf-0348-7890-bf14-c44956448609", "Uçak Teknolojisi", DegreeAssociate},
+		// Sağlık Bilimleri Üniversitesi, Gülhane SMYO: "(Ankara) (Erkek)
+		// (Milli Savunma Bakanlığı Adına)" and its other variant are one
+		// program; the campus stays.
+		{"01a207cf-0355-7356-a698-0e102b1a814d", "7ae61a3a-d91a-4155-9319-bec58eba1c33", "Gülhane Sağlık Meslek Yüksekokulu (Ankara)", ""},
+		{"01a207cf-050b-738c-a8ff-e13d44acdd15", "01a207cf-0355-7356-a698-0e102b1a814d", "Tıbbi Görüntüleme Teknikleri (Ankara)", DegreeAssociate},
+		// İzmir Konak MYO: a foundation vocational school of its own.
+		{"01a207cf-033b-777f-9064-34e3659cbf35", "", "İZMİR KONAK MESLEK YÜKSEKOKULU", ""},
+		{"01a207cf-0346-7b3b-b802-c401a8d4b895", "01a207cf-033b-777f-9064-34e3659cbf35", "İzmir Konak Meslek Yüksekokulu", ""},
+		// Atatürk Üniversitesi's Açıköğretim Fakültesi (Java's id) teaches
+		// both degrees; the associate program of a bachelor's program's
+		// name is told apart as YÖK does.
+		{"bf9ed268-ffb0-4eae-9892-dc91dd6d9bd5", "75739eb2-88b3-403d-a2d4-5ea29f72db64", "Halkla İlişkiler ve Tanıtım (Açıköğretim)", DegreeBachelor},
+		{"01a207cf-06d2-7ce9-8325-f1f68dc55b80", "75739eb2-88b3-403d-a2d4-5ea29f72db64", "Halkla İlişkiler ve Tanıtım (Önlisans) (Açıköğretim)", DegreeAssociate},
+	} {
+		r, ok := byID[uuid.MustParse(tc.id)]
+		if !ok {
+			t.Errorf("%s (%s) is missing", tc.id, tc.name)
+			continue
+		}
+		if r.Name != tc.name || r.Degree != tc.degree || (tc.parent != "" && r.Parent != uuid.MustParse(tc.parent)) {
+			t.Errorf("%s = %+v, want %q under %s, degree %q", tc.id, r, tc.name, tc.parent, tc.degree)
+		}
+	}
+	for code, dept := range map[string]string{
+		"205750094": "01a207cf-03cc-7a3c-9df7-92d5f5825c58", "205750101": "01a207cf-03cc-7a3c-9df7-92d5f5825c58",
+		"111050204": "01a207cf-050b-738c-a8ff-e13d44acdd15", "111091387": "01a207cf-050b-738c-a8ff-e13d44acdd15",
+	} {
+		if codeOf[code] != uuid.MustParse(dept) {
+			t.Errorf("code %s names %s, want %s", code, codeOf[code], dept)
+		}
 	}
 }
 
@@ -233,15 +602,16 @@ func TestCleanupHolds(t *testing.T) {
 // small is a valid dataset with one row per table.
 func small() *Dataset {
 	country, city := uuid.New(), uuid.New()
-	university, faculty := uuid.New(), uuid.New()
+	university, faculty, department := uuid.New(), uuid.New(), uuid.New()
 	return &Dataset{
-		Version:      1,
-		Countries:    []Row{{ID: country, Code: "TR", Name: "TÜRKİYE"}},
-		Cities:       []Row{{ID: city, Parent: country, Name: "ADANA"}},
-		Districts:    []Row{{ID: uuid.New(), Parent: city, Name: "SEYHAN"}},
-		Universities: []Row{{ID: university, Name: "Örnek Üniversitesi"}},
-		Faculties:    []Row{{ID: faculty, Parent: university, Name: "Mühendislik Fakültesi"}},
-		Departments:  []Row{{ID: uuid.New(), Parent: faculty, Name: "Bilgisayar Mühendisliği"}},
+		Version:               1,
+		Countries:             []Row{{ID: country, Code: "TR", Name: "TÜRKİYE"}},
+		Cities:                []Row{{ID: city, Parent: country, Name: "ADANA"}},
+		Districts:             []Row{{ID: uuid.New(), Parent: city, Name: "SEYHAN"}},
+		Universities:          []Row{{ID: university, Name: "Örnek Üniversitesi"}},
+		Faculties:             []Row{{ID: faculty, Parent: university, Name: "Mühendislik Fakültesi"}},
+		Departments:           []Row{{ID: department, Parent: faculty, Degree: DegreeBachelor, Name: "Bilgisayar Mühendisliği"}},
+		DepartmentSourceCodes: []SourceCode{{Code: "102710001", Department: department}},
 	}
 }
 
@@ -269,6 +639,9 @@ func TestValidate(t *testing.T) {
 		"surrounding space":    {func(d *Dataset) { d.Cities[0].Name = "ADANA " }, "surrounding space"},
 		"control character":    {func(d *Dataset) { d.Cities[0].Name = "ADA\tNA" }, "control character"},
 		"zero width space":     {func(d *Dataset) { d.Cities[0].Name = "ADA\u200bNA" }, "invisible format character"},
+		"line separator":       {func(d *Dataset) { d.Cities[0].Name = "ADA\u2028NA" }, "line or paragraph separator"},
+		"paragraph separator":  {func(d *Dataset) { d.Faculties[0].Name = "Fen\u2029Fakültesi" }, "line or paragraph separator"},
+		"private use":          {func(d *Dataset) { d.Departments[0].Name = "Fizik\ue000" }, "private use character"},
 		"right-to-left":        {func(d *Dataset) { d.Faculties[0].Name = "Fen \u202eFakültesi" }, "invisible format character"},
 		"byte order mark":      {func(d *Dataset) { d.Departments[0].Name = "\ufeffFizik" }, "invisible format character"},
 		"NBSP inside":          {func(d *Dataset) { d.Cities[0].Name = "ADA\u00a0NA" }, ""},
@@ -276,7 +649,20 @@ func TestValidate(t *testing.T) {
 		"bad code":             {func(d *Dataset) { d.Countries[0].Code = "tr" }, "not ISO 3166-1 alpha-2"},
 		"code twice":           {func(d *Dataset) { d.Countries = append(d.Countries, Row{ID: uuid.New(), Code: "TR", Name: "X"}) }, "code TR listed twice"},
 		"code outside country": {func(d *Dataset) { d.Cities[0].Code = "TR" }, "cities has no code"},
-		"header only leaf":     {func(d *Dataset) { d.Departments = nil }, ""},
+		"header only leaf":     {func(d *Dataset) { d.Departments, d.DepartmentSourceCodes = nil, nil }, ""},
+		"associate":            {func(d *Dataset) { d.Departments[0].Degree = DegreeAssociate }, ""},
+		"no degree":            {func(d *Dataset) { d.Departments[0].Degree = "" }, `degree ""`},
+		"graduate degree":      {func(d *Dataset) { d.Departments[0].Degree = "MASTER" }, `degree "MASTER"`},
+		"degree outside":       {func(d *Dataset) { d.Faculties[0].Degree = DegreeBachelor }, "faculties has no degree"},
+		"short code":           {func(d *Dataset) { d.DepartmentSourceCodes[0].Code = "10271000" }, "not an ÖSYM program code"},
+		"code with a letter":   {func(d *Dataset) { d.DepartmentSourceCodes[0].Code = "10271000x" }, "not an ÖSYM program code"},
+		"source code twice": {func(d *Dataset) {
+			d.DepartmentSourceCodes = append(d.DepartmentSourceCodes, d.DepartmentSourceCodes[0])
+		}, "listed twice"},
+		"code of no department": {func(d *Dataset) { d.DepartmentSourceCodes[0].Department = uuid.New() }, "is not a row of departments"},
+		"code of a dropped department": {func(d *Dataset) {
+			d.Departments = nil
+		}, "is not a row of departments"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -297,9 +683,9 @@ func TestValidate(t *testing.T) {
 func TestParse(t *testing.T) {
 	t.Parallel()
 
-	faculties := tables()[4]
-	if faculties.name != "faculties" {
-		t.Fatalf("tables()[4] = %s", faculties.name)
+	faculties, departments := tables()[4], tables()[5]
+	if faculties.name != "faculties" || departments.name != "departments" {
+		t.Fatalf("tables()[4:6] = %s, %s", faculties.name, departments.name)
 	}
 	id, parent := uuid.New(), uuid.New()
 	for name, tc := range map[string]struct {
@@ -330,9 +716,32 @@ func TestParse(t *testing.T) {
 			}
 		})
 	}
+	// A department carries its degree between its faculty and its name.
+	rows, err := parse(departments, []byte("id,faculty_id,degree,name\n"+id.String()+","+parent.String()+",ASSOCIATE,Anestezi\n"))
+	if err != nil || len(rows) != 1 || rows[0] != (Row{ID: id, Parent: parent, Degree: DegreeAssociate, Name: "Anestezi"}) {
+		t.Fatalf("departments: %+v, %v", rows, err)
+	}
+	if _, err := parse(departments, []byte("id,faculty_id,name\n")); err == nil || !strings.Contains(err.Error(), "header") {
+		t.Fatalf("departments without the degree column: %v, want the header refused", err)
+	}
+	// The source codes: a code and its department.
+	codes, err := parseSourceCodes([]byte("code,department_id\n205750101," + id.String() + "\n"))
+	if err != nil || len(codes) != 1 || codes[0] != (SourceCode{Code: "205750101", Department: id}) {
+		t.Fatalf("source codes: %+v, %v", codes, err)
+	}
+	for name, data := range map[string]string{
+		"header":       "department_id,code\n",
+		"empty":        "",
+		"bad id":       "code,department_id\n205750101,x\n",
+		"extra column": "code,department_id\n205750101," + id.String() + ",x\n",
+	} {
+		if _, err := parseSourceCodes([]byte(data)); err == nil {
+			t.Errorf("source codes, %s: parsed", name)
+		}
+	}
 	// A header and nothing else is a valid file: it lists no row. Sync's
 	// retirement limit, not Validate, stops it (TestSyncStopsAtTheRetireLimit).
-	rows, err := parse(faculties, []byte("id,university_id,name\n"))
+	rows, err = parse(faculties, []byte("id,university_id,name\n"))
 	if err != nil || len(rows) != 0 {
 		t.Fatalf("header only: %v, %v", rows, err)
 	}
@@ -383,7 +792,7 @@ func TestParseAllowRetire(t *testing.T) {
 func TestRetireLimit(t *testing.T) {
 	t.Parallel()
 
-	for active, want := range map[int]int{0: 10, 81: 10, 199: 10, 220: 11, 973: 48, 7567: 378} {
+	for active, want := range map[int]int{0: 10, 81: 10, 199: 10, 220: 11, 973: 48, 3022: 151, 7567: 378, 9254: 462, 14711: 735} {
 		if got := RetireLimit(active); got != want {
 			t.Errorf("RetireLimit(%d) = %d, want %d", active, got, want)
 		}
@@ -398,6 +807,9 @@ func TestRetireLimit(t *testing.T) {
 func published() map[int]string {
 	return map[int]string{
 		1: "ca194cde236561690ec3585df93bc42469169a4532037b646ffc26bcb874f289",
+		// YÖK's associate degree programs, the departments' degree and
+		// their source codes (ADR-0038).
+		2: "ebd3dced24348f16920ce196cfd04f60fe34141fe5a84cb798d9211840cd01b9",
 	}
 }
 

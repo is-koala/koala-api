@@ -102,12 +102,17 @@ func (e *RetireLimitError) Error() string {
 
 // Change is one row a sync writes.
 type Change struct {
+	// ID is the row's id; uuid.Nil in department_source_codes, whose row
+	// is its Code.
 	ID uuid.UUID
-	// Parent is the row's parent (uuid.Nil in a table without one).
+	// Parent is the row's parent (uuid.Nil in a table without one); a
+	// source code's department.
 	Parent uuid.UUID
-	// Name and Code are the row's after the sync (Code: countries only).
-	Name string
-	Code string
+	// Name and Code are the row's after the sync (Code: a country's code,
+	// or a source code). Degree is a department's.
+	Name   string
+	Code   string
+	Degree string
 	// OldName and OldCode are an update's values before it, set only when
 	// they change.
 	OldName string
@@ -172,6 +177,11 @@ const lockClass = 0x5244
 //     the database has under another parent than d gives is refused: a
 //     faculty that moves to another university is another faculty, with a
 //     new id, since education records hold the pair (ADR-0036 Karar 6).
+//     So is a department whose degree changes (an associate degree
+//     program is not a bachelor's program; ADR-0038). The source codes are
+//     planned last, by (code, department), under the same rules: a dropped
+//     pair is retired, a listed one back in use; a code given to another
+//     department retires its old pair and inserts the new one.
 //  5. Limit: a table that would retire more than RetireLimit of its rows
 //     in use, and more than opts allows for d's version, stops the sync
 //     (RetireLimitError).
@@ -218,6 +228,11 @@ func Sync(ctx context.Context, tx Tx, d *Dataset, opts Options) (Result, error) 
 		}
 		res.Tables = append(res.Tables, p)
 	}
+	codes, err := planSourceCodes(ctx, tx, d.DepartmentSourceCodes)
+	if err != nil {
+		return Result{}, err
+	}
+	res.Tables = append(res.Tables, codes)
 	for _, p := range res.Tables {
 		if limit := RetireLimit(p.Active); len(p.Retired) > limit && len(p.Retired) > allowed[p.Table] {
 			e := &RetireLimitError{
@@ -229,11 +244,13 @@ func Sync(ctx context.Context, tx Tx, d *Dataset, opts Options) (Result, error) 
 			return Result{}, e
 		}
 	}
-	ts := tables()
-	for i, p := range res.Tables {
-		if err := apply(ctx, tx, ts[i], p); err != nil {
+	for i, t := range tables() {
+		if err := apply(ctx, tx, t, res.Tables[i]); err != nil {
 			return Result{}, err
 		}
+	}
+	if err := applySourceCodes(ctx, tx, codes); err != nil {
+		return Result{}, err
 	}
 	// A new version, or a repair under the same one, moves the revision:
 	// the lists' ETag changes and a client that holds the old lists gets
@@ -254,6 +271,7 @@ func Sync(ctx context.Context, tx Tx, d *Dataset, opts Options) (Result, error) 
 type stored struct {
 	parent  uuid.UUID
 	code    string
+	degree  string
 	name    string
 	retired bool
 }
@@ -261,21 +279,24 @@ type stored struct {
 // plan reads one table and compares it with rows.
 func plan(ctx context.Context, tx Tx, t table, rows []Row) (TableResult, error) {
 	name := pgx.Identifier{t.name}.Sanitize()
-	parent, code := "'00000000-0000-0000-0000-000000000000'::uuid", "''"
+	parent, code, degree := "'00000000-0000-0000-0000-000000000000'::uuid", "''", "''"
 	if t.parent != "" {
 		parent = pgx.Identifier{t.column}.Sanitize()
 	}
 	if t.code {
 		code = "code"
 	}
-	query, err := tx.Query(ctx, "SELECT id, "+parent+", "+code+", name, retired_at IS NOT NULL FROM "+name)
+	if t.degree {
+		degree = "degree"
+	}
+	query, err := tx.Query(ctx, "SELECT id, "+parent+", "+code+", "+degree+", name, retired_at IS NOT NULL FROM "+name)
 	if err != nil {
 		return TableResult{}, fmt.Errorf("referencedata: read %s: %w", t.name, err)
 	}
 	have := map[uuid.UUID]stored{}
 	var id uuid.UUID
 	var s stored
-	_, err = pgx.ForEachRow(query, []any{&id, &s.parent, &s.code, &s.name, &s.retired}, func() error {
+	_, err = pgx.ForEachRow(query, []any{&id, &s.parent, &s.code, &s.degree, &s.name, &s.retired}, func() error {
 		have[id] = s
 		return nil
 	})
@@ -290,12 +311,15 @@ func plan(ctx context.Context, tx Tx, t table, rows []Row) (TableResult, error) 
 		h, ok := have[r.ID]
 		switch {
 		case !ok:
-			out.Inserted = append(out.Inserted, Change{ID: r.ID, Parent: r.Parent, Name: r.Name, Code: r.Code})
+			out.Inserted = append(out.Inserted, Change{ID: r.ID, Parent: r.Parent, Name: r.Name, Code: r.Code, Degree: r.Degree})
 		case h.parent != r.Parent:
 			return TableResult{}, fmt.Errorf("referencedata: %s %s: the files give it another %s; a moved row is a new row with a new id",
 				t.name, r.ID, t.column)
+		case h.degree != r.Degree:
+			return TableResult{}, fmt.Errorf("referencedata: %s %s: the files give it the degree %s, the database %s; "+
+				"a program of another degree is a new row with a new id", t.name, r.ID, r.Degree, h.degree)
 		case h.name != r.Name || h.code != r.Code || h.retired:
-			c := Change{ID: r.ID, Parent: r.Parent, Name: r.Name, Code: r.Code, Restored: h.retired}
+			c := Change{ID: r.ID, Parent: r.Parent, Name: r.Name, Code: r.Code, Degree: r.Degree, Restored: h.retired}
 			if h.name != r.Name {
 				c.OldName = h.name
 			}
@@ -313,7 +337,7 @@ func plan(ctx context.Context, tx Tx, t table, rows []Row) (TableResult, error) 
 		}
 		out.Active++
 		if !listed[hid] {
-			out.Retired = append(out.Retired, Change{ID: hid, Parent: h.parent, Name: h.name, Code: h.code})
+			out.Retired = append(out.Retired, Change{ID: hid, Parent: h.parent, Name: h.name, Code: h.code, Degree: h.degree})
 		}
 	}
 	slices.SortFunc(out.Retired, func(a, b Change) int { return strings.Compare(a.ID.String(), b.ID.String()) })
@@ -326,12 +350,12 @@ func plan(ctx context.Context, tx Tx, t table, rows []Row) (TableResult, error) 
 // rolls back.
 func apply(ctx context.Context, tx Tx, t table, p TableResult) error {
 	name := pgx.Identifier{t.name}.Sanitize()
-	columns := func(cs []Change) (ids, parents []uuid.UUID, codes, names []string) {
+	columns := func(cs []Change) (ids, parents []uuid.UUID, codes, degrees, names []string) {
 		for _, c := range cs {
 			ids, parents = append(ids, c.ID), append(parents, c.Parent)
-			codes, names = append(codes, c.Code), append(names, c.Name)
+			codes, degrees, names = append(codes, c.Code), append(degrees, c.Degree), append(names, c.Name)
 		}
-		return ids, parents, codes, names
+		return ids, parents, codes, degrees, names
 	}
 	exact := func(what string, tag pgconn.CommandTag, want int) error {
 		if got := tag.RowsAffected(); got != int64(want) {
@@ -341,7 +365,7 @@ func apply(ctx context.Context, tx Tx, t table, p TableResult) error {
 	}
 
 	if len(p.Updated) > 0 {
-		ids, _, codes, names := columns(p.Updated)
+		ids, _, codes, _, names := columns(p.Updated)
 		set := "name = i.name, retired_at = NULL"
 		if t.code {
 			set = "code = i.code, " + set
@@ -356,10 +380,16 @@ func apply(ctx context.Context, tx Tx, t table, p TableResult) error {
 		}
 	}
 	if len(p.Inserted) > 0 {
-		ids, parents, codes, names := columns(p.Inserted)
+		ids, parents, codes, degrees, names := columns(p.Inserted)
 		var tag pgconn.CommandTag
 		var err error
 		switch {
+		case t.degree:
+			column := pgx.Identifier{t.column}.Sanitize()
+			tag, err = tx.Exec(ctx, `INSERT INTO `+name+` (id, `+column+`, degree, name)
+				SELECT i.id, i.parent, i.degree, i.name
+				FROM unnest($1::uuid[], $2::uuid[], $3::text[], $4::text[]) AS i (id, parent, degree, name)`,
+				ids, parents, degrees, names)
 		case t.code:
 			tag, err = tx.Exec(ctx, `INSERT INTO `+name+` (id, code, name)
 				SELECT i.id, i.code, i.name FROM unnest($1::uuid[], $2::text[], $3::text[]) AS i (id, code, name)`, ids, codes, names)
@@ -379,12 +409,129 @@ func apply(ctx context.Context, tx Tx, t table, p TableResult) error {
 		}
 	}
 	if len(p.Retired) > 0 {
-		ids, _, _, _ := columns(p.Retired)
+		ids, _, _, _, _ := columns(p.Retired)
 		tag, err := tx.Exec(ctx, `UPDATE `+name+` SET retired_at = now() WHERE id = ANY ($1::uuid[]) AND retired_at IS NULL`, ids)
 		if err != nil {
 			return fmt.Errorf("referencedata: %s: retire: %w", t.name, err)
 		}
 		if err := exact("retired", tag, len(p.Retired)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// codePair is a row of department_source_codes: a code and the
+// department it names. The pair never changes; a code ÖSYM gives to another
+// program (decided in tools/id_decisions.csv, ADR-0038) is another pair.
+type codePair struct {
+	code       string
+	department uuid.UUID
+}
+
+// planSourceCodes reads department_source_codes and compares it with
+// codes, as plan does a table, by (code, department): a new pair is
+// inserted, a retired one that is listed again is brought back, one no
+// longer listed is retired. A code given to another department is the old
+// pair retired and the new one inserted, both in the result; the table
+// holds at most one pair in use per code (a partial unique index), and
+// applySourceCodes retires before it inserts. Its Changes carry the code in
+// Code and the department in Parent; ID is uuid.Nil.
+func planSourceCodes(ctx context.Context, tx Tx, codes []SourceCode) (TableResult, error) {
+	query, err := tx.Query(ctx, "SELECT code, department_id, retired_at IS NOT NULL FROM "+sourceCodes)
+	if err != nil {
+		return TableResult{}, fmt.Errorf("referencedata: read %s: %w", sourceCodes, err)
+	}
+	have := map[codePair]bool{} // the pair's retired
+	var p codePair
+	var retired bool
+	_, err = pgx.ForEachRow(query, []any{&p.code, &p.department, &retired}, func() error {
+		have[p] = retired
+		return nil
+	})
+	if err != nil {
+		return TableResult{}, fmt.Errorf("referencedata: read %s: %w", sourceCodes, err)
+	}
+	out := TableResult{Table: sourceCodes}
+	listed := make(map[codePair]bool, len(codes))
+	for _, c := range codes {
+		p := codePair{code: c.Code, department: c.Department}
+		listed[p] = true
+		wasRetired, ok := have[p]
+		switch {
+		case !ok:
+			out.Inserted = append(out.Inserted, Change{Code: c.Code, Parent: c.Department})
+		case wasRetired:
+			out.Updated = append(out.Updated, Change{Code: c.Code, Parent: c.Department, Restored: true})
+		default:
+			out.Unchanged++
+		}
+	}
+	for hp, wasRetired := range have {
+		if wasRetired {
+			continue
+		}
+		out.Active++
+		if !listed[hp] {
+			out.Retired = append(out.Retired, Change{Code: hp.code, Parent: hp.department})
+		}
+	}
+	slices.SortFunc(out.Retired, func(a, b Change) int {
+		return strings.Compare(a.Code+a.Parent.String(), b.Code+b.Parent.String())
+	})
+	return out, nil
+}
+
+// applySourceCodes writes the plan of department_source_codes, after the
+// departments' (a new pair names a new department), with apply's rule:
+// every statement writes exactly the planned rows. Retirements come first:
+// a code given to another department leaves its old pair before the new
+// one is in use, which the partial unique index requires.
+func applySourceCodes(ctx context.Context, tx Tx, p TableResult) error {
+	columns := func(cs []Change) (codes []string, departments []uuid.UUID) {
+		for _, c := range cs {
+			codes, departments = append(codes, c.Code), append(departments, c.Parent)
+		}
+		return codes, departments
+	}
+	exact := func(what string, tag pgconn.CommandTag, want int) error {
+		if got := tag.RowsAffected(); got != int64(want) {
+			return fmt.Errorf("referencedata: %s: %s %d rows, planned %d; the table changed under the sync", sourceCodes, what, got, want)
+		}
+		return nil
+	}
+	if len(p.Retired) > 0 {
+		codes, departments := columns(p.Retired)
+		tag, err := tx.Exec(ctx, `UPDATE `+sourceCodes+` AS t SET retired_at = now()
+			FROM unnest($1::text[], $2::uuid[]) AS i (code, department)
+			WHERE t.code = i.code AND t.department_id = i.department AND t.retired_at IS NULL`, codes, departments)
+		if err != nil {
+			return fmt.Errorf("referencedata: %s: retire: %w", sourceCodes, err)
+		}
+		if err := exact("retired", tag, len(p.Retired)); err != nil {
+			return err
+		}
+	}
+	if len(p.Updated) > 0 {
+		codes, departments := columns(p.Updated)
+		tag, err := tx.Exec(ctx, `UPDATE `+sourceCodes+` AS t SET retired_at = NULL
+			FROM unnest($1::text[], $2::uuid[]) AS i (code, department)
+			WHERE t.code = i.code AND t.department_id = i.department AND t.retired_at IS NOT NULL`, codes, departments)
+		if err != nil {
+			return fmt.Errorf("referencedata: %s: restore: %w", sourceCodes, err)
+		}
+		if err := exact("restored", tag, len(p.Updated)); err != nil {
+			return err
+		}
+	}
+	if len(p.Inserted) > 0 {
+		codes, departments := columns(p.Inserted)
+		tag, err := tx.Exec(ctx, `INSERT INTO `+sourceCodes+` (code, department_id)
+			SELECT i.code, i.department FROM unnest($1::text[], $2::uuid[]) AS i (code, department)`, codes, departments)
+		if err != nil {
+			return fmt.Errorf("referencedata: %s: insert: %w", sourceCodes, err)
+		}
+		if err := exact("inserted", tag, len(p.Inserted)); err != nil {
 			return err
 		}
 	}

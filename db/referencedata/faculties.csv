@@ -2042,3 +2042,982 @@ f8d83dc5-02e7-4d83-a8f1-39043afae04e,d7b67c8c-229b-4801-93c8-0409d10a801a,İleti
 9f80a8ab-9607-47e0-8eff-9137a5f533a9,d7b67c8c-229b-4801-93c8-0409d10a801a,İnsan ve Toplum Bilimleri Fakültesi
 ec345dfa-a367-4499-a3c1-f083999c33ba,d7b67c8c-229b-4801-93c8-0409d10a801a,Mühendislik Fakültesi
 a3e4e88a-b2bf-4c88-bfae-8ee7806b41e6,d7b67c8c-229b-4801-93c8-0409d10a801a,Sanat ve Tasarım Fakültesi
+01a207cf-0345-7d9f-9538-c982429961e4,00cda4c7-f21c-4b9e-96f5-e1b869aada33,Siber Güvenlik Meslek Yüksekokulu
+01a207cf-0345-70ac-8fc0-0eb438a755ee,013ba9ca-ce30-43d4-8c26-c2033c273668,Meslek Yüksekokulu
+01a207cf-0345-7fa1-ae9c-eb7ba0626689,014a32d3-4a79-40be-88ca-1633bb8a2f57,Acıpayam Meslek Yüksekokulu
+01a207cf-0345-7849-bb40-4e47f206ff29,014a32d3-4a79-40be-88ca-1633bb8a2f57,Bekilli Meslek Yüksekokulu
+01a207cf-0345-7861-b4cb-e59722346cb9,014a32d3-4a79-40be-88ca-1633bb8a2f57,Bozkurt Meslek Yüksekokulu
+01a207cf-0345-7bd5-9829-a80927d012c4,014a32d3-4a79-40be-88ca-1633bb8a2f57,Buldan Meslek Yüksekokulu
+01a207cf-0345-7047-ae8c-cb4487b35281,014a32d3-4a79-40be-88ca-1633bb8a2f57,Denizli Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0345-7f7a-ae23-cf9ffdc1da6b,014a32d3-4a79-40be-88ca-1633bb8a2f57,Denizli Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0345-7d93-a94f-5f71ed15749c,014a32d3-4a79-40be-88ca-1633bb8a2f57,Denizli Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0345-7ea5-99d3-6bb8f46c8b1b,014a32d3-4a79-40be-88ca-1633bb8a2f57,Honaz Meslek Yüksekokulu
+01a207cf-0345-7818-a932-2599c9e091ba,014a32d3-4a79-40be-88ca-1633bb8a2f57,Kale Meslek Yüksekokulu
+01a207cf-0345-7dc6-a7af-9fca6e44124c,014a32d3-4a79-40be-88ca-1633bb8a2f57,Sarayköy Meslek Yüksekokulu
+01a207cf-0345-70e9-99df-503c5fd34094,014a32d3-4a79-40be-88ca-1633bb8a2f57,Serinhisar Meslek Yüksekokulu
+01a207cf-0345-7155-ac38-700b7a03fb34,014a32d3-4a79-40be-88ca-1633bb8a2f57,Tavas Meslek Yüksekokulu
+01a207cf-0345-753b-920a-c976b4dc53db,014a32d3-4a79-40be-88ca-1633bb8a2f57,Tavas Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0345-77ea-930c-086ecb8fdc7c,014a32d3-4a79-40be-88ca-1633bb8a2f57,Çal Meslek Yüksekokulu
+01a207cf-0346-7a79-a427-5ce00edd005b,014a32d3-4a79-40be-88ca-1633bb8a2f57,Çameli Meslek Yüksekokulu
+01a207cf-0346-7379-b765-c0d4e1ed4787,014a32d3-4a79-40be-88ca-1633bb8a2f57,Çardak Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0346-779b-9e58-758de6fa2190,014a32d3-4a79-40be-88ca-1633bb8a2f57,Çivril Atasay Kamer Meslek Yüksekokulu
+01a207cf-0346-72af-9509-bfadff5dba6b,01a207cf-033b-726a-a381-9b19dd2e9e5a,Ataşehir Adıgüzel Meslek Yüksekokulu
+01a207cf-0346-7a6d-b77e-4e42a283c881,01a207cf-033b-72eb-beab-43bffe008d43,Sivas Meslek Yüksekokulu
+01a207cf-0346-7abb-a8c7-7fec7bcbabad,01a207cf-033b-7359-a9dc-31add110c200,Meslek Yüksekokulu
+01a207cf-0346-739d-8c95-13941affa12d,01a207cf-033b-7359-a9dc-31add110c200,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0346-759a-b0a2-0b2f1a510ce7,01a207cf-033b-76e8-81bf-ef34175590e7,Müzik ve Güzel Sanatlar Meslek Yüksekokulu
+01a207cf-0346-7b3b-b802-c401a8d4b895,01a207cf-033b-777f-9064-34e3659cbf35,İzmir Konak Meslek Yüksekokulu
+01a207cf-0346-72fb-a7cd-eb9ce886b34a,01a207cf-033b-780f-9e4b-7a5dfec21518,İstanbul Şişli Meslek Yüksekokulu
+01a207cf-0346-70c5-995f-8f4c36c67ee4,01a207cf-033b-7b22-8898-73aba486312b,İstanbul Sağlık ve Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0346-7120-89d7-35739c342321,01a207cf-033b-7cd7-8a11-02f16a986f3f,Meslek Yüksekokulu
+01a207cf-0346-7a10-9ab1-430ca3eacefe,030309c8-510c-4b40-abc0-12621b4147d0,Meslek Yüksekokulu
+01a207cf-0346-7a15-ade2-ef35259461ff,043ceaaf-de49-4cdf-9961-fcf7922e6bba,Denizcilik Meslek Yüksekokulu
+01a207cf-0346-7bd3-a144-1282d29279c4,05746fcd-98db-49ff-af40-7b38b12825b3,Bandırma Meslek Yüksekokulu
+01a207cf-0346-793d-a2d4-2ca4e206d7a8,05746fcd-98db-49ff-af40-7b38b12825b3,Denizcilik Meslek Yüksekokulu
+01a207cf-0346-77a8-9b26-407723360588,05746fcd-98db-49ff-af40-7b38b12825b3,Erdek Meslek Yüksekokulu
+01a207cf-0346-7c96-aab8-0f5c5597a522,05746fcd-98db-49ff-af40-7b38b12825b3,Gönen Meslek Yüksekokulu
+01a207cf-0346-7002-97da-a2ef1352a3e5,05746fcd-98db-49ff-af40-7b38b12825b3,Manyas Meslek Yüksekokulu
+01a207cf-0346-702a-8cc5-da8e1f48f0a1,05746fcd-98db-49ff-af40-7b38b12825b3,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0346-77ef-acda-33236dca5d96,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Altınoluk Meslek Yüksekokulu
+01a207cf-0346-7e0a-b622-2ec47364fc40,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Ayvalık Meslek Yüksekokulu
+01a207cf-0346-777d-becb-ac957e1b96cb,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Balıkesir Meslek Yüksekokulu
+01a207cf-0346-7841-a47c-1b064202e510,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Bigadiç Meslek Yüksekokulu
+01a207cf-0346-768d-b48c-0d59493914f2,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Burhaniye Meslek Yüksekokulu
+01a207cf-0346-728e-bc37-06912de4b72a,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Dursunbey Meslek Yüksekokulu
+01a207cf-0346-73bd-93fd-ff4bd9d06dac,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Edremit Meslek Yüksekokulu
+01a207cf-0346-75c8-89f9-44a2baa966b3,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Havran Meslek Yüksekokulu
+01a207cf-0346-78d9-9927-8872a05cabf0,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Kepsut Meslek Yüksekokulu
+01a207cf-0347-7985-a932-71fc90cfae3e,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Savaştepe Meslek Yüksekokulu
+01a207cf-0347-746a-8090-db695de71641,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Susurluk Tarım ve Orman Meslek Yüksekokulu
+01a207cf-0347-7bd1-b924-a92db9cb77a0,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,Sındırgı Meslek Yüksekokulu
+01a207cf-0347-7c95-8a3b-2116cc92e946,07e0b5dd-fbae-4bab-8b00-d9ea98b6ace6,İvrindi Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0347-7adb-a4a4-023466575666,0940a92e-148f-439e-84ef-6c118f2df279,Meslek Yüksekokulu
+01a207cf-0347-7ba9-a1af-f55ccbdca8b0,0c7107e1-c737-47ff-9508-8e854b29918d,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0347-737f-98e3-eb099727c8c3,0c7107e1-c737-47ff-9508-8e854b29918d,Eflani Meslek Yüksekokulu
+01a207cf-0347-7c7c-b715-2069dee19be0,0c7107e1-c737-47ff-9508-8e854b29918d,Eskipazar Meslek Yüksekokulu
+01a207cf-0347-749a-b34f-d4fbf5b3d436,0c7107e1-c737-47ff-9508-8e854b29918d,Safranbolu Şefik Yılmaz Dizdar Meslek Yüksekokulu
+01a207cf-0347-7273-8cab-fad79ea4e2ee,0c7107e1-c737-47ff-9508-8e854b29918d,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0347-77fd-9d47-9751089b11d6,0c7107e1-c737-47ff-9508-8e854b29918d,Türkiye Odalar ve Borsalar Birliği Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0347-7bfd-a3c5-8aee09bd58df,0c7107e1-c737-47ff-9508-8e854b29918d,Yenice Meslek Yüksekokulu
+01a207cf-0347-76c6-af15-79791452b3e4,124656f4-4f19-4352-b00a-9459233cf22e,Meslek Yüksekokulu
+01a207cf-0347-7df2-8acb-81b8607993f4,124656f4-4f19-4352-b00a-9459233cf22e,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0347-7417-b83d-082bf13465b3,13a24aaa-15fd-493b-9acb-32c58a497f09,Meslek Yüksekokulu
+01a207cf-0347-7d1e-af40-0eb33f798b53,13a24aaa-15fd-493b-9acb-32c58a497f09,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0347-7e38-9925-3423fecfa289,14db88d7-4755-468c-9001-243d5a80f19b,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0347-7fe0-89de-6f7dc1f24681,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Akkuş Meslek Yüksekokulu
+01a207cf-0347-7a17-8e7a-5550be82ac79,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Aybastı Meslek Yüksekokulu
+01a207cf-0347-79d1-820d-b11c48f44cad,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Fatsa Meslek Yüksekokulu
+01a207cf-0347-7a53-b497-6c5432732e02,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Gölköy Meslek Yüksekokulu
+01a207cf-0347-7127-9f70-04d1997da53e,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Mesudiye Meslek Yüksekokulu
+01a207cf-0347-72e6-adca-d766d33abc90,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0347-7517-8ac4-e55f84000c2b,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0347-7731-bebc-230d9fa6a185,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Ulubey Meslek Yüksekokulu
+01a207cf-0347-795a-87f5-faa6f33f4830,15c0ae87-551d-499d-a0bb-f6e6890ffce3,Ünye Meslek Yüksekokulu
+01a207cf-0347-7781-bd8c-9053452b383e,15c0ae87-551d-499d-a0bb-f6e6890ffce3,İkizce Meslek Yüksekokulu
+01a207cf-0347-70f5-ad0b-5ef6f566af13,18ea9860-f6fa-4a0a-87c3-cdcd9629cd36,Mersin Tarsus Organize Sanayi Bölgesi Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0347-7f68-9bc5-b981beaf7bc4,18ea9860-f6fa-4a0a-87c3-cdcd9629cd36,Meslek Yüksekokulu
+01a207cf-0347-7ff9-a3d0-7dee45833400,18ea9860-f6fa-4a0a-87c3-cdcd9629cd36,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0348-725c-8700-17874c9ac9ee,1d542a3e-acf1-4867-9528-9d028a2ca44b,Meslek Yüksekokulu
+01a207cf-0348-71fc-9909-f75ed6c2ef13,1d542a3e-acf1-4867-9528-9d028a2ca44b,Sağlık Meslek Yüksekokulu
+01a207cf-0348-7890-bf14-c44956448609,20b200c7-d3d3-4e77-ba67-2b01c96b92a8,Ankara Havacılık Meslek Yüksekokulu
+01a207cf-0348-7f64-9663-3ef591667856,20b200c7-d3d3-4e77-ba67-2b01c96b92a8,İzmir Havacılık Meslek Yüksekokulu
+01a207cf-0348-7f36-a13f-42bf8253a03b,218024d3-ddcf-4103-9be0-218e2692f958,Meslek Yüksekokulu
+01a207cf-0348-75a3-8a2c-1231374678cf,218024d3-ddcf-4103-9be0-218e2692f958,Sağlık Meslek Yüksekokulu
+01a207cf-0348-7903-99a2-87d21c64dfd3,240f98c6-c455-49b8-9505-06998c3028cc,Atayalvaç Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0348-7bc5-a6a0-9d46972a3b67,240f98c6-c455-49b8-9505-06998c3028cc,Eğirdir Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0348-75a9-9eb2-3af05d17c74c,240f98c6-c455-49b8-9505-06998c3028cc,Isparta Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0348-756e-adf4-8b830b49cb8f,24d84324-a7c3-4345-8d40-8dd59be78acb,Ahmet Erdoğan Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0348-7e57-8fcf-447c2577c6cb,24d84324-a7c3-4345-8d40-8dd59be78acb,Alaplı Meslek Yüksekokulu
+01a207cf-0348-770f-8d85-84a787c22363,24d84324-a7c3-4345-8d40-8dd59be78acb,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0348-71e2-b657-04144084ce63,24d84324-a7c3-4345-8d40-8dd59be78acb,Devrek Meslek Yüksekokulu
+01a207cf-0348-7f18-b826-e56572d9bb94,24d84324-a7c3-4345-8d40-8dd59be78acb,Gökçebey Mithat-Mehmet Çanakçı Meslek Yüksekokulu
+01a207cf-0348-7f0a-acb9-85cd2e4259a9,24d84324-a7c3-4345-8d40-8dd59be78acb,Karadeniz Ereğli Meslek Yüksekokulu
+01a207cf-0348-7bcc-ba85-d9595f64b4e7,24d84324-a7c3-4345-8d40-8dd59be78acb,Zonguldak Meslek Yüksekokulu (Kilimli)
+01a207cf-0348-70a1-8143-87dc0f550fff,24d84324-a7c3-4345-8d40-8dd59be78acb,Çaycuma Gıda ve Tarım Meslek Yüksekokulu
+01a207cf-0348-738c-99a5-6ae4ad1d0079,24d84324-a7c3-4345-8d40-8dd59be78acb,Çaycuma Meslek Yüksekokulu
+01a207cf-0348-7ad8-b95c-60f63571581d,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Alaçam Meslek Yüksekokulu
+01a207cf-0348-790f-8a83-f1ff9383f571,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Bafra Meslek Yüksekokulu
+01a207cf-0348-7a4a-93a0-2f47d36226db,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Bafra Turizm Meslek Yüksekokulu
+01a207cf-0348-7e3f-9cb1-27a33fb416b2,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0348-7c47-8775-b18d2ab92ad8,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Havelsan Siber Güvenlik Meslek Yüksekokulu
+01a207cf-0348-7099-8bdd-a9560a218d6e,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Havza Meslek Yüksekokulu
+01a207cf-0348-7180-8e44-45d7f3472cd4,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Ladik Meslek Yüksekokulu
+01a207cf-0348-750c-ab83-5341dc10c257,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Samsun Meslek Yüksekokulu
+01a207cf-0348-74d0-8771-89a1a8162154,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0348-7371-a1e3-1e04f1478627,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Terme Meslek Yüksekokulu
+01a207cf-0348-7be6-94bd-85b6b110cb55,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Vezirköprü Meslek Yüksekokulu
+01a207cf-0349-72f7-9bdf-0acf8b4c3a4c,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Yeşilyurt Demir Çelik Meslek Yüksekokulu
+01a207cf-0349-7812-bc75-9f6e4bc6d2b9,2608a94c-4bb6-4ba4-ba01-862a2fa5153e,Çarşamba Ticaret Borsası Meslek Yüksekokulu
+01a207cf-0349-7855-89ac-9ef78ae09f7f,298237a4-5821-4b3f-9978-cca2cdefc47a,Ali Rıza Veziroğlu Meslek Yüksekokulu
+01a207cf-0349-7e16-b1f5-018460f2edff,298237a4-5821-4b3f-9978-cca2cdefc47a,Değirmendere Ali Özbay Meslek Yüksekokulu
+01a207cf-0349-7bc8-b234-ba9fa7262d9c,298237a4-5821-4b3f-9978-cca2cdefc47a,Ford Otosan İhsaniye Otomotiv Meslek Yüksekokulu
+01a207cf-0349-75db-a88f-7b9c9e934a5d,298237a4-5821-4b3f-9978-cca2cdefc47a,Gazanfer Bilge Meslek Yüksekokulu
+01a207cf-0349-7f41-900d-4bcfed9d65d9,298237a4-5821-4b3f-9978-cca2cdefc47a,Gölcük Meslek Yüksekokulu
+01a207cf-0349-74b0-b5f0-25732b410605,298237a4-5821-4b3f-9978-cca2cdefc47a,Hereke Asım Kocabıyık Meslek Yüksekokulu
+01a207cf-0349-721b-9635-cea800c1e74b,298237a4-5821-4b3f-9978-cca2cdefc47a,Hereke Ömer İsmet Uzunyol Meslek Yüksekokulu
+01a207cf-0349-78eb-a2a0-ec837fb9ea7f,298237a4-5821-4b3f-9978-cca2cdefc47a,Kandıra Meslek Yüksekokulu
+01a207cf-0349-7873-ae1d-7b61ba5ddc90,298237a4-5821-4b3f-9978-cca2cdefc47a,Karamürsel Denizcilik Meslek Yüksekokulu
+01a207cf-0349-75c6-927b-ccc51ea7ad89,298237a4-5821-4b3f-9978-cca2cdefc47a,Kartepe Atçılık Meslek Yüksekokulu
+01a207cf-0349-7e80-92a1-5874cb147ac9,298237a4-5821-4b3f-9978-cca2cdefc47a,Kartepe Turizm Meslek Yüksekokulu
+01a207cf-0349-703c-8500-6739208cc466,298237a4-5821-4b3f-9978-cca2cdefc47a,Kocaeli Meslek Yüksekokulu
+01a207cf-0349-7af5-9bca-dcfd2a80a240,298237a4-5821-4b3f-9978-cca2cdefc47a,Kocaeli Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0349-7df6-922a-a5764033b657,298237a4-5821-4b3f-9978-cca2cdefc47a,Uzunçiftlik Nuh Çimento Meslek Yüksekokulu
+01a207cf-0349-7c6d-ab2d-a4592befe77b,298237a4-5821-4b3f-9978-cca2cdefc47a,İzmit Meslek Yüksekokulu
+01a207cf-0349-7c4b-a0ed-b269d9824bc3,29b1d1a4-8603-4fcb-b420-1ece5250914e,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0349-7d8f-bf97-c7404ddc0af2,2acccd54-f28e-42c2-9a9d-e7cc23066b08,Delice Meslek Yüksekokulu
+01a207cf-0349-78c4-a163-e0c580c80595,2acccd54-f28e-42c2-9a9d-e7cc23066b08,Fatma Şenses Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0349-715b-bf26-691ffb83fa2f,2acccd54-f28e-42c2-9a9d-e7cc23066b08,Hacılar Hüseyin Aytemiz Meslek Yüksekokulu
+01a207cf-0349-77da-9054-1f05abebb758,2acccd54-f28e-42c2-9a9d-e7cc23066b08,Keskin Meslek Yüksekokulu
+01a207cf-0349-72c0-b270-12feba8e3abb,2acccd54-f28e-42c2-9a9d-e7cc23066b08,Kırıkkale Meslek Yüksekokulu
+01a207cf-0349-7009-b9c8-af5a655552d8,2acccd54-f28e-42c2-9a9d-e7cc23066b08,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0349-76f9-8837-893b9f6e556f,2acccd54-f28e-42c2-9a9d-e7cc23066b08,Silah İhtisas Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0349-7fb9-ba81-7dda5b2ac342,2b04c0a9-d5da-457f-a1f6-975fe0545667,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0349-78d1-a3d5-000f8abcfd89,2b332b76-3caf-415e-be29-5cb6a6388ebf,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0349-74f0-a87f-88b141f8f328,2b332b76-3caf-415e-be29-5cb6a6388ebf,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0349-78e6-b1b1-5b3331b71ad8,2b332b76-3caf-415e-be29-5cb6a6388ebf,Tusaş-Kazan Meslek Yüksekokulu
+01a207cf-0349-7282-9a31-c185950826d6,2deccc32-9a05-403e-b649-cf9563e350d5,Meslek Yüksekokulu
+01a207cf-034a-7fbe-a83c-4506569071f1,2e4f6e27-18b0-455c-8900-bccd6b2059ce,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-034a-7075-b50f-4b9d15a9da6f,2e4f6e27-18b0-455c-8900-bccd6b2059ce,Bingöl Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-034a-76b9-bc2f-8086f5d7003a,2e4f6e27-18b0-455c-8900-bccd6b2059ce,Bingöl Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034a-74db-9386-9be1b7bdccce,2e4f6e27-18b0-455c-8900-bccd6b2059ce,Genç Meslek Yüksekokulu
+01a207cf-034a-73e3-927e-d52b406c9f1b,2e4f6e27-18b0-455c-8900-bccd6b2059ce,"Gıda, Tarım ve Hayvancılık Meslek Yüksekokulu"
+01a207cf-034a-76ad-8e34-8b7619d7eeee,2e4f6e27-18b0-455c-8900-bccd6b2059ce,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034a-747c-aebc-fef49114eca9,2e4f6e27-18b0-455c-8900-bccd6b2059ce,Solhan Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034a-78bb-a1b3-8c0b3b8e01b0,2f74a602-3c4a-41bc-a3bd-1a4714f6ba37,Meslek Yüksekokulu
+01a207cf-034a-7a6a-851d-78e5d7ecd9c5,2fdf70f2-5376-4bb3-be58-75db6f37fdf3,Pertek Sakine Genç Meslek Yüksekokulu
+01a207cf-034a-7b8f-97df-78a4a862212e,2fdf70f2-5376-4bb3-be58-75db6f37fdf3,Tunceli Meslek Yüksekokulu
+01a207cf-034a-7f80-864c-d928fcbd1445,2fdf70f2-5376-4bb3-be58-75db6f37fdf3,Çemişgezek Meslek Yüksekokulu
+01a207cf-034a-7580-aa0c-f0f0730d87cd,30233ddb-ac6f-4a72-9a00-5d3a2ce82b14,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-034a-763a-a6d5-231a1c052b1f,30233ddb-ac6f-4a72-9a00-5d3a2ce82b14,Sağlık Hizmetleri Yüksekokulu
+01a207cf-034a-77c7-9411-48596bd5f229,322afe12-991c-4961-9704-776717c1b94d,Ereğli Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034a-70fc-af24-fb3ef6d2d876,322afe12-991c-4961-9704-776717c1b94d,Konya Ereğli Kemal Akman Meslek Yüksekokulu
+01a207cf-034a-74d0-96ca-e235519ea6c7,322afe12-991c-4961-9704-776717c1b94d,Konya Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-034a-7b03-b262-757b26704257,322afe12-991c-4961-9704-776717c1b94d,Meram Meslek Yüksekokulu
+01a207cf-034a-7276-a4ac-a164e2894393,322afe12-991c-4961-9704-776717c1b94d,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034a-7ce7-b998-f54dfb9e2cfb,322afe12-991c-4961-9704-776717c1b94d,Seydişehir Meslek Yüksekokulu
+01a207cf-034a-795c-8724-51d89c3eb6e5,322afe12-991c-4961-9704-776717c1b94d,Seydişehir Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034a-7020-82ce-774737d78fa2,33e6d6e5-cb50-4a6d-a19c-e4326250a529,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-034a-73e9-9465-c6e7cb30b1d7,33e6d6e5-cb50-4a6d-a19c-e4326250a529,Meslek Yüksekokulu
+01a207cf-034a-7db7-8b69-5bccb0f5d6d2,33e6d6e5-cb50-4a6d-a19c-e4326250a529,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034a-71e8-bdae-11eabfc8ef64,3414eb10-981e-4dd0-a024-36df784956ff,Meslek Yüksekokulu
+01a207cf-034a-7664-94a3-c3550a355010,34207e54-d710-470a-955b-cd5d3495bde1,Babaeski Meslek Yüksekokulu
+01a207cf-034a-7230-b738-c068350ef065,34207e54-d710-470a-955b-cd5d3495bde1,Lüleburgaz Meslek Yüksekokulu
+01a207cf-034a-7ab2-a3f7-e1a103fd6e0d,34207e54-d710-470a-955b-cd5d3495bde1,Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-034a-7513-8c2f-773047f17b96,34207e54-d710-470a-955b-cd5d3495bde1,Pınarhisar Meslek Yüksekokulu
+01a207cf-034a-7d9f-ad52-9e07d26306a4,34207e54-d710-470a-955b-cd5d3495bde1,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034a-7975-8db0-bfcbf0f3fe58,34207e54-d710-470a-955b-cd5d3495bde1,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-034b-7594-9c3a-2b344a1b5c26,34207e54-d710-470a-955b-cd5d3495bde1,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034b-752f-9e9f-b91b21298824,34207e54-d710-470a-955b-cd5d3495bde1,Vize Meslek Yüksekokulu
+01a207cf-034b-79a2-805b-f4954f3ab85c,34782237-8df6-4c14-9b00-f38405cdb187,Altıntaş Meslek Yüksekokulu
+01a207cf-034b-71da-a6bd-c821e920d3a1,34782237-8df6-4c14-9b00-f38405cdb187,Domaniç Hayme Ana Meslek Yüksekokulu
+01a207cf-034b-7468-a750-c4a2104e3e18,34782237-8df6-4c14-9b00-f38405cdb187,Dumlupınar Meslek Yüksekokulu
+01a207cf-034b-733a-a26b-44a372a9c3af,34782237-8df6-4c14-9b00-f38405cdb187,Emet Meslek Yüksekokulu
+01a207cf-034b-73c8-b3dd-cc84451e7b5b,34782237-8df6-4c14-9b00-f38405cdb187,Gediz Meslek Yüksekokulu
+01a207cf-034b-77c5-b390-625dd8ef1987,34782237-8df6-4c14-9b00-f38405cdb187,Hisarcık Meslek Yüksekokulu
+01a207cf-034b-7a10-9027-4850a5794807,34782237-8df6-4c14-9b00-f38405cdb187,Kütahya Güzel Sanatlar Meslek Yüksekokulu
+01a207cf-034b-7495-bdc8-8425e63a15f5,34782237-8df6-4c14-9b00-f38405cdb187,Kütahya Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-034b-7d8b-9745-55cfe8bfb4bc,34782237-8df6-4c14-9b00-f38405cdb187,Kütahya Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034b-7dfe-b616-118161079bcd,34782237-8df6-4c14-9b00-f38405cdb187,Pazarlar Meslek Yüksekokulu
+01a207cf-034b-7e66-bcfc-c5176e040ff8,34782237-8df6-4c14-9b00-f38405cdb187,Simav Meslek Yüksekokulu
+01a207cf-034b-7a59-844c-c7e038865a60,34782237-8df6-4c14-9b00-f38405cdb187,Tavşanlı Meslek Yüksekokulu
+01a207cf-034b-7c16-93c3-2d0a1af539e1,34782237-8df6-4c14-9b00-f38405cdb187,Çavdarhisar Meslek Yüksekokulu
+01a207cf-034b-7e46-8058-566ffac8cac6,34782237-8df6-4c14-9b00-f38405cdb187,Şaphane Meslek Yüksekokulu
+01a207cf-034b-7702-a8f6-b87c66e62b0a,36b0638e-c2c8-4c4d-87d5-efa81ff01995,Eskişehir Meslek Yüksekokulu
+01a207cf-034b-7ebf-a06f-6e6b098250e3,36b0638e-c2c8-4c4d-87d5-efa81ff01995,Mahmudiye Atçılık Meslek Yüksekokulu
+01a207cf-034b-7680-ba95-f2b9b1d22043,36b0638e-c2c8-4c4d-87d5-efa81ff01995,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034b-71ad-a96a-000283c3e65c,36b0638e-c2c8-4c4d-87d5-efa81ff01995,Sivrihisar Meslek Yüksekokulu
+01a207cf-034b-705d-85cc-2b5576d4b858,37318059-ee35-4f18-bfab-1e529528db72,Ormancılık Meslek Yüksekokulu
+01a207cf-034b-70a7-95a3-1a434a306ac3,37318059-ee35-4f18-bfab-1e529528db72,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034b-71b9-8c98-2036a5e10f80,37318059-ee35-4f18-bfab-1e529528db72,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-034b-760a-a432-972d7f82ba83,37318059-ee35-4f18-bfab-1e529528db72,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034b-7b5c-835b-5cc63ae25a38,37318059-ee35-4f18-bfab-1e529528db72,Veterinerlik Meslek Yüksekokulu
+01a207cf-034b-7619-aba7-9b800ea74108,3a2e2132-0339-4bdd-88c5-17c94a5868ca,Meslek Yüksekokulu
+01a207cf-034b-763a-8c54-e70286210c9b,3c25ee52-82b6-46cd-8517-93c48f201f71,Meslek Yüksekokulu
+01a207cf-034b-7a1d-9cb8-c25bfbb3afae,3c25ee52-82b6-46cd-8517-93c48f201f71,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034c-7f4b-ab91-495d5c925b3a,3cf688d1-5341-4409-9071-34bda110d9f9,Ahmetli Meslek Yüksekokulu
+01a207cf-034c-7fb6-b96c-1bac7b777ddd,3cf688d1-5341-4409-9071-34bda110d9f9,Akhisar Meslek Yüksekokulu
+01a207cf-034c-7dc3-8519-1f7d3a465ef8,3cf688d1-5341-4409-9071-34bda110d9f9,Alaşehir Meslek Yüksekokulu
+01a207cf-034c-7b72-9114-56d6a8924d31,3cf688d1-5341-4409-9071-34bda110d9f9,Demirci Meslek Yüksekokulu
+01a207cf-034c-7ddb-8b64-648a81333e25,3cf688d1-5341-4409-9071-34bda110d9f9,Gördes Meslek Yüksekokulu
+01a207cf-034c-7169-aac1-06b89101aede,3cf688d1-5341-4409-9071-34bda110d9f9,Kula Meslek Yüksekokulu
+01a207cf-034c-76f7-b609-e1fcb9d5cd39,3cf688d1-5341-4409-9071-34bda110d9f9,Köprübaşı Meslek Yüksekokulu
+01a207cf-034c-7617-a26a-17cc68a4d927,3cf688d1-5341-4409-9071-34bda110d9f9,Kırkağaç Meslek Yüksekokulu
+01a207cf-034c-7581-9b23-24c1d1c11ef7,3cf688d1-5341-4409-9071-34bda110d9f9,Manisa Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034c-7cb4-9f1b-3c1f128100a9,3cf688d1-5341-4409-9071-34bda110d9f9,Manisa Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034c-70ea-9ca0-c721926a048a,3cf688d1-5341-4409-9071-34bda110d9f9,Salihli Meslek Yüksekokulu
+01a207cf-034c-70ef-b9d3-3d6988f65977,3cf688d1-5341-4409-9071-34bda110d9f9,Saruhanlı Meslek Yüksekokulu
+01a207cf-034c-724f-bd1b-194a36e4cc03,3cf688d1-5341-4409-9071-34bda110d9f9,Sarıgöl Meslek Yüksekokulu
+01a207cf-034c-727d-a181-703122546809,3cf688d1-5341-4409-9071-34bda110d9f9,Soma Meslek Yüksekokulu
+01a207cf-034c-7832-8921-358aea5e5ac2,3cf688d1-5341-4409-9071-34bda110d9f9,Turgutlu Meslek Yüksekokulu
+01a207cf-034c-7cde-a1d1-1f46e34747cd,3e2d56b0-c277-48be-b925-898aca5d3842,Airbus-Tusaş Havacılık Meslek Yüksekokulu
+01a207cf-034c-7b0f-a9d4-47bb82eb88a7,3e2d56b0-c277-48be-b925-898aca5d3842,Elbistan Meslek Yüksekokulu
+01a207cf-034c-7d08-8e98-39ed6118fb22,3e2d56b0-c277-48be-b925-898aca5d3842,Elbistan Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034c-7d95-a419-e62c7c318d72,3e2d56b0-c277-48be-b925-898aca5d3842,Türkoğlu Meslek Yüksekokulu
+01a207cf-034c-7f2a-8087-23b523ae0833,4010f22b-c99b-48a8-be5a-c89a58fb738b,Baskil Meslek Yüksekokulu
+01a207cf-034c-74bf-a626-7a528f5e395c,4010f22b-c99b-48a8-be5a-c89a58fb738b,Elazığ Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-034c-72fe-a32b-d71c2ca4bdef,4010f22b-c99b-48a8-be5a-c89a58fb738b,Karakoçan Meslek Yüksekokulu
+01a207cf-034c-7780-b8a9-e90d5b9d066a,4010f22b-c99b-48a8-be5a-c89a58fb738b,Keban Meslek Yüksekokulu
+01a207cf-034c-7f2b-b23f-45fbfa5ef380,4010f22b-c99b-48a8-be5a-c89a58fb738b,Kovancılar Meslek Yüksekokulu
+01a207cf-034c-7353-81c0-6668e33fca9f,4010f22b-c99b-48a8-be5a-c89a58fb738b,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034c-76a7-ab77-f8354a399769,4010f22b-c99b-48a8-be5a-c89a58fb738b,Sivrice Meslek Yüksekokulu
+01a207cf-034c-7f81-b842-2da36318c4e6,4010f22b-c99b-48a8-be5a-c89a58fb738b,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-034d-74a9-9b98-d7dd93900d57,4010f22b-c99b-48a8-be5a-c89a58fb738b,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034d-79cb-ae87-76d8ab1056c5,42048438-7f70-4c82-8d77-5a8b1de26990,Araban Meslek Yüksekokulu
+01a207cf-034d-7d6c-80f4-ae2a96b5cda1,42048438-7f70-4c82-8d77-5a8b1de26990,Naci Topçuoğlu Meslek Yüksekokulu
+01a207cf-034d-7b79-ada9-cf588c3606bb,42048438-7f70-4c82-8d77-5a8b1de26990,Nizip Meslek Yüksekokulu
+01a207cf-034d-7eac-8b4e-0eed568ee79d,42048438-7f70-4c82-8d77-5a8b1de26990,Nurdağı Meslek Yüksekokulu
+01a207cf-034d-7885-9c45-fd6d86c8cee0,42048438-7f70-4c82-8d77-5a8b1de26990,Oğuzeli Meslek Yüksekokulu
+01a207cf-034d-7997-b765-28b54cdf5840,42048438-7f70-4c82-8d77-5a8b1de26990,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034d-74fc-9aa9-4197aad3a3f8,42048438-7f70-4c82-8d77-5a8b1de26990,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-034d-7ec5-a112-9c7f8b059031,42048438-7f70-4c82-8d77-5a8b1de26990,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034d-795f-bdf8-84fe1fb506d0,42048438-7f70-4c82-8d77-5a8b1de26990,Turizm ve Otelcilik Meslek Yüksekokulu
+01a207cf-034d-7285-9bb6-058028d23c8f,42048438-7f70-4c82-8d77-5a8b1de26990,İslahiye Meslek Yüksekokulu
+01a207cf-034d-72d1-a6c0-311c2868bd19,4212a2df-6108-4bef-9993-09a23b0a81d9,Aksu Mehmet Süreyya Demiraslan Meslek Yüksekokulu
+01a207cf-034d-7f0c-b06d-ab800c8ac199,4212a2df-6108-4bef-9993-09a23b0a81d9,Atabey Meslek Yüksekokulu
+01a207cf-034d-772e-b826-88fbf97087cd,4212a2df-6108-4bef-9993-09a23b0a81d9,Eğirdir Meslek Yüksekokulu
+01a207cf-034d-7909-b10e-8bcd274b1db6,4212a2df-6108-4bef-9993-09a23b0a81d9,Gelendost Meslek Yüksekokulu
+01a207cf-034d-754b-b94b-ade334117680,4212a2df-6108-4bef-9993-09a23b0a81d9,Gönen Meslek Yüksekokulu
+01a207cf-034d-7545-bac2-fe46db249b22,4212a2df-6108-4bef-9993-09a23b0a81d9,Isparta Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-034d-7997-917d-b15eac053543,4212a2df-6108-4bef-9993-09a23b0a81d9,Isparta Meslek Yüksekokulu
+01a207cf-034d-70e5-b1fb-b79b0aecd441,4212a2df-6108-4bef-9993-09a23b0a81d9,Isparta OSB Meslek Yüksekokulu
+01a207cf-034d-7894-b213-f0187135f36c,4212a2df-6108-4bef-9993-09a23b0a81d9,Keçiborlu Meslek Yüksekokulu
+01a207cf-034d-7ae5-9a78-2f64abe8f85e,4212a2df-6108-4bef-9993-09a23b0a81d9,Senirkent Meslek Yüksekokulu
+01a207cf-034d-7395-b078-e3115550fa03,4212a2df-6108-4bef-9993-09a23b0a81d9,Sütçüler Prof. Dr. Hasan Gürbüz Meslek Yüksekokulu
+01a207cf-034d-7444-8795-138757c6751b,4212a2df-6108-4bef-9993-09a23b0a81d9,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034d-73f4-928b-0c605bdf9a37,4212a2df-6108-4bef-9993-09a23b0a81d9,Uluborlu Selahattin Karasoy Meslek Yüksekokulu
+01a207cf-034d-76b1-975c-b31f3f0d464f,4212a2df-6108-4bef-9993-09a23b0a81d9,Uzaktan Eğitim Meslek Yüksekokulu
+01a207cf-034d-7551-844b-a3e550aa0959,4212a2df-6108-4bef-9993-09a23b0a81d9,Yalvaç Meslek Yüksekokulu
+01a207cf-034d-7c4d-9a63-05e8ee90074b,4212a2df-6108-4bef-9993-09a23b0a81d9,Yalvaç Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034d-7bf0-a3a6-76df1bf6814f,4212a2df-6108-4bef-9993-09a23b0a81d9,Yenişarbademli Meslek Yüksekokulu
+01a207cf-034e-7019-adea-0b3310c76ee1,4212a2df-6108-4bef-9993-09a23b0a81d9,Şarkikaraağaç Meslek Yüksekokulu
+01a207cf-034e-7119-8bdb-ccbbe74e7921,4212a2df-6108-4bef-9993-09a23b0a81d9,Şarkikaraağaç Turizm Meslek Yüksekokulu
+01a207cf-034e-7b6b-a6ab-52ce6f7b5623,467892e1-3a40-4d1e-bafd-eddf11335ea7,Bozüyük Meslek Yüksekokulu
+01a207cf-034e-77fb-a8c7-59702959cfda,467892e1-3a40-4d1e-bafd-eddf11335ea7,Gölpazarı Meslek Yüksekokulu
+01a207cf-034e-7a0d-8dbe-b68dcad3c9f8,467892e1-3a40-4d1e-bafd-eddf11335ea7,Meslek Yüksekokulu
+01a207cf-034e-739f-bb62-db115d2d181d,467892e1-3a40-4d1e-bafd-eddf11335ea7,Osmaneli Meslek Yüksekokulu
+01a207cf-034e-7d91-85d6-86879987daf9,467892e1-3a40-4d1e-bafd-eddf11335ea7,Pazaryeri Meslek Yüksekokulu
+01a207cf-034e-79fd-84ac-2b899edb57c9,467892e1-3a40-4d1e-bafd-eddf11335ea7,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034e-7389-8e51-c8dd6787d0ac,467892e1-3a40-4d1e-bafd-eddf11335ea7,Söğüt Meslek Yüksekokulu
+01a207cf-034e-7621-8aa2-957e6c7a13fb,47275f10-c04a-4f97-90a4-ca1ac5730ccc,Meslek Yüksekokulu
+01a207cf-034e-7e91-9311-dfb38b469fe9,47275f10-c04a-4f97-90a4-ca1ac5730ccc,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034e-7b49-bd93-391d64dcf924,4728b454-a814-4a1c-984e-2a698fbbe7db,Meslek Yüksekokulu
+01a207cf-034e-7fa7-b771-4ef6068899c2,4728b454-a814-4a1c-984e-2a698fbbe7db,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034e-7daf-9314-2c4a053f9a72,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Arda Meslek Yüksekokulu
+01a207cf-034e-7054-b202-ab9df803e915,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Edirne Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-034e-7611-b4f7-55da7523ce31,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Edirne Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034e-7655-949d-36d85a73f26d,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Havsa Meslek Yüksekokulu
+01a207cf-034e-733a-b129-8b59afd2ceda,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Keşan Meslek Yüksekokulu
+01a207cf-034e-7f37-9424-b30e6f8ff005,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034e-7036-be44-f29530ecb616,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Tunca Meslek Yüksekokulu
+01a207cf-034e-7117-a063-b9f58bed7937,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Uzunköprü Meslek Yüksekokulu
+01a207cf-034e-7c4c-8df7-f39ab5571c6d,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,İpsala Meslek Yüksekokulu
+01a207cf-034e-764b-8304-6874bf45fce7,491ebd41-0be3-4b22-9ecb-c63010e3ff9b,Şehit Ressam Hasan Rıza Güzel Sanatlar Meslek Yüksekokulu
+01a207cf-034e-7085-bb24-cffe1d1c9a67,4aa430a4-4cdb-4f87-92c6-33d8211a5916,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-034e-7ad6-ad7e-5ce50728f44f,4aa430a4-4cdb-4f87-92c6-33d8211a5916,Porsuk Meslek Yüksekokulu
+01a207cf-034e-7a7e-879d-e2773c833b79,4aa430a4-4cdb-4f87-92c6-33d8211a5916,Ulaştırma Meslek Yüksekokulu
+01a207cf-034e-77c7-a030-9bd9194f65df,4ae7923c-a0e1-4143-834b-e0f7a3a1d7e0,Ayancık Meslek Yüksekokulu
+01a207cf-034e-7b3e-904e-78728cf19ddb,4ae7923c-a0e1-4143-834b-e0f7a3a1d7e0,Boyabat Meslek Yüksekokulu
+01a207cf-034e-744f-8d9a-7e18da2f69e7,4ae7923c-a0e1-4143-834b-e0f7a3a1d7e0,Durağan Meslek Yüksekokulu
+01a207cf-034f-7b2c-9dce-ceb6565272bf,4ae7923c-a0e1-4143-834b-e0f7a3a1d7e0,Gerze Meslek Yüksekokulu
+01a207cf-034f-78ee-9af5-7973ab90dcbb,4ae7923c-a0e1-4143-834b-e0f7a3a1d7e0,Meslek Yüksekokulu
+01a207cf-034f-74cf-8825-ec4595f97011,4ae7923c-a0e1-4143-834b-e0f7a3a1d7e0,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034f-757e-90c6-be0ad5e5ad8c,4ae7923c-a0e1-4143-834b-e0f7a3a1d7e0,Türkeli Meslek Yüksekokulu
+01a207cf-034f-7656-b00e-847839435dfe,4afcc96b-3e07-413c-af53-c99a5fdef3b1,Türkistan Meslek Yüksekokulu
+01a207cf-034f-75d4-a85d-deb1d7d0c043,4c4d9a43-1934-4f9e-98d9-1ac12d98cfbc,Halil Bayraktar Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034f-790b-88ed-0f3e1cdc00d3,4dd37473-848c-4789-ab85-1a7f540ddf4b,Meslek Yüksekokulu
+01a207cf-034f-7bf2-832c-47b0e173d8b1,4dd37473-848c-4789-ab85-1a7f540ddf4b,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034f-789a-9c45-0b7937ee9a78,4e8f1fdf-7346-4aea-a9f0-04a077b63d98,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034f-7768-bb2c-55ab06ee1af0,4eda21ee-95ac-41ac-9ec8-ce34823f6e7c,Atatürk Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034f-7b3b-96fc-9f561d422b46,4eda21ee-95ac-41ac-9ec8-ce34823f6e7c,Bolvadin Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034f-73ec-b6b0-f8dd49950a4b,4eda21ee-95ac-41ac-9ec8-ce34823f6e7c,Şuhut Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034f-7a42-aebf-f95be81db6bb,4ee206ca-8c9a-4423-b719-224e42a74e61,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-034f-7dd1-ac71-f764bbeb430b,522a921d-e091-484f-8cae-b3f289af5289,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-034f-7a9a-af59-0ac1995a72c0,522a921d-e091-484f-8cae-b3f289af5289,Yüksekova Meslek Yüksekokulu
+01a207cf-034f-7dac-83e7-c2d3397bdf0f,522a921d-e091-484f-8cae-b3f289af5289,Çölemerik Meslek Yüksekokulu
+01a207cf-034f-78b2-b91a-313bc6fa654c,53539f57-8447-46ee-b00a-26162eca079f,Akören Ali Rıza Ercan Meslek Yüksekokulu
+01a207cf-034f-728a-b05a-c5bf11de58e6,53539f57-8447-46ee-b00a-26162eca079f,Akşehir Meslek Yüksekokulu
+01a207cf-034f-7734-a10a-32c84550a0fc,53539f57-8447-46ee-b00a-26162eca079f,Beyşehir Ali Akkanat Meslek Yüksekokulu
+01a207cf-034f-7fde-a518-a72282908322,53539f57-8447-46ee-b00a-26162eca079f,Bozkır Meslek Yüksekokulu
+01a207cf-034f-7658-9beb-043fb59b742c,53539f57-8447-46ee-b00a-26162eca079f,Cihanbeyli Meslek Yüksekokulu
+01a207cf-034f-7c62-b853-9b3dd24d9a92,53539f57-8447-46ee-b00a-26162eca079f,Doğanhisar Meslek Yüksekokulu
+01a207cf-034f-7843-9fe2-c90ddbfc1ec6,53539f57-8447-46ee-b00a-26162eca079f,Güneysınır Meslek Yüksekokulu
+01a207cf-034f-745f-8c61-04c66e608350,53539f57-8447-46ee-b00a-26162eca079f,Hadim Meslek Yüksekokulu
+01a207cf-034f-7c2d-9239-6bbea6673e4b,53539f57-8447-46ee-b00a-26162eca079f,Huğlu Meslek Yüksekokulu
+01a207cf-034f-77fe-bf01-3bbd351bfb4b,53539f57-8447-46ee-b00a-26162eca079f,Ilgın Meslek Yüksekokulu
+01a207cf-034f-7f73-ad56-6aa285c76970,53539f57-8447-46ee-b00a-26162eca079f,Kadınhanı Faik İçil Meslek Yüksekokulu
+01a207cf-034f-7c62-829a-0aa0d63d7128,53539f57-8447-46ee-b00a-26162eca079f,Karapınar Aydoğanlar Meslek Yüksekokulu
+01a207cf-034f-7d26-a2a4-a5f88dc5caa5,53539f57-8447-46ee-b00a-26162eca079f,Kulu Meslek Yüksekokulu
+01a207cf-0350-711a-aa4f-14897606361b,53539f57-8447-46ee-b00a-26162eca079f,Sarayönü Meslek Yüksekokulu
+01a207cf-0350-7592-9deb-3114261c9ae0,53539f57-8447-46ee-b00a-26162eca079f,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0350-7be6-9045-817e942a3285,53539f57-8447-46ee-b00a-26162eca079f,Silifke Taşucu Meslek Yüksekokulu
+01a207cf-0350-7390-a730-e07e3cee0d88,53539f57-8447-46ee-b00a-26162eca079f,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0350-721d-8907-2ac7c629504e,53539f57-8447-46ee-b00a-26162eca079f,Taşkent Meslek Yüksekokulu
+01a207cf-0350-7278-9d68-954a7b79c1ae,53539f57-8447-46ee-b00a-26162eca079f,Yunak Meslek Yüksekokulu
+01a207cf-0350-7de1-9c11-97bc9541623a,53539f57-8447-46ee-b00a-26162eca079f,Çumra Meslek Yüksekokulu
+01a207cf-0350-793e-9da6-3a207ad5081c,5703dcf4-debb-459a-bce2-0fcdb7243e58,Almus Meslek Yüksekokulu
+01a207cf-0350-7807-a0b5-f2497af9eae1,5703dcf4-debb-459a-bce2-0fcdb7243e58,Artova Meslek Yüksekokulu
+01a207cf-0350-7bba-91e9-de672c9e0ba0,5703dcf4-debb-459a-bce2-0fcdb7243e58,Erbaa Meslek Yüksekokulu
+01a207cf-0350-7f18-92ad-41da7c7ab21d,5703dcf4-debb-459a-bce2-0fcdb7243e58,Erbaa Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0350-7d20-9470-9f9b5db69165,5703dcf4-debb-459a-bce2-0fcdb7243e58,Niksar Meslek Yüksekokulu
+01a207cf-0350-73de-9a10-602d42449120,5703dcf4-debb-459a-bce2-0fcdb7243e58,Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0350-75ca-b502-4be82970f0b8,5703dcf4-debb-459a-bce2-0fcdb7243e58,Pazar Meslek Yüksekokulu
+01a207cf-0350-7621-a1ce-73a7f08c7b21,5703dcf4-debb-459a-bce2-0fcdb7243e58,Reşadiye Meslek Yüksekokulu
+01a207cf-0350-71b2-9f0c-86e5dcd819fe,5703dcf4-debb-459a-bce2-0fcdb7243e58,Tokat Meslek Yüksekokulu
+01a207cf-0350-75a3-b63b-f0b4cf6248b3,5703dcf4-debb-459a-bce2-0fcdb7243e58,Tokat Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0350-73b4-b6d9-1159b51fa296,5703dcf4-debb-459a-bce2-0fcdb7243e58,Turhal Meslek Yüksekokulu
+01a207cf-0350-7fc7-943c-016c90458f11,5703dcf4-debb-459a-bce2-0fcdb7243e58,Turhal Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0350-7b7d-ae29-7914669a8a53,5703dcf4-debb-459a-bce2-0fcdb7243e58,Zile Meslek Yüksekokulu
+01a207cf-0350-71f5-8ba6-e52e4571dba8,59d8cc4e-6f84-42fe-ad14-e5e4bd04923d,Araklı Ali Cevat Özyurt Meslek Yüksekokulu
+01a207cf-0350-72a7-8d03-bd795f6c2826,59d8cc4e-6f84-42fe-ad14-e5e4bd04923d,Arsin Meslek Yüksekokulu
+01a207cf-0350-7cd9-bee2-733955091785,59d8cc4e-6f84-42fe-ad14-e5e4bd04923d,Maçka Meslek Yüksekokulu
+01a207cf-0350-7a5b-ad62-d60a42309a1b,59d8cc4e-6f84-42fe-ad14-e5e4bd04923d,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0350-7068-8eec-679454fb19e7,59d8cc4e-6f84-42fe-ad14-e5e4bd04923d,Sürmene Abdullah Kanca Meslek Yüksekokulu
+01a207cf-0350-796b-babc-732b8becafd7,59d8cc4e-6f84-42fe-ad14-e5e4bd04923d,Trabzon Meslek Yüksekokulu
+01a207cf-0350-7943-9f43-ca2ce0cbee46,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Altınözü Tarım Bilimleri Meslek Yüksekokulu
+01a207cf-0350-7eed-a303-dd99e8cc67b0,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Antakya Meslek Yüksekokulu
+01a207cf-0351-7817-b7d0-81252e8674d3,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Hassa Meslek Yüksekokulu
+01a207cf-0351-797c-8e47-2a7780502401,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Hatay Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0351-71db-89f1-6565c6ef61b6,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Kırıkhan Meslek Yüksekokulu
+01a207cf-0351-7105-b0fb-436ce94593f8,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Reyhanlı Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0351-7709-a2ff-7e1f1ffde087,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Samandağ Meslek Yüksekokulu
+01a207cf-0351-77ed-8663-11fb2a0a3980,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Sanat ve Tasarım Meslek Yüksekokulu
+01a207cf-0351-7e83-90c1-2fd21b61f956,5b9f29f6-91a6-45ff-9bb1-577a8e667a3f,Yayladağı Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0351-7f27-a02f-95d2ded5f391,5f0ca0b2-5f59-494b-b176-5a2f17f8f04e,Ermenek Meslek Yüksekokulu
+01a207cf-0351-7f1b-a0c6-61d18e0b980d,5f0ca0b2-5f59-494b-b176-5a2f17f8f04e,Ermenek Uysal ve Hasan Kalan Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0351-701a-a87b-853daeb88c1a,5f0ca0b2-5f59-494b-b176-5a2f17f8f04e,Kazım Karabekir Meslek Yüksekokulu
+01a207cf-0351-7815-b524-96123f61e040,5f0ca0b2-5f59-494b-b176-5a2f17f8f04e,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0351-74a2-a51b-bd697c915a2d,5f0ca0b2-5f59-494b-b176-5a2f17f8f04e,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0351-7002-90a6-f10961629d50,5f0ca0b2-5f59-494b-b176-5a2f17f8f04e,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0351-7986-ab97-44eac164da19,6046754c-a6d0-493b-98c0-2ae52f6bb10d,Bulanık Meslek Yüksekokulu
+01a207cf-0351-754f-9a19-902eb5929872,6046754c-a6d0-493b-98c0-2ae52f6bb10d,Malazgirt Meslek Yüksekokulu
+01a207cf-0351-782d-a330-c174e8954072,6046754c-a6d0-493b-98c0-2ae52f6bb10d,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0351-7f74-a092-ba11eae3b545,6046754c-a6d0-493b-98c0-2ae52f6bb10d,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0351-7d8d-95bd-6d2076f4a577,6046754c-a6d0-493b-98c0-2ae52f6bb10d,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0351-737b-b87c-48773384c775,6046754c-a6d0-493b-98c0-2ae52f6bb10d,Varto Meslek Yüksekokulu
+01a207cf-0351-7ce5-b0a1-acc8623fa43f,6343bb9a-a5b6-4750-97f8-ece7049258c0,Karatay Meslek Yüksekokulu
+01a207cf-0351-7a73-b221-2457bf25eedb,6343bb9a-a5b6-4750-97f8-ece7049258c0,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0351-7c03-a2fa-69d0c03c9c1d,6343bb9a-a5b6-4750-97f8-ece7049258c0,Ticaret ve Sanayi Meslek Yüksekokulu
+01a207cf-0351-759e-b34c-1ae5047aeb25,65ffba5a-b2dd-4501-a4a2-cc23d7f0c65b,Atılım Meslek Yüksekokulu
+01a207cf-0351-7085-8d9b-31646e6fbf0a,65ffba5a-b2dd-4501-a4a2-cc23d7f0c65b,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0351-7925-b83a-63df8d650355,663b6177-5eb3-49df-93b8-d3cb929b016e,Atatürk Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0351-7ed5-b80e-a9ee71c3c252,663b6177-5eb3-49df-93b8-d3cb929b016e,Güzel Sanatlar Meslek Yüksekokulu
+01a207cf-0351-7db2-934e-10a609d3f615,663b6177-5eb3-49df-93b8-d3cb929b016e,Kars Meslek Yüksekokulu
+01a207cf-0351-7059-bf7e-54a9e1311550,663b6177-5eb3-49df-93b8-d3cb929b016e,Kazım Karabekir Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0352-7f67-806f-4f83975e7f43,663b6177-5eb3-49df-93b8-d3cb929b016e,Kağızman Meslek Yüksekokulu
+01a207cf-0352-7f70-a76a-b376b1d261be,663b6177-5eb3-49df-93b8-d3cb929b016e,Sarıkamış Meslek Yüksekokulu
+01a207cf-0352-7c07-8984-88644ed377c8,663b6177-5eb3-49df-93b8-d3cb929b016e,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0352-7f19-a219-5c7203f27d79,663b6177-5eb3-49df-93b8-d3cb929b016e,Susuz Meslek Yüksekokulu
+01a207cf-0352-7ecd-b003-75aaa9b1576f,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Ayvacık Meslek Yüksekokulu
+01a207cf-0352-703b-8b40-1d16645e00bd,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Bayramiç Meslek Yüksekokulu
+01a207cf-0352-7af5-a3b3-772da11105a7,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Biga Meslek Yüksekokulu
+01a207cf-0352-7971-9154-d6e4e7e2d5dd,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Denizcilik Meslek Yüksekokulu
+01a207cf-0352-7f00-86cc-58f8bb90d869,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Ezine Gıda İhtisas Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0352-7af4-a23e-f61df6a278f8,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Gelibolu Piri Reis Meslek Yüksekokulu
+01a207cf-0352-7992-a6ba-7036cb57458d,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Gökçeada Meslek Yüksekokulu
+01a207cf-0352-7851-98ae-deda3a58193b,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Lapseki Meslek Yüksekokulu
+01a207cf-0352-752a-b25a-0c2b6b6234ed,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Yenice Meslek Yüksekokulu
+01a207cf-0352-762c-b4a7-48f7d8dacaf3,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Çan Meslek Yüksekokulu
+01a207cf-0352-7aa6-abc7-27555375a708,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Çanakkale Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0352-745d-86e3-25cb7929f94a,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Çanakkale Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0352-767b-96c5-57512c8101d4,66ae57d8-de41-4a1b-9f62-cdfd7e8c4323,Çanakkale Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0352-7daa-a24f-721263a25f91,67205027-6eda-4804-b863-40f25b475016,Meslek Yüksekokulu
+01a207cf-0352-7aad-9f7e-ce9c7d7b0c19,68091d94-11fd-4384-87e5-470ae63bab97,Meslek Yüksekokulu
+01a207cf-0352-7446-9d2d-8c42d454c928,6ab97648-c090-4957-a9c3-fbb5f2a99d7a,Doğubayazıt Ahmed-i Hani Meslek Yüksekokulu
+01a207cf-0352-7ac3-a5ce-4f2f14634b0f,6ab97648-c090-4957-a9c3-fbb5f2a99d7a,Eleşkirt Meslek Yüksekokulu
+01a207cf-0352-7f95-87f3-19d5d3e6c91d,6ab97648-c090-4957-a9c3-fbb5f2a99d7a,Meslek Yüksekokulu
+01a207cf-0352-7569-b8f1-645d1929558f,6ab97648-c090-4957-a9c3-fbb5f2a99d7a,Patnos Meslek Yüksekokulu
+01a207cf-0352-79f4-8795-f2bec74db340,6ab97648-c090-4957-a9c3-fbb5f2a99d7a,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0352-71a4-90af-f770ab970218,6ab97648-c090-4957-a9c3-fbb5f2a99d7a,Sivil Havacılık Meslek Yüksekokulu
+01a207cf-0352-7a96-88d2-4f85fb9c0523,6afc5056-c6c9-4a26-b345-9308e53958b9,Avrupa Meslek Yüksekokulu
+01a207cf-0352-7a55-bd83-c3da00a3b7e7,6afc5056-c6c9-4a26-b345-9308e53958b9,Gebze Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0352-7708-b1cb-120a3dba8bf5,6b0e6d5b-2416-46a5-933c-cc5a60bc3fec,Başkent Organize Sanayi Bölgesi Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0352-7ba9-a0bc-0ffc81493569,6b0e6d5b-2416-46a5-933c-cc5a60bc3fec,Hacettepe Ankara Sanayi Odası 1. OSB Meslek Yüksekokulu
+01a207cf-0353-7f5d-bb94-3cc51ea6b205,6b0e6d5b-2416-46a5-933c-cc5a60bc3fec,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0353-7f88-8b5d-d8fce492bbf1,6b0e6d5b-2416-46a5-933c-cc5a60bc3fec,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0353-75c2-a012-38c8a918ee8b,6bee89f0-e218-4d53-b565-8be0f8bb11c3,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0353-79c3-b01c-77fd7e914cc1,6bee89f0-e218-4d53-b565-8be0f8bb11c3,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0353-7611-84e1-6c330de1e6df,6bee89f0-e218-4d53-b565-8be0f8bb11c3,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0353-7cb7-a5f8-452d1f880e34,6bee89f0-e218-4d53-b565-8be0f8bb11c3,Turizm ve Otelcilik Meslek Yüksekokulu
+01a207cf-0353-777a-a31f-b61ec57240f8,6dd10997-5b0f-4544-b25e-52a6f21a10cc,Alaca Avni Çelik Meslek Yüksekokulu
+01a207cf-0353-731d-bfb5-6af4887abaed,6dd10997-5b0f-4544-b25e-52a6f21a10cc,Osmancık Ömer Derindere Meslek Yüksekokulu
+01a207cf-0353-7dbd-971a-4c2c6f823645,6dd10997-5b0f-4544-b25e-52a6f21a10cc,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0353-7f8c-b474-7e06694c34a0,6dd10997-5b0f-4544-b25e-52a6f21a10cc,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0353-79b4-8da7-7e9b5e45fcf2,6dd10997-5b0f-4544-b25e-52a6f21a10cc,Sungurlu Meslek Yüksekokulu
+01a207cf-0353-7c31-8da0-f081dff5fa3c,6dd10997-5b0f-4544-b25e-52a6f21a10cc,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0353-7ea8-8fd2-d4150c7eff60,6dd10997-5b0f-4544-b25e-52a6f21a10cc,İskilip Meslek Yüksekokulu
+01a207cf-0353-7561-a330-e5b1a41ccb29,6dd54a33-2d0a-4267-80e7-e1cc5813e3fe,Afşin Meslek Yüksekokulu
+01a207cf-0353-709e-96d1-9c06d7d1830f,6dd54a33-2d0a-4267-80e7-e1cc5813e3fe,Andırın Meslek Yüksekokulu
+01a207cf-0353-78e8-ad3c-39ee5800bda5,6dd54a33-2d0a-4267-80e7-e1cc5813e3fe,Göksun Meslek Yüksekokulu
+01a207cf-0353-753b-9bcf-dec3b4a167f0,6dd54a33-2d0a-4267-80e7-e1cc5813e3fe,Kahramanmaraş Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0353-7943-acd1-babf917334b7,6dd54a33-2d0a-4267-80e7-e1cc5813e3fe,Pazarcık Meslek Yüksekokulu
+01a207cf-0353-768c-8547-859893e90284,6dd54a33-2d0a-4267-80e7-e1cc5813e3fe,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0353-7d4a-8669-b27f7a91c233,6dd54a33-2d0a-4267-80e7-e1cc5813e3fe,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0353-744f-a5d6-60fc42d9b5db,6e07258d-aa85-49b7-b3cc-598e6352909a,Cizre Meslek Yüksekokulu
+01a207cf-0353-79b1-b93f-8c68f0066585,6e07258d-aa85-49b7-b3cc-598e6352909a,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0353-71e1-970d-adc7abccef26,6e07258d-aa85-49b7-b3cc-598e6352909a,Silopi Meslek Yüksekokulu
+01a207cf-0353-732e-b0a7-cf5e6f3ecd1b,6e07258d-aa85-49b7-b3cc-598e6352909a,İdil Meslek Yüksekokulu
+01a207cf-0353-7ab7-84e8-e01ea6309356,6e07258d-aa85-49b7-b3cc-598e6352909a,Şırnak Meslek Yüksekokulu
+01a207cf-0353-780d-b084-864273a35f45,6f60f600-03bc-4738-be6d-4b723534eed9,Altınova Meslek Yüksekokulu
+01a207cf-0353-77d5-bf38-e3d9ed0f739c,6f60f600-03bc-4738-be6d-4b723534eed9,Armutlu Meslek Yüksekokulu
+01a207cf-0353-7530-9cef-0793d31fb3ec,6f60f600-03bc-4738-be6d-4b723534eed9,Termal Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0354-74de-9218-b2ae7a4cefcf,6f60f600-03bc-4738-be6d-4b723534eed9,Yalova Meslek Yüksekokulu
+01a207cf-0354-7fc4-b1f7-6509d05a2039,6f60f600-03bc-4738-be6d-4b723534eed9,Çınarcık Meslek Yüksekokulu
+01a207cf-0354-7fa7-908a-92cda4a59be0,6f85105e-4329-448d-8c24-3d6e5b66f68f,Beykoz Lojistik Meslek Yüksekokulu
+01a207cf-0354-766e-bd91-fb71bd3a1449,6f85105e-4329-448d-8c24-3d6e5b66f68f,Meslek Yüksekokulu
+01a207cf-0354-7e35-891c-94c7fc82a19b,6fcc4eac-9a0b-4d43-be34-2e6f5caeb8d4,Meslek Yüksekokulu
+01a207cf-0354-7630-97c6-5e78070c20c3,6fcc4eac-9a0b-4d43-be34-2e6f5caeb8d4,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0354-7c5a-a576-d0fa7f71363d,6fd26716-971b-48e7-b12f-12e99ec34671,Çankaya Meslek Yüksekokulu
+01a207cf-0354-791d-a86f-3894eafba91b,724827bf-4e3e-4eb7-9718-d29f721d7275,Plato Meslek Yüksekokulu
+01a207cf-0354-7505-8bd4-7994fb8daaf3,7583d052-7555-4008-9529-2bcba4aee64a,Eruh Meslek Yüksekokulu
+01a207cf-0354-79ef-8094-1ba9d234d498,7583d052-7555-4008-9529-2bcba4aee64a,Kurtalan Meslek Yüksekokulu
+01a207cf-0354-75bb-801c-63cb30bc0c6f,7583d052-7555-4008-9529-2bcba4aee64a,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0354-7939-a19b-1f714e9fdba6,7583d052-7555-4008-9529-2bcba4aee64a,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0354-79de-ad4c-5380234fb4b8,7583d052-7555-4008-9529-2bcba4aee64a,Tasarım Meslek Yüksekokulu
+01a207cf-0354-7069-a4c1-7932c012ef02,7583d052-7555-4008-9529-2bcba4aee64a,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0354-70f8-9f05-7a32d6684d98,75f4febc-612c-4367-a787-4a93557fd546,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0354-7786-9ec7-0fef64aa6539,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Gümüşhane Meslek Yüksekokulu
+01a207cf-0354-72d4-b2e2-54f5f3fd1839,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Gümüşhane Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0354-7f9e-8d82-379f12af9f52,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Kelkit Aydın Doğan Meslek Yüksekokulu
+01a207cf-0354-7133-9c4e-bf61199cffa7,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Kelkit Sema Doğan Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0354-7663-9c2a-27ea17c90063,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Kürtün Meslek Yüksekokulu
+01a207cf-0354-7116-9722-c3b4223a08be,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0354-7fbb-ad3b-ac75aebaf3f1,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Torul Meslek Yüksekokulu
+01a207cf-0354-70d3-a81c-f4d37c10c426,768852a2-29ec-4ac8-8a2a-190cf2a9d980,İrfan Can Köse Meslek Yüksekokulu
+01a207cf-0354-76a9-8610-1971f32e6866,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Şiran Dursun Keleş Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0354-7c2e-8c5a-84a068361246,768852a2-29ec-4ac8-8a2a-190cf2a9d980,Şiran Mustafa Beyaz Meslek Yüksekokulu
+01a207cf-0354-71c4-9284-47afd092f693,77f2c097-539b-4d2b-a024-61ea0c3a0137,Meslek Yüksekokulu
+01a207cf-0354-7597-b5d8-a5e0523d2e72,77f2c097-539b-4d2b-a024-61ea0c3a0137,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0354-7421-8d35-fc0981043a6f,78606a21-4a01-450e-9df4-aa7fbb765d31,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0354-7af9-8747-a79821a806d1,78606a21-4a01-450e-9df4-aa7fbb765d31,Engelliler Entegre Yüksekokulu
+01a207cf-0354-72c9-8607-b71effab690e,78606a21-4a01-450e-9df4-aa7fbb765d31,Eskişehir Meslek Yüksekokulu
+01a207cf-0354-7ac7-82a1-414bdaa2cba5,78606a21-4a01-450e-9df4-aa7fbb765d31,Yunus Emre Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0355-712b-877c-2dd4ad5f3127,79701958-d8d0-40e0-a241-4e015ed3c0e8,Malatya Meslek Yüksekokulu
+01a207cf-0355-73f6-8ec7-7ab89b203927,79701958-d8d0-40e0-a241-4e015ed3c0e8,Malatya OSB Meslek Yüksekokulu
+01a207cf-0355-742e-a01b-0a5bb1da9501,79701958-d8d0-40e0-a241-4e015ed3c0e8,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0355-7144-a0cf-3a66bb58cf78,7975b661-40b9-46d2-87e9-49c775381c20,Meslek Yüksekokulu
+01a207cf-0355-7ade-8065-9e2073a43c0a,79b5b9cd-41c0-48f5-8a84-3d04368a3f0c,Atatürk Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0355-7ee8-82a9-f4ac65ee97b0,79b5b9cd-41c0-48f5-8a84-3d04368a3f0c,Bismil Meslek Yüksekokulu
+01a207cf-0355-740e-a8e9-389b682cb5c2,79b5b9cd-41c0-48f5-8a84-3d04368a3f0c,Diyarbakır Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0355-785e-9633-f0f160e65a4d,79b5b9cd-41c0-48f5-8a84-3d04368a3f0c,Diyarbakır Tarım Meslek Yüksekokulu
+01a207cf-0355-72e5-b275-9f6e26512692,79b5b9cd-41c0-48f5-8a84-3d04368a3f0c,Diyarbakır Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0355-765d-b27a-89a58bcb937f,79b5b9cd-41c0-48f5-8a84-3d04368a3f0c,Ergani Meslek Yüksekokulu
+01a207cf-0355-7a69-adfb-0bb6305cc479,79b5b9cd-41c0-48f5-8a84-3d04368a3f0c,Silvan Meslek Yüksekokulu
+01a207cf-0355-7747-af0c-1981742e58e0,79b5b9cd-41c0-48f5-8a84-3d04368a3f0c,Çermik Meslek Yüksekokulu
+01a207cf-0355-7961-9a22-74f0429b11b1,7ae61a3a-d91a-4155-9319-bec58eba1c33,Arnavutköy Darülaceze Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0355-7356-a698-0e102b1a814d,7ae61a3a-d91a-4155-9319-bec58eba1c33,Gülhane Sağlık Meslek Yüksekokulu (Ankara)
+01a207cf-0355-7c56-a81a-8feeb144a4ee,7ae61a3a-d91a-4155-9319-bec58eba1c33,Hamidiye Sağlık Hizmetleri Meslek Yüksekokulu (İstanbul)
+01a207cf-0355-70fe-a46b-59f690c61a42,7bd784b9-a7fd-4eff-bfdb-13d067c493f9,Nihat Delibalta Göle Meslek Yüksekokulu
+01a207cf-0355-77ca-b1ec-54aff1434566,7bd784b9-a7fd-4eff-bfdb-13d067c493f9,Posof Meslek Yüksekokulu
+01a207cf-0355-70fb-89c3-6b4c8899d651,7bd784b9-a7fd-4eff-bfdb-13d067c493f9,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0355-7ee8-9dea-3c79552b48e4,7bd784b9-a7fd-4eff-bfdb-13d067c493f9,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0355-75eb-bad3-f3a9477171d7,7bd784b9-a7fd-4eff-bfdb-13d067c493f9,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0355-7e41-878c-55f47f52fc46,7bd784b9-a7fd-4eff-bfdb-13d067c493f9,Çıldır Meslek Yüksekokulu
+01a207cf-0355-79de-a124-f6d3206bdbe8,7ccb14e0-37d7-45ef-b72b-41322dd7e955,Meslek Yüksekokulu
+01a207cf-0355-7394-ad83-5e0858f693c5,7ccb14e0-37d7-45ef-b72b-41322dd7e955,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0355-7a1b-86b2-02d9974a60f1,7f0a6fce-c74c-4a44-82e2-ffed0aa971a6,Bergama Meslek Yüksekokulu
+01a207cf-0355-728b-a126-5d34e701e9e0,7f0a6fce-c74c-4a44-82e2-ffed0aa971a6,Efes Meslek Yüksekokulu (Selçuk)
+01a207cf-0355-717c-a0cf-846bba011219,7f0a6fce-c74c-4a44-82e2-ffed0aa971a6,Kiraz Meslek Yüksekokulu
+01a207cf-0355-7320-b3b9-574c6bc58d19,7f0a6fce-c74c-4a44-82e2-ffed0aa971a6,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0355-710b-a0ac-e224d86173c0,7f0a6fce-c74c-4a44-82e2-ffed0aa971a6,Torbalı Meslek Yüksekokulu
+01a207cf-0355-7723-a251-1dc489b58b48,7f0a6fce-c74c-4a44-82e2-ffed0aa971a6,İzmir Meslek Yüksekokulu
+01a207cf-0356-7294-9c3e-1ae199749c7b,80a08ab0-43f4-4b6d-bf9c-8ff923ca0b7e,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0356-7472-85ec-bbb863048577,80a08ab0-43f4-4b6d-bf9c-8ff923ca0b7e,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0356-7955-bf6e-84939dc4994f,80a08ab0-43f4-4b6d-bf9c-8ff923ca0b7e,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0356-7a6a-8176-5e6102e8a95d,82ca1311-987d-4f08-9d5a-e352176ce406,Altınyayla Mehmet Tuğrul Güvenlik Hizmetleri Meslek Yüksekokulu
+01a207cf-0356-76b5-80c5-b558c13ef669,82ca1311-987d-4f08-9d5a-e352176ce406,Ağlasun Meslek Yüksekokulu
+01a207cf-0356-73ad-8f99-4d9437bfa9a3,82ca1311-987d-4f08-9d5a-e352176ce406,Bucak Emin Gülmez Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0356-775d-b430-107d285c9dce,82ca1311-987d-4f08-9d5a-e352176ce406,Bucak Hikmet Tolunay Ulaştırma ve Lojistik Meslek Yüksekokulu
+01a207cf-0356-7803-aae0-aae86dadd25c,82ca1311-987d-4f08-9d5a-e352176ce406,Burdur Gıda Tarım ve Hayvancılık Meslek Yüksekokulu
+01a207cf-0356-7b44-b122-1a3dfd9b86ce,82ca1311-987d-4f08-9d5a-e352176ce406,Burdur Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0356-7103-9699-6ced0b8bf451,82ca1311-987d-4f08-9d5a-e352176ce406,Gölhisar Meslek Yüksekokulu
+01a207cf-0356-7ce0-afc6-b4beacdc8361,82ca1311-987d-4f08-9d5a-e352176ce406,Gölhisar Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0356-7108-a313-2ce1136cba27,82ca1311-987d-4f08-9d5a-e352176ce406,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0356-7f19-8354-c5f48d9f9bf2,82ca1311-987d-4f08-9d5a-e352176ce406,Tefenni Meslek Yüksekokulu
+01a207cf-0356-7869-aa2e-01dfc8aaf394,82ca1311-987d-4f08-9d5a-e352176ce406,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0356-75b2-88a2-701827f1a353,82ca1311-987d-4f08-9d5a-e352176ce406,Yeşilova İsmail Akın Turizm Meslek Yüksekokulu
+01a207cf-0356-7e26-8388-4062b19611af,82ca1311-987d-4f08-9d5a-e352176ce406,Çavdır Meslek Yüksekokulu
+01a207cf-0356-7503-9250-9d00addcf5aa,83161bd9-aa33-4636-b1e7-64966f63d907,Banaz Meslek Yüksekokulu
+01a207cf-0356-71c3-b9ec-c389441cbb3c,83161bd9-aa33-4636-b1e7-64966f63d907,Eşme Meslek Yüksekokulu
+01a207cf-0356-7898-bf00-34e221f56c52,83161bd9-aa33-4636-b1e7-64966f63d907,Karahallı Meslek Yüksekokulu
+01a207cf-0356-7587-9d44-4de0d0628793,83161bd9-aa33-4636-b1e7-64966f63d907,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0356-7c62-b182-e304984e8917,83161bd9-aa33-4636-b1e7-64966f63d907,Sivaslı Meslek Yüksekokulu
+01a207cf-0356-7f23-a0aa-cb8a120f8997,83161bd9-aa33-4636-b1e7-64966f63d907,Sivil Havacılık Meslek Yüksekokulu
+01a207cf-0356-77f0-b907-07e298edeaca,83161bd9-aa33-4636-b1e7-64966f63d907,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0356-7761-9ce4-e4b548e600af,83161bd9-aa33-4636-b1e7-64966f63d907,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0356-75f2-8951-bb1f2ed11152,83161bd9-aa33-4636-b1e7-64966f63d907,Ulubey Meslek Yüksekokulu
+01a207cf-0356-7b33-aa84-b0e617825b55,83161bd9-aa33-4636-b1e7-64966f63d907,Uzaktan Eğitim Meslek Yüksekokulu
+01a207cf-0356-7e3c-b41a-fce50a2ddb6c,83acd5bf-a611-4066-a7cf-74789b95f435,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0356-7e31-8493-67d6aa213680,83acd5bf-a611-4066-a7cf-74789b95f435,Meslek Yüksekokulu
+01a207cf-0356-7184-8023-a5f84b4bfc5a,89d00d79-c5a8-4cea-844c-0bf27f255bed,Meslek Yüksekokulu
+01a207cf-0357-7a4b-96c5-6e9c49983df9,8cf260e1-2fc8-46f4-8b1e-f91e85ec9736,Kavak Meslek Yüksekokulu
+01a207cf-0357-7198-b240-0557529049ca,8cf260e1-2fc8-46f4-8b1e-f91e85ec9736,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0357-72df-af55-2387a8f28be2,8dff4f51-bba5-4a8d-827a-de9e887eab1b,Kaman Meslek Yüksekokulu
+01a207cf-0357-739e-b0b3-bc2845181652,8dff4f51-bba5-4a8d-827a-de9e887eab1b,Mucur Meslek Yüksekokulu
+01a207cf-0357-7e33-b56b-c59f2f77ddf4,8dff4f51-bba5-4a8d-827a-de9e887eab1b,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0357-7bb8-93eb-9d13be371774,8dff4f51-bba5-4a8d-827a-de9e887eab1b,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0357-75cc-a2ae-bbafefc7b639,8dff4f51-bba5-4a8d-827a-de9e887eab1b,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0357-7b7f-96b0-00e6a780bf46,8dff4f51-bba5-4a8d-827a-de9e887eab1b,Çiçekdağı Meslek Yüksekokulu
+01a207cf-0357-7657-a187-90388c2f57dc,8e66c69e-80e4-4293-9e11-01764051f7c3,Denizcilik Meslek Yüksekokulu
+01a207cf-0357-7885-9d88-83e1ef36dad0,8e66c69e-80e4-4293-9e11-01764051f7c3,Havacılık Meslek Yüksekokulu
+01a207cf-0357-7c78-a822-210d3c6c27a6,8e66c69e-80e4-4293-9e11-01764051f7c3,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0357-77b3-9f39-b526780ac4b8,8e66c69e-80e4-4293-9e11-01764051f7c3,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0357-7119-a4fe-3036fb6e0704,8e66c69e-80e4-4293-9e11-01764051f7c3,Turizm ve Otelcilik Meslek Yüksekokulu
+01a207cf-0357-73ff-b6df-96c08065d472,8e9bbf8e-b0f1-4449-9911-30528ad75cdc,Meslek Yüksekokulu
+01a207cf-0357-7530-8917-9cf0ed7e9035,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Aşkale Meslek Yüksekokulu
+01a207cf-0357-7e75-8cae-23badfca741b,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Horasan Meslek Yüksekokulu
+01a207cf-0357-7005-aceb-196f10e59bd3,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Hınıs Meslek Yüksekokulu
+01a207cf-0357-7a05-8314-1bc70aa21c17,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Narman Meslek Yüksekokulu
+01a207cf-0357-72b0-8f6f-0d54995b2a68,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Oltu Meslek Yüksekokulu
+01a207cf-0357-79e5-bd22-79bdaaba1cef,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Pasinler Meslek Yüksekokulu
+01a207cf-0357-79a3-b543-75d2a30af962,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0357-75ff-9723-70d89fb74a70,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0357-7ac5-a917-19d0d8297493,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0357-75fc-9d32-a195acbce966,8ebde6e8-7f76-4e87-a95d-4761f95a945f,Tortum Meslek Yüksekokulu
+01a207cf-0357-7ace-8e67-1550565f348f,8ebde6e8-7f76-4e87-a95d-4761f95a945f,İspir Hamza Polat Meslek Yüksekokulu
+01a207cf-0357-7046-a318-4af0c7895f38,91384663-8abe-4ba0-9fa5-b75d18876349,Eldivan Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0357-713c-a56e-dd45fbe99260,91384663-8abe-4ba0-9fa5-b75d18876349,Gıda ve Tarım Meslek Yüksekokulu
+01a207cf-0357-7b24-b4a7-fddebe40fdfb,91384663-8abe-4ba0-9fa5-b75d18876349,Kurşunlu Meslek Yüksekokulu
+01a207cf-0357-757b-b6c7-4c3a951a7ea5,91384663-8abe-4ba0-9fa5-b75d18876349,Meslek Yüksekokulu
+01a207cf-0358-7325-9007-36dbc4119cc5,91384663-8abe-4ba0-9fa5-b75d18876349,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0358-75c0-aa7e-5d8f0e76adb7,91384663-8abe-4ba0-9fa5-b75d18876349,Çerkeş Meslek Yüksekokulu
+01a207cf-0358-7947-bfbe-90623c84e4f4,91384663-8abe-4ba0-9fa5-b75d18876349,Şabanözü Meslek Yüksekokulu
+01a207cf-0358-7ff6-9fbc-fe454a759f0e,93718142-9aaf-49f2-95b7-e4ae2806aae4,Meslek Yüksekokulu
+01a207cf-0358-70b9-a98b-1760aa8f18e6,93718142-9aaf-49f2-95b7-e4ae2806aae4,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0358-71cf-ac5f-1a0ad9ae7b60,93718142-9aaf-49f2-95b7-e4ae2806aae4,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0358-7d85-87f3-f2d7a01b3712,93de77b1-1eb4-4337-8a57-2c6439fc802e,Cumhuriyet Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0358-7050-9855-19427bea0f8a,93de77b1-1eb4-4337-8a57-2c6439fc802e,Divriği Nuri Demirağ Meslek Yüksekokulu
+01a207cf-0358-7cdf-90ea-1239769eefc6,93de77b1-1eb4-4337-8a57-2c6439fc802e,Gemerek Meslek Yüksekokulu
+01a207cf-0358-758c-97a2-935681badfbe,93de77b1-1eb4-4337-8a57-2c6439fc802e,Gürün Meslek Yüksekokulu
+01a207cf-0358-7141-a995-154fe019c051,93de77b1-1eb4-4337-8a57-2c6439fc802e,Hafik Kamer Örnek Meslek Yüksekokulu
+01a207cf-0358-787e-9b24-a9f899f665f3,93de77b1-1eb4-4337-8a57-2c6439fc802e,Kangal Meslek Yüksekokulu
+01a207cf-0358-77ec-8e70-d986c9193959,93de77b1-1eb4-4337-8a57-2c6439fc802e,Koyulhisar Meslek Yüksekokulu
+01a207cf-0358-78b4-a648-ec24030c957d,93de77b1-1eb4-4337-8a57-2c6439fc802e,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0358-7eb3-a69d-2f7f6883190b,93de77b1-1eb4-4337-8a57-2c6439fc802e,Sivas Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0358-706c-8a99-dc2a6e3e904d,93de77b1-1eb4-4337-8a57-2c6439fc802e,Suşehri Timur Karabal Meslek Yüksekokulu
+01a207cf-0358-7264-9860-b423ee2d9039,93de77b1-1eb4-4337-8a57-2c6439fc802e,Yıldızeli Meslek Yüksekokulu
+01a207cf-0358-7b7c-8166-fdf27fcc6770,93de77b1-1eb4-4337-8a57-2c6439fc802e,Zara Ahmet Çuhadaroğlu Meslek Yüksekokulu
+01a207cf-0358-77ad-afb3-ed533e98fb00,93de77b1-1eb4-4337-8a57-2c6439fc802e,İmranlı Meslek Yüksekokulu
+01a207cf-0358-7d05-ab78-2a72544bbbcf,93de77b1-1eb4-4337-8a57-2c6439fc802e,Şarkışla Aşık Veysel Meslek Yüksekokulu
+01a207cf-0358-7563-9845-ba15d078593c,9587d406-309e-4e1d-856d-0104dc3fafb1,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0358-740e-97e8-28dc21afcc12,978127c2-c482-4162-bf8a-4fc69f037db5,Meslek Yüksekokulu
+01a207cf-0358-73cb-8ab8-d18704b6c612,978127c2-c482-4162-bf8a-4fc69f037db5,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0358-7ed0-9f75-0608f0d2dd8c,996fefee-e8f1-4bdc-979b-a8880aa26a5c,Meslek Yüksekokulu
+01a207cf-0358-78a6-8547-546ac34f32aa,99cd6772-2e12-47d5-98ad-9827d4da4577,Meslek Yüksekokulu
+01a207cf-0358-7b00-b8c1-eff00930efe3,99cd6772-2e12-47d5-98ad-9827d4da4577,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0358-761d-acf9-5d01e97bd6cf,99cd6772-2e12-47d5-98ad-9827d4da4577,Turizm ve Otel İşletmeciliği Meslek Yüksekokulu
+01a207cf-0358-7221-96de-3c55d5d1197a,9a27799f-47cf-40e5-912a-c70b355b3561,Bahçe Meslek Yüksekokulu
+01a207cf-0358-78ec-a3c8-9e97455fe92d,9a27799f-47cf-40e5-912a-c70b355b3561,Düziçi Meslek Yüksekokulu
+01a207cf-0359-7f13-9018-eb89948270bd,9a27799f-47cf-40e5-912a-c70b355b3561,Kadirli Meslek Yüksekokulu
+01a207cf-0359-7613-ad04-7857dcc4a1d6,9a27799f-47cf-40e5-912a-c70b355b3561,Osmaniye Meslek Yüksekokulu
+01a207cf-0359-7b6d-9ba4-487a665ab43c,9a27799f-47cf-40e5-912a-c70b355b3561,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0359-7b46-8b14-153ca16291d8,9aa60d7b-8853-4c7e-a6cf-974cb636ddb8,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0359-75d3-9e79-bd5d96c87565,9aa60d7b-8853-4c7e-a6cf-974cb636ddb8,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0359-71d6-9675-efe74150f0a4,9aa60d7b-8853-4c7e-a6cf-974cb636ddb8,Şereflikoçhisar Berat Cömertoğlu Meslek Yüksekokulu
+01a207cf-0359-7482-ae62-474d1adfa7de,9bbc176e-bbab-4970-bb09-e35481598560,Gedik Meslek Yüksekokulu
+01a207cf-0359-74e6-92d4-5826fb17be73,9c095f18-e111-486d-b42a-c25bca0d9a53,Bodrum Denizcilik Meslek Yüksekokulu
+01a207cf-0359-7b06-ba53-f8f7972dc3d6,9c095f18-e111-486d-b42a-c25bca0d9a53,Dalaman Meslek Yüksekokulu
+01a207cf-0359-7a3a-9247-83685b0bf420,9c095f18-e111-486d-b42a-c25bca0d9a53,Datça Kazım Yılmaz Meslek Yüksekokulu
+01a207cf-0359-7875-922c-3c410c0bcb53,9c095f18-e111-486d-b42a-c25bca0d9a53,Fethiye Ali Sıtkı-Mefharet Koçman Meslek Yüksekokulu
+01a207cf-0359-76b9-9d0e-325e85935fdd,9c095f18-e111-486d-b42a-c25bca0d9a53,Fethiye Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0359-7633-9964-e6e7ae94b0a2,9c095f18-e111-486d-b42a-c25bca0d9a53,Kavaklıdere Şehit Mustafa Alper Meslek Yüksekokulu
+01a207cf-0359-7b25-ba80-2a8bd339654c,9c095f18-e111-486d-b42a-c25bca0d9a53,Köyceğiz Meslek Yüksekokulu
+01a207cf-0359-7a1b-8303-2b6e19698912,9c095f18-e111-486d-b42a-c25bca0d9a53,Marmaris Turizm Meslek Yüksekokulu
+01a207cf-0359-7a22-bc7c-89eeaa0830fd,9c095f18-e111-486d-b42a-c25bca0d9a53,Milas Meslek Yüksekokulu
+01a207cf-0359-7960-92f6-6cad2799534a,9c095f18-e111-486d-b42a-c25bca0d9a53,Muğla Meslek Yüksekokulu
+01a207cf-0359-77c7-8270-f1872fe49d98,9c095f18-e111-486d-b42a-c25bca0d9a53,Muğla Sağlık Hizmetleri Meslek Yüksekokulu (Marmaris)
+01a207cf-0359-7f36-b339-7936fee98be6,9c095f18-e111-486d-b42a-c25bca0d9a53,Ortaca Meslek Yüksekokulu
+01a207cf-0359-730e-a0df-06f4e954a56c,9c095f18-e111-486d-b42a-c25bca0d9a53,Ula Ali Koçman Meslek Yüksekokulu
+01a207cf-0359-7de3-a114-d7a8275d1ead,9c095f18-e111-486d-b42a-c25bca0d9a53,Yatağan Meslek Yüksekokulu
+01a207cf-0359-76b9-9bd3-7ed6c43f8377,9c6fc51c-4d65-4f03-abcc-3caca5571193,Meslek Yüksekokulu
+01a207cf-0359-7592-870e-5278b968d8a5,9cd1aa7b-1925-4631-bacf-eb5cbe5efda3,Meslek Yüksekokulu
+01a207cf-0359-7840-92ab-a6ea10a036ad,9cd1aa7b-1925-4631-bacf-eb5cbe5efda3,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0359-7501-8b5b-b8cefa1e5017,9d27cc27-7fe5-4459-a555-deacd343b666,Meslek Yüksekokulu
+01a207cf-0359-7860-979b-bbf7ce902a11,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Anamur Meslek Yüksekokulu
+01a207cf-0359-7b60-96d9-1ca1335f8635,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Aydıncık Meslek Yüksekokulu (Anamur)
+01a207cf-0359-7628-aa7b-41824cd9ebab,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Denizcilik Meslek Yüksekokulu
+01a207cf-0359-734c-bd58-afa33d515eec,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Erdemli Meslek Yüksekokulu
+01a207cf-035a-76b4-85f5-98447de2afc7,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Mustafa Baysan Meslek Yüksekokulu
+01a207cf-035a-7bd9-bb82-225da139f6c7,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Mut Meslek Yüksekokulu
+01a207cf-035a-7fae-bd63-c3fa43f81516,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035a-754a-bbd3-0bd2534666d7,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Silifke Meslek Yüksekokulu
+01a207cf-035a-77b1-ade1-3f07dee9c32a,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035a-7984-af69-98cc2e25d7f1,9db511e0-3f67-41f9-bac9-4bc7241ff91b,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035a-78a1-b50d-1638910fd9b3,9ff2a1d5-165b-404d-853c-5d672f7bccae,Akçakoca Meslek Yüksekokulu
+01a207cf-035a-746d-80bc-8feb9d6214ca,9ff2a1d5-165b-404d-853c-5d672f7bccae,Dr. Engin Pak Cumayeri Meslek Yüksekokulu
+01a207cf-035a-7d70-a536-dfa36c1c1efb,9ff2a1d5-165b-404d-853c-5d672f7bccae,Gölyaka Meslek Yüksekokulu
+01a207cf-035a-7171-9204-aacfd664c8a8,9ff2a1d5-165b-404d-853c-5d672f7bccae,Gümüşova Meslek Yüksekokulu
+01a207cf-035a-77d6-9214-4e2df49a2d46,9ff2a1d5-165b-404d-853c-5d672f7bccae,Kaynaşlı Meslek Yüksekokulu
+01a207cf-035a-7edf-b330-f974262127a2,9ff2a1d5-165b-404d-853c-5d672f7bccae,Meslek Yüksekokulu
+01a207cf-035a-78d2-b0a1-67a4dfc66cde,9ff2a1d5-165b-404d-853c-5d672f7bccae,Ormancılık Meslek Yüksekokulu
+01a207cf-035a-7a9c-9294-9bbab32e74fb,9ff2a1d5-165b-404d-853c-5d672f7bccae,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035a-7cc1-8aa0-4a26a0a5ce7e,9ff2a1d5-165b-404d-853c-5d672f7bccae,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035a-731e-a609-f7df3b01bf89,9ff2a1d5-165b-404d-853c-5d672f7bccae,Çilimli Meslek Yüksekokulu
+01a207cf-035a-7add-a985-812e6901cf56,a064c32b-d2e0-48c0-b5f8-0e5197491ea2,Meslek Yüksekokulu
+01a207cf-035a-7019-b8af-7b09966863c7,a1c346d6-2872-4194-9b98-3f0ea5b838ec,Besni Ali Erdemoğlu Meslek Yüksekokulu
+01a207cf-035a-7ed5-9cc0-1ff16f6eb10c,a1c346d6-2872-4194-9b98-3f0ea5b838ec,Gölbaşı Meslek Yüksekokulu
+01a207cf-035a-78d1-bd9b-3eb676dea410,a1c346d6-2872-4194-9b98-3f0ea5b838ec,Kahta Meslek Yüksekokulu
+01a207cf-035a-704b-9251-d8199619e1da,a1c346d6-2872-4194-9b98-3f0ea5b838ec,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035a-70a9-87d7-0eebe67280fb,a1c346d6-2872-4194-9b98-3f0ea5b838ec,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035a-7d33-917f-07e686a0d204,a1c346d6-2872-4194-9b98-3f0ea5b838ec,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035a-7f20-a05d-733b957c2c76,a347ab4a-cc29-434d-b72b-89e0f87907d6,Akyazı Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035a-7488-8fcd-53f2a1842931,a347ab4a-cc29-434d-b72b-89e0f87907d6,Arifiye Meslek Yüksekokulu
+01a207cf-035a-78dd-ae45-f5316f20bab4,a347ab4a-cc29-434d-b72b-89e0f87907d6,Bilişim Teknolojileri Meslek Yüksekokulu (Karasu)
+01a207cf-035a-7323-adfc-6a9b7be2e820,a347ab4a-cc29-434d-b72b-89e0f87907d6,Denizcilik Meslek Yüksekokulu (Kocaali)
+01a207cf-035a-7d6e-95f9-30ff581e3864,a347ab4a-cc29-434d-b72b-89e0f87907d6,Ferizli Meslek Yüksekokulu
+01a207cf-035a-7be5-b8d0-983c67aaad15,a347ab4a-cc29-434d-b72b-89e0f87907d6,Geyve Meslek Yüksekokulu
+01a207cf-035a-7a32-852e-4c5b051e1b76,a347ab4a-cc29-434d-b72b-89e0f87907d6,Hendek Meslek Yüksekokulu
+01a207cf-035b-77ab-9032-1be44a385252,a347ab4a-cc29-434d-b72b-89e0f87907d6,Kaynarca Seyfettin Selim Meslek Yüksekokulu
+01a207cf-035b-7a02-a7da-54d20a276969,a347ab4a-cc29-434d-b72b-89e0f87907d6,Pamukova Meslek Yüksekokulu
+01a207cf-035b-720b-9f34-66b0273ad812,a347ab4a-cc29-434d-b72b-89e0f87907d6,Sakarya Meslek Yüksekokulu
+01a207cf-035b-730d-a43d-e79c0b8223d0,a347ab4a-cc29-434d-b72b-89e0f87907d6,Sapanca Meslek Yüksekokulu
+01a207cf-035b-7fbb-a136-237b5f06f527,a347ab4a-cc29-434d-b72b-89e0f87907d6,Sapanca Turizm Meslek Yüksekokulu
+01a207cf-035b-714e-9b77-9fd20ccd1d0e,a46e925b-43bb-4d43-b7e4-63b8ab531304,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035b-7bf2-bd01-6e58eb7c8a39,a4d32939-6dcc-4254-974d-e6f8859fcde6,Meslek Yüksekokulu
+01a207cf-035b-7a08-9ceb-8e779885132d,a4d32939-6dcc-4254-974d-e6f8859fcde6,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035b-7edc-8e81-f20021731638,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Kemah Meslek Yüksekokulu
+01a207cf-035b-71b8-8afd-4970b3aa6601,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Kemaliye Hacı Ali Akın Meslek Yüksekokulu
+01a207cf-035b-7efe-9cdb-8472864418bd,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Meslek Yüksekokulu
+01a207cf-035b-7dea-98db-450e2f14527e,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Refahiye Bahar Yıldırım Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035b-7fc3-adf1-f2a0ef9b44fb,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Refahiye Meslek Yüksekokulu
+01a207cf-035b-7321-bc11-58287245e465,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035b-76ae-b232-d46f142612f5,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Tercan Meslek Yüksekokulu
+01a207cf-035b-77d4-9a32-1004defff3ba,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Turizm ve Otelcilik Meslek Yüksekokulu
+01a207cf-035b-7a43-8c30-40ba0de9a64a,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Çayırlı Meslek Yüksekokulu
+01a207cf-035b-73d0-886d-05e164a98952,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,Üzümlü Meslek Yüksekokulu
+01a207cf-035b-77cf-8ea0-d9e01a34460d,a7d0cebe-3c2f-4c1d-b3e4-3ed35763b65e,İliç Dursun Yıldırım Meslek Yüksekokulu
+01a207cf-035b-7480-bdbc-180570a03406,a957d35c-b0f7-423d-9013-5f26c7ce692d,Meslek Yüksekokulu
+01a207cf-035b-7f65-bff4-a73a77340349,ac4933c3-be00-40ea-aca3-d5c64eb3ef38,Aydıntepe Meslek Yüksekokulu
+01a207cf-035b-7a64-b32b-d9b09b6431ba,ac4933c3-be00-40ea-aca3-d5c64eb3ef38,Demirözü Meslek Yüksekokulu
+01a207cf-035b-7717-b9ad-c600d8220793,ac4933c3-be00-40ea-aca3-d5c64eb3ef38,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035b-72b1-9b78-907b06330948,ac4933c3-be00-40ea-aca3-d5c64eb3ef38,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035b-79cf-bb72-c22f4bd87449,ac4933c3-be00-40ea-aca3-d5c64eb3ef38,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035b-77f6-a628-225658d07ee7,ac688a3c-0998-4d75-a6c7-899c5c28625f,Meslek Yüksekokulu
+01a207cf-035b-71ac-9cf5-95b550c840db,afa0a8dc-03d1-4062-8daf-b602d3b8060c,Meslek Yüksekokulu
+01a207cf-035b-7c9f-bee7-f4a32d77ef64,afa0a8dc-03d1-4062-8daf-b602d3b8060c,Midyat Meslek Yüksekokulu
+01a207cf-035b-7952-ac51-066554b6a5a7,afa0a8dc-03d1-4062-8daf-b602d3b8060c,Nusaybin Meslek Yüksekokulu
+01a207cf-035c-78b3-a9bd-a5a159fd9d01,afa0a8dc-03d1-4062-8daf-b602d3b8060c,Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-035c-768f-9a75-0ad685c8a594,afa0a8dc-03d1-4062-8daf-b602d3b8060c,Savur Meslek Yüksekokulu
+01a207cf-035c-71fc-9c9e-b2ee703a5183,afa0a8dc-03d1-4062-8daf-b602d3b8060c,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035c-7221-ba34-8f4bdd0466ab,afa0a8dc-03d1-4062-8daf-b602d3b8060c,Ömerli Meslek Yüksekokulu
+01a207cf-035c-70a9-9cba-f0ff464190ea,b2503ba5-fbb5-4878-8322-b54f1cae7936,Havacılık Meslek Yüksekokulu
+01a207cf-035c-764a-90ec-8ba963dc0ee2,b27adb28-9134-443c-8e93-ec7d1368934f,Amasya Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035c-7e65-a04d-2fa0b7824a3d,b27adb28-9134-443c-8e93-ec7d1368934f,Amasya Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035c-785c-ab47-c804c8c7493d,b27adb28-9134-443c-8e93-ec7d1368934f,Gümüşhacıköy Hasan Duman Meslek Yüksekokulu
+01a207cf-035c-7981-9447-bfc71a724eff,b27adb28-9134-443c-8e93-ec7d1368934f,Merzifon Meslek Yüksekokulu
+01a207cf-035c-71f5-832a-1a1c6da486e4,b27adb28-9134-443c-8e93-ec7d1368934f,Sabuncuoğlu Şerefeddin Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035c-7cb6-9a2e-79aca53eae96,b27adb28-9134-443c-8e93-ec7d1368934f,Suluova Meslek Yüksekokulu
+01a207cf-035c-7b6b-812b-47ec026ae747,b27adb28-9134-443c-8e93-ec7d1368934f,Tasarım Meslek Yüksekokulu
+01a207cf-035c-789a-9399-61b2d2d50e54,b27adb28-9134-443c-8e93-ec7d1368934f,Taşova Yüksel Akın Meslek Yüksekokulu
+01a207cf-035c-78e6-b51e-f49835e813a9,b2e4fff2-cc75-4fda-aa60-116eb228cb09,Beşiri Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-035c-70cd-a9f4-8fa31ca5b262,b2e4fff2-cc75-4fda-aa60-116eb228cb09,Hasankeyf Meslek Yüksekokulu
+01a207cf-035c-7ed0-9972-599b47acf59b,b2e4fff2-cc75-4fda-aa60-116eb228cb09,Kozluk Meslek Yüksekokulu
+01a207cf-035c-7097-a09a-1f3e40003287,b2e4fff2-cc75-4fda-aa60-116eb228cb09,Sason Meslek Yüksekokulu
+01a207cf-035c-71c5-90ef-4a334d8918dc,b2e4fff2-cc75-4fda-aa60-116eb228cb09,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035c-714f-a0de-45776f4021a8,b2e4fff2-cc75-4fda-aa60-116eb228cb09,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035c-7455-bc98-a13ca3429e8f,b2e4fff2-cc75-4fda-aa60-116eb228cb09,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035c-704f-a729-3378fc30e4c6,b6d8fdaf-4961-40ef-b353-23b582d84149,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035c-7131-9461-46e0a1d46027,b6d8fdaf-4961-40ef-b353-23b582d84149,İstanbul Gelişim Meslek Yüksekokulu
+01a207cf-035c-7906-a8f5-ce6b54c69329,bb058a98-2e1c-40b5-be51-6f515d223209,Meslek Yüksekokulu
+01a207cf-035c-7bbe-b6ab-5f8bf8d8db22,bc730264-10dd-4a30-907a-713621f3552d,Akçakale Meslek Yüksekokulu
+01a207cf-035c-78eb-9f68-2ca4fad2145c,bc730264-10dd-4a30-907a-713621f3552d,Birecik Meslek Yüksekokulu
+01a207cf-035c-7e51-be87-00d70be6c135,bc730264-10dd-4a30-907a-713621f3552d,Bozova Meslek Yüksekokulu
+01a207cf-035c-7b1f-a1a9-6dd25669e8c4,bc730264-10dd-4a30-907a-713621f3552d,Ceylanpınar Tarım Meslek Yüksekokulu
+01a207cf-035c-7cf0-9893-d46404b526ce,bc730264-10dd-4a30-907a-713621f3552d,Halfeti Meslek Yüksekokulu
+01a207cf-035c-77ad-a3a5-c2f314a22212,bc730264-10dd-4a30-907a-713621f3552d,Hilvan Meslek Yüksekokulu
+01a207cf-035d-7b54-a2de-380daa084fba,bc730264-10dd-4a30-907a-713621f3552d,Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-035d-7971-8e35-ee420bf56cf9,bc730264-10dd-4a30-907a-713621f3552d,Siverek Meslek Yüksekokulu
+01a207cf-035d-7881-a23b-fc7f4043497b,bc730264-10dd-4a30-907a-713621f3552d,Suruç Meslek Yüksekokulu
+01a207cf-035d-7453-bee5-0ff1b27b5215,bc730264-10dd-4a30-907a-713621f3552d,Viranşehir Meslek Yüksekokulu
+01a207cf-035d-79a7-8aad-9fbcfb1031d9,bc730264-10dd-4a30-907a-713621f3552d,Şanlıurfa Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035d-7eda-a5d0-02079324a2c9,bc730264-10dd-4a30-907a-713621f3552d,Şanlıurfa Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035d-73b8-b116-89d548968de0,bc730264-10dd-4a30-907a-713621f3552d,Şanlıurfa Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035d-74b7-9d45-c8affcd5ba7f,bddb0679-d1eb-48a0-9c69-1eaadf921cbd,Karşıyaka Meslek Yüksekokulu
+01a207cf-035d-7aee-af9e-4333b45123f8,bea200d0-8038-4f69-9bc7-cdf747e992f8,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035d-7500-9d1e-1ece83e62ba2,bef0e651-d2e2-4d5a-a743-1710dc89dcb8,Başkale Meslek Yüksekokulu
+01a207cf-035d-7553-a184-8ebe6202dd02,bef0e651-d2e2-4d5a-a743-1710dc89dcb8,Erciş Meslek Yüksekokulu
+01a207cf-035d-7944-9540-fec6a8ae798b,bef0e651-d2e2-4d5a-a743-1710dc89dcb8,Gevaş Meslek Yüksekokulu
+01a207cf-035d-741b-996b-b761c7735666,bef0e651-d2e2-4d5a-a743-1710dc89dcb8,Muradiye Meslek Yüksekokulu
+01a207cf-035d-7598-ab72-5469ae0aaa67,bef0e651-d2e2-4d5a-a743-1710dc89dcb8,Van Güvenlik Meslek Yüksekokulu
+01a207cf-035d-7898-b751-ce5860b961d8,bef0e651-d2e2-4d5a-a743-1710dc89dcb8,Van Meslek Yüksekokulu
+01a207cf-035d-7aef-95e0-b66ce75ed93e,bef0e651-d2e2-4d5a-a743-1710dc89dcb8,Van Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035d-7098-95df-9e302aff2c4f,bef0e651-d2e2-4d5a-a743-1710dc89dcb8,Özalp Meslek Yüksekokulu
+01a207cf-035d-7d0c-b242-11a1294be34e,bff88c30-b1c8-4d34-b6b2-9bbe61397201,Adapazarı Meslek Yüksekokulu
+01a207cf-035d-722c-8d6e-890f02f80a4a,bff88c30-b1c8-4d34-b6b2-9bbe61397201,Sakarya Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035d-77da-b9fe-67d6fde0e244,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Akçadağ Meslek Yüksekokulu
+01a207cf-035d-7fb1-bf94-bb54bf78275c,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Arapgir Meslek Yüksekokulu
+01a207cf-035d-77cb-830b-e8e599655aaf,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Battalgazi Meslek Yüksekokulu
+01a207cf-035d-7a95-a643-28ad00b03bac,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-035d-794e-9b08-f1e61f8d7c65,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Darende Bekir Ilıcak Meslek Yüksekokulu
+01a207cf-035d-7614-b808-6ccbeb2a2568,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Doğanşehir Vahap Küçük Meslek Yüksekokulu
+01a207cf-035d-7524-97cd-87bd450c096d,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Hekimhan Mehmet Emin Sungur Meslek Yüksekokulu
+01a207cf-035d-7739-b76b-4729690c2da9,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Kale Turizm ve Otel İşletmeciliği Meslek Yüksekokulu
+01a207cf-035d-79d9-866b-6e53f885f0f6,c040ba83-0be3-4abf-85ff-cfb9dabc8b1d,Yeşilyurt Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035d-74dc-9ab9-9e5d0bb25c45,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Demre Dr. Hasan Ünal Meslek Yüksekokulu
+01a207cf-035d-7fbd-886d-aa504efcf1c2,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Elmalı Meslek Yüksekokulu
+01a207cf-035e-7769-a610-4939e19dbce3,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Finike Meslek Yüksekokulu
+01a207cf-035e-77cc-8a3a-b30d9a178fea,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Göynük Mutfak Sanatları Meslek Yüksekokulu
+01a207cf-035e-7d8d-a977-09a53e839fb7,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Korkuteli Meslek Yüksekokulu
+01a207cf-035e-7cee-981e-2f0c457a0846,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Kumluca Meslek Yüksekokulu
+01a207cf-035e-768e-8436-43499ab1ceb5,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Manavgat Meslek Yüksekokulu
+01a207cf-035e-759a-a7c0-f12c4d75173c,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035e-78d0-8496-4fb01af4a80a,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Serik Gülsün-Süleyman Süral Meslek Yüksekokulu
+01a207cf-035e-7e8a-a41f-b0f97afa986d,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035e-7d0c-a841-ac3cd6466782,c2399bb7-b60c-4e6e-85b2-a3115a210a8a,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035e-786b-92a8-0469d412ebb0,c483ddab-9201-4fcc-b28e-38f1ab33e6e3,Adana Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035e-75a5-bfda-a9e1c03ab443,c483ddab-9201-4fcc-b28e-38f1ab33e6e3,Anadolu OSB Meslek Yüksekokulu
+01a207cf-035e-7ef7-89c0-3afa60b4ab9b,c483ddab-9201-4fcc-b28e-38f1ab33e6e3,Kahramankazan Meslek Yüksekokulu
+01a207cf-035e-78ca-ac37-8f4396781e39,c483ddab-9201-4fcc-b28e-38f1ab33e6e3,Konya Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035e-77dc-9c42-264fc3363261,c483ddab-9201-4fcc-b28e-38f1ab33e6e3,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035e-735b-9830-daab82a20a19,c483ddab-9201-4fcc-b28e-38f1ab33e6e3,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035e-78fb-b307-671862067332,c483ddab-9201-4fcc-b28e-38f1ab33e6e3,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035e-7c5e-921e-3c7e3fc7d75e,c614406c-175f-4a2f-a778-1cda750b5fdf,Meslek Yüksekokulu
+01a207cf-035e-7714-8c71-14bfc740dee5,c614406c-175f-4a2f-a778-1cda750b5fdf,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035e-733f-957b-e7850745a2c5,c6902b41-10aa-49ad-840e-1f7d7c8fe788,Meslek Yüksekokulu
+01a207cf-035e-78ae-88ee-b814a3439e78,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Büyükorhan Meslek Yüksekokulu
+01a207cf-035e-79fb-b1fb-8b92a844bc5e,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Gemlik Asım Kocabıyık Meslek Yüksekokulu
+01a207cf-035e-7f38-94fb-f7f5daecb7f3,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Harmancık Meslek Yüksekokulu
+01a207cf-035e-7ccd-b9e8-03a3994b06cd,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Karacabey Meslek Yüksekokulu
+01a207cf-035e-7dc6-9ced-72567ae4c3b3,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Keles Meslek Yüksekokulu
+01a207cf-035e-7c61-aab7-e124d303d261,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Mennan Pasinli Atçılık Meslek Yüksekokulu
+01a207cf-035e-7f07-b082-423dad230eaa,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Mustafakemalpaşa Meslek Yüksekokulu
+01a207cf-035e-71bc-a8be-326ffd52a0c2,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Orhaneli Meslek Yüksekokulu
+01a207cf-035e-740a-8b54-2e30c5f1c755,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Orhangazi Yeniköy Asil Çelik Meslek Yüksekokulu
+01a207cf-035e-7c90-9a57-31829838ee0a,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035f-7601-9735-8333ac4d3913,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035f-7ed0-8d7e-351cc33dc148,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035f-7ced-b217-76152601dc58,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,Yenişehir İbrahim Orhan Meslek Yüksekokulu
+01a207cf-035f-7357-a957-563d0535fe11,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,İnegöl Meslek Yüksekokulu
+01a207cf-035f-71aa-b7c0-50589c5a677c,c8dfbf32-4d0e-4ca9-ab6f-7605be718458,İznik Meslek Yüksekokulu
+01a207cf-035f-7d33-a3c1-0366ba6784a4,c9f349d0-cc9f-418d-92c4-78c42cd02bd9,Ardeşen Meslek Yüksekokulu
+01a207cf-035f-799c-a592-fc2ddd6af482,c9f349d0-cc9f-418d-92c4-78c42cd02bd9,Pazar Meslek Yüksekokulu
+01a207cf-035f-7ed3-b14b-179256cef3bb,c9f349d0-cc9f-418d-92c4-78c42cd02bd9,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035f-75d0-b696-44c3f69563d0,c9f349d0-cc9f-418d-92c4-78c42cd02bd9,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035f-7ad0-b36e-8bda44043321,c9f349d0-cc9f-418d-92c4-78c42cd02bd9,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035f-7e36-8e0c-64c72185895c,cce8e1ab-f35e-46b7-93c3-11ca3d26135a,Meslek Yüksekokulu
+01a207cf-035f-72f6-9fff-fd51390495ea,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-035f-736b-b7e1-72e78f875626,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Bünyan Meslek Yüksekokulu
+01a207cf-035f-7846-8aab-8949a4327749,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Develi Hüseyin Şahin Meslek Yüksekokulu
+01a207cf-035f-7430-b522-94e0147729d5,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Mustafa Çıkrıkçıoğlu Meslek Yüksekokulu
+01a207cf-035f-7304-a7a1-c98221f74a1f,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-035f-7841-99b7-1aab6e20815d,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Pınarbaşı Meslek Yüksekokulu
+01a207cf-035f-7d8d-b482-9bbd1e2789c9,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Safiye Çıkrıkçıoğlu Meslek Yüksekokulu
+01a207cf-035f-7983-9672-afb7f5ebc37f,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-035f-75d5-951e-ba9f739cc9da,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-035f-7549-ae60-ccd0929a95a5,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Tomarza Mustafa Akıncıoğlu Meslek Yüksekokulu
+01a207cf-035f-7f59-9176-f755c0f59be9,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Yahyalı Meslek Yüksekokulu
+01a207cf-035f-78e3-81a0-ffcb47015581,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,Yeşilhisar Meslek Yüksekokulu
+01a207cf-035f-7aa1-9382-be4787c3f75c,cd5ca36b-12c0-4dd0-9d01-61f06d0d45df,İncesu Ayşe ve Saffet Arslan Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-035f-741c-8790-651e7f6fa155,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Abana Sabahat Mesut Yılmaz Meslek Yüksekokulu
+01a207cf-035f-7a57-a5bd-ab0de22b738b,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Araç Rafet Vergili Meslek Yüksekokulu
+01a207cf-035f-788f-8942-f2d347f689ed,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Bozkurt Meslek Yüksekokulu
+01a207cf-035f-73ce-a1a7-7a42e5a8eb15,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Cide Rıfat Ilgaz Meslek Yüksekokulu
+01a207cf-035f-79c5-83b1-9a828912e3c6,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Daday Nafi ve Ümit Çeri Meslek Yüksekokulu
+01a207cf-035f-7693-9b6d-0ae5e12b4a12,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Devrekani Türkiye Odalar ve Borsalar Birliği Meslek Yüksekokulu
+01a207cf-0360-7f1c-9ef0-4b6e2daeac1a,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Küre Meslek Yüksekokulu
+01a207cf-0360-7ef1-a77a-a1dcdc5ff8f1,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Meslek Yüksekokulu
+01a207cf-0360-7e20-8a51-534bee69dccd,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Taşköprü Meslek Yüksekokulu
+01a207cf-0360-73a5-848e-9948e61e0985,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Tosya Meslek Yüksekokulu
+01a207cf-0360-77aa-bb4e-00d232a5dfc7,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,Çatalzeytin Meslek Yüksekokulu
+01a207cf-0360-7e33-a5d8-be05d2e45360,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,İhsangazi Meslek Yüksekokulu
+01a207cf-0360-7f60-8cc3-215124cc2cb5,cfb7317f-afbe-4a19-bb53-e9d60b24d9c8,İnebolu Meslek Yüksekokulu
+01a207cf-0360-74a7-b6e8-3ec591761802,d06ce26c-ad4e-4102-b2c0-6270a6f3bec4,Meslek Yüksekokulu
+01a207cf-0360-7f5b-ae9d-a0a113fc8d23,d06ce26c-ad4e-4102-b2c0-6270a6f3bec4,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0360-72ae-a282-09f73c45ea59,d1a47a7d-24a3-413a-902b-7349557d0563,Meslek Yüksekokulu
+01a207cf-0360-761e-b862-d370d0aaaab7,d1a47a7d-24a3-413a-902b-7349557d0563,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0360-7c66-8765-7eb06a8add6d,d397a06b-a730-43f2-99b3-db342e05adce,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0360-776e-b8b7-42eda015b8e5,d3f0bde3-d9c5-48b5-b62d-75a4e4144d43,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0360-717c-bce0-0ccd2e9d3b24,d4785904-8364-4cff-99a0-dc5957f5a93b,Alucra Turan Bulutçu Meslek Yüksekokulu
+01a207cf-0360-726d-b347-067acd1acd64,d4785904-8364-4cff-99a0-dc5957f5a93b,Bulancak Meslek Yüksekokulu
+01a207cf-0360-72cc-ba54-e167b8179c12,d4785904-8364-4cff-99a0-dc5957f5a93b,Dereli Meslek Yüksekokulu (Keşap)
+01a207cf-0360-72d5-abbb-a24b4175350e,d4785904-8364-4cff-99a0-dc5957f5a93b,Espiye Meslek Yüksekokulu
+01a207cf-0360-7049-9f78-644fee629e12,d4785904-8364-4cff-99a0-dc5957f5a93b,Eynesil Kamil Nalbant Meslek Yüksekokulu
+01a207cf-0360-73d0-9caa-6092b865ea54,d4785904-8364-4cff-99a0-dc5957f5a93b,Giresun Meslek Yüksekokulu
+01a207cf-0360-7e0d-bdbe-f03a9d257be6,d4785904-8364-4cff-99a0-dc5957f5a93b,Keşap Meslek Yüksekokulu
+01a207cf-0360-7654-88dd-402747f9a7ea,d4785904-8364-4cff-99a0-dc5957f5a93b,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0360-7389-9788-59283debe038,d4785904-8364-4cff-99a0-dc5957f5a93b,Tirebolu Mehmet Bayrak Meslek Yüksekokulu
+01a207cf-0360-7b06-9b4f-c3c7ed045a03,d4785904-8364-4cff-99a0-dc5957f5a93b,Şebinkarahisar Meslek Yüksekokulu
+01a207cf-0360-74fa-a639-26abf45a2bb8,d4785904-8364-4cff-99a0-dc5957f5a93b,Şebinkarahisar Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0360-7c1a-8c9f-f765b88af35a,d52a7d8e-868c-4d69-a725-169ec784621b,Aksaray Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0360-7633-b301-620ee9456099,d52a7d8e-868c-4d69-a725-169ec784621b,Aksaray Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0360-74b3-b40d-1d5a6dc42ca3,d52a7d8e-868c-4d69-a725-169ec784621b,Eskil Meslek Yüksekokulu
+01a207cf-0360-7bda-b4bd-befa75362d90,d52a7d8e-868c-4d69-a725-169ec784621b,Güzelyurt Meslek Yüksekokulu
+01a207cf-0360-72ba-8c09-213aeb3b6518,d52a7d8e-868c-4d69-a725-169ec784621b,Ortaköy Meslek Yüksekokulu
+01a207cf-0360-7123-ae9f-e486e5be4366,d52a7d8e-868c-4d69-a725-169ec784621b,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0361-7c7b-b6c8-1e3ec91b8067,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Atça Meslek Yüksekokulu
+01a207cf-0361-7cbd-b477-90d7c9dc6d51,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Aydın Meslek Yüksekokulu
+01a207cf-0361-7bd6-9dae-115c5f4dbed2,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Aydın Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0361-7156-ba00-b019ee132531,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Bozdoğan Meslek Yüksekokulu
+01a207cf-0361-7d8f-802f-ac10c82f5d64,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Buharkent Meslek Yüksekokulu
+01a207cf-0361-777e-bd94-ac6f3cb9b9e0,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Didim Meslek Yüksekokulu
+01a207cf-0361-77e3-a21f-74383f5f7218,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Germencik Yamantürk Meslek Yüksekokulu
+01a207cf-0361-72fa-b5de-45b5765410a6,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Karacasu Memnune İnci Meslek Yüksekokulu
+01a207cf-0361-7c1b-a1bc-8b561ee60188,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Koçarlı Meslek Yüksekokulu
+01a207cf-0361-7c0d-806b-1a85b0e513b0,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Kuşadası Davutlar Meslek Yüksekokulu
+01a207cf-0361-7136-9ffc-427231f494c1,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Köşk Meslek Yüksekokulu
+01a207cf-0361-7881-8bbe-fda52c58b2ef,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Nazilli Meslek Yüksekokulu
+01a207cf-0361-7015-b230-ad62af14ea68,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Nazilli Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0361-741b-8614-7b4b79882a0c,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Sultanhisar Meslek Yüksekokulu
+01a207cf-0361-7fd1-996b-71f76ce230d8,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Söke Meslek Yüksekokulu
+01a207cf-0361-7642-9c05-1d52e1899056,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Söke Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0361-77bc-95d2-9573e458929a,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Yenipazar Meslek Yüksekokulu
+01a207cf-0361-7d75-bb1c-85707208c2ca,d53a011d-f431-4e6f-bb2c-e34b7fd57a2a,Çine Meslek Yüksekokulu
+01a207cf-0361-76a7-bedc-1bc3b8ec4099,d86c719c-abd3-45e1-8908-42dd355b139d,Kapadokya Meslek Yüksekokulu
+01a207cf-0361-79c3-a26a-2542cf2506d5,d8924a5d-8f04-460f-a201-2883314287b4,Arhavi Meslek Yüksekokulu
+01a207cf-0361-73aa-ba20-2822d0f1616e,d8924a5d-8f04-460f-a201-2883314287b4,Artvin Meslek Yüksekokulu
+01a207cf-0361-7d9d-9611-500ae5bf1a4d,d8924a5d-8f04-460f-a201-2883314287b4,Borçka Acarlar Meslek Yüksekokulu
+01a207cf-0361-77bb-a394-293e4cfd81f8,d8924a5d-8f04-460f-a201-2883314287b4,Hopa Meslek Yüksekokulu
+01a207cf-0361-7df0-a26f-e27c4bdd923b,d8924a5d-8f04-460f-a201-2883314287b4,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0361-7aa7-aced-0bf873f9c87c,d8924a5d-8f04-460f-a201-2883314287b4,Yusufeli Meslek Yüksekokulu
+01a207cf-0361-72c3-986f-22b7685d7c7c,d8924a5d-8f04-460f-a201-2883314287b4,Şavşat Meslek Yüksekokulu
+01a207cf-0361-727e-8989-7c0d3ea2e0fe,da954fd9-b43f-400a-bcc6-c0eb158547f5,Bartın Meslek Yüksekokulu
+01a207cf-0361-70fa-b9da-adfa5c98ce12,da954fd9-b43f-400a-bcc6-c0eb158547f5,Bartın Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0361-72c1-bd97-d4da0309958c,da954fd9-b43f-400a-bcc6-c0eb158547f5,Bartın Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0361-7850-840a-07a25c801e7c,da954fd9-b43f-400a-bcc6-c0eb158547f5,Ulus Meslek Yüksekokulu
+01a207cf-0362-7168-97f1-cac7669ea322,dcda045b-c47f-4463-a869-f86a5cef3b34,Akdağmadeni Meslek Yüksekokulu
+01a207cf-0362-7b5d-9094-d2f6c42f1e04,dcda045b-c47f-4463-a869-f86a5cef3b34,Boğazlıyan Meslek Yüksekokulu
+01a207cf-0362-7e2b-b2d1-b528d7f96ae7,dcda045b-c47f-4463-a869-f86a5cef3b34,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0362-7e29-a915-10401797837b,dcda045b-c47f-4463-a869-f86a5cef3b34,Sorgun Meslek Yüksekokulu
+01a207cf-0362-75d7-982a-06749fd286b3,dcda045b-c47f-4463-a869-f86a5cef3b34,Yerköy Meslek Yüksekokulu
+01a207cf-0362-7be4-af97-2202182b2cca,dcda045b-c47f-4463-a869-f86a5cef3b34,Yozgat Meslek Yüksekokulu
+01a207cf-0362-79ba-9829-bbfd64fce75d,dcda045b-c47f-4463-a869-f86a5cef3b34,Çekerek Fuat Oktay Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0362-74f0-bc88-7d3338d6ea0a,dcda045b-c47f-4463-a869-f86a5cef3b34,Şefaatli Meslek Yüksekokulu
+01a207cf-0362-7c6a-9981-bcdf4b592ed2,de113947-f854-4214-a456-ff8bbde7ea8c,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0362-78e6-8fcc-39af5e5867f2,de113947-f854-4214-a456-ff8bbde7ea8c,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0362-7163-8ba9-2e065c308c75,df67fe58-c879-44f4-86c7-169c86cd1165,1. Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0362-7bb2-8e40-f036732a21a3,df67fe58-c879-44f4-86c7-169c86cd1165,Akyurt Meslek Yüksekokulu
+01a207cf-0362-7eb3-9bf7-bb84afa04023,df67fe58-c879-44f4-86c7-169c86cd1165,Ayaş Meslek Yüksekokulu
+01a207cf-0362-7234-908f-fdc9b799e852,df67fe58-c879-44f4-86c7-169c86cd1165,Bala Meslek Yüksekokulu
+01a207cf-0362-78b3-9730-1509379fb55c,df67fe58-c879-44f4-86c7-169c86cd1165,Beypazarı Meslek Yüksekokulu
+01a207cf-0362-70c8-b4d8-4e58172ac576,df67fe58-c879-44f4-86c7-169c86cd1165,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0362-7976-b92b-f8d75f846c9c,df67fe58-c879-44f4-86c7-169c86cd1165,Elmadağ Meslek Yüksekokulu
+01a207cf-0362-7b02-b106-ae3ec4366abf,df67fe58-c879-44f4-86c7-169c86cd1165,Haymana Meslek Yüksekokulu
+01a207cf-0362-7b92-b2b8-63fb73e4d9c5,df67fe58-c879-44f4-86c7-169c86cd1165,Kalecik Meslek Yüksekokulu
+01a207cf-0362-7fdc-89e1-42dfa1f27bac,df67fe58-c879-44f4-86c7-169c86cd1165,Kızılcahamam Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0362-7dfd-bec2-ccb0c05f8cff,df67fe58-c879-44f4-86c7-169c86cd1165,Nallıhan Meslek Yüksekokulu
+01a207cf-0362-7a7d-a9ce-5a01d4fee312,df67fe58-c879-44f4-86c7-169c86cd1165,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0362-76ef-8afd-34ce6f85486c,df67fe58-c879-44f4-86c7-169c86cd1165,Siber Güvenlik Meslek Yüksekokulu
+01a207cf-0362-7b79-9879-42c6d3db7671,df67fe58-c879-44f4-86c7-169c86cd1165,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0362-7b59-81f5-6b4df247c9cd,e0523462-f1a7-449c-969a-f1d2e49a33b7,Meslek Yüksekokulu
+01a207cf-0362-7547-addc-3d951837b543,e0eeddb8-9f10-49b1-9cdb-244a54d60f86,Bor Halil-Zöhre Ataman Meslek Yüksekokulu
+01a207cf-0362-7224-8957-15e0d53b2e1a,e0eeddb8-9f10-49b1-9cdb-244a54d60f86,Bor Meslek Yüksekokulu
+01a207cf-0362-7b0d-a57d-016b25efda86,e0eeddb8-9f10-49b1-9cdb-244a54d60f86,Niğde Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0362-7cce-9e05-6eed887610c0,e0eeddb8-9f10-49b1-9cdb-244a54d60f86,Niğde Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0362-7ad9-8dd1-8d0824fce163,e0eeddb8-9f10-49b1-9cdb-244a54d60f86,Niğde Zübeyde Hanım Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0363-7529-a1f1-4e817a74f069,e0eeddb8-9f10-49b1-9cdb-244a54d60f86,Ulukışla Meslek Yüksekokulu
+01a207cf-0363-75aa-8f00-a3ca1faa7249,e1de1cdb-a540-4c43-8c27-1db32d2a50d6,Meslek Yüksekokulu
+01a207cf-0363-7c73-90de-230c33e8d044,e1de1cdb-a540-4c43-8c27-1db32d2a50d6,Sağlık Bilimleri Meslek Yüksekokulu
+01a207cf-0363-7fee-9a8d-291e61f38572,e20dd9a9-6a2a-4b36-b2fb-31614faf293b,Siber Güvenlik Meslek Yüksekokulu
+01a207cf-0363-756d-83d4-ca8b0b11c9c3,e2cfde92-f250-4d84-97e5-cc0382d08e82,Akseki Meslek Yüksekokulu
+01a207cf-0363-78dc-96fa-5fc37e946055,e2cfde92-f250-4d84-97e5-cc0382d08e82,Alanya Ticaret ve Sanayi Odası Meslek Yüksekokulu
+01a207cf-0363-7ad3-96df-1a382a67f048,e2cfde92-f250-4d84-97e5-cc0382d08e82,Alanya Ticaret ve Sanayi Odası Turizm Meslek Yüksekokulu
+01a207cf-0363-7e25-b41b-89f8c0612b4c,e2cfde92-f250-4d84-97e5-cc0382d08e82,Gazipaşa Mustafa Rahmi Büyükballı Meslek Yüksekokulu
+01a207cf-0363-7a64-94ff-959f86bf34ad,e2cfde92-f250-4d84-97e5-cc0382d08e82,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0363-7495-8b19-46d7d6a56ac3,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Adilcevaz Meslek Yüksekokulu
+01a207cf-0363-7973-98b6-51f4204072e5,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Ahlat Meslek Yüksekokulu
+01a207cf-0363-7672-bb37-1f2879ac9784,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Güroymak Meslek Yüksekokulu
+01a207cf-0363-7003-bd66-8b99c37ef67b,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Hizan Meslek Yüksekokulu
+01a207cf-0363-75fa-a111-a68201b59b03,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0363-72ba-92b2-a4c8738fd7ed,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0363-7b09-a822-6f6982b3783b,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0363-7321-bb94-c3ceba575572,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Tatvan Meslek Yüksekokulu
+01a207cf-0363-767e-a932-44b9ece66610,e4d111f5-c2c0-44bd-9c64-81e6bfaebe0c,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0363-7818-884a-083599ec948d,e524b059-5e3c-456b-b7a9-f32c4fac0a72,Meslek Yüksekokulu
+01a207cf-0363-7285-8d6e-7382d8de73e4,e524b059-5e3c-456b-b7a9-f32c4fac0a72,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0363-7d33-8120-3a5ae5997f92,e5e22ee5-a069-4e71-8060-e76d8d033d06,Acıgöl Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0363-7467-903c-0bd0267ac5cf,e5e22ee5-a069-4e71-8060-e76d8d033d06,Avanos Güzel Sanatlar Meslek Yüksekokulu
+01a207cf-0363-72d2-b535-ae16e4919f82,e5e22ee5-a069-4e71-8060-e76d8d033d06,Derinkuyu Emineana ve Yaşar Ertaş Tarım ve Hayvancılık Meslek Yüksekokulu
+01a207cf-0363-7385-a4c6-5226376b55ad,e5e22ee5-a069-4e71-8060-e76d8d033d06,Gülşehir Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0363-7b03-bba7-0a627656849c,e5e22ee5-a069-4e71-8060-e76d8d033d06,Hacıbektaş Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0363-7ec8-9f0e-1574fd1b8e62,e5e22ee5-a069-4e71-8060-e76d8d033d06,Kozaklı Meslek Yüksekokulu
+01a207cf-0363-73aa-95a6-f7ba185b7d1e,e5e22ee5-a069-4e71-8060-e76d8d033d06,Meslek Yüksekokulu
+01a207cf-0363-7c05-87c6-d596acf926e4,e5e22ee5-a069-4e71-8060-e76d8d033d06,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0363-7227-aa28-20202357b194,e5e22ee5-a069-4e71-8060-e76d8d033d06,Ürgüp Sebahat ve Erol Toksöz Turizm Meslek Yüksekokulu
+01a207cf-0363-7ddd-a97f-e6f5cff64f51,e7600a21-8525-4fe1-abf0-91a020c467fe,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0364-706d-a6e7-aee4c6601e7b,e86c0029-2ea0-49af-96c4-acd60e75b3b1,Iğdır Meslek Yüksekokulu
+01a207cf-0364-76d8-a6f3-0c637ba0795b,e86c0029-2ea0-49af-96c4-acd60e75b3b1,Iğdır Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0364-7f24-af3a-f042dc001534,e86c0029-2ea0-49af-96c4-acd60e75b3b1,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0364-725b-b9b4-129ee2546baf,e86c0029-2ea0-49af-96c4-acd60e75b3b1,Tuzluca Meslek Yüksekokulu
+01a207cf-0364-7625-b189-a442fe7e9880,e8b09774-8fec-4657-9fa8-d55c36b0d802,Barbaros Denizcilik Meslek Yüksekokulu
+01a207cf-0364-71cf-9579-f05653355576,e8b09774-8fec-4657-9fa8-d55c36b0d802,Hayrabolu Meslek Yüksekokulu
+01a207cf-0364-78ef-a55a-96fd9643d754,e8b09774-8fec-4657-9fa8-d55c36b0d802,Malkara Meslek Yüksekokulu
+01a207cf-0364-75d3-9cf8-7b50fef3dff3,e8b09774-8fec-4657-9fa8-d55c36b0d802,Marmara Ereğlisi Meslek Yüksekokulu
+01a207cf-0364-7a02-b2a3-20ede54439e2,e8b09774-8fec-4657-9fa8-d55c36b0d802,Muratlı Meslek Yüksekokulu
+01a207cf-0364-7588-9211-126d0d42f0a3,e8b09774-8fec-4657-9fa8-d55c36b0d802,Saray Meslek Yüksekokulu
+01a207cf-0364-77d7-873c-05c0a8d43303,e8b09774-8fec-4657-9fa8-d55c36b0d802,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0364-7e74-98fe-747a6c49a8fc,e8b09774-8fec-4657-9fa8-d55c36b0d802,Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0364-76f5-a1c1-11ed74717a96,e8b09774-8fec-4657-9fa8-d55c36b0d802,Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0364-7cb0-821b-46436caef8ff,e8b09774-8fec-4657-9fa8-d55c36b0d802,Çerkezköy Meslek Yüksekokulu
+01a207cf-0364-7fe5-8bdf-6e0000e71fd5,e8b09774-8fec-4657-9fa8-d55c36b0d802,Çorlu Meslek Yüksekokulu
+01a207cf-0364-7f15-9aad-b1d689505540,e8b09774-8fec-4657-9fa8-d55c36b0d802,Şarköy Meslek Yüksekokulu
+01a207cf-0364-7b4c-98bc-f2be6c94a833,e8ec8022-3151-4e13-a69d-8d88f203ae5a,Denizcilik Meslek Yüksekokulu
+01a207cf-0364-74f4-953d-54874548f5e6,eb205402-cadc-4b5f-9b7c-088ab1391935,Anadolu BİL Meslek Yüksekokulu
+01a207cf-0364-70ee-9011-6cc9e6be02e8,eb205402-cadc-4b5f-9b7c-088ab1391935,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0364-7e02-8933-df2ef359c0b2,ec95c997-8c4c-481a-9b2a-0ae6f8f9a71d,Beşikdüzü Meslek Yüksekokulu
+01a207cf-0364-7859-8898-e401aca11ff2,ec95c997-8c4c-481a-9b2a-0ae6f8f9a71d,Düzköy Meslek Yüksekokulu
+01a207cf-0364-7182-be49-8263cdc60c65,ec95c997-8c4c-481a-9b2a-0ae6f8f9a71d,Tonya Meslek Yüksekokulu
+01a207cf-0364-7d9b-a900-855e55ff2134,ec95c997-8c4c-481a-9b2a-0ae6f8f9a71d,Turizm ve Otelcilik Meslek Yüksekokulu
+01a207cf-0364-72a5-806d-84cd60f72bbe,ec95c997-8c4c-481a-9b2a-0ae6f8f9a71d,Vakfıkebir Meslek Yüksekokulu
+01a207cf-0364-7e5c-9baa-40ba85863d9f,ec95c997-8c4c-481a-9b2a-0ae6f8f9a71d,Çarşıbaşı Meslek Yüksekokulu
+01a207cf-0364-75e9-8726-1924e71fcfa7,ec95c997-8c4c-481a-9b2a-0ae6f8f9a71d,Şalpazarı Meslek Yüksekokulu
+01a207cf-0364-737b-8c4c-fbef64d04ca6,ece9f130-fb67-46e3-8101-e8733c272d82,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0364-7bca-a63d-489437e96454,ecf6b6ef-08d0-4df6-9816-c2c0ccee3bfe,Meslek Yüksekokulu
+01a207cf-0364-74e0-b49f-3c0cb267651d,ecf6b6ef-08d0-4df6-9816-c2c0ccee3bfe,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0364-74e1-a86e-03d3c38a0520,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Afyon Meslek Yüksekokulu
+01a207cf-0365-75a7-953e-9a0901c67ac7,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Bayat Meslek Yüksekokulu
+01a207cf-0365-71f9-a376-9e37dd1e5017,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Başmakçı Meslek Yüksekokulu
+01a207cf-0365-7f66-8f66-55dcad98378c,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Bilişim Teknolojileri Meslek Yüksekokulu
+01a207cf-0365-78ee-9690-e80efe3672b2,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Bolvadin Meslek Yüksekokulu
+01a207cf-0365-72ed-afc2-7daf8c75fc06,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Dazkırı Meslek Yüksekokulu
+01a207cf-0365-75aa-8b80-7f7efd6c7d1e,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Dinar Meslek Yüksekokulu
+01a207cf-0365-78c5-8548-0a37131d13e8,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Emirdağ Meslek Yüksekokulu
+01a207cf-0365-7677-a7cf-65f01bc0cddd,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Sandıklı Meslek Yüksekokulu
+01a207cf-0365-72cc-a657-b74274e43d9a,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Sinanpaşa Meslek Yüksekokulu
+01a207cf-0365-7b64-bc96-797cdf08c93b,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Sultandağı Meslek Yüksekokulu
+01a207cf-0365-75e1-b210-a22afdb26b95,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Çay Meslek Yüksekokulu
+01a207cf-0365-7e73-bc4f-31ceb1e9b803,ed5d732a-1be4-4c92-bcb6-9344ec724de5,İscehisar Meslek Yüksekokulu
+01a207cf-0365-706b-aac0-890e57895f87,ed5d732a-1be4-4c92-bcb6-9344ec724de5,Şuhut Meslek Yüksekokulu
+01a207cf-0365-7e54-bf40-47bdd512f28f,ed6400ff-1665-4f28-8fc6-ee7286b02714,Meslek Yüksekokulu
+01a207cf-0365-7f65-b34a-20dd45fd2fd3,f2947fe6-f533-476a-a861-0d8ac4d009c4,Mutfak Sanatları Meslek Yüksekokulu
+01a207cf-0365-7dc3-8a04-1526e32728a4,f2947fe6-f533-476a-a861-0d8ac4d009c4,Polatlı Sosyal Bilimler Meslek Yüksekokulu
+01a207cf-0365-74e9-860c-21911c8fe7cc,f709664c-ba9a-4aa5-9ebc-e1de6af9fadb,Gediz Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0365-753e-8ca6-5612d3214714,f709664c-ba9a-4aa5-9ebc-e1de6af9fadb,Kütahya Meslek Yüksekokulu
+01a207cf-0365-703a-8621-276a0299d0dd,f709664c-ba9a-4aa5-9ebc-e1de6af9fadb,Simav Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0365-7f1c-95ef-dd69b691e06a,f709664c-ba9a-4aa5-9ebc-e1de6af9fadb,Tavşanlı Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0365-7197-9bdf-509cbcfa71f5,fa3d2516-e434-43a7-a464-6f087333fb7d,Meslek Yüksekokulu
+01a207cf-0365-7d05-84b4-dddac577103b,fb3f86dc-9a11-467e-a1d7-90f5ed5c0ac7,Bolu Meslek Yüksekokulu
+01a207cf-0365-7eb9-a75e-bfdbbb0aff8b,fb3f86dc-9a11-467e-a1d7-90f5ed5c0ac7,Bolu Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0365-776f-8a81-2c1fe407707b,fb3f86dc-9a11-467e-a1d7-90f5ed5c0ac7,Gerede Meslek Yüksekokulu
+01a207cf-0365-7b33-874e-bb74461f30f7,fb3f86dc-9a11-467e-a1d7-90f5ed5c0ac7,Mehmet Tanrıkulu Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0365-7eb7-a780-536c263d3ff9,fb3f86dc-9a11-467e-a1d7-90f5ed5c0ac7,Mengen Meslek Yüksekokulu
+01a207cf-0365-75b1-bf98-7d40666f69c0,fb3f86dc-9a11-467e-a1d7-90f5ed5c0ac7,Mudurnu Süreyya Astarcı Meslek Yüksekokulu
+01a207cf-0365-7a47-8fc5-faad537a4a4e,fb3f86dc-9a11-467e-a1d7-90f5ed5c0ac7,Seben İzzet Baysal Meslek Yüksekokulu
+01a207cf-0365-7e48-b132-eeabe654284f,fb3f86dc-9a11-467e-a1d7-90f5ed5c0ac7,Yeniçağa Yaşar Çelik Meslek Yüksekokulu
+01a207cf-0365-7e48-ae0c-fb98596a0f78,fc5c4cba-82b9-4ad0-8e61-945295672d18,Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0366-7b3f-9288-1c6d741e1a38,fdab80fe-c6f8-4ba0-83ea-5be6db3a3097,Denizcilik Teknolojileri Meslek Yüksekokulu
+01a207cf-0366-7834-8b0a-0e48bd108051,fdab80fe-c6f8-4ba0-83ea-5be6db3a3097,Dörtyol Meslek Yüksekokulu
+01a207cf-0366-7e99-a72e-c78436da849f,fdab80fe-c6f8-4ba0-83ea-5be6db3a3097,Dörtyol Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0366-7e6c-b20d-52ef811918e6,fdab80fe-c6f8-4ba0-83ea-5be6db3a3097,Erzin Organize Sanayi Bölgesi Meslek Yüksekokulu
+01a207cf-0366-733f-935f-d8527e540800,fdab80fe-c6f8-4ba0-83ea-5be6db3a3097,İskenderun Meslek Yüksekokulu
+01a207cf-0366-7264-85b3-05bd7bb2f543,fdab80fe-c6f8-4ba0-83ea-5be6db3a3097,İskenderun Organize Sanayi Bölgesi Kaynakçılık Meslek Yüksekokulu
+01a207cf-0366-7a13-a8a7-ff7816374167,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Aliağa Meslek Yüksekokulu
+01a207cf-0366-7d35-baa9-63081b2737b3,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Atatürk Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0366-7578-8bed-c37035a32d60,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Bayındır Meslek Yüksekokulu
+01a207cf-0366-7163-a7b9-aacbb7c468d4,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Bergama Meslek Yüksekokulu
+01a207cf-0366-7419-9252-dfd1d61a6960,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Ege Meslek Yüksekokulu
+01a207cf-0366-7e08-9232-4daca7a7f605,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Emel Akın Meslek Yüksekokulu
+01a207cf-0366-73f4-a07d-cfe00e5241aa,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Havacılık Meslek Yüksekokulu
+01a207cf-0366-7d36-a107-e018781ea08f,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Siber Güvenlik Meslek Yüksekokulu
+01a207cf-0366-764c-91fa-ebd0bc1e239a,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Tire Kutsan Meslek Yüksekokulu
+01a207cf-0366-7f36-a8e2-45f6f0437a78,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Urla Denizcilik Meslek Yüksekokulu
+01a207cf-0366-7c85-94b3-d8e245aaaaa0,ff31ab4f-c388-46f0-8ba1-ecca05bcb2bb,Ödemiş Meslek Yüksekokulu
+01a207cf-0366-7e4d-8fef-d6e6ea3e1d8e,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Abdi Sütcü Sağlık Hizmetleri Meslek Yüksekokulu
+01a207cf-0366-7838-aacb-3fc8e8df957b,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Adana Meslek Yüksekokulu
+01a207cf-0366-7ff6-ae29-1cf8f6395ccf,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Adana Organize Sanayi Bölgesi Teknik Bilimler Meslek Yüksekokulu
+01a207cf-0366-7095-b813-f5c78f79f989,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Aladağ Meslek Yüksekokulu
+01a207cf-0366-7b8a-b678-1d87fd8d9597,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Ceyhan Meslek Yüksekokulu
+01a207cf-0366-70cb-b7fc-ce54b853bf1f,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Karaisalı Meslek Yüksekokulu
+01a207cf-0366-786b-a7ee-609e90ebda02,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Kozan Meslek Yüksekokulu
+01a207cf-0366-7b5e-9206-7659b235060f,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Pozantı Meslek Yüksekokulu
+01a207cf-0366-76f5-9a19-9565b3957c9f,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Tufanbeyli Meslek Yüksekokulu
+01a207cf-0366-7e2f-a4f0-d530af0e8de5,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,Yumurtalık Meslek Yüksekokulu
+01a207cf-0366-7521-b423-81a6a1c907dc,ff743ea7-4c5c-402d-9fea-6a88dfd6c661,İmamoğlu Meslek Yüksekokulu

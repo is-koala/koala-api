@@ -11,6 +11,8 @@ import (
 	"slices"
 	"text/tabwriter"
 
+	"github.com/google/uuid"
+
 	"github.com/is-koala/koala-api/db/referencedata"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
@@ -157,9 +159,17 @@ func writeResult(w io.Writer, res referencedata.Result, dryRun bool) error {
 	}
 	for _, t := range res.Tables {
 		for _, c := range t.Inserted {
+			if c.ID == uuid.Nil { // a source code: the code and its department
+				_, _ = fmt.Fprintf(w, "+ %s %s %s\n", t.Table, c.Code, c.Parent)
+				continue
+			}
 			_, _ = fmt.Fprintf(w, "+ %s %s %q\n", t.Table, c.ID, c.Name)
 		}
 		for _, c := range t.Updated {
+			if c.ID == uuid.Nil {
+				_, _ = fmt.Fprintf(w, "^ %s %s %s\n", t.Table, c.Code, c.Parent)
+				continue
+			}
 			switch {
 			case c.Restored && c.OldName != "":
 				_, _ = fmt.Fprintf(w, "^ %s %s %q -> %q\n", t.Table, c.ID, c.OldName, c.Name)
@@ -173,6 +183,10 @@ func writeResult(w io.Writer, res referencedata.Result, dryRun bool) error {
 			}
 		}
 		for _, c := range t.Retired {
+			if c.ID == uuid.Nil {
+				_, _ = fmt.Fprintf(w, "- %s %s %s\n", t.Table, c.Code, c.Parent)
+				continue
+			}
 			_, _ = fmt.Fprintf(w, "- %s %s %q\n", t.Table, c.ID, c.Name)
 		}
 	}

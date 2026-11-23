@@ -1,9 +1,10 @@
 // Package referencedata holds the reference data of the M4 tables and the
 // one function that brings a database in line with it (ADR-0037).
 //
-// The data is six CSV files next to this file: countries, cities and
-// districts; universities, faculties and departments, with a version
-// number (VERSION) that grows with every change. They are versioned with
+// The data is CSV files next to this file: countries, cities and
+// districts; universities, faculties and departments, and the source codes
+// of the departments (department_source_codes: ÖSYM program codes), with a
+// version number (VERSION) that grows with every change. They are versioned with
 // the code and embedded in the binary (README.md has their source, date,
 // license and cleanup). A file lists the rows that are in use; a row's id
 // never changes.
@@ -56,7 +57,31 @@ type Row struct {
 	Parent uuid.UUID
 	// Code is a country's ISO 3166-1 alpha-2 code; empty elsewhere.
 	Code string
-	Name string
+	// Degree is a department's degree, DegreeAssociate or DegreeBachelor
+	// (ADR-0038); empty elsewhere.
+	Degree string
+	Name   string
+}
+
+// The degrees of a department (a program): an associate degree program
+// (önlisans) or a bachelor's program (lisans). A department's degree is
+// part of what it is, like its faculty: Sync refuses a row that changes
+// it (ADR-0038).
+const (
+	DegreeAssociate = "ASSOCIATE"
+	DegreeBachelor  = "BACHELOR"
+)
+
+// SourceCode is one source code of a department: an ÖSYM program code
+// (YÖK Atlas's "program kodu", nine digits). A department merged from a
+// program's quota and fee variants has the code of each (ADR-0038). The
+// files list a code once. In the table a row is a (code, department) pair
+// that never changes: a code given to another program (decided in the id
+// ledger, tools/id_decisions.csv) retires its old pair and adds a new one.
+// The department's id comes from the ledger, never from the code.
+type SourceCode struct {
+	Code       string
+	Department uuid.UUID
 }
 
 // Dataset is the content of the files.
@@ -71,6 +96,8 @@ type Dataset struct {
 	Universities []Row
 	Faculties    []Row
 	Departments  []Row
+	// DepartmentSourceCodes is department_source_codes.csv.
+	DepartmentSourceCodes []SourceCode
 }
 
 // table describes one reference table and its file.
@@ -81,7 +108,9 @@ type table struct {
 	parent, column string
 	// code: the table has a code column (countries).
 	code bool
-	rows func(*Dataset) *[]Row
+	// degree: the table has a degree column (departments).
+	degree bool
+	rows   func(*Dataset) *[]Row
 }
 
 // tables lists the reference tables, every parent before its children.
@@ -92,18 +121,29 @@ func tables() []table {
 		{name: "districts", parent: "cities", column: "city_id", rows: func(d *Dataset) *[]Row { return &d.Districts }},
 		{name: "universities", rows: func(d *Dataset) *[]Row { return &d.Universities }},
 		{name: "faculties", parent: "universities", column: "university_id", rows: func(d *Dataset) *[]Row { return &d.Faculties }},
-		{name: "departments", parent: "faculties", column: "faculty_id", rows: func(d *Dataset) *[]Row { return &d.Departments }},
+		{
+			name: "departments", parent: "faculties", column: "faculty_id", degree: true,
+			rows: func(d *Dataset) *[]Row { return &d.Departments },
+		},
 	}
 }
+
+// sourceCodes is the table of the departments' source codes. Its rows are
+// keyed by the code, not by an id, so it is not one of tables(); Sync
+// plans it after them under the same rules (sync.go).
+const sourceCodes = "department_source_codes"
+
+// sourceCodesHeader is the first line of department_source_codes.csv.
+func sourceCodesHeader() []string { return []string{"code", "department_id"} }
 
 // Tables lists the reference tables in the order Sync writes them.
 func Tables() []string {
 	ts := tables()
-	out := make([]string, 0, len(ts))
+	out := make([]string, 0, len(ts)+1)
 	for _, t := range ts {
 		out = append(out, t.name)
 	}
-	return out
+	return append(out, sourceCodes)
 }
 
 // header is the first line a table's file must have.
@@ -111,6 +151,8 @@ func (t table) header() []string {
 	switch {
 	case t.code:
 		return []string{"id", "code", "name"}
+	case t.degree:
+		return []string{"id", t.column, "degree", "name"}
 	case t.parent != "":
 		return []string{"id", t.column, "name"}
 	default:
@@ -121,7 +163,11 @@ func (t table) header() []string {
 // maxName is the names' length limit, the tables' CHECK.
 const maxName = 200
 
-var countryCode = regexp.MustCompile(`^[A-Z]{2}$`)
+var (
+	countryCode = regexp.MustCompile(`^[A-Z]{2}$`)
+	// programCode is an ÖSYM program code, the table's CHECK.
+	programCode = regexp.MustCompile(`^\d{9}$`)
+)
 
 // Load reads and validates the embedded files.
 func Load() (*Dataset, error) {
@@ -144,6 +190,13 @@ func Load() (*Dataset, error) {
 			return nil, err
 		}
 		*t.rows(&d) = rows
+	}
+	data, err := FS.ReadFile(sourceCodes + ".csv")
+	if err != nil {
+		return nil, fmt.Errorf("referencedata: %w", err)
+	}
+	if d.DepartmentSourceCodes, err = parseSourceCodes(data); err != nil {
+		return nil, err
 	}
 	if err := d.Validate(); err != nil {
 		return nil, err
@@ -197,7 +250,40 @@ func parse(t table, data []byte) ([]Row, error) {
 				return nil, fmt.Errorf("referencedata: %s.csv: %s %q: %w", t.name, t.column, rec[1], err)
 			}
 		}
+		if t.degree {
+			row.Degree = rec[2]
+		}
 		rows = append(rows, row)
+	}
+}
+
+// parseSourceCodes reads department_source_codes.csv: an exact header,
+// then one code and its department per record.
+func parseSourceCodes(data []byte) ([]SourceCode, error) {
+	r := csv.NewReader(bytes.NewReader(data))
+	want := sourceCodesHeader()
+	r.FieldsPerRecord = len(want)
+	head, err := r.Read()
+	if err != nil {
+		return nil, fmt.Errorf("referencedata: %s.csv: header: %w", sourceCodes, err)
+	}
+	if !slices.Equal(head, want) {
+		return nil, fmt.Errorf("referencedata: %s.csv: header %q, want %q", sourceCodes, head, want)
+	}
+	var codes []SourceCode
+	for {
+		rec, err := r.Read()
+		if errors.Is(err, io.EOF) {
+			return codes, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("referencedata: %s.csv: %w", sourceCodes, err)
+		}
+		department, err := uuid.Parse(rec[1])
+		if err != nil {
+			return nil, fmt.Errorf("referencedata: %s.csv: department_id %q: %w", sourceCodes, rec[1], err)
+		}
+		codes = append(codes, SourceCode{Code: rec[0], Department: department})
 	}
 }
 
@@ -206,9 +292,12 @@ func parse(t table, data []byte) ([]Row, error) {
 // version is positive, ids are set and unique within a table, every row's
 // parent is a row of the parent table, names are 1 to 200 characters with
 // no control or invisible format character (Cf: U+200B, U+202E, U+FEFF
-// ...) and no surrounding space, and country codes are two capital letters
+// ...), no line or paragraph separator (U+2028, U+2029) and no private use
+// character (Co), and no surrounding space, and country codes are two capital letters
 // and unique. A row whose parent the files drop has to be dropped too:
-// retiring a university retires its faculties. Validate does not look at
+// retiring a university retires its faculties. A department's degree is
+// ASSOCIATE or BACHELOR; a source code is nine digits, listed once, and
+// names a department of the files. Validate does not look at
 // the database; Sync adds the checks that need it (a moved row, the
 // retirement limit, the version).
 func (d *Dataset) Validate() error {
@@ -248,8 +337,27 @@ func (d *Dataset) Validate() error {
 			} else if r.Code != "" {
 				return fmt.Errorf("%s: %s has no code", where, t.name)
 			}
+			switch {
+			case t.degree && r.Degree != DegreeAssociate && r.Degree != DegreeBachelor:
+				return fmt.Errorf("%s: degree %q, want %s or %s", where, r.Degree, DegreeAssociate, DegreeBachelor)
+			case !t.degree && r.Degree != "":
+				return fmt.Errorf("%s: %s has no degree", where, t.name)
+			}
 		}
 		ids[t.name] = seen
+	}
+	codes := map[string]bool{}
+	for _, c := range d.DepartmentSourceCodes {
+		where := fmt.Sprintf("referencedata: %s %q", sourceCodes, c.Code)
+		switch {
+		case !programCode.MatchString(c.Code):
+			return fmt.Errorf("%s: not an ÖSYM program code (nine digits)", where)
+		case codes[c.Code]:
+			return fmt.Errorf("%s: listed twice", where)
+		case !ids["departments"][c.Department]:
+			return fmt.Errorf("%s: department_id %s is not a row of departments", where, c.Department)
+		}
+		codes[c.Code] = true
 	}
 	return nil
 }
@@ -267,6 +375,10 @@ func checkName(name string) error {
 		return errors.New("control character")
 	case strings.ContainsFunc(name, func(r rune) bool { return unicode.Is(unicode.Cf, r) }):
 		return errors.New("invisible format character (Cf)")
+	case strings.ContainsFunc(name, func(r rune) bool { return unicode.In(r, unicode.Zl, unicode.Zp) }):
+		return errors.New("line or paragraph separator (Zl, Zp)")
+	case strings.ContainsFunc(name, func(r rune) bool { return unicode.Is(unicode.Co, r) }):
+		return errors.New("private use character (Co)")
 	}
 	return nil
 }

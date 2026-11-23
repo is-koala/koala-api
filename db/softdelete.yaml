@@ -268,6 +268,14 @@ tables:
       Read-only for the application; rows come from db/referencedata through
       koala migrate up and are retired with retired_at, never deleted, since
       education records name them (ADR-0036, ADR-0037).
+  department_source_codes:
+    class: M4
+    reason: >-
+      Academic reference data (ADR-0038): the ÖSYM program codes of a
+      department, one row per code, which match a department to next year's
+      list. Read-only for the application; rows come from db/referencedata
+      through koala migrate up and are retired with retired_at, never
+      deleted or moved to another department (ADR-0037, ADR-0038).
   countries:
     class: M4
     reason: >-

@@ -22,6 +22,15 @@ func NewHTTP(svc *Service) *HTTP {
 	return &HTTP{svc: svc}
 }
 
+// degreeOf is the degree filter a request gives, nil without one.
+func degreeOf(d *apiv1.EducationDegree) *string {
+	if d == nil {
+		return nil
+	}
+	s := string(*d)
+	return &s
+}
+
 // fresh reports whether the client's If-None-Match matches tag.
 func fresh(ifNoneMatch *string, tag string) bool {
 	return ifNoneMatch != nil && Matches(*ifNoneMatch, tag)
@@ -90,7 +99,7 @@ func (h *HTTP) ListUniversities(ctx context.Context, req apiv1.ListUniversitiesR
 	if err != nil {
 		return nil, err
 	}
-	items, err := h.svc.Universities(ctx)
+	items, err := h.svc.Universities(ctx, degreeOf(req.Params.Degree))
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +118,7 @@ func (h *HTTP) ListFaculties(ctx context.Context, req apiv1.ListFacultiesRequest
 	if err != nil {
 		return nil, err
 	}
-	items, err := h.svc.Faculties(ctx, req.UniversityID)
+	items, err := h.svc.Faculties(ctx, req.UniversityID, degreeOf(req.Params.Degree))
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +137,7 @@ func (h *HTTP) ListDepartments(ctx context.Context, req apiv1.ListDepartmentsReq
 	if err != nil {
 		return nil, err
 	}
-	items, err := h.svc.Departments(ctx, req.FacultyID)
+	items, err := h.svc.Departments(ctx, req.FacultyID, degreeOf(req.Params.Degree))
 	if err != nil {
 		return nil, err
 	}

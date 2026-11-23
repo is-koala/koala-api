@@ -88,10 +88,10 @@ func TestMigrateCommand(t *testing.T) {
 	if riverTables() == 0 {
 		t.Fatal("no River tables after up")
 	}
-	if dep, dis := referenceRows(); dep != 7567 || dis != 973 {
-		t.Fatalf("after up: %d departments, %d districts; want 7567 and 973\n%s", dep, dis, out)
+	if dep, dis := referenceRows(); dep != 14711 || dis != 973 {
+		t.Fatalf("after up: %d departments, %d districts; want 14711 and 973\n%s", dep, dis, out)
 	}
-	if !strings.Contains(out, `"msg":"reference data synced"`) || !strings.Contains(out, `"inserted":7567`) {
+	if !strings.Contains(out, `"msg":"reference data synced"`) || !strings.Contains(out, `"inserted":14711`) {
 		t.Errorf("up logged no reference summary:\n%s", out)
 	}
 	out = migrate("up", ExitOK) // nothing pending: still success, nothing to sync
@@ -110,8 +110,8 @@ func TestMigrateCommand(t *testing.T) {
 
 	migrate("up", ExitOK)
 	wantStatus(total)
-	if dep, dis := referenceRows(); dep != 7567 || dis != 973 {
-		t.Fatalf("after down and up: %d departments, %d districts; want 7567 and 973", dep, dis)
+	if dep, dis := referenceRows(); dep != 14711 || dis != 973 {
+		t.Fatalf("after down and up: %d departments, %d districts; want 14711 and 973", dep, dis)
 	}
 }
 

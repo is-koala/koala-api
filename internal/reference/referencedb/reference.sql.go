@@ -84,6 +84,13 @@ type ListCountriesRow struct {
 // A child list reads its parent with a LEFT JOIN: no row means the parent
 // is missing or retired (404), one row with a NULL child means a parent in
 // use without children (an empty list). One statement answers both.
+//
+// The academic lists take an optional program degree (ADR-0038): NULL
+// lists every row; ASSOCIATE or BACHELOR lists the departments of that
+// degree, the faculties with such a department in use and the
+// universities with such a faculty. The filter of a child list is in the
+// join, so a parent in use whose children are all of the other degree is
+// an empty list, not a 404.
 func (q *Queries) ListCountries(ctx context.Context) ([]ListCountriesRow, error) {
 	rows, err := q.db.Query(ctx, listCountries)
 	if err != nil {
@@ -108,17 +115,23 @@ const listDepartments = `-- name: ListDepartments :many
 SELECT c.id, c.name
 FROM faculties p
 LEFT JOIN departments c ON c.faculty_id = p.id AND c.retired_at IS NULL
-WHERE p.id = $1 AND p.retired_at IS NULL
+  AND ($1::text IS NULL OR c.degree = $1::text)
+WHERE p.id = $2 AND p.retired_at IS NULL
 ORDER BY c.name, c.id
 `
+
+type ListDepartmentsParams struct {
+	Degree    *string
+	FacultyID uuid.UUID
+}
 
 type ListDepartmentsRow struct {
 	ID   uuid.NullUUID
 	Name *string
 }
 
-func (q *Queries) ListDepartments(ctx context.Context, facultyID uuid.UUID) ([]ListDepartmentsRow, error) {
-	rows, err := q.db.Query(ctx, listDepartments, facultyID)
+func (q *Queries) ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]ListDepartmentsRow, error) {
+	rows, err := q.db.Query(ctx, listDepartments, arg.Degree, arg.FacultyID)
 	if err != nil {
 		return nil, err
 	}
@@ -174,17 +187,25 @@ const listFaculties = `-- name: ListFaculties :many
 SELECT c.id, c.name
 FROM universities p
 LEFT JOIN faculties c ON c.university_id = p.id AND c.retired_at IS NULL
-WHERE p.id = $1 AND p.retired_at IS NULL
+  AND ($1::text IS NULL OR EXISTS (
+    SELECT FROM departments d
+    WHERE d.faculty_id = c.id AND d.retired_at IS NULL AND d.degree = $1::text))
+WHERE p.id = $2 AND p.retired_at IS NULL
 ORDER BY c.name, c.id
 `
+
+type ListFacultiesParams struct {
+	Degree       *string
+	UniversityID uuid.UUID
+}
 
 type ListFacultiesRow struct {
 	ID   uuid.NullUUID
 	Name *string
 }
 
-func (q *Queries) ListFaculties(ctx context.Context, universityID uuid.UUID) ([]ListFacultiesRow, error) {
-	rows, err := q.db.Query(ctx, listFaculties, universityID)
+func (q *Queries) ListFaculties(ctx context.Context, arg ListFacultiesParams) ([]ListFacultiesRow, error) {
+	rows, err := q.db.Query(ctx, listFaculties, arg.Degree, arg.UniversityID)
 	if err != nil {
 		return nil, err
 	}
@@ -204,10 +225,14 @@ func (q *Queries) ListFaculties(ctx context.Context, universityID uuid.UUID) ([]
 }
 
 const listUniversities = `-- name: ListUniversities :many
-SELECT id, name
-FROM universities
-WHERE retired_at IS NULL
-ORDER BY name, id
+SELECT u.id, u.name
+FROM universities u
+WHERE u.retired_at IS NULL
+  AND ($1::text IS NULL OR EXISTS (
+    SELECT FROM faculties f
+    JOIN departments d ON d.faculty_id = f.id AND d.retired_at IS NULL AND d.degree = $1::text
+    WHERE f.university_id = u.id AND f.retired_at IS NULL))
+ORDER BY u.name, u.id
 `
 
 type ListUniversitiesRow struct {
@@ -215,8 +240,8 @@ type ListUniversitiesRow struct {
 	Name string
 }
 
-func (q *Queries) ListUniversities(ctx context.Context) ([]ListUniversitiesRow, error) {
-	rows, err := q.db.Query(ctx, listUniversities)
+func (q *Queries) ListUniversities(ctx context.Context, degree *string) ([]ListUniversitiesRow, error) {
+	rows, err := q.db.Query(ctx, listUniversities, degree)
 	if err != nil {
 		return nil, err
 	}

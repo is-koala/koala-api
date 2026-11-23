@@ -37,7 +37,7 @@ func (a *authApp) seedReference(t *testing.T) academicRef {
 	}{
 		{"INSERT INTO universities (id, name) VALUES ($1, $2)", []any{ref.university, "Örnek Üniversitesi " + ref.university.String()[:8]}},
 		{"INSERT INTO faculties (id, university_id, name) VALUES ($1, $2, 'Mühendislik Fakültesi')", []any{ref.faculty, ref.university}},
-		{"INSERT INTO departments (id, faculty_id, name) VALUES ($1, $2, 'Bilgisayar Mühendisliği')", []any{ref.department, ref.faculty}},
+		{"INSERT INTO departments (id, faculty_id, degree, name) VALUES ($1, $2, 'BACHELOR', 'Bilgisayar Mühendisliği')", []any{ref.department, ref.faculty}},
 	} {
 		if _, err := owner.Pool().Exec(t.Context(), stmt.sql, stmt.args...); err != nil {
 			t.Fatal(err)
@@ -374,7 +374,7 @@ func TestEducationRetiredReferences(t *testing.T) {
 	}{
 		{"INSERT INTO faculties (id, university_id, name, retired_at) VALUES ($1, $2, 'Kapanan Fakülte', now())",
 			[]any{oldFaculty, live.university}},
-		{"INSERT INTO departments (id, faculty_id, name, retired_at) VALUES ($1, $2, 'Kapanan Bölüm', now())",
+		{"INSERT INTO departments (id, faculty_id, degree, name, retired_at) VALUES ($1, $2, 'BACHELOR', 'Kapanan Bölüm', now())",
 			[]any{oldDepartment, live.faculty}},
 	} {
 		if _, err := owner.Pool().Exec(t.Context(), stmt.sql, stmt.args...); err != nil {
@@ -387,4 +387,53 @@ func TestEducationRetiredReferences(t *testing.T) {
 		http.StatusNotFound, string(users.CodeReferenceNotFound))
 	wantStatus(t, a.createEducation(t, tok, educationBody(live.university, &live.faculty, &live.department, 2016, nil)),
 		http.StatusCreated, "")
+}
+
+// TestEducationDegreeNamesItsProgram: a record's department is a program of
+// the degree the record's degree names (ADR-0038). An associate degree
+// takes an associate degree program and is refused a bachelor's program;
+// a bachelor's degree the other way round; a master's names its field by
+// a bachelor's program. A refusal is REFERENCE_ITEM_NOT_FOUND, in a
+// create and in a replace, also for the department the record names
+// already.
+func TestEducationDegreeNamesItsProgram(t *testing.T) {
+	t.Parallel()
+	a := newAuthApp(t, unlimitedGroups())
+	tok := a.addSignedIn(t, "myo@example.com")
+	var (
+		thk       = uuid.MustParse("20b200c7-d3d3-4e77-ba67-2b01c96b92a8")
+		myo       = uuid.MustParse("01a207cf-0348-7890-bf14-c44956448609") // Ankara Havacılık MYO
+		associate = uuid.MustParse("01a207cf-03cc-7a3c-9df7-92d5f5825c58") // Uçak Teknolojisi
+	)
+	engineering := named(t, a.list(t, "/v1/reference/universities/"+thk.String()+"/faculties"), "Mühendislik Fakültesi")
+	bachelor := a.list(t, "/v1/reference/faculties/"+engineering.ID.String()+"/departments")[0]
+	body := func(degree string, faculty, department uuid.UUID) string {
+		return strings.Replace(educationBody(thk, &faculty, &department, 2018, year(2020)), `"degree":"BACHELOR"`, `"degree":"`+degree+`"`, 1)
+	}
+	notFound := string(users.CodeReferenceNotFound)
+
+	rec := a.createEducation(t, tok, body("ASSOCIATE", myo, associate))
+	wantStatus(t, rec, http.StatusCreated, "")
+	created := decodeBody[educationAnswer](t, rec)
+	if created.Department == nil || created.Faculty == nil || created.Department.Name != "Uçak Teknolojisi" || created.Faculty.Name != "Ankara Havacılık Meslek Yüksekokulu" {
+		t.Fatalf("the associate record = %s", rec.Body)
+	}
+	wantStatus(t, a.createEducation(t, tok, body("MASTER", engineering.ID, bachelor.ID)), http.StatusCreated, "")
+	for _, tc := range []struct {
+		degree              string
+		faculty, department uuid.UUID
+	}{
+		{"ASSOCIATE", engineering.ID, bachelor.ID},
+		{"BACHELOR", myo, associate},
+		{"MASTER", myo, associate},
+		{"DOCTORATE", myo, associate},
+	} {
+		wantStatus(t, a.createEducation(t, tok, body(tc.degree, tc.faculty, tc.department)), http.StatusNotFound, notFound)
+		wantStatus(t, a.call(t, http.MethodPut, "/v1/me/educations/"+created.ID.String(), tok,
+			body(tc.degree, tc.faculty, tc.department)), http.StatusNotFound, notFound)
+	}
+	// Without a department the degree binds nothing: a vocational school
+	// with a bachelor's degree is the record's own business.
+	wantStatus(t, a.call(t, http.MethodPut, "/v1/me/educations/"+created.ID.String(), tok,
+		strings.Replace(educationBody(thk, &myo, nil, 2018, year(2020)), `"degree":"BACHELOR"`, `"degree":"ASSOCIATE"`, 1)), http.StatusOK, "")
 }

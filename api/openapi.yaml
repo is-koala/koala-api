@@ -2951,6 +2951,17 @@ paths:
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
+        - name: degree
+          in: query
+          required: false
+          description: |
+            Yalnız bu derecedeki bir eğitim kaydının seçebileceği satırlar; verilmezse hepsi.
+            `ASSOCIATE` önlisans programlarını, öteki dereceler lisans programlarını seçer
+            (referans verisinde lisansüstü program yok; yüksek lisans ve doktora kaydı alanını
+            lisans programıyla adlandırır). Üniversite ve fakülte listesi, o derecede kullanımda
+            bir programı olan satırlardır (ADR-0038).
+          schema:
+            $ref: "#/components/schemas/EducationDegree"
       x-resource: universities
       responses:
         "200":
@@ -3004,6 +3015,17 @@ paths:
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
+        - name: degree
+          in: query
+          required: false
+          description: |
+            Yalnız bu derecedeki bir eğitim kaydının seçebileceği satırlar; verilmezse hepsi.
+            `ASSOCIATE` önlisans programlarını, öteki dereceler lisans programlarını seçer
+            (referans verisinde lisansüstü program yok; yüksek lisans ve doktora kaydı alanını
+            lisans programıyla adlandırır). Üniversite ve fakülte listesi, o derecede kullanımda
+            bir programı olan satırlardır (ADR-0038).
+          schema:
+            $ref: "#/components/schemas/EducationDegree"
       x-resource: faculties
       responses:
         "200":
@@ -3059,6 +3081,17 @@ paths:
       security: []
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IfNoneMatch"
+        - name: degree
+          in: query
+          required: false
+          description: |
+            Yalnız bu derecedeki bir eğitim kaydının seçebileceği satırlar; verilmezse hepsi.
+            `ASSOCIATE` önlisans programlarını, öteki dereceler lisans programlarını seçer
+            (referans verisinde lisansüstü program yok; yüksek lisans ve doktora kaydı alanını
+            lisans programıyla adlandırır). Üniversite ve fakülte listesi, o derecede kullanımda
+            bir programı olan satırlardır (ADR-0038).
+          schema:
+            $ref: "#/components/schemas/EducationDegree"
       x-resource: departments
       responses:
         "200":
@@ -3784,7 +3817,9 @@ paths:
       description: |
         Üniversite, fakülte ve bölüm referans verisinden gelir; bilinmeyen referans,
         üniversitesinin olmayan fakülte ve fakültesinin olmayan bölüm
-        `REFERENCE_ITEM_NOT_FOUND` döner; emekliye ayrılmış referans da öyle. Bitiş yılı
+        `REFERENCE_ITEM_NOT_FOUND` döner; emekliye ayrılmış referans da öyle. Bölüm
+        kaydın derecesine uyar: `ASSOCIATE` önlisans programı, öteki dereceler lisans
+        programı ister; uymayan bölüm de `REFERENCE_ITEM_NOT_FOUND` alır (ADR-0038). Bitiş yılı
         başlangıç yılından küçük olamaz ve süren eğitimde bitiş yılı boştur. Bir
         kullanıcının en çok 20 eğitim kaydı olur;
         fazlası `EDUCATION_LIMIT_REACHED` (409) alır (ADR-0036).
@@ -3852,7 +3887,9 @@ paths:
         Kaydın alanları birbirine bağlı olduğu için kısmi güncelleme yoktur: istemci
         kaydın tamamını gönderir (stil rehberi §3). Başkasına ait kayıt var olmayandan
         ayırt edilemez. Kaydın zaten taşıdığı referans emekliye ayrılmış olsa da kalabilir;
-        yeni seçilen emekli referans `REFERENCE_ITEM_NOT_FOUND` alır (ADR-0036).
+        yeni seçilen emekli referans `REFERENCE_ITEM_NOT_FOUND` alır (ADR-0036). Bölüm
+        kaydın derecesine uyar; uymayan bölüm, kaydın zaten taşıdığı bölüm olsa da
+        `REFERENCE_ITEM_NOT_FOUND` alır (ADR-0038).
       x-authz-exempt: |
         Değiştirme çağıranın kendi eğitim kayıtlarıyla sınırlıdır; başkasınınki yok sayılır.
       x-body-limit: 4096

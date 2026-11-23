@@ -3132,6 +3132,13 @@ type ListCitiesParams struct {
 
 // ListDepartmentsParams defines parameters for ListDepartments.
 type ListDepartmentsParams struct {
+	// Degree Yalnız bu derecedeki bir eğitim kaydının seçebileceği satırlar; verilmezse hepsi.
+	// `ASSOCIATE` önlisans programlarını, öteki dereceler lisans programlarını seçer
+	// (referans verisinde lisansüstü program yok; yüksek lisans ve doktora kaydı alanını
+	// lisans programıyla adlandırır). Üniversite ve fakülte listesi, o derecede kullanımda
+	// bir programı olan satırlardır (ADR-0038).
+	Degree *EducationDegree `form:"degree,omitempty" json:"degree,omitempty"`
+
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
 	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
@@ -3141,6 +3148,13 @@ type ListDepartmentsParams struct {
 
 // ListUniversitiesParams defines parameters for ListUniversities.
 type ListUniversitiesParams struct {
+	// Degree Yalnız bu derecedeki bir eğitim kaydının seçebileceği satırlar; verilmezse hepsi.
+	// `ASSOCIATE` önlisans programlarını, öteki dereceler lisans programlarını seçer
+	// (referans verisinde lisansüstü program yok; yüksek lisans ve doktora kaydı alanını
+	// lisans programıyla adlandırır). Üniversite ve fakülte listesi, o derecede kullanımda
+	// bir programı olan satırlardır (ADR-0038).
+	Degree *EducationDegree `form:"degree,omitempty" json:"degree,omitempty"`
+
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
 	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
@@ -3150,6 +3164,13 @@ type ListUniversitiesParams struct {
 
 // ListFacultiesParams defines parameters for ListFaculties.
 type ListFacultiesParams struct {
+	// Degree Yalnız bu derecedeki bir eğitim kaydının seçebileceği satırlar; verilmezse hepsi.
+	// `ASSOCIATE` önlisans programlarını, öteki dereceler lisans programlarını seçer
+	// (referans verisinde lisansüstü program yok; yüksek lisans ve doktora kaydı alanını
+	// lisans programıyla adlandırır). Üniversite ve fakülte listesi, o derecede kullanımda
+	// bir programı olan satırlardır (ADR-0038).
+	Degree *EducationDegree `form:"degree,omitempty" json:"degree,omitempty"`
+
 	// IfNoneMatch RFC 9110 §13.1.2. İstemcinin elindeki temsilin `ETag`'i (ya da virgülle
 	// ayrılmış birkaçı, `*`). Biri yanıtın `ETag`'iyle eşleşirse (zayıf karşılaştırma)
 	// yanıt gövdesiz `304 Not Modified`'dır. Birden çok alan satırı tek listeye
@@ -6719,6 +6740,19 @@ func (siw *ServerInterfaceWrapper) ListDepartments(w http.ResponseWriter, r *htt
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListDepartmentsParams
 
+	// ------------- Optional query parameter "degree" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "degree", r.URL.Query(), &params.Degree, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "degree"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "degree", Err: err})
+		}
+		return
+	}
+
 	headers := r.Header
 
 	// ------------- Optional header parameter "If-None-Match" -------------
@@ -6759,6 +6793,19 @@ func (siw *ServerInterfaceWrapper) ListUniversities(w http.ResponseWriter, r *ht
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListUniversitiesParams
+
+	// ------------- Optional query parameter "degree" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "degree", r.URL.Query(), &params.Degree, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "degree"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "degree", Err: err})
+		}
+		return
+	}
 
 	headers := r.Header
 
@@ -6809,6 +6856,19 @@ func (siw *ServerInterfaceWrapper) ListFaculties(w http.ResponseWriter, r *http.
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListFacultiesParams
+
+	// ------------- Optional query parameter "degree" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "degree", r.URL.Query(), &params.Degree, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "degree"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "degree", Err: err})
+		}
+		return
+	}
 
 	headers := r.Header
 

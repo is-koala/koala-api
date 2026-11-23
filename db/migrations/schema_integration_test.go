@@ -282,6 +282,9 @@ func TestRoleGrants(t *testing.T) {
 			"countries":    {"SELECT"},
 			"cities":       {"SELECT"},
 			"districts":    {"SELECT"},
+			// The departments' source codes (0048, ADR-0038): M4 as the
+			// tables above.
+			"department_source_codes": {"SELECT"},
 			// The lists' ETag (0047, ADR-0037).
 			"reference_data_version": {"SELECT"},
 			// The profile sync outbox (0046, ADR-0036): written by the

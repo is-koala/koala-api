@@ -19,7 +19,7 @@ func TestTemplateNameCoversTheReferenceData(t *testing.T) {
 	ref := referenceFS()
 	names := slices.Sorted(maps.Keys(ref))
 	for _, want := range []string{
-		"reference/VERSION", "reference/cities.csv", "reference/countries.csv", "reference/departments.csv",
+		"reference/VERSION", "reference/cities.csv", "reference/countries.csv", "reference/department_source_codes.csv", "reference/departments.csv",
 		"reference/districts.csv", "reference/faculties.csv", "reference/universities.csv",
 		"reference/src/referencedata.go", "reference/src/sync.go",
 	} {

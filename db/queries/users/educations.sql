@@ -29,10 +29,12 @@ WHERE id = sqlc.arg(id) AND university_id = sqlc.arg(university_id)
 
 -- name: GetDepartmentOf :one
 -- GetDepartmentOf finds a department of the faculty that may be chosen
--- (allow_retired as GetUniversity).
+-- (allow_retired as GetUniversity) for the record's degree: degree is the
+-- program degree the record's degree names (reference.ProgramDegree,
+-- ADR-0038), so an associate degree names an associate degree program.
 SELECT id
 FROM departments
-WHERE id = sqlc.arg(id) AND faculty_id = sqlc.arg(faculty_id)
+WHERE id = sqlc.arg(id) AND faculty_id = sqlc.arg(faculty_id) AND degree = sqlc.arg(degree)
   AND (retired_at IS NULL OR sqlc.arg(allow_retired)::boolean);
 
 -- name: InsertEducation :exec
