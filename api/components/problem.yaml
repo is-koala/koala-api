@@ -295,14 +295,14 @@ components:
         - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
           bir kullanıcının; üçü ayırt edilemez (MED-010).
         - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor, kotası dolu ya
-          da adres aramalarının küresel günlük tavanı dolu; istemci adresi elle girer (ADR-0039).
+          da yapılandırılmamış; istemci adresi elle girer (ADR-0039).
         - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
-        - `ADDRESS_OUTSIDE_SERVICE_AREA` (422): konum ya da seçilen öneri hizmet alanındaki bir
-          ile düşmüyor, ya da hiçbir adrese eşleşmiyor; istek biçimce doğrudur, alan kuralına
-          uymaz (ADR-0039).
+        - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): konum ya da seçilen öneri hizmet alanındaki bir
+          ile düşmüyor, ya da hiçbir adrese eşleşmiyor.
         - `ADDRESS_LIMIT_REACHED` (409): kullanıcının adres sayısı üst sınırda (ADR-0039).
-        - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): çağıranın ya da istemci adresinin adres arama
-          bütçesi doldu, ya da arama oturumunun öneri sınırı aşıldı; `Retry-After` taşıyabilir
+        - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): adres arama bütçesi doldu: çağıranın günlük
+          bütçesi, istemci adresinin saatlik bütçesi, hizmetin günlük tavanı ya da arama
+          oturumunun öneri sınırı. `Retry-After` taşır; hangisinin dolduğunu söylemez
           (ADR-0039).
         - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
           edilemez.

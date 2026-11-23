@@ -42,12 +42,13 @@ WHERE id = sqlc.arg(id) AND city_id = sqlc.arg(city_id)
 -- InsertAddress adds an address. The caller holds the user's row
 -- (LockOwner, then softdelete.LockActiveParent).
 INSERT INTO active_addresses (id, user_id, city_id, district_id, neighborhood, thoroughfare, building_number,
-    building_name, floor, unit_number, postal_code, additional_directions, provider_place_id, latitude, longitude,
-    created_at, updated_at)
+    building_name, site_name, block, floor, unit_number, postal_code, additional_directions, provider_place_id,
+    latitude, longitude, components_source, coordinate_source, created_at, updated_at)
 VALUES (sqlc.arg(id), sqlc.arg(user_id), sqlc.arg(city_id), sqlc.arg(district_id), sqlc.narg(neighborhood),
-    sqlc.narg(thoroughfare), sqlc.narg(building_number), sqlc.narg(building_name), sqlc.narg(floor),
-    sqlc.narg(unit_number), sqlc.narg(postal_code), sqlc.narg(additional_directions), sqlc.narg(provider_place_id),
-    sqlc.narg(latitude), sqlc.narg(longitude), sqlc.arg(created_at), sqlc.arg(created_at));
+    sqlc.narg(thoroughfare), sqlc.narg(building_number), sqlc.narg(building_name), sqlc.narg(site_name),
+    sqlc.narg(block), sqlc.narg(floor), sqlc.narg(unit_number), sqlc.narg(postal_code),
+    sqlc.narg(additional_directions), sqlc.narg(provider_place_id), sqlc.narg(latitude), sqlc.narg(longitude),
+    sqlc.arg(components_source), sqlc.narg(coordinate_source), sqlc.arg(created_at), sqlc.arg(created_at));
 
 -- name: LockAddress :one
 -- LockAddress locks one of the user's active addresses; another user's is
@@ -78,6 +79,8 @@ SET city_id = sqlc.arg(city_id),
     thoroughfare = sqlc.narg(thoroughfare),
     building_number = sqlc.narg(building_number),
     building_name = sqlc.narg(building_name),
+    site_name = sqlc.narg(site_name),
+    block = sqlc.narg(block),
     floor = sqlc.narg(floor),
     unit_number = sqlc.narg(unit_number),
     postal_code = sqlc.narg(postal_code),
@@ -85,14 +88,17 @@ SET city_id = sqlc.arg(city_id),
     provider_place_id = sqlc.narg(provider_place_id),
     latitude = sqlc.narg(latitude),
     longitude = sqlc.narg(longitude),
+    components_source = sqlc.arg(components_source),
+    coordinate_source = sqlc.narg(coordinate_source),
     updated_at = sqlc.arg(updated_at)
 WHERE id = sqlc.arg(id) AND user_id = sqlc.arg(user_id);
 
 -- name: GetAddress :one
 -- GetAddress is one of the user's addresses with the names of its city
 -- and district.
-SELECT a.id, a.neighborhood, a.thoroughfare, a.building_number, a.building_name, a.floor, a.unit_number,
-       a.postal_code, a.additional_directions, a.provider_place_id, a.latitude, a.longitude, a.created_at,
+SELECT a.id, a.neighborhood, a.thoroughfare, a.building_number, a.building_name, a.site_name, a.block, a.floor,
+       a.unit_number, a.postal_code, a.additional_directions, a.provider_place_id, a.latitude, a.longitude,
+       a.components_source, a.coordinate_source, a.created_at,
        c.id AS city_id, c.name AS city_name, d.id AS district_id, d.name AS district_name
 FROM active_addresses a
 JOIN cities c ON c.id = a.city_id
@@ -103,8 +109,9 @@ WHERE a.id = sqlc.arg(id) AND a.user_id = sqlc.arg(user_id);
 -- ListAddresses is the user's addresses, the newest first (the ids are
 -- UUIDv7). The list is short (AddressesPerUser), so the page is cut in the
 -- service.
-SELECT a.id, a.neighborhood, a.thoroughfare, a.building_number, a.building_name, a.floor, a.unit_number,
-       a.postal_code, a.additional_directions, a.provider_place_id, a.latitude, a.longitude, a.created_at,
+SELECT a.id, a.neighborhood, a.thoroughfare, a.building_number, a.building_name, a.site_name, a.block, a.floor,
+       a.unit_number, a.postal_code, a.additional_directions, a.provider_place_id, a.latitude, a.longitude,
+       a.components_source, a.coordinate_source, a.created_at,
        c.id AS city_id, c.name AS city_name, d.id AS district_id, d.name AS district_name
 FROM active_addresses a
 JOIN cities c ON c.id = a.city_id
@@ -206,6 +213,15 @@ LIMIT 1;
 SELECT count(*)
 FROM address_lookups
 WHERE created_at > sqlc.arg(since)::timestamptz;
+
+-- name: OldestLookup :one
+-- OldestLookup is the oldest unit after since: the service's cap frees a
+-- place when that one leaves its window.
+SELECT created_at
+FROM address_lookups
+WHERE created_at > sqlc.arg(since)::timestamptz
+ORDER BY created_at
+LIMIT 1;
 
 -- name: InsertLookup :exec
 -- InsertLookup spends one billed unit. A bounds lookup has neither user

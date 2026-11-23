@@ -18,6 +18,27 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AddressSource.
+const (
+	AddressSourceAUTOCOMPLETE   AddressSource = "AUTOCOMPLETE"
+	AddressSourceMANUAL         AddressSource = "MANUAL"
+	AddressSourceREVERSEGEOCODE AddressSource = "REVERSE_GEOCODE"
+)
+
+// Valid indicates whether the value is a known member of the AddressSource enum.
+func (e AddressSource) Valid() bool {
+	switch e {
+	case AddressSourceAUTOCOMPLETE:
+		return true
+	case AddressSourceMANUAL:
+		return true
+	case AddressSourceREVERSEGEOCODE:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanyApprovalStatus.
 const (
 	CompanyApprovalStatusAPPROVED CompanyApprovalStatus = "APPROVED"
@@ -455,6 +476,11 @@ type Address struct {
 	// Examples: Eczanenin yanındaki giriş.
 	AdditionalDirections *string `json:"additionalDirections"`
 
+	// Block Blok.
+	//
+	// Examples: B
+	Block *string `json:"block"`
+
 	// BuildingName Bina adı.
 	//
 	// Examples: Moda Apartmanı
@@ -504,6 +530,11 @@ type Address struct {
 	// Examples: 34710
 	PostalCode *string `json:"postalCode"`
 
+	// SiteName Site adı.
+	//
+	// Examples: Moda Konutları
+	SiteName *string `json:"siteName"`
+
 	// Thoroughfare Cadde ya da sokak.
 	//
 	// Examples: Moda Caddesi
@@ -523,6 +554,11 @@ type AddressInput struct {
 	//
 	// Examples: Eczanenin yanındaki giriş.
 	AdditionalDirections *string `json:"additionalDirections,omitempty"`
+
+	// Block Blok.
+	//
+	// Examples: B
+	Block *string `json:"block,omitempty"`
 
 	// BuildingName Bina adı.
 	//
@@ -562,12 +598,25 @@ type AddressInput struct {
 	// Examples: 34710
 	PostalCode *string `json:"postalCode,omitempty"`
 
-	// ProviderPlaceID Sağlayıcının yer kimliği. Saklanan tek sağlayıcı verisidir; kalıcı değil,
-	// yenilenebilir bir işaretçi olarak tutulur (MED-008).
+	// ProviderPlaceID Sağlayıcının yer kimliği. Kalıcı değil, yenilenebilir bir işaretçi olarak tutulur
+	// (MED-008).
 	//
 	//
 	// Examples: ChIJAbCdEfGhIjKlMnOpQrStUv
 	ProviderPlaceID *string `json:"providerPlaceId,omitempty"`
+
+	// SiteName Site adı.
+	//
+	// Examples: Moda Konutları
+	SiteName *string `json:"siteName,omitempty"`
+
+	// Source Adres bileşenlerinin ve koordinatın kaynağı (ADR-0039 Karar 10). `MANUAL` kullanıcının
+	// kendi girişidir, koordinatı da kendi pinidir. `AUTOCOMPLETE` bir öneri çözmesinden
+	// gelir, bileşenleri ve koordinatı sağlayıcınındır. `REVERSE_GEOCODE` ters aramadan gelir,
+	// bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. Çözme ve ters arama bunu
+	// `ResolvedAddress.source` olarak verir; istemci adresi kaydederken geri gönderir.
+	// Gönderilmezse yer kimliği taşıyan adres `AUTOCOMPLETE`, taşımayan `MANUAL` sayılır.
+	Source *AddressSource `json:"source,omitempty"`
 
 	// Thoroughfare Cadde ya da sokak.
 	//
@@ -607,6 +656,14 @@ type AddressSearchSession struct {
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a70
 	ID openapi_types.UUID `json:"id"`
 }
+
+// AddressSource Adres bileşenlerinin ve koordinatın kaynağı (ADR-0039 Karar 10). `MANUAL` kullanıcının
+// kendi girişidir, koordinatı da kendi pinidir. `AUTOCOMPLETE` bir öneri çözmesinden
+// gelir, bileşenleri ve koordinatı sağlayıcınındır. `REVERSE_GEOCODE` ters aramadan gelir,
+// bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. Çözme ve ters arama bunu
+// `ResolvedAddress.source` olarak verir; istemci adresi kaydederken geri gönderir.
+// Gönderilmezse yer kimliği taşıyan adres `AUTOCOMPLETE`, taşımayan `MANUAL` sayılır.
+type AddressSource string
 
 // AddressSuggestion Bir adres önerisi. `candidateId` oturum içinde geçerlidir ve çözme operasyonuna
 // verilir. Sağlayıcının biçimlendirdiği metin önbelleğe alınmaz ve kalıcılaşmaz
@@ -1612,9 +1669,11 @@ type ReplaceCompanyGalleryRequest struct {
 	Items []CompanyGalleryItemInput `json:"items"`
 }
 
-// ResolvedAddress Bir önerinin bizim bileşenlerimize çözülmüş hâli. İstemci bunu olduğu gibi
-// `POST /v1/me/addresses`'e verebilir. Sağlayıcının biçimlendirdiği metin ve ham
-// yanıtı dönmez (MED-008).
+// ResolvedAddress Bir önerinin ya da harita konumunun bizim bileşenlerimize çözülmüş hâli. `districtId`
+// doluysa istemci bunu `source` ve koordinatla birlikte `POST /v1/me/addresses`'e
+// verebilir; `null` ise kullanıcı önce ilçeyi seçer. Sağlayıcının biçimlendirdiği metin
+// ve ham yanıtı dönmez (MED-008). Koordinat çözmede sağlayıcının konumu, ters aramada
+// çağıranın kendi pinidir; ikisi de sahibine tam verilir.
 type ResolvedAddress struct {
 	// BuildingNumber Bina numarası.
 	//
@@ -1657,6 +1716,19 @@ type ResolvedAddress struct {
 	//
 	// Examples: ChIJAbCdEfGhIjKlMnOpQrStUv
 	ProviderPlaceID *string `json:"providerPlaceId"`
+
+	// SiteName Site adı (sağlayıcının `premise` bileşeni).
+	//
+	// Examples: Moda Konutları
+	SiteName *string `json:"siteName"`
+
+	// Source Adres bileşenlerinin ve koordinatın kaynağı (ADR-0039 Karar 10). `MANUAL` kullanıcının
+	// kendi girişidir, koordinatı da kendi pinidir. `AUTOCOMPLETE` bir öneri çözmesinden
+	// gelir, bileşenleri ve koordinatı sağlayıcınındır. `REVERSE_GEOCODE` ters aramadan gelir,
+	// bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. Çözme ve ters arama bunu
+	// `ResolvedAddress.source` olarak verir; istemci adresi kaydederken geri gönderir.
+	// Gönderilmezse yer kimliği taşıyan adres `AUTOCOMPLETE`, taşımayan `MANUAL` sayılır.
+	Source AddressSource `json:"source"`
 
 	// Thoroughfare Cadde ya da sokak.
 	//
@@ -13337,22 +13409,6 @@ func (response ReverseLookupAddress415ApplicationProblemPlusJSONResponse) VisitR
 	return err
 }
 
-type ReverseLookupAddress422ApplicationProblemPlusJSONResponse struct {
-	UnprocessableContentApplicationProblemPlusJSONResponse
-}
-
-func (response ReverseLookupAddress422ApplicationProblemPlusJSONResponse) VisitReverseLookupAddressResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(422)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type ReverseLookupAddress429ApplicationProblemPlusJSONResponse struct {
 	TooManyRequestsApplicationProblemPlusJSONResponse
 }
@@ -13593,22 +13649,6 @@ func (response ResolveAddressCandidate404ApplicationProblemPlusJSONResponse) Vis
 	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ResolveAddressCandidate422ApplicationProblemPlusJSONResponse struct {
-	UnprocessableContentApplicationProblemPlusJSONResponse
-}
-
-func (response ResolveAddressCandidate422ApplicationProblemPlusJSONResponse) VisitResolveAddressCandidateResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/problem+json")
-	w.WriteHeader(422)
 	_, err := buf.WriteTo(w)
 	return err
 }

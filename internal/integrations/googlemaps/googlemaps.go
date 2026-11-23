@@ -31,6 +31,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -357,14 +358,21 @@ func detailed(types []string) bool {
 
 // RegionBounds returns the bounds of the first-level administrative area
 // (a Turkish il) named name in the country of countryCode: the service
-// area's restriction is built from them (ADR-0039 Karar 3).
+// area's restriction is built from them (ADR-0039 Karar 3). Only a result
+// typed administrative_area_level_1 counts: a components filter that
+// falls back to a town or the country would bound the wrong area, so
+// without one the lookup is ErrNoResult.
 func (c *Client) RegionBounds(ctx context.Context, name, countryCode string) (Rect, error) {
 	q := url.Values{"components": {"country:" + countryCode + "|administrative_area:" + name}}
 	results, err := c.geocode(ctx, q)
 	if err != nil {
 		return Rect{}, err
 	}
-	g := results[0].Geometry
+	i := slices.IndexFunc(results, func(r geocodeResult) bool { return slices.Contains(r.Types, "administrative_area_level_1") })
+	if i < 0 {
+		return Rect{}, ErrNoResult
+	}
+	g := results[i].Geometry
 	box := g.Bounds
 	if box == nil {
 		box = g.Viewport

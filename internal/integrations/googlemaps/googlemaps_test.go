@@ -299,3 +299,44 @@ func TestRectUnion(t *testing.T) {
 		t.Error("contains")
 	}
 }
+
+// A redirect is never followed: a Places call redirected to another path
+// of the same server sends nothing there, so the key header that Go keeps
+// on a same-host redirect never travels. Without the client's
+// CheckRedirect the request would arrive at /elsewhere with the key.
+func TestRedirectIsNotFollowed(t *testing.T) {
+	t.Parallel()
+	f := newFake(t)
+	f.Enqueue(http.MethodPost, f.AutocompletePath(), fakes.Response{
+		Status: http.StatusTemporaryRedirect, Header: http.Header{"Location": {f.URL() + "/elsewhere"}},
+	})
+	_, err := newClient(t, f, testKey).Autocomplete(t.Context(), "moda", "t", nil)
+	if googlemaps.ReasonOf(err) != googlemaps.ReasonTransport {
+		t.Fatalf("err = %v, want a transport failure", err)
+	}
+	for _, r := range f.Requests() {
+		if r.Path == "/elsewhere" {
+			t.Fatalf("the redirect was followed, key header %q", r.Header.Get("X-Goog-Api-Key"))
+		}
+	}
+	if n := len(f.Requests()); n != 1 {
+		t.Errorf("%d requests, want the one redirected", n)
+	}
+}
+
+// RegionBounds takes only a first-level administrative area: a result of
+// another type (a town the filter fell back to) is no bounds.
+func TestRegionBoundsNeedsTheProvince(t *testing.T) {
+	t.Parallel()
+	f := newFake(t)
+	f.Enqueue(http.MethodGet, f.GeocodePath(), fakes.JSON(http.StatusOK, map[string]any{"status": "OK", "results": []any{
+		map[string]any{"place_id": "town", "types": []string{"locality", "political"}, "geometry": map[string]any{
+			"bounds": map[string]any{
+				"northeast": map[string]any{"lat": 41, "lng": 29}, "southwest": map[string]any{"lat": 40, "lng": 28},
+			},
+		}},
+	}}))
+	if _, err := newClient(t, f, testKey).RegionBounds(t.Context(), "İstanbul", "TR"); !errors.Is(err, googlemaps.ErrNoResult) {
+		t.Errorf("a town's bounds: %v, want ErrNoResult", err)
+	}
+}

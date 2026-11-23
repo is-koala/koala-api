@@ -355,6 +355,8 @@ scenarios:
     go_test:
       - internal/app.TestServiceAreaIsTheConfiguredCities
       - internal/app.TestSearchWithoutProvider
+      - internal/app.TestProviderFailureOverHTTP
+      - internal/app.TestReverseOutsideTheBoundsSpendsNothing
 
   - id: MED-014
     priority: P0

@@ -9,7 +9,8 @@
 -- The provider's formatted address and raw answer are never stored
 -- (MED-008): there is no column for them. The coordinates are kept at full
 -- precision; the projection that renders them decides what a caller sees
--- (MED-009). Soft-deleted with the user (cascade) and personal data, hence
+-- (MED-009). components_source and coordinate_source say whether the
+-- provider gave them (ADR-0039 Karar 10). Soft-deleted with the user (cascade) and personal data, hence
 -- the security barrier.
 --
 -- users.address_id: the profile's primary address, a restrict edge to
@@ -28,9 +29,10 @@
 -- of a suggestion is written. No foreign key: a session outlives nothing
 -- and its caller no longer authenticates once the user is gone.
 --
--- address_lookups (M2): the lookup budget's ledger, one row per billed
--- unit (a session, a place details call, a reverse geocode, a service
--- area bounds lookup), with the user, the client address it came from and
+-- address_lookups (M2): the lookup budget's ledger, one row per unit (a
+-- session, an autocomplete request, a place details call, a reverse
+-- geocode, a service area bounds lookup), with the user, the client
+-- address it came from and
 -- the time. The user's daily budget, the client address's hourly budget
 -- and the service's daily cap count it (ADR-0039 Karar 7). A bounds lookup
 -- is the service's own and has neither user nor client address. Hard-
@@ -46,6 +48,8 @@ CREATE TABLE addresses (
     thoroughfare text,
     building_number text,
     building_name text,
+    site_name text,
+    block text,
     floor text,
     unit_number text,
     postal_code text,
@@ -53,6 +57,11 @@ CREATE TABLE addresses (
     provider_place_id text,
     latitude double precision,
     longitude double precision,
+    -- Where the components and the coordinate came from (ADR-0039 Karar
+    -- 10): a legal answer that the provider's content may not be kept for
+    -- good would find the rows to clean up by these.
+    components_source text NOT NULL,
+    coordinate_source text,
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL,
     -- A district is chosen under its city.
@@ -61,6 +70,8 @@ CREATE TABLE addresses (
     CONSTRAINT addresses_thoroughfare_check CHECK (length(thoroughfare) BETWEEN 1 AND 160),
     CONSTRAINT addresses_building_number_check CHECK (length(building_number) BETWEEN 1 AND 30),
     CONSTRAINT addresses_building_name_check CHECK (length(building_name) BETWEEN 1 AND 120),
+    CONSTRAINT addresses_site_name_check CHECK (length(site_name) BETWEEN 1 AND 120),
+    CONSTRAINT addresses_block_check CHECK (length(block) BETWEEN 1 AND 30),
     CONSTRAINT addresses_floor_check CHECK (length(floor) BETWEEN 1 AND 20),
     CONSTRAINT addresses_unit_number_check CHECK (length(unit_number) BETWEEN 1 AND 30),
     CONSTRAINT addresses_postal_code_check CHECK (postal_code ~ '^[0-9]{5}$'),
@@ -71,6 +82,11 @@ CREATE TABLE addresses (
         (latitude IS NULL) = (longitude IS NULL)
         AND (latitude IS NULL OR latitude BETWEEN -90 AND 90)
         AND (longitude IS NULL OR longitude BETWEEN -180 AND 180)),
+    CONSTRAINT addresses_components_source_check CHECK (components_source IN ('MANUAL', 'AUTOCOMPLETE', 'REVERSE_GEOCODE')),
+    -- A coordinate has a source, and only a coordinate has one.
+    CONSTRAINT addresses_coordinate_source_check CHECK (
+        (coordinate_source IS NULL) = (latitude IS NULL)
+        AND (coordinate_source IS NULL OR coordinate_source IN ('USER_PIN', 'PROVIDER'))),
     CONSTRAINT addresses_times_check CHECK (updated_at >= created_at)
 );
 -- +koala soft-delete v1 addresses security_barrier
@@ -134,7 +150,7 @@ CREATE TABLE address_lookups (
     client_key text,
     unit text NOT NULL,
     created_at timestamptz NOT NULL,
-    CONSTRAINT address_lookups_unit_check CHECK (unit IN ('SESSION', 'DETAILS', 'REVERSE', 'BOUNDS')),
+    CONSTRAINT address_lookups_unit_check CHECK (unit IN ('SESSION', 'AUTOCOMPLETE', 'DETAILS', 'REVERSE', 'BOUNDS')),
     CONSTRAINT address_lookups_caller_check CHECK (
         (user_id IS NULL) = (client_key IS NULL) AND (user_id IS NULL) = (unit = 'BOUNDS')),
     CONSTRAINT address_lookups_client_key_check CHECK (length(client_key) BETWEEN 1 AND 64)

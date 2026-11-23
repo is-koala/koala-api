@@ -176,8 +176,9 @@ func (q *Queries) FindDistrictOf(ctx context.Context, arg FindDistrictOfParams) 
 }
 
 const getAddress = `-- name: GetAddress :one
-SELECT a.id, a.neighborhood, a.thoroughfare, a.building_number, a.building_name, a.floor, a.unit_number,
-       a.postal_code, a.additional_directions, a.provider_place_id, a.latitude, a.longitude, a.created_at,
+SELECT a.id, a.neighborhood, a.thoroughfare, a.building_number, a.building_name, a.site_name, a.block, a.floor,
+       a.unit_number, a.postal_code, a.additional_directions, a.provider_place_id, a.latitude, a.longitude,
+       a.components_source, a.coordinate_source, a.created_at,
        c.id AS city_id, c.name AS city_name, d.id AS district_id, d.name AS district_name
 FROM active_addresses a
 JOIN cities c ON c.id = a.city_id
@@ -196,6 +197,8 @@ type GetAddressRow struct {
 	Thoroughfare         *string
 	BuildingNumber       *string
 	BuildingName         *string
+	SiteName             *string
+	Block                *string
 	Floor                *string
 	UnitNumber           *string
 	PostalCode           *string
@@ -203,6 +206,8 @@ type GetAddressRow struct {
 	ProviderPlaceID      *string
 	Latitude             *float64
 	Longitude            *float64
+	ComponentsSource     string
+	CoordinateSource     *string
 	CreatedAt            time.Time
 	CityID               uuid.UUID
 	CityName             string
@@ -221,6 +226,8 @@ func (q *Queries) GetAddress(ctx context.Context, arg GetAddressParams) (GetAddr
 		&i.Thoroughfare,
 		&i.BuildingNumber,
 		&i.BuildingName,
+		&i.SiteName,
+		&i.Block,
 		&i.Floor,
 		&i.UnitNumber,
 		&i.PostalCode,
@@ -228,6 +235,8 @@ func (q *Queries) GetAddress(ctx context.Context, arg GetAddressParams) (GetAddr
 		&i.ProviderPlaceID,
 		&i.Latitude,
 		&i.Longitude,
+		&i.ComponentsSource,
+		&i.CoordinateSource,
 		&i.CreatedAt,
 		&i.CityID,
 		&i.CityName,
@@ -239,12 +248,13 @@ func (q *Queries) GetAddress(ctx context.Context, arg GetAddressParams) (GetAddr
 
 const insertAddress = `-- name: InsertAddress :exec
 INSERT INTO active_addresses (id, user_id, city_id, district_id, neighborhood, thoroughfare, building_number,
-    building_name, floor, unit_number, postal_code, additional_directions, provider_place_id, latitude, longitude,
-    created_at, updated_at)
+    building_name, site_name, block, floor, unit_number, postal_code, additional_directions, provider_place_id,
+    latitude, longitude, components_source, coordinate_source, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5,
     $6, $7, $8, $9,
     $10, $11, $12, $13,
-    $14, $15, $16, $16)
+    $14, $15, $16, $17,
+    $18, $19, $20, $20)
 `
 
 type InsertAddressParams struct {
@@ -256,6 +266,8 @@ type InsertAddressParams struct {
 	Thoroughfare         *string
 	BuildingNumber       *string
 	BuildingName         *string
+	SiteName             *string
+	Block                *string
 	Floor                *string
 	UnitNumber           *string
 	PostalCode           *string
@@ -263,6 +275,8 @@ type InsertAddressParams struct {
 	ProviderPlaceID      *string
 	Latitude             *float64
 	Longitude            *float64
+	ComponentsSource     string
+	CoordinateSource     *string
 	CreatedAt            time.Time
 }
 
@@ -278,6 +292,8 @@ func (q *Queries) InsertAddress(ctx context.Context, arg InsertAddressParams) er
 		arg.Thoroughfare,
 		arg.BuildingNumber,
 		arg.BuildingName,
+		arg.SiteName,
+		arg.Block,
 		arg.Floor,
 		arg.UnitNumber,
 		arg.PostalCode,
@@ -285,6 +301,8 @@ func (q *Queries) InsertAddress(ctx context.Context, arg InsertAddressParams) er
 		arg.ProviderPlaceID,
 		arg.Latitude,
 		arg.Longitude,
+		arg.ComponentsSource,
+		arg.CoordinateSource,
 		arg.CreatedAt,
 	)
 	return err
@@ -343,8 +361,9 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 }
 
 const listAddresses = `-- name: ListAddresses :many
-SELECT a.id, a.neighborhood, a.thoroughfare, a.building_number, a.building_name, a.floor, a.unit_number,
-       a.postal_code, a.additional_directions, a.provider_place_id, a.latitude, a.longitude, a.created_at,
+SELECT a.id, a.neighborhood, a.thoroughfare, a.building_number, a.building_name, a.site_name, a.block, a.floor,
+       a.unit_number, a.postal_code, a.additional_directions, a.provider_place_id, a.latitude, a.longitude,
+       a.components_source, a.coordinate_source, a.created_at,
        c.id AS city_id, c.name AS city_name, d.id AS district_id, d.name AS district_name
 FROM active_addresses a
 JOIN cities c ON c.id = a.city_id
@@ -359,6 +378,8 @@ type ListAddressesRow struct {
 	Thoroughfare         *string
 	BuildingNumber       *string
 	BuildingName         *string
+	SiteName             *string
+	Block                *string
 	Floor                *string
 	UnitNumber           *string
 	PostalCode           *string
@@ -366,6 +387,8 @@ type ListAddressesRow struct {
 	ProviderPlaceID      *string
 	Latitude             *float64
 	Longitude            *float64
+	ComponentsSource     string
+	CoordinateSource     *string
 	CreatedAt            time.Time
 	CityID               uuid.UUID
 	CityName             string
@@ -391,6 +414,8 @@ func (q *Queries) ListAddresses(ctx context.Context, userID uuid.UUID) ([]ListAd
 			&i.Thoroughfare,
 			&i.BuildingNumber,
 			&i.BuildingName,
+			&i.SiteName,
+			&i.Block,
 			&i.Floor,
 			&i.UnitNumber,
 			&i.PostalCode,
@@ -398,6 +423,8 @@ func (q *Queries) ListAddresses(ctx context.Context, userID uuid.UUID) ([]ListAd
 			&i.ProviderPlaceID,
 			&i.Latitude,
 			&i.Longitude,
+			&i.ComponentsSource,
+			&i.CoordinateSource,
 			&i.CreatedAt,
 			&i.CityID,
 			&i.CityName,
@@ -541,6 +568,23 @@ func (q *Queries) OldestClientLookup(ctx context.Context, arg OldestClientLookup
 	return created_at, err
 }
 
+const oldestLookup = `-- name: OldestLookup :one
+SELECT created_at
+FROM address_lookups
+WHERE created_at > $1::timestamptz
+ORDER BY created_at
+LIMIT 1
+`
+
+// OldestLookup is the oldest unit after since: the service's cap frees a
+// place when that one leaves its window.
+func (q *Queries) OldestLookup(ctx context.Context, since time.Time) (time.Time, error) {
+	row := q.db.QueryRow(ctx, oldestLookup, since)
+	var created_at time.Time
+	err := row.Scan(&created_at)
+	return created_at, err
+}
+
 const oldestUserLookup = `-- name: OldestUserLookup :one
 SELECT created_at
 FROM address_lookups
@@ -640,15 +684,19 @@ SET city_id = $1,
     thoroughfare = $4,
     building_number = $5,
     building_name = $6,
-    floor = $7,
-    unit_number = $8,
-    postal_code = $9,
-    additional_directions = $10,
-    provider_place_id = $11,
-    latitude = $12,
-    longitude = $13,
-    updated_at = $14
-WHERE id = $15 AND user_id = $16
+    site_name = $7,
+    block = $8,
+    floor = $9,
+    unit_number = $10,
+    postal_code = $11,
+    additional_directions = $12,
+    provider_place_id = $13,
+    latitude = $14,
+    longitude = $15,
+    components_source = $16,
+    coordinate_source = $17,
+    updated_at = $18
+WHERE id = $19 AND user_id = $20
 `
 
 type ReplaceAddressParams struct {
@@ -658,6 +706,8 @@ type ReplaceAddressParams struct {
 	Thoroughfare         *string
 	BuildingNumber       *string
 	BuildingName         *string
+	SiteName             *string
+	Block                *string
 	Floor                *string
 	UnitNumber           *string
 	PostalCode           *string
@@ -665,6 +715,8 @@ type ReplaceAddressParams struct {
 	ProviderPlaceID      *string
 	Latitude             *float64
 	Longitude            *float64
+	ComponentsSource     string
+	CoordinateSource     *string
 	UpdatedAt            time.Time
 	ID                   uuid.UUID
 	UserID               uuid.UUID
@@ -680,6 +732,8 @@ func (q *Queries) ReplaceAddress(ctx context.Context, arg ReplaceAddressParams) 
 		arg.Thoroughfare,
 		arg.BuildingNumber,
 		arg.BuildingName,
+		arg.SiteName,
+		arg.Block,
 		arg.Floor,
 		arg.UnitNumber,
 		arg.PostalCode,
@@ -687,6 +741,8 @@ func (q *Queries) ReplaceAddress(ctx context.Context, arg ReplaceAddressParams) 
 		arg.ProviderPlaceID,
 		arg.Latitude,
 		arg.Longitude,
+		arg.ComponentsSource,
+		arg.CoordinateSource,
 		arg.UpdatedAt,
 		arg.ID,
 		arg.UserID,

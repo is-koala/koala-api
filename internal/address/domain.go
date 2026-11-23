@@ -11,9 +11,9 @@
 // displayed line is built from our components (DisplayLine).
 //
 // Coordinates are stored at full precision; the projection that renders
-// them decides what a caller sees (MED-009, Project). Every provider call
-// is bought with a unit of the lookup budget, reserved before the call in
-// one place (Service.reserve): the caller's daily budget, then the client
+// them decides what a caller sees (MED-009, Point.Render). Every provider
+// call is bought with a unit of the lookup budget, reserved before the call
+// in one place (reserve): the caller's daily budget, then the client
 // address's hourly budget, then the service's daily cap (ADR-0039 Karar 7).
 package address
 
@@ -38,20 +38,22 @@ const (
 	// CodeSessionNotFound: no such search session, expired, ended by a
 	// resolve or another user's; all look the same (MED-010).
 	CodeSessionNotFound apperr.Code = "ADDRESS_SEARCH_SESSION_NOT_FOUND"
-	// CodeProviderUnavailable: the provider did not answer usefully, is not
-	// configured, or the service's daily cap is spent.
+	// CodeProviderUnavailable: the provider did not answer usefully or is
+	// not configured.
 	CodeProviderUnavailable apperr.Code = "ADDRESS_PROVIDER_UNAVAILABLE"
 	// CodeReferenceNotFound: no such city, or no such district of the city.
 	CodeReferenceNotFound apperr.Code = "REFERENCE_ITEM_NOT_FOUND"
 	// CodeOutsideServiceArea: the point or the chosen suggestion is not in
-	// a city of the service area, or matches no address (422: the request
-	// is well formed and breaks a rule of the domain).
+	// a city of the service area, or matches no address (400, a domain
+	// rule's refusal like EDUCATION_PERIOD_INVALID).
 	CodeOutsideServiceArea apperr.Code = "ADDRESS_OUTSIDE_SERVICE_AREA"
 	// CodeAddressLimitReached: the caller has AddressesPerUser addresses.
 	CodeAddressLimitReached apperr.Code = "ADDRESS_LIMIT_REACHED"
-	// CodeLookupLimitReached: the caller's or the client address's lookup
-	// budget is spent, or the session made SuggestionRequestsPerSession
-	// requests.
+	// CodeLookupLimitReached: the caller's daily budget, the client
+	// address's hourly budget or the service's daily cap is spent, or the
+	// session made SuggestionRequestsPerSession requests. One code for all
+	// four: the client's remedy is the same (wait, or enter the address by
+	// hand) and the answer does not tell which bound a caller hit.
 	CodeLookupLimitReached apperr.Code = "ADDRESS_LOOKUP_LIMIT_REACHED"
 )
 
@@ -73,10 +75,12 @@ const (
 	// SessionTTL is how long a session lives.
 	SessionTTL = 15 * time.Minute
 	// SuggestionRequestsPerSession bounds the autocomplete requests of one
-	// session: a session ended by a resolve is billed once, an abandoned
-	// one per request, so this bounds what an abandoned session costs.
-	// A client that debounces sends a few requests per address typed.
-	SuggestionRequestsPerSession = 20
+	// session. The provider bills the first 12 autocomplete requests of a
+	// session that ends in an Essentials place details call one by one,
+	// and every request of an abandoned session; each is a unit of the
+	// budget (UnitAutocomplete). Twelve is the session's billed part, and a
+	// client that debounces needs about six to twelve per address typed.
+	SuggestionRequestsPerSession = 12
 	// MaxSuggestions is the contract's page (AddressSuggestionList).
 	MaxSuggestions = 10
 	// MinQueryRunes is the shortest query that reaches the provider, after
@@ -84,31 +88,42 @@ const (
 	MinQueryRunes = 3
 )
 
-// Unit is a billed unit of the lookup budget (ADR-0039 Karar 7): what the
-// provider bills, not every request. A session's autocomplete requests
-// are billed with the session when it ends in a place details call, so a
-// session is one unit and typing spends nothing more.
+// Unit is a unit of the lookup budget (ADR-0039 Karar 7): each provider
+// call the provider bills, and the session's opening, which bills nothing
+// but bounds how many sessions a caller churns through. With the
+// Essentials field mask the provider bills every autocomplete request of
+// a session (up to 12 when it ends in place details, all of them when it
+// is abandoned), so each autocomplete request is a unit; a typical address
+// entry is 1 session + 6–12 autocomplete + 1 details = 8–14 units.
 type Unit string
 
 // Units (address_lookups_unit_check).
 const (
-	UnitSession Unit = "SESSION"
-	UnitDetails Unit = "DETAILS"
-	UnitReverse Unit = "REVERSE"
+	UnitSession      Unit = "SESSION"
+	UnitAutocomplete Unit = "AUTOCOMPLETE"
+	UnitDetails      Unit = "DETAILS"
+	UnitReverse      Unit = "REVERSE"
 	// UnitBounds is the service's own lookup of a service area city's
 	// bounds; it has no caller and counts only on the service's cap.
 	UnitBounds Unit = "BOUNDS"
 )
 
-// The lookup budget's defaults and windows (ADR-0039 Karar 7). The values
-// are configurable (config.AddressLookup); they were not measured.
+// The lookup budget's defaults and windows (ADR-0039 Karar 7), in units
+// of a typical entry's 14 at most: a user ten entries a day (150), a client
+// address — a carrier NAT shares one among many users — about forty an
+// hour (600), the service about two hundred a day (3000). The values are
+// configurable (config.Maps); they were not measured.
 const (
-	DefaultLookupsPerUser   = 100
-	DefaultLookupsPerClient = 60
-	DefaultLookupsPerDay    = 2000
+	DefaultLookupsPerUser   = 150
+	DefaultLookupsPerClient = 600
+	DefaultLookupsPerDay    = 3000
 	UserWindow              = 24 * time.Hour
 	ClientWindow            = time.Hour
 	ServiceWindow           = 24 * time.Hour
+	// RetryFloor is the shortest Retry-After a refusal of the budget
+	// answers; a refusal of the session's request bound answers it too,
+	// since a new session may start at once.
+	RetryFloor = time.Second
 )
 
 // Budget is the lookup budget's three bounds.
@@ -184,10 +199,57 @@ type Lines struct {
 	Thoroughfare         *string
 	BuildingNumber       *string
 	BuildingName         *string
+	SiteName             *string
+	Block                *string
 	Floor                *string
 	UnitNumber           *string
 	PostalCode           *string
 	AdditionalDirections *string
+}
+
+// Source is where an address's components and coordinate came from
+// (AddressSource, ADR-0039 Karar 10).
+type Source string
+
+// Sources (addresses_components_source_check).
+const (
+	// SourceManual: the caller's own entry; the coordinate is their pin.
+	SourceManual Source = "MANUAL"
+	// SourceAutocomplete: a resolved suggestion; the components and the
+	// coordinate are the provider's.
+	SourceAutocomplete Source = "AUTOCOMPLETE"
+	// SourceReverse: a reverse geocode; the components are the provider's,
+	// the coordinate the caller's pin.
+	SourceReverse Source = "REVERSE_GEOCODE"
+)
+
+// The sources of a coordinate (addresses_coordinate_source_check).
+const (
+	coordinateUserPin  = "USER_PIN"
+	coordinateProvider = "PROVIDER"
+)
+
+// coordinateSource is where a coordinate of the source came from: the
+// provider's only for a resolved suggestion. A pin the caller moved after
+// a resolve stays PROVIDER: the column is kept for a cleanup, and it errs
+// on the side that removes too much rather than keeps too much.
+func (s Source) coordinateSource() string {
+	if s == SourceAutocomplete {
+		return coordinateProvider
+	}
+	return coordinateUserPin
+}
+
+// sourceOf is the source an input declares, or the conservative default:
+// an address with a provider's place id came from a suggestion.
+func sourceOf(declared *Source, placeID *string) Source {
+	if declared != nil {
+		return *declared
+	}
+	if placeID != nil {
+		return SourceAutocomplete
+	}
+	return SourceManual
 }
 
 // Address is one of the caller's addresses as stored.
@@ -198,14 +260,19 @@ type Address struct {
 	Lines
 	ProviderPlaceID *string
 	// Point is nil when the address has no coordinate.
-	Point     *Point
-	CreatedAt time.Time
+	Point *Point
+	// ComponentsSource and CoordinateSource are the stored sources
+	// (ADR-0039 Karar 10); CoordinateSource is empty without a coordinate.
+	ComponentsSource Source
+	CoordinateSource string
+	CreatedAt        time.Time
 }
 
 // DisplayLine is the address's shown line, built from our components only
-// (MED-008): "Moda Caddesi 12/7, Caferağa, Kadıköy, İstanbul". The street
-// part is the thoroughfare with the building number and, after it, the
-// unit; the reference names are shown in Turkish title case.
+// (MED-008): "Moda Caddesi 12/7, Moda Konutları B Blok, Caferağa, Kadıköy,
+// İstanbul". The street part is the thoroughfare with the building number
+// and, after it, the unit; then the site and its block; the reference
+// names are shown in Turkish title case.
 func (a Address) DisplayLine() string {
 	var parts []string
 	street := deref(a.Thoroughfare)
@@ -215,7 +282,14 @@ func (a Address) DisplayLine() string {
 			street += "/" + u
 		}
 	}
-	for _, p := range []string{street, deref(a.Neighborhood), titleTR(a.District.Name), titleTR(a.City.Name)} {
+	site := deref(a.SiteName)
+	if b := deref(a.Block); b != "" {
+		if !strings.Contains(strings.ToLowerSpecial(unicode.TurkishCase, b), "blok") {
+			b += " Blok"
+		}
+		site = strings.TrimSpace(site + " " + b)
+	}
+	for _, p := range []string{street, site, deref(a.Neighborhood), titleTR(a.District.Name), titleTR(a.City.Name)} {
 		if p != "" {
 			parts = append(parts, p)
 		}
@@ -247,15 +321,18 @@ type Input struct {
 	DistrictID uuid.UUID
 	Lines
 	ProviderPlaceID *string
-	Point           *Point
+	// Source is the source the caller declares, nil when not sent
+	// (sourceOf gives the default).
+	Source *Source
+	Point  *Point
 }
 
 // normalized is in with every free line trimmed and an empty one cleared.
 func (in Input) normalized() Input {
 	out := in
 	for _, f := range []**string{
-		&out.Neighborhood, &out.Thoroughfare, &out.BuildingNumber, &out.BuildingName, &out.Floor, &out.UnitNumber,
-		&out.PostalCode, &out.AdditionalDirections, &out.ProviderPlaceID,
+		&out.Neighborhood, &out.Thoroughfare, &out.BuildingNumber, &out.BuildingName, &out.SiteName, &out.Block,
+		&out.Floor, &out.UnitNumber, &out.PostalCode, &out.AdditionalDirections, &out.ProviderPlaceID,
 	} {
 		*f = trimmed(*f)
 	}
@@ -285,13 +362,18 @@ type Resolved struct {
 	CityID     uuid.UUID
 	DistrictID *uuid.UUID
 	// The free lines a provider gives: neighborhood, thoroughfare,
-	// building number, postal code. The rest stays empty.
+	// building number, site name (its premise), postal code. The rest
+	// stays empty.
 	Neighborhood   *string
 	Thoroughfare   *string
 	BuildingNumber *string
+	SiteName       *string
 	PostalCode     *string
 	PlaceID        *string
-	Point          *Point
+	// Point is the provider's location for a resolve, the caller's own pin
+	// for a reverse geocode.
+	Point  *Point
+	Source Source
 }
 
 // The contract's bounds of the free lines a resolve fills (AddressInput):
@@ -300,6 +382,7 @@ const (
 	maxNeighborhood   = 120
 	maxThoroughfare   = 160
 	maxBuildingNumber = 30
+	maxSiteName       = 120
 	maxPlaceID        = 255
 )
 

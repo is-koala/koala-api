@@ -38,7 +38,7 @@ type Service struct {
 	search   *search
 	logger   *slog.Logger
 	metrics  *Metrics
-	provider provider
+	provider Provider
 }
 
 // Config is what the service needs besides its dependencies.
@@ -54,7 +54,7 @@ type Config struct {
 // NewService returns the service on database. p is the map provider; nil
 // when none is configured (local and test without a key), and then every
 // search answers ADDRESS_PROVIDER_UNAVAILABLE.
-func NewService(database *db.DB, p provider, deleter *softdelete.Deleter, clk clock.Clock, cfg Config,
+func NewService(database *db.DB, p Provider, deleter *softdelete.Deleter, clk clock.Clock, cfg Config,
 	logger *slog.Logger, metrics *Metrics,
 ) (*Service, error) {
 	if database == nil || deleter == nil || clk == nil || cfg.Places == nil || logger == nil || metrics == nil {
@@ -178,13 +178,14 @@ func (s *Service) Create(ctx context.Context, p authn.UserPrincipal, in Input,
 		if err := checkReferences(ctx, q, in, uuid.Nil, uuid.Nil); err != nil {
 			return err
 		}
-		lat, lng := coordinates(in.Point)
+		lat, lng, src, coordSrc := stored(in)
 		err = q.InsertAddress(ctx, addressdb.InsertAddressParams{
 			ID: id, UserID: p.UserID, CityID: in.CityID, DistrictID: in.DistrictID,
 			Neighborhood: in.Neighborhood, Thoroughfare: in.Thoroughfare, BuildingNumber: in.BuildingNumber,
-			BuildingName: in.BuildingName, Floor: in.Floor, UnitNumber: in.UnitNumber, PostalCode: in.PostalCode,
-			AdditionalDirections: in.AdditionalDirections, ProviderPlaceID: in.ProviderPlaceID,
-			Latitude: lat, Longitude: lng, CreatedAt: now,
+			BuildingName: in.BuildingName, SiteName: in.SiteName, Block: in.Block, Floor: in.Floor,
+			UnitNumber: in.UnitNumber, PostalCode: in.PostalCode, AdditionalDirections: in.AdditionalDirections,
+			ProviderPlaceID: in.ProviderPlaceID, Latitude: lat, Longitude: lng, ComponentsSource: src,
+			CoordinateSource: coordSrc, CreatedAt: now,
 		})
 		if err != nil {
 			return fmt.Errorf("address: insert the address: %w", err)
@@ -227,13 +228,14 @@ func (s *Service) Replace(ctx context.Context, p authn.UserPrincipal, id uuid.UU
 		if err := checkReferences(ctx, q, in, cur.CityID, cur.DistrictID); err != nil {
 			return err
 		}
-		lat, lng := coordinates(in.Point)
+		lat, lng, src, coordSrc := stored(in)
 		err = q.ReplaceAddress(ctx, addressdb.ReplaceAddressParams{
 			ID: id, UserID: p.UserID, CityID: in.CityID, DistrictID: in.DistrictID,
 			Neighborhood: in.Neighborhood, Thoroughfare: in.Thoroughfare, BuildingNumber: in.BuildingNumber,
-			BuildingName: in.BuildingName, Floor: in.Floor, UnitNumber: in.UnitNumber, PostalCode: in.PostalCode,
-			AdditionalDirections: in.AdditionalDirections, ProviderPlaceID: in.ProviderPlaceID,
-			Latitude: lat, Longitude: lng, UpdatedAt: now,
+			BuildingName: in.BuildingName, SiteName: in.SiteName, Block: in.Block, Floor: in.Floor,
+			UnitNumber: in.UnitNumber, PostalCode: in.PostalCode, AdditionalDirections: in.AdditionalDirections,
+			ProviderPlaceID: in.ProviderPlaceID, Latitude: lat, Longitude: lng, ComponentsSource: src,
+			CoordinateSource: coordSrc, UpdatedAt: now,
 		})
 		if err != nil {
 			return fmt.Errorf("address: replace the address: %w", err)
@@ -439,12 +441,16 @@ func referenceError(err error) error {
 	return fmt.Errorf("address: find the reference row: %w", err)
 }
 
-func coordinates(p *Point) (lat, lng *float64) {
-	if p == nil {
-		return nil, nil
+// stored are an input's coordinate and the sources the row records
+// (ADR-0039 Karar 10): the declared source, or the conservative default;
+// a coordinate's source only with a coordinate.
+func stored(in Input) (lat, lng *float64, components string, coordinate *string) {
+	src := sourceOf(in.Source, in.ProviderPlaceID)
+	if in.Point == nil {
+		return nil, nil, string(src), nil
 	}
-	la, ln := p.Lat, p.Lng
-	return &la, &ln
+	la, ln, cs := in.Point.Lat, in.Point.Lng, src.coordinateSource()
+	return &la, &ln, string(src), &cs
 }
 
 // load is one of the user's addresses; pgx.ErrNoRows when there is none.
@@ -463,14 +469,18 @@ func addressOf(r addressdb.GetAddressRow) Address {
 		District: Reference{ID: r.DistrictID, Name: r.DistrictName},
 		Lines: Lines{
 			Neighborhood: r.Neighborhood, Thoroughfare: r.Thoroughfare, BuildingNumber: r.BuildingNumber,
-			BuildingName: r.BuildingName, Floor: r.Floor, UnitNumber: r.UnitNumber, PostalCode: r.PostalCode,
-			AdditionalDirections: r.AdditionalDirections,
+			BuildingName: r.BuildingName, SiteName: r.SiteName, Block: r.Block, Floor: r.Floor,
+			UnitNumber: r.UnitNumber, PostalCode: r.PostalCode, AdditionalDirections: r.AdditionalDirections,
 		},
-		ProviderPlaceID: r.ProviderPlaceID,
-		CreatedAt:       r.CreatedAt,
+		ProviderPlaceID:  r.ProviderPlaceID,
+		ComponentsSource: Source(r.ComponentsSource),
+		CreatedAt:        r.CreatedAt,
 	}
 	if r.Latitude != nil && r.Longitude != nil {
 		a.Point = &Point{Lat: *r.Latitude, Lng: *r.Longitude}
+	}
+	if r.CoordinateSource != nil {
+		a.CoordinateSource = *r.CoordinateSource
 	}
 	return a
 }

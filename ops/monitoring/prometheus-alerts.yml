@@ -124,7 +124,15 @@ groups:
         expr: increase(koala_address_lookups_total{outcome="capped"}[15m]) > 0
         for: 1m
         labels: { severity: warning, owner: backend }
-        annotations: { summary: "Adres arama günlük tavanı doldu; arama herkese 502 dönüyor, adresler elle giriliyor (ADR-0039)" }
+        annotations: { summary: "Adres arama günlük tavanı doldu; arama herkese 429 dönüyor, adresler elle giriliyor (ADR-0039)" }
+      # Every autocomplete request is billed with the Essentials field
+      # mask: suggestion pumping shows as volume before the cap. A third of
+      # the default daily cap in an hour is far above what users type.
+      - alert: KoalaAddressAutocompleteVolumeHigh
+        expr: sum(increase(koala_address_provider_calls_total{call="autocomplete"}[1h])) > 1000
+        for: 5m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Son bir saatte 1000'den fazla adres önerisi isteği Google'a gitti; öneri pompalama olabilir (ADR-0039)" }
       # The provider refuses or fails: a revoked key, a spent Google
       # quota or an outage.
       - alert: KoalaAddressProviderFailing

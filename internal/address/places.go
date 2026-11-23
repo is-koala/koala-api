@@ -120,11 +120,13 @@ const centralDistrict = "MERKEZ"
 
 // districtRenames are districts the provider may still name by a former
 // name, keyed "<city key>/<former key>": a merger (Eminönü into Fatih,
-// 2008) or a rename (Kazan to Kahramankazan, 2016). It is history, not
-// configuration; a district missing here is picked by the caller.
+// 2008) or a rename (Kazan to Kahramankazan, 2016; Eyüp to Eyüpsultan,
+// 2017). It is history, not configuration; a district missing here is
+// picked by the caller.
 func districtRenames() map[string]string {
 	return map[string]string{
 		"ISTANBUL/EMINONU": "FATIH",
+		"ISTANBUL/EYUP":    "EYUPSULTAN",
 		"ANKARA/KAZAN":     "KAHRAMANKAZAN",
 	}
 }

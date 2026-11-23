@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/api"
+	"github.com/is-koala/koala-api/internal/address"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/authn/authndb"
 	"github.com/is-koala/koala-api/internal/platform/clock"
@@ -67,6 +68,14 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 // driver, the service area and the lookup budget (ADR-0039).
 func newAuthAppWith(t *testing.T, groups map[string]httpx.GroupLimits, maps config.Maps) *authApp {
 	t.Helper()
+	return newAuthAppOn(t, groups, maps, nil)
+}
+
+// newAuthAppOn is newAuthAppWith whose address module calls the map
+// provider p when it is not nil (a googlemaps client on the wire fake, say)
+// instead of the one maps names.
+func newAuthAppOn(t *testing.T, groups map[string]httpx.GroupLimits, maps config.Maps, p address.Provider) *authApp {
+	t.Helper()
 	d := dbtest.New(t)
 	database := d.Open(t, db.RoleApp)
 	clk := clock.NewFake(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC))
@@ -78,6 +87,13 @@ func newAuthAppWith(t *testing.T, groups map[string]httpx.GroupLimits, maps conf
 		PublicBaseURL: testPublicBaseURL,
 	}, Maps: maps}
 	mods := testModulesWith(t, cfg, database, clk)
+	if p != nil {
+		svc, h, err := wireAddressWith(cfg, database, clk, logger, prometheus.NewRegistry(), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mods.address, mods.addressHTTP = svc, h
+	}
 	reg := prometheus.NewRegistry()
 	router, err := newRouter(context.Background(), cfg, logger,
 		httpx.NewHealth(logger), reg, groups, mods)

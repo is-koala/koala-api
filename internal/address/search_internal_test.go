@@ -2,6 +2,11 @@ package address
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -61,8 +66,9 @@ func TestResolvedComponents(t *testing.T) {
 		component("İstanbul", "İstanbul", "administrative_area_level_1", "political"),
 		component("Türkiye", "TR", "country", "political"),
 		component("34710-x", "34710-x", "postal_code"),
+		component("Moda Konutları", "Moda Konutları", "premise"),
 	}}
-	r, err := x.resolved(place, &Point{Lat: 41, Lng: 29})
+	r, err := x.resolved(place, &Point{Lat: 41, Lng: 29}, SourceAutocomplete)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,13 +84,16 @@ func TestResolvedComponents(t *testing.T) {
 	if r.PostalCode != nil {
 		t.Errorf("postal code %q kept", *r.PostalCode)
 	}
+	if r.SiteName == nil || *r.SiteName != "Moda Konutları" || r.Source != SourceAutocomplete {
+		t.Errorf("site name and source = %v, %s", r.SiteName, r.Source)
+	}
 	if r.PlaceID == nil || *r.PlaceID != "ChIJ-x" || r.Point == nil {
 		t.Errorf("MED-008: place id and point = %+v", r)
 	}
 }
 
 // An unmatched district is left to the caller; a city outside the area
-// or a foreign country is ADDRESS_OUTSIDE_SERVICE_AREA (422). A second
+// or a foreign country is ADDRESS_OUTSIDE_SERVICE_AREA (400). A second
 // city in the area resolves.
 func TestResolvedServiceArea(t *testing.T) {
 	t.Parallel()
@@ -93,10 +102,10 @@ func TestResolvedServiceArea(t *testing.T) {
 		component("Ankara", "Ankara", "administrative_area_level_1"),
 		component("Türkiye", "TR", "country"),
 	}}
-	if _, err := testSearch(t, istanbulID).resolved(ankaraPlace, nil); !outside(err) {
+	if _, err := testSearch(t, istanbulID).resolved(ankaraPlace, nil, SourceReverse); !outside(err) {
 		t.Errorf("Ankara under İstanbul's area: %v", err)
 	}
-	if r, err := testSearch(t, istanbulID, ankaraID).resolved(ankaraPlace, nil); err != nil || r.DistrictID == nil {
+	if r, err := testSearch(t, istanbulID, ankaraID).resolved(ankaraPlace, nil, SourceReverse); err != nil || r.DistrictID == nil {
 		t.Errorf("Ankara under two cities: %+v, %v", r, err)
 	}
 	unknown := googlemaps.Place{Components: []googlemaps.Component{
@@ -104,21 +113,21 @@ func TestResolvedServiceArea(t *testing.T) {
 		component("İstanbul", "İstanbul", "administrative_area_level_1"),
 		component("Türkiye", "TR", "country"),
 	}}
-	if r, err := testSearch(t, istanbulID).resolved(unknown, nil); err != nil || r.DistrictID != nil {
+	if r, err := testSearch(t, istanbulID).resolved(unknown, nil, SourceReverse); err != nil || r.DistrictID != nil {
 		t.Errorf("an unknown district: %+v, %v; want no district and no error", r, err)
 	}
 	foreign := googlemaps.Place{Components: []googlemaps.Component{
 		component("İstanbul", "İstanbul", "administrative_area_level_1"),
 		component("Greece", "GR", "country"),
 	}}
-	if _, err := testSearch(t, istanbulID).resolved(foreign, nil); !outside(err) {
+	if _, err := testSearch(t, istanbulID).resolved(foreign, nil, SourceReverse); !outside(err) {
 		t.Errorf("a foreign country: %v", err)
 	}
 }
 
 func outside(err error) bool {
 	var e *apperr.Error
-	return errors.As(err, &e) && e.Code == CodeOutsideServiceArea && e.Kind == apperr.KindUnprocessable
+	return errors.As(err, &e) && e.Code == CodeOutsideServiceArea && e.Kind == apperr.KindInvalid
 }
 
 // A candidate id is an index the session holds, nothing else.
@@ -133,5 +142,54 @@ func TestCandidateIndex(t *testing.T) {
 		if _, ok := candidateIndex(id, 5); ok {
 			t.Errorf("%s accepted", id)
 		}
+	}
+}
+
+// TestOnlyReserveSpends holds what the type of spent cannot: within this
+// package a spent value is built only in reserve, after the budget counted
+// it. A provider call paid with a hand-made unit would pass every budget
+// unseen; this reads the package's sources for such a literal.
+func TestOnlyReserveSpends(t *testing.T) {
+	t.Parallel()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	found := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			ast.Inspect(fn, func(n ast.Node) bool {
+				lit, ok := n.(*ast.CompositeLit)
+				if !ok {
+					return true
+				}
+				idx, ok := lit.Type.(*ast.IndexExpr)
+				if !ok {
+					return true
+				}
+				if id, ok := idx.X.(*ast.Ident); ok && id.Name == "spent" {
+					found++
+					if fn.Name.Name != "reserve" {
+						t.Errorf("%s: %s builds a spent unit; only reserve may", fset.Position(lit.Pos()), fn.Name.Name)
+					}
+				}
+				return true
+			})
+		}
+	}
+	if found == 0 {
+		t.Fatal("no spent literal found; the check reads the wrong files")
 	}
 }

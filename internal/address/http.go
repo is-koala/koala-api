@@ -146,7 +146,7 @@ func (h *HTTP) ListAddressSuggestions(ctx context.Context, req apiv1.ListAddress
 	if !ok {
 		return nil, errNoPrincipal
 	}
-	got, err := h.svc.Suggest(ctx, p, req.SessionID, req.Params.Query)
+	got, err := h.svc.Suggest(ctx, p, req.SessionID, req.Params.Query, clientKey(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +217,8 @@ func ownView(a Address) apiv1.Address {
 		Thoroughfare:         a.Thoroughfare,
 		BuildingNumber:       a.BuildingNumber,
 		BuildingName:         a.BuildingName,
+		SiteName:             a.SiteName,
+		Block:                a.Block,
 		Floor:                a.Floor,
 		UnitNumber:           a.UnitNumber,
 		PostalCode:           a.PostalCode,
@@ -233,10 +235,16 @@ func ownView(a Address) apiv1.Address {
 	return out
 }
 
+// resolvedView is the contract's ResolvedAddress. Its coordinate is given
+// raw, not through Point.Render: after a reverse geocode it is the
+// caller's own pin, after a resolve the location of the place the caller
+// chose, and in both the caller is the one the address will belong to,
+// who sees it exact (MED-009).
 func resolvedView(r Resolved) apiv1.ResolvedAddress {
 	out := apiv1.ResolvedAddress{
 		CityID: r.CityID, DistrictID: r.DistrictID, Neighborhood: r.Neighborhood, Thoroughfare: r.Thoroughfare,
-		BuildingNumber: r.BuildingNumber, PostalCode: r.PostalCode, ProviderPlaceID: r.PlaceID,
+		BuildingNumber: r.BuildingNumber, SiteName: r.SiteName, PostalCode: r.PostalCode, ProviderPlaceID: r.PlaceID,
+		Source: apiv1.AddressSource(r.Source),
 	}
 	if r.Point != nil {
 		lat, lng := r.Point.Lat, r.Point.Lng
@@ -254,10 +262,14 @@ func input(b *apiv1.AddressInput) Input {
 		CityID: b.CityID, DistrictID: b.DistrictID,
 		Lines: Lines{
 			Neighborhood: b.Neighborhood, Thoroughfare: b.Thoroughfare, BuildingNumber: b.BuildingNumber,
-			BuildingName: b.BuildingName, Floor: b.Floor, UnitNumber: b.UnitNumber, PostalCode: b.PostalCode,
-			AdditionalDirections: b.AdditionalDirections,
+			BuildingName: b.BuildingName, SiteName: b.SiteName, Block: b.Block, Floor: b.Floor, UnitNumber: b.UnitNumber,
+			PostalCode: b.PostalCode, AdditionalDirections: b.AdditionalDirections,
 		},
 		ProviderPlaceID: b.ProviderPlaceID,
+	}
+	if b.Source != nil {
+		src := Source(*b.Source)
+		in.Source = &src
 	}
 	if b.Coordinates != nil {
 		in.Point = &Point{Lat: b.Coordinates.Latitude, Lng: b.Coordinates.Longitude}

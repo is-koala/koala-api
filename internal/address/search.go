@@ -21,53 +21,87 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/db"
 )
 
-// provider is the map provider (internal/integrations/googlemaps: the
+// Provider is the map provider (internal/integrations/googlemaps: the
 // Google client or the canned driver). It is called only through metered,
-// which takes a spent unit of the lookup budget.
-type provider interface {
+// whose every method takes the spent unit of its own call.
+type Provider interface {
 	Autocomplete(ctx context.Context, input, token string, restriction *googlemaps.Rect) ([]googlemaps.Prediction, error)
 	Details(ctx context.Context, placeID, token string) (googlemaps.Place, error)
 	Reverse(ctx context.Context, at googlemaps.LatLng) (googlemaps.Place, error)
 	RegionBounds(ctx context.Context, name, countryCode string) (googlemaps.Rect, error)
 }
 
-// spent is a billed unit reserved before a provider call (ADR-0039 Karar
-// 7). Its field is unexported and only reserve and an open session (whose
-// start reserved the session's unit) make one: the provider cannot be
-// reached past the budget, whatever path a later change adds.
-type spent struct {
-	unit Unit
-}
+// unitTag names a unit at the type level: spent[T] is a unit of T's kind.
+type unitTag interface{ unit() Unit }
+
+// The unit tags, one per kind of unit.
+type (
+	sessionTag      struct{}
+	autocompleteTag struct{}
+	detailsTag      struct{}
+	reverseTag      struct{}
+	boundsTag       struct{}
+)
+
+func (sessionTag) unit() Unit      { return UnitSession }
+func (autocompleteTag) unit() Unit { return UnitAutocomplete }
+func (detailsTag) unit() Unit      { return UnitDetails }
+func (reverseTag) unit() Unit      { return UnitReverse }
+func (boundsTag) unit() Unit       { return UnitBounds }
+
+// spent is a unit of kind T reserved before a provider call (ADR-0039
+// Karar 7). Only reserve makes one, and each metered call takes the spent
+// unit of its own kind: a details call cannot ride on a session's unit nor
+// an autocomplete request on another's. The compiler holds the kinds
+// apart; that no code of this package builds a spent value by hand is
+// held by review (TestOnlyReserveSpends reads the source for it).
+type spent[T unitTag] struct{}
 
 // lookupLockClass is the first key of the lookup budget's advisory lock
 // (LockLookups): "KA".
 const lookupLockClass = 0x4b41
 
-// boundsTTL is how long the service area's bounds are kept in memory: a
-// day, far inside the 30 days the provider's terms allow for coordinates.
-// boundsRetry is how long a failed lookup is not tried again.
+// The service area's bounds in memory (ADR-0039 Karar 3).
 const (
-	boundsTTL   = 24 * time.Hour
-	boundsRetry = 10 * time.Minute
+	// boundsTTL is how long a city's bounds are kept: a day, far inside
+	// the 30 days the provider's terms allow for coordinates.
+	boundsTTL = 24 * time.Hour
+	// boundsRetry is the first wait after a failed lookup; it doubles with
+	// every failure in a row, up to boundsRetryMax.
+	boundsRetry    = 10 * time.Minute
+	boundsRetryMax = 24 * time.Hour
+	// boundsTimeout bounds one refresh, whatever the request that started
+	// it.
+	boundsTimeout = 20 * time.Second
 )
 
+// cityBox is one service area city's bounds as the cache holds them.
+type cityBox struct {
+	rect     *googlemaps.Rect
+	until    time.Time // rect is valid before it
+	retryAt  time.Time // after a failure, not tried before it
+	failures int
+}
+
 // search is the address search's state beyond the database: the service
-// area, its bounds cached in memory and the budget.
+// area, its cities' bounds in memory and the budget.
 type search struct {
 	s      *Service
 	places *Places
 	area   ServiceArea
 	budget Budget
 
-	mu          sync.Mutex
-	bounds      *googlemaps.Rect
-	boundsUntil time.Time
+	mu    sync.Mutex
+	boxes map[uuid.UUID]*cityBox
+	// flight is open while one refresh of the bounds runs: the others
+	// wait for it instead of starting their own.
+	flight chan struct{}
 }
 
 func newSearch(s *Service, cfg Config) *search {
 	b := cfg.Budget.withDefaults()
 	s.metrics.capped.Set(float64(b.PerDay))
-	return &search{s: s, places: cfg.Places, area: cfg.Area, budget: b}
+	return &search{s: s, places: cfg.Places, area: cfg.Area, budget: b, boxes: map[uuid.UUID]*cityBox{}}
 }
 
 func providerUnavailable() error {
@@ -78,14 +112,16 @@ func sessionNotFound() error {
 	return apperr.New(apperr.KindNotFound, CodeSessionNotFound)
 }
 
+// outsideServiceArea is a domain rule's refusal of a well-formed request:
+// 400, like EDUCATION_PERIOD_INVALID (style guide, ADR-0034).
 func outsideServiceArea() error {
-	return apperr.New(apperr.KindUnprocessable, CodeOutsideServiceArea)
+	return apperr.New(apperr.KindInvalid, CodeOutsideServiceArea)
 }
 
 // lookupLimited is ADDRESS_LOOKUP_LIMIT_REACHED with the wait until the
-// window frees a unit (0: none to give).
+// window frees a unit, never below RetryFloor.
 func lookupLimited(wait time.Duration) error {
-	return &limitError{err: apperr.New(apperr.KindRateLimited, CodeLookupLimitReached), wait: wait}
+	return &limitError{err: apperr.New(apperr.KindRateLimited, CodeLookupLimitReached), wait: max(wait, RetryFloor)}
 }
 
 // limitError carries the Retry-After of a spent budget.
@@ -98,11 +134,10 @@ func (e *limitError) Error() string { return e.err.Error() }
 
 func (e *limitError) Unwrap() error { return e.err }
 
-// RetryAfter is how long the caller of a refused lookup waits, when the
-// refusal says.
+// RetryAfter is how long the caller of a refused lookup waits.
 func RetryAfter(err error) (time.Duration, bool) {
 	var l *limitError
-	if errors.As(err, &l) && l.wait > 0 {
+	if errors.As(err, &l) {
 		return l.wait, true
 	}
 	return 0, false
@@ -118,58 +153,64 @@ func callerOf(p authn.UserPrincipal, client string) caller {
 	return caller{user: p.UserID, client: client}
 }
 
-// reserve spends one billed unit in q's transaction (ADR-0039 Karar 7),
-// under the budget's lock, in the order the buckets of ADR-0033 Karar 4
-// take: the caller's daily budget first, so a caller over it spends
+// reserve spends one unit of kind T in q's transaction (ADR-0039 Karar
+// 7), under the budget's lock, in the order the buckets of ADR-0033 Karar
+// 4 take: the caller's daily budget first, so a caller over it spends
 // nothing of the client address's budget, which a carrier NAT shares;
 // then the client address's hourly budget; then the service's daily cap,
 // which every unit counts the same, whatever the call (lesson of #21). A
 // refusal writes nothing. The service's own bounds lookup has no caller
 // and counts only on the cap.
 //
-// The caller's and the address's refusals are 429 with the wait; the
-// cap's is ADDRESS_PROVIDER_UNAVAILABLE: from the client's side the
-// provider is out for the day, and the remedy is the same, entering the
-// address by hand.
-func (x *search) reserve(ctx context.Context, q *addressdb.Queries, c *caller, unit Unit, now time.Time) (spent, error) {
+// Every refusal is 429 ADDRESS_LOOKUP_LIMIT_REACHED with the wait until
+// the window that refused frees a unit: the cap is the provider's bill,
+// not the provider's failure, so it is no 5xx.
+func reserve[T unitTag](ctx context.Context, x *search, q *addressdb.Queries, c *caller, now time.Time) (spent[T], error) {
+	var tag T
+	unit := tag.unit()
 	if err := q.LockLookups(ctx, lookupLockClass); err != nil {
-		return spent{}, fmt.Errorf("address: lock the lookup budget: %w", err)
+		return spent[T]{}, fmt.Errorf("address: lock the lookup budget: %w", err)
 	}
 	if c != nil {
 		since := now.Add(-UserWindow)
 		n, err := q.CountUserLookups(ctx, addressdb.CountUserLookupsParams{UserID: c.user, Since: since})
 		if err != nil {
-			return spent{}, fmt.Errorf("address: count the user's lookups: %w", err)
+			return spent[T]{}, fmt.Errorf("address: count the user's lookups: %w", err)
 		}
 		if n >= int64(x.budget.PerUser) {
 			x.s.metrics.reserved(unit, outcomeUserLimited)
 			oldest, err := q.OldestUserLookup(ctx, addressdb.OldestUserLookupParams{UserID: c.user, Since: since})
 			if err != nil {
-				return spent{}, fmt.Errorf("address: read the user's oldest lookup: %w", err)
+				return spent[T]{}, fmt.Errorf("address: read the user's oldest lookup: %w", err)
 			}
-			return spent{}, lookupLimited(oldest.Add(UserWindow).Sub(now))
+			return spent[T]{}, lookupLimited(oldest.Add(UserWindow).Sub(now))
 		}
 		since = now.Add(-ClientWindow)
 		n, err = q.CountClientLookups(ctx, addressdb.CountClientLookupsParams{ClientKey: c.client, Since: since})
 		if err != nil {
-			return spent{}, fmt.Errorf("address: count the client's lookups: %w", err)
+			return spent[T]{}, fmt.Errorf("address: count the client's lookups: %w", err)
 		}
 		if n >= int64(x.budget.PerClient) {
 			x.s.metrics.reserved(unit, outcomeClientLimited)
 			oldest, err := q.OldestClientLookup(ctx, addressdb.OldestClientLookupParams{ClientKey: c.client, Since: since})
 			if err != nil {
-				return spent{}, fmt.Errorf("address: read the client's oldest lookup: %w", err)
+				return spent[T]{}, fmt.Errorf("address: read the client's oldest lookup: %w", err)
 			}
-			return spent{}, lookupLimited(oldest.Add(ClientWindow).Sub(now))
+			return spent[T]{}, lookupLimited(oldest.Add(ClientWindow).Sub(now))
 		}
 	}
-	n, err := q.CountAllLookups(ctx, now.Add(-ServiceWindow))
+	since := now.Add(-ServiceWindow)
+	n, err := q.CountAllLookups(ctx, since)
 	if err != nil {
-		return spent{}, fmt.Errorf("address: count the lookups: %w", err)
+		return spent[T]{}, fmt.Errorf("address: count the lookups: %w", err)
 	}
 	if n >= int64(x.budget.PerDay) {
 		x.s.metrics.reserved(unit, outcomeCapped)
-		return spent{}, providerUnavailable()
+		oldest, err := q.OldestLookup(ctx, since)
+		if err != nil {
+			return spent[T]{}, fmt.Errorf("address: read the oldest lookup: %w", err)
+		}
+		return spent[T]{}, lookupLimited(oldest.Add(ServiceWindow).Sub(now))
 	}
 	row := addressdb.InsertLookupParams{ID: uuid.Must(uuid.NewV7()), Unit: string(unit), CreatedAt: now}
 	if c != nil {
@@ -178,17 +219,17 @@ func (x *search) reserve(ctx context.Context, q *addressdb.Queries, c *caller, u
 		row.ClientKey = &client
 	}
 	if err := q.InsertLookup(ctx, row); err != nil {
-		return spent{}, fmt.Errorf("address: spend the lookup: %w", err)
+		return spent[T]{}, fmt.Errorf("address: spend the lookup: %w", err)
 	}
 	x.s.metrics.reserved(unit, outcomeReserved)
-	return spent{unit: unit}, nil
+	return spent[T]{}, nil
 }
 
 // metered is the provider behind the budget: each call takes the spent
-// unit that pays for it, and counts its outcome. Without a provider (no
+// unit of its own kind, and counts its outcome. Without a provider (no
 // key in local and test) every call is ADDRESS_PROVIDER_UNAVAILABLE.
 type metered struct {
-	p       provider
+	p       Provider
 	metrics *Metrics
 	logger  *slog.Logger
 }
@@ -211,7 +252,8 @@ func (m metered) unwired(call string) error {
 	return providerUnavailable()
 }
 
-func (m metered) autocomplete(ctx context.Context, _ spent, input, token string, r *googlemaps.Rect) ([]googlemaps.Prediction, error) {
+func (m metered) autocomplete(ctx context.Context, _ spent[autocompleteTag], input, token string, r *googlemaps.Rect,
+) ([]googlemaps.Prediction, error) {
 	if m.p == nil {
 		return nil, m.unwired(callAutocomplete)
 	}
@@ -223,7 +265,7 @@ func (m metered) autocomplete(ctx context.Context, _ spent, input, token string,
 	return out, nil
 }
 
-func (m metered) details(ctx context.Context, _ spent, placeID, token string) (googlemaps.Place, error) {
+func (m metered) details(ctx context.Context, _ spent[detailsTag], placeID, token string) (googlemaps.Place, error) {
 	if m.p == nil {
 		return googlemaps.Place{}, m.unwired(callDetails)
 	}
@@ -235,7 +277,7 @@ func (m metered) details(ctx context.Context, _ spent, placeID, token string) (g
 	return out, nil
 }
 
-func (m metered) reverse(ctx context.Context, _ spent, at googlemaps.LatLng) (googlemaps.Place, error) {
+func (m metered) reverse(ctx context.Context, _ spent[reverseTag], at googlemaps.LatLng) (googlemaps.Place, error) {
 	if m.p == nil {
 		return googlemaps.Place{}, m.unwired(callReverse)
 	}
@@ -247,7 +289,7 @@ func (m metered) reverse(ctx context.Context, _ spent, at googlemaps.LatLng) (go
 	return out, nil
 }
 
-func (m metered) regionBounds(ctx context.Context, _ spent, name, country string) (googlemaps.Rect, error) {
+func (m metered) regionBounds(ctx context.Context, _ spent[boundsTag], name, country string) (googlemaps.Rect, error) {
 	if m.p == nil {
 		return googlemaps.Rect{}, m.unwired(callBounds)
 	}
@@ -270,10 +312,10 @@ type Session struct {
 }
 
 // StartSession opens a search session of the caller (ADR-0029 Karar 8):
-// one billed unit of the budget, the session's, reserved with the row.
-// The provider's session token is a random UUIDv4, tied to nothing of the
-// caller (ADR-0039 Karar 9). Without a provider the start is refused at
-// once, before it spends anything.
+// one unit of the budget, reserved with the row. The provider's session
+// token is a random UUIDv4, tied to nothing of the caller (ADR-0039 Karar
+// 9). Without a provider the start is refused at once, before it spends
+// anything.
 func (s *Service) StartSession(ctx context.Context, p authn.UserPrincipal, client string) (Session, error) {
 	if s.provider == nil {
 		return Session{}, s.metered().unwired(callAutocomplete)
@@ -283,7 +325,7 @@ func (s *Service) StartSession(ctx context.Context, p authn.UserPrincipal, clien
 	c := callerOf(p, client)
 	err := s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := addressdb.New(tx)
-		if _, err := s.search.reserve(ctx, q, &c, UnitSession, now); err != nil {
+		if _, err := reserve[sessionTag](ctx, s.search, q, &c, now); err != nil {
 			return err
 		}
 		err := q.InsertSession(ctx, addressdb.InsertSessionParams{
@@ -314,36 +356,38 @@ const candidatePrefix = "c_"
 
 // openSession locks one of the caller's sessions and checks it is alive:
 // another user's, an expired one and one a resolve ended are the same 404
-// (MED-010). The checks come before any budget is counted, so a refusal
-// for the budget never tells a session apart from a missing one.
-func openSession(ctx context.Context, q *addressdb.Queries, userID, id uuid.UUID, now time.Time) (addressdb.LockSessionRow, spent, error) {
+// (MED-010). It runs before any budget is counted, so a refusal for the
+// budget never tells a session apart from a missing one.
+func openSession(ctx context.Context, q *addressdb.Queries, userID, id uuid.UUID, now time.Time) (addressdb.LockSessionRow, error) {
 	row, err := q.LockSession(ctx, addressdb.LockSessionParams{ID: id, UserID: userID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return addressdb.LockSessionRow{}, spent{}, sessionNotFound()
+		return addressdb.LockSessionRow{}, sessionNotFound()
 	}
 	if err != nil {
-		return addressdb.LockSessionRow{}, spent{}, fmt.Errorf("address: lock the session: %w", err)
+		return addressdb.LockSessionRow{}, fmt.Errorf("address: lock the session: %w", err)
 	}
 	if !now.Before(row.ExpiresAt) || row.ResolvedAt != nil {
-		return addressdb.LockSessionRow{}, spent{}, sessionNotFound()
+		return addressdb.LockSessionRow{}, sessionNotFound()
 	}
-	return row, spent{unit: UnitSession}, nil
+	return row, nil
 }
 
 // Suggest returns the provider's suggestions for query in the caller's
-// session. A query shorter than MinQueryRunes once trimmed reaches no one
-// and gets none. A session makes at most SuggestionRequestsPerSession
-// requests; they are billed with the session (its unit), and the bound is
-// what an abandoned session can cost. The place ids are kept in the
+// session. A query shorter than MinQueryRunes once trimmed reaches no one,
+// spends nothing and gets none. Every request that reaches the provider is
+// a unit of the budget (the provider bills it), and a session makes at
+// most SuggestionRequestsPerSession of them; past that the caller opens a
+// new session (429 with RetryFloor). The place ids are kept in the
 // session, the candidate is their index; the display lines are not kept.
-func (s *Service) Suggest(ctx context.Context, p authn.UserPrincipal, sessionID uuid.UUID, query string) ([]Suggestion, error) {
+func (s *Service) Suggest(ctx context.Context, p authn.UserPrincipal, sessionID uuid.UUID, query, client string) ([]Suggestion, error) {
 	query = strings.TrimSpace(query)
 	now := s.clock.Now()
+	c := callerOf(p, client)
 	var token uuid.UUID
-	var paid spent
+	var paid *spent[autocompleteTag]
 	err := s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := addressdb.New(tx)
-		row, sp, err := openSession(ctx, q, p.UserID, sessionID, now)
+		row, err := openSession(ctx, q, p.UserID, sessionID, now)
 		if err != nil {
 			return err
 		}
@@ -351,21 +395,25 @@ func (s *Service) Suggest(ctx context.Context, p authn.UserPrincipal, sessionID 
 			return nil
 		}
 		if row.SuggestionRequests >= SuggestionRequestsPerSession {
-			return lookupLimited(0)
+			return lookupLimited(RetryFloor)
+		}
+		sp, err := reserve[autocompleteTag](ctx, s.search, q, &c, now)
+		if err != nil {
+			return err
 		}
 		if err := q.CountSuggestionRequest(ctx, sessionID); err != nil {
 			return fmt.Errorf("address: count the request: %w", err)
 		}
-		token, paid = row.ProviderToken, sp
+		token, paid = row.ProviderToken, &sp
 		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("address: suggest: %w", err)
 	}
-	if paid.unit == "" {
+	if paid == nil {
 		return []Suggestion{}, nil
 	}
-	predictions, err := s.metered().autocomplete(ctx, paid, query, token.String(), s.search.restriction(ctx, now))
+	predictions, err := s.metered().autocomplete(ctx, *paid, query, token.String(), s.search.restriction(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -395,19 +443,19 @@ func (s *Service) Suggest(ctx context.Context, p authn.UserPrincipal, sessionID 
 
 // Resolve resolves a candidate of the caller's session into our
 // components. The session ends here, as the provider's does with the
-// place details call; the details call is one billed unit. Should the
-// provider call fail, the end is taken back so the caller may try again
-// (the unit stays spent). A candidate the session never offered is the
-// session's 404: a candidate id means nothing outside its session.
+// place details call; the details call is one unit. Should the provider
+// call fail, the end is taken back so the caller may try again (the unit
+// stays spent). A candidate the session never offered is the session's
+// 404: a candidate id means nothing outside its session.
 func (s *Service) Resolve(ctx context.Context, p authn.UserPrincipal, sessionID uuid.UUID, candidateID, client string) (Resolved, error) {
 	now := s.clock.Now()
 	c := callerOf(p, client)
 	var placeID string
 	var token uuid.UUID
-	var paid spent
+	var paid spent[detailsTag]
 	err := s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
 		q := addressdb.New(tx)
-		row, _, err := openSession(ctx, q, p.UserID, sessionID, now)
+		row, err := openSession(ctx, q, p.UserID, sessionID, now)
 		if err != nil {
 			return err
 		}
@@ -415,7 +463,7 @@ func (s *Service) Resolve(ctx context.Context, p authn.UserPrincipal, sessionID 
 		if !ok {
 			return sessionNotFound()
 		}
-		sp, err := s.search.reserve(ctx, q, &c, UnitDetails, now)
+		sp, err := reserve[detailsTag](ctx, s.search, q, &c, now)
 		if err != nil {
 			return err
 		}
@@ -443,38 +491,44 @@ func (s *Service) Resolve(ctx context.Context, p authn.UserPrincipal, sessionID 
 	if place.Location != nil {
 		at = &Point{Lat: place.Location.Lat, Lng: place.Location.Lng}
 	}
-	return s.search.resolved(place, at)
+	return s.search.resolved(place, at, SourceAutocomplete)
 }
 
-// Reverse turns the caller's map pin into our components: one billed
-// unit, and only the coordinate goes to the provider (ADR-0039 Karar 9).
-// The point answered is the caller's pin, not the provider's geometry: the
-// pin is the caller's own datum. A point no address matches, or one
-// outside the service area's cities, is ADDRESS_OUTSIDE_SERVICE_AREA.
+// Reverse turns the caller's map pin into our components: one unit, and
+// only the coordinate goes to the provider (ADR-0039 Karar 9). A point
+// outside the service area's known bounds goes nowhere and spends nothing
+// (Java's IstanbulServiceArea.contains before the call). The point
+// answered is the caller's pin, not the provider's geometry: the pin is
+// the caller's own datum. A point no address matches, or one outside the
+// service area's cities, is ADDRESS_OUTSIDE_SERVICE_AREA.
 func (s *Service) Reverse(ctx context.Context, p authn.UserPrincipal, at Point, client string) (Resolved, error) {
 	if s.provider == nil {
 		return Resolved{}, s.metered().unwired(callReverse)
 	}
+	pin := googlemaps.LatLng{Lat: at.Lat, Lng: at.Lng}
+	if box := s.search.restriction(ctx); box != nil && !box.Contains(pin) {
+		return Resolved{}, outsideServiceArea()
+	}
 	now := s.clock.Now()
 	c := callerOf(p, client)
-	var paid spent
+	var paid spent[reverseTag]
 	err := s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
-		sp, err := s.search.reserve(ctx, addressdb.New(tx), &c, UnitReverse, now)
+		sp, err := reserve[reverseTag](ctx, s.search, addressdb.New(tx), &c, now)
 		paid = sp
 		return err
 	})
 	if err != nil {
 		return Resolved{}, fmt.Errorf("address: reverse: %w", err)
 	}
-	place, err := s.metered().reverse(ctx, paid, googlemaps.LatLng{Lat: at.Lat, Lng: at.Lng})
+	place, err := s.metered().reverse(ctx, paid, pin)
 	if errors.Is(err, googlemaps.ErrNoResult) {
 		return Resolved{}, outsideServiceArea()
 	}
 	if err != nil {
 		return Resolved{}, err
 	}
-	pin := at
-	return s.search.resolved(place, &pin)
+	own := at
+	return s.search.resolved(place, &own, SourceReverse)
 }
 
 // candidateIndex reads "c_<n>" with n below held.
@@ -504,8 +558,9 @@ func candidateIndex(id string, held int) (int, bool) {
 // administrative_area_level_1 or locality, the district from
 // administrative_area_level_2 or sublocality_level_1, the neighborhood
 // from neighborhood, administrative_area_level_4, sublocality_level_2 or
-// _3, else sublocality_level_1 when it is not the district.
-func (x *search) resolved(place googlemaps.Place, at *Point) (Resolved, error) {
+// _3, else sublocality_level_1 when it is not the district; the site name
+// from premise.
+func (x *search) resolved(place googlemaps.Place, at *Point, source Source) (Resolved, error) {
 	long, short := components(place.Components)
 	if !strings.EqualFold(first(short, "country"), x.area.Country()) {
 		return Resolved{}, outsideServiceArea()
@@ -515,7 +570,7 @@ func (x *search) resolved(place googlemaps.Place, at *Point) (Resolved, error) {
 		return Resolved{}, outsideServiceArea()
 	}
 	district := first(long, "administrative_area_level_2", "sublocality_level_1")
-	out := Resolved{CityID: cityID, Point: at}
+	out := Resolved{CityID: cityID, Point: at, Source: source}
 	if id, ok := x.places.District(cityID, district); ok {
 		out.DistrictID = &id
 	}
@@ -528,6 +583,7 @@ func (x *search) resolved(place googlemaps.Place, at *Point) (Resolved, error) {
 	out.Neighborhood = clip(neighborhoodName(hood), maxNeighborhood)
 	out.Thoroughfare = clip(first(long, "route"), maxThoroughfare)
 	out.BuildingNumber = clip(first(long, "street_number"), maxBuildingNumber)
+	out.SiteName = clip(first(long, "premise"), maxSiteName)
 	out.PostalCode = postalCode(first(long, "postal_code"))
 	if place.ID != "" {
 		out.PlaceID = clip(place.ID, maxPlaceID)
@@ -561,43 +617,121 @@ func first(m map[string]string, types ...string) string {
 	return ""
 }
 
-// restriction is the autocomplete's location restriction: the union of
-// the service area cities' bounds, looked up from the provider by the
-// cities' reference names and kept a day (ADR-0039 Karar 3). Each lookup
-// is a billed unit on the service's cap. While a city's bounds cannot be
-// had the restriction is nil (Türkiye only) and the lookup is tried again
-// after boundsRetry; the resolve's city check stays the authority either
-// way.
-func (x *search) restriction(ctx context.Context, now time.Time) *googlemaps.Rect {
+// restriction is the service area's rectangle: the union of its cities'
+// bounds, looked up from the provider by the cities' reference names and
+// kept per city for a day (ADR-0039 Karar 3). It is nil (Türkiye only)
+// while any city's bounds cannot be had; the resolve's city check stays
+// the authority either way.
+//
+// A refresh is single-flight: the first caller that finds a city due runs
+// it, on a context of its own that the request's cancellation does not
+// end, and the others wait for it (or for their own deadline). No lock is
+// held while the provider is called. Each lookup is a unit of the
+// service's cap; a city whose lookup fails is not tried again before its
+// backoff (boundsRetry, doubling up to a day), so a city the provider
+// never answers spends one unit per backoff, not one per request, and the
+// other cities keep their bounds.
+func (x *search) restriction(ctx context.Context) *googlemaps.Rect {
+	x.mu.Lock()
+	now := x.s.clock.Now()
+	due := x.due(now)
+	if len(due) == 0 {
+		defer x.mu.Unlock()
+		return x.union(now)
+	}
+	ch, leader := x.flight, x.flight == nil
+	if leader {
+		ch = make(chan struct{})
+		x.flight = ch
+	}
+	x.mu.Unlock()
+	if leader {
+		refreshCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), boundsTimeout)
+		x.refresh(refreshCtx, due)
+		cancel()
+		x.mu.Lock()
+		x.flight = nil
+		close(ch)
+		x.mu.Unlock()
+	} else {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+		}
+	}
 	x.mu.Lock()
 	defer x.mu.Unlock()
-	if now.Before(x.boundsUntil) {
-		return x.bounds
-	}
-	var union *googlemaps.Rect
+	return x.union(x.s.clock.Now())
+}
+
+// due lists the cities whose bounds are missing or stale and not in a
+// backoff; the caller holds x.mu.
+func (x *search) due(now time.Time) []uuid.UUID {
+	var out []uuid.UUID
 	for _, id := range x.area.Cities() {
-		name, country, _ := x.places.CityName(id)
-		r, err := x.cityBounds(ctx, titleTR(name), country, now)
-		if err != nil {
-			x.bounds, x.boundsUntil = nil, now.Add(boundsRetry)
+		b := x.boxes[id]
+		if b == nil || ((b.rect == nil || !now.Before(b.until)) && !now.Before(b.retryAt)) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// union is the union of the cities' valid bounds, nil when one has none;
+// the caller holds x.mu.
+func (x *search) union(now time.Time) *googlemaps.Rect {
+	var out *googlemaps.Rect
+	for _, id := range x.area.Cities() {
+		b := x.boxes[id]
+		if b == nil || b.rect == nil || !now.Before(b.until) {
 			return nil
 		}
-		if union == nil {
-			union = &r
-		} else {
-			u := union.Union(r)
-			union = &u
+		r := *b.rect
+		if out != nil {
+			r = out.Union(r)
 		}
+		out = &r
 	}
-	x.bounds, x.boundsUntil = union, now.Add(boundsTTL)
-	return union
+	return out
+}
+
+// refresh looks the due cities' bounds up, one unit each, and records
+// each outcome under x.mu.
+func (x *search) refresh(ctx context.Context, due []uuid.UUID) {
+	for _, id := range due {
+		name, country, _ := x.places.CityName(id)
+		r, err := x.cityBounds(ctx, titleTR(name), country)
+		now := x.s.clock.Now()
+		x.mu.Lock()
+		b := x.boxes[id]
+		if b == nil {
+			b = &cityBox{}
+			x.boxes[id] = b
+		}
+		if err != nil {
+			b.failures++
+			b.retryAt = now.Add(backoff(b.failures))
+		} else {
+			b.rect, b.until, b.failures, b.retryAt = &r, now.Add(boundsTTL), 0, time.Time{}
+		}
+		x.mu.Unlock()
+	}
+}
+
+// backoff is the wait after the n-th failure in a row.
+func backoff(n int) time.Duration {
+	d := boundsRetry
+	for i := 1; i < n && d < boundsRetryMax; i++ {
+		d *= 2
+	}
+	return min(d, boundsRetryMax)
 }
 
 // cityBounds reserves a bounds unit and looks the city up.
-func (x *search) cityBounds(ctx context.Context, name, country string, now time.Time) (googlemaps.Rect, error) {
-	var paid spent
+func (x *search) cityBounds(ctx context.Context, name, country string) (googlemaps.Rect, error) {
+	var paid spent[boundsTag]
 	err := x.s.db.InTx(ctx, func(ctx context.Context, tx db.Querier) error {
-		sp, err := x.reserve(ctx, addressdb.New(tx), nil, UnitBounds, now)
+		sp, err := reserve[boundsTag](ctx, x, addressdb.New(tx), nil, x.s.clock.Now())
 		paid = sp
 		return err
 	})

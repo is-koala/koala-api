@@ -11,14 +11,15 @@ import (
 
 // Reference rows of db/referencedata.
 var (
-	istanbul = uuid.MustParse("e3eecc83-7fa1-4405-bc61-04dd36656ebd")
-	kadikoy  = uuid.MustParse("464757c9-1827-499d-8b58-562758181579")
-	sisli    = uuid.MustParse("3f3a88b0-947d-4bd9-9fc0-1fe45f5c27fb")
-	fatih    = uuid.MustParse("a058819e-e2db-41d9-b7ae-245f1ec7b8b9")
-	ankara   = uuid.MustParse("453a1765-7a7f-4f30-b6e7-7922b5eb9883")
-	kazan    = uuid.MustParse("81c38c22-108f-400a-9cf2-cfb20f06645a")
-	adiyaman = uuid.MustParse("94b50acc-2e84-4850-b2ff-b5a0e661bee6")
-	merkez   = uuid.MustParse("95bc3fc8-1260-4c44-9498-b3ca06367da4")
+	istanbul   = uuid.MustParse("e3eecc83-7fa1-4405-bc61-04dd36656ebd")
+	kadikoy    = uuid.MustParse("464757c9-1827-499d-8b58-562758181579")
+	sisli      = uuid.MustParse("3f3a88b0-947d-4bd9-9fc0-1fe45f5c27fb")
+	fatih      = uuid.MustParse("a058819e-e2db-41d9-b7ae-245f1ec7b8b9")
+	eyupsultan = uuid.MustParse("093e0a2d-8d88-4f86-a844-86d2963b6909")
+	ankara     = uuid.MustParse("453a1765-7a7f-4f30-b6e7-7922b5eb9883")
+	kazan      = uuid.MustParse("81c38c22-108f-400a-9cf2-cfb20f06645a")
+	adiyaman   = uuid.MustParse("94b50acc-2e84-4850-b2ff-b5a0e661bee6")
+	merkez     = uuid.MustParse("95bc3fc8-1260-4c44-9498-b3ca06367da4")
 )
 
 func places(t *testing.T) *address.Places {
@@ -67,7 +68,7 @@ func TestPlacesMatchTheProvidersNames(t *testing.T) {
 	}{
 		{istanbul, "Kadıköy", kadikoy}, {istanbul, "KADIKÖY", kadikoy}, {istanbul, "Kadikoy", kadikoy},
 		{istanbul, "Şişli", sisli}, {istanbul, "Sisli", sisli}, {istanbul, "Şişli İlçesi", sisli},
-		{istanbul, "Eminönü", fatih}, {ankara, "Kazan", kazan},
+		{istanbul, "Eminönü", fatih}, {ankara, "Kazan", kazan}, {istanbul, "Eyüp", eyupsultan},
 		{adiyaman, "Merkez", merkez}, {adiyaman, "Adıyaman", merkez}, {adiyaman, "Adıyaman Merkez", merkez},
 	} {
 		if got, ok := p.District(tt.city, tt.district); !ok || got != tt.want {
@@ -119,6 +120,10 @@ func TestDisplayLine(t *testing.T) {
 	}
 	if got := a.DisplayLine(); got != "Moda Caddesi 12/7, Caferağa, Kadıköy, İstanbul" {
 		t.Errorf("line = %q", got)
+	}
+	a.SiteName, a.Block = s("Moda Konutları"), s("B")
+	if got := a.DisplayLine(); got != "Moda Caddesi 12/7, Moda Konutları B Blok, Caferağa, Kadıköy, İstanbul" {
+		t.Errorf("line with a site = %q", got)
 	}
 	a.Lines = address.Lines{}
 	a.City.Name, a.District.Name = "AFYONKARAHİSAR", "MERKEZ"

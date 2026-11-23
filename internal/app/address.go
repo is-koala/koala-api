@@ -20,14 +20,35 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/softdelete"
 )
 
-// wireAddress builds the address module (ADR-0039): the map provider from
-// cfg's driver and key, the service area checked against the reference
-// data the binary carries (an unknown city stops the server), and the
-// lookup budget. Without a key in local and test the module still serves:
-// the search answers ADDRESS_PROVIDER_UNAVAILABLE and the start says why
-// (config.ServeMapsErrors refuses that in staging and production).
+// wireAddress builds the address module (ADR-0039) with the map provider
+// cfg's driver and key name: the Google client, the canned driver, or none
+// (local and test without a key: the search answers
+// ADDRESS_PROVIDER_UNAVAILABLE and the start says why;
+// config.ServeMapsErrors refuses that in staging and production).
 func wireAddress(ctx context.Context, cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
 	reg prometheus.Registerer,
+) (*address.Service, *address.HTTP, error) {
+	switch {
+	case cfg.Maps.Driver == config.MapsDriverFake:
+		logger.WarnContext(ctx, "map provider is the fake driver; address search answers canned places")
+		return wireAddressWith(cfg, database, clk, logger, reg, googlemaps.Canned{})
+	case cfg.Maps.APIKey != "":
+		client, err := googlemaps.New(googlemaps.Config{APIKey: cfg.Maps.APIKey.Reveal()})
+		if err != nil {
+			return nil, nil, fmt.Errorf("wire address: %w", err)
+		}
+		return wireAddressWith(cfg, database, clk, logger, reg, client)
+	default:
+		logger.WarnContext(ctx, "map provider not configured; address search answers 502")
+		return wireAddressWith(cfg, database, clk, logger, reg, nil)
+	}
+}
+
+// wireAddressWith builds the address module on provider p (nil: none):
+// the service area checked against the reference data the binary carries
+// (an unknown city stops the server) and the lookup budget.
+func wireAddressWith(cfg config.Config, database *db.DB, clk clock.Clock, logger *slog.Logger,
+	reg prometheus.Registerer, p address.Provider,
 ) (*address.Service, *address.HTTP, error) {
 	data, err := referencedata.Load()
 	if err != nil {
@@ -52,24 +73,8 @@ func wireAddress(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	budget := address.Budget{
 		PerUser: cfg.Maps.LookupsPerUserDay, PerClient: cfg.Maps.LookupsPerIPHour, PerDay: cfg.Maps.LookupsPerDay,
 	}
-	var svc *address.Service
-	switch {
-	case cfg.Maps.Driver == config.MapsDriverFake:
-		logger.WarnContext(ctx, "map provider is the fake driver; address search answers canned places")
-		svc, err = address.NewService(database, googlemaps.Canned{}, softdelete.New(catalog), clk,
-			address.Config{Places: places, Area: area, Budget: budget}, logger, metrics)
-	case cfg.Maps.APIKey != "":
-		client, cerr := googlemaps.New(googlemaps.Config{APIKey: cfg.Maps.APIKey.Reveal()})
-		if cerr != nil {
-			return nil, nil, fmt.Errorf("wire address: %w", cerr)
-		}
-		svc, err = address.NewService(database, client, softdelete.New(catalog), clk,
-			address.Config{Places: places, Area: area, Budget: budget}, logger, metrics)
-	default:
-		logger.WarnContext(ctx, "map provider not configured; address search answers 502")
-		svc, err = address.NewService(database, nil, softdelete.New(catalog), clk,
-			address.Config{Places: places, Area: area, Budget: budget}, logger, metrics)
-	}
+	svc, err := address.NewService(database, p, softdelete.New(catalog), clk,
+		address.Config{Places: places, Area: area, Budget: budget}, logger, metrics)
 	if err != nil {
 		return nil, nil, fmt.Errorf("wire address: %w", err)
 	}

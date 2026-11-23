@@ -53,7 +53,7 @@ func NewMetrics(reg prometheus.Registerer) (*Metrics, error) {
 	m := &Metrics{
 		lookups: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: MetricLookups,
-			Help: "Address lookup budget reservations by billed unit (SESSION, DETAILS, REVERSE, BOUNDS) and " +
+			Help: "Address lookup budget reservations by unit (SESSION, AUTOCOMPLETE, DETAILS, REVERSE, BOUNDS) and " +
 				"outcome: reserved, user_limited, client_limited, capped (the service's daily cap).",
 		}, []string{"unit", "outcome"}),
 		capped: prometheus.NewGauge(prometheus.GaugeOpts{
@@ -70,7 +70,7 @@ func NewMetrics(reg prometheus.Registerer) (*Metrics, error) {
 			return nil, fmt.Errorf("address metrics: %w", err)
 		}
 	}
-	for _, u := range []Unit{UnitSession, UnitDetails, UnitReverse, UnitBounds} {
+	for _, u := range []Unit{UnitSession, UnitAutocomplete, UnitDetails, UnitReverse, UnitBounds} {
 		for _, o := range []string{outcomeReserved, outcomeUserLimited, outcomeClientLimited, outcomeCapped} {
 			m.lookups.WithLabelValues(string(u), o)
 		}
