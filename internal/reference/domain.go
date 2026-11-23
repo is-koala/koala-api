@@ -18,9 +18,9 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/apperr"
 )
 
-// CodeReferenceItemNotFound: the parent of a list does not exist or is
-// retired. The education records answer the same code for a reference
-// they cannot name (internal/users).
+// CodeReferenceItemNotFound is the answer to a list whose parent does not
+// exist or is retired. The education records answer the same code for a
+// reference they cannot name (internal/users).
 const CodeReferenceItemNotFound apperr.Code = "REFERENCE_ITEM_NOT_FOUND"
 
 // Codes lists every code this package defines, for the contract test.

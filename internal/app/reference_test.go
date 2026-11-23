@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -33,7 +34,7 @@ func TestReferenceHasNoWriteOperation(t *testing.T) {
 				continue
 			}
 			where := method + " " + path
-			if !tagged || !under || method != "GET" {
+			if !tagged || !under || method != http.MethodGet {
 				t.Errorf("MED-012: %s: the reference data has only GET operations under /v1/reference, tagged reference", where)
 				continue
 			}

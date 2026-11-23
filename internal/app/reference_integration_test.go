@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/is-koala/koala-api/db/referencedata"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/dbtest"
 	"github.com/is-koala/koala-api/internal/reference"
@@ -232,8 +233,11 @@ func summaryOf(t *testing.T, stdout string) map[string][4]int {
 	out := map[string][4]int{}
 	for _, line := range strings.Split(stdout, "\n") {
 		f := strings.Fields(line)
-		if len(f) != 5 || f[0] == "TABLE" {
+		if len(f) == 0 || !slices.Contains(referencedata.Tables(), f[0]) {
 			continue
+		}
+		if len(f) != 5 {
+			t.Fatalf("summary line %q: want a table and four counts", line)
 		}
 		var n [4]int
 		for i := range n {
@@ -288,7 +292,11 @@ func TestReferenceSyncCommand(t *testing.T) {
 		return summaryOf(t, stdout)
 	}
 
-	s := syncCmd("reference", "sync", "--dry-run")
+	code, stdout, _ := run([]string{"reference", "sync", "--dry-run"}, environ...)
+	if code != ExitOK || !strings.Contains(stdout, "dry run: nothing was written") {
+		t.Fatalf("dry run: exit %d, stdout %s; want the dry run said", code, stdout)
+	}
+	s := summaryOf(t, stdout)
 	if s["universities"] != [4]int{0, 1, 0, 222} || s["departments"] != [4]int{0, 1, 0, 11249} || s["districts"] != [4]int{0, 0, 0, 995} {
 		t.Fatalf("dry run = %v", s)
 	}
