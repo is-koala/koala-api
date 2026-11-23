@@ -228,10 +228,11 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/AddressManager.java#createAddress"
       - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#search"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; adres tabloları ve sağlayıcı istemcisi Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/app.TestAddressesOverHTTP
+      - internal/app.TestAddressSearchOverHTTP
+      - internal/address.TestResolvedComponents
+      - internal/app.TestAddressProofs
 
   - id: MED-009
     priority: P0
@@ -254,10 +255,15 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/AddressManager.java#createAddress"
       - "src/main/java/com/exskylab/koala/core/helpers/AddressFormatter.java:1-60"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; adres projeksiyonları Faz 2'nin uygulama PR'ında, ilan tarafı Faz 3'te bağlanır."
+    go_test:
+      - internal/address.TestRender
+      - internal/app.TestAddressesOverHTTP
+    partial:
+      phase: 3
+      reason: >-
+        Saklamanın tam olduğu, sahibin tam gördüğü ve yaklaşık görünümün tek fonksiyonda (Point.Render)
+        üretildiği bağlı (ADR-0039 Karar 4). Şirket adresi, bireysel ilan ve harita görünümleri o
+        modüllerle gelir ve Render'a kendi hassasiyetlerini verir.
 
   - id: MED-010
     priority: P0
@@ -276,10 +282,8 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#search"
       - "docs/faz0/authz-envanteri.csv:AZ-114"
-    go_test: null
-    deferred:
-      phase: 2
-      reason: "Sözleşme donduruldu; adres arama handler'ları Faz 2'nin uygulama PR'ında gelir (ADR-0029 §1)."
+    go_test:
+      - internal/app.TestAddressSearchOverHTTP
 
   - id: MED-011
     priority: P1
@@ -349,7 +353,11 @@ scenarios:
     source:
       - "src/main/java/com/exskylab/koala/webAPI/AddressSearchController.java:91"
       - "src/main/java/com/exskylab/koala/business/concretes/AddressSearchManager.java#reverse"
-    go_test: null
+    go_test:
+      - internal/app.TestServiceAreaIsTheConfiguredCities
+      - internal/app.TestSearchWithoutProvider
+      - internal/app.TestProviderFailureOverHTTP
+      - internal/app.TestReverseOutsideTheBoundsSpendsNothing
 
   - id: MED-014
     priority: P0

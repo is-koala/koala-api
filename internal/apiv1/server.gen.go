@@ -18,6 +18,27 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AddressSource.
+const (
+	AddressSourceAUTOCOMPLETE   AddressSource = "AUTOCOMPLETE"
+	AddressSourceMANUAL         AddressSource = "MANUAL"
+	AddressSourceREVERSEGEOCODE AddressSource = "REVERSE_GEOCODE"
+)
+
+// Valid indicates whether the value is a known member of the AddressSource enum.
+func (e AddressSource) Valid() bool {
+	switch e {
+	case AddressSourceAUTOCOMPLETE:
+		return true
+	case AddressSourceMANUAL:
+		return true
+	case AddressSourceREVERSEGEOCODE:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CompanyApprovalStatus.
 const (
 	CompanyApprovalStatusAPPROVED CompanyApprovalStatus = "APPROVED"
@@ -455,6 +476,11 @@ type Address struct {
 	// Examples: Eczanenin yanındaki giriş.
 	AdditionalDirections *string `json:"additionalDirections"`
 
+	// Block Blok.
+	//
+	// Examples: B
+	Block *string `json:"block"`
+
 	// BuildingName Bina adı.
 	//
 	// Examples: Moda Apartmanı
@@ -504,6 +530,24 @@ type Address struct {
 	// Examples: 34710
 	PostalCode *string `json:"postalCode"`
 
+	// ProviderPlaceID Sağlayıcının yer kimliği; sağlayıcıdan gelmemiş adreste `null`.
+	//
+	// Examples: ChIJAbCdEfGhIjKlMnOpQrStUv
+	ProviderPlaceID *string `json:"providerPlaceId"`
+
+	// SiteName Site adı.
+	//
+	// Examples: Moda Konutları
+	SiteName *string `json:"siteName"`
+
+	// Source Adres bileşenlerinin ve koordinatın kaynağı (ADR-0039 Karar 10). `MANUAL` kullanıcının
+	// kendi girişidir, koordinatı da kendi pinidir. `AUTOCOMPLETE` bir öneri çözmesinden
+	// gelir, bileşenleri ve koordinatı sağlayıcınındır. `REVERSE_GEOCODE` ters aramadan gelir,
+	// bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. İstemci kaynağı beyan
+	// etmez: sunucu onu çözmenin ya da ters aramanın kanıtından (`proof`) ve saklı adresten
+	// belirler.
+	Source AddressSource `json:"source"`
+
 	// Thoroughfare Cadde ya da sokak.
 	//
 	// Examples: Moda Caddesi
@@ -523,6 +567,11 @@ type AddressInput struct {
 	//
 	// Examples: Eczanenin yanındaki giriş.
 	AdditionalDirections *string `json:"additionalDirections,omitempty"`
+
+	// Block Blok.
+	//
+	// Examples: B
+	Block *string `json:"block,omitempty"`
 
 	// BuildingName Bina adı.
 	//
@@ -557,17 +606,30 @@ type AddressInput struct {
 	// Examples: Caferağa
 	Neighborhood *string `json:"neighborhood,omitempty"`
 
-	// PostalCode Posta kodu.
+	// PostalCode Posta kodu; beş rakam.
 	//
 	// Examples: 34710
 	PostalCode *string `json:"postalCode,omitempty"`
 
-	// ProviderPlaceID Sağlayıcının yer kimliği. Saklanan tek sağlayıcı verisidir; kalıcı değil,
-	// yenilenebilir bir işaretçi olarak tutulur (MED-008).
+	// Proof Çözmenin ya da ters aramanın verdiği kanıt (`ResolvedAddress.proof`). Adresin
+	// sağlayıcıdan geldiğini sunucuya bu kanıtlar; kaynak beyan edilmez (ADR-0039
+	// Karar 10).
+	//
+	//
+	// Examples: eyJ2IjoxfQ.c2lnbmF0dXJl
+	Proof *string `json:"proof,omitempty"`
+
+	// ProviderPlaceID Sağlayıcının yer kimliği. Kalıcı değil, yenilenebilir bir işaretçi olarak tutulur
+	// (MED-008).
 	//
 	//
 	// Examples: ChIJAbCdEfGhIjKlMnOpQrStUv
 	ProviderPlaceID *string `json:"providerPlaceId,omitempty"`
+
+	// SiteName Site adı.
+	//
+	// Examples: Moda Konutları
+	SiteName *string `json:"siteName,omitempty"`
 
 	// Thoroughfare Cadde ya da sokak.
 	//
@@ -607,6 +669,14 @@ type AddressSearchSession struct {
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a70
 	ID openapi_types.UUID `json:"id"`
 }
+
+// AddressSource Adres bileşenlerinin ve koordinatın kaynağı (ADR-0039 Karar 10). `MANUAL` kullanıcının
+// kendi girişidir, koordinatı da kendi pinidir. `AUTOCOMPLETE` bir öneri çözmesinden
+// gelir, bileşenleri ve koordinatı sağlayıcınındır. `REVERSE_GEOCODE` ters aramadan gelir,
+// bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. İstemci kaynağı beyan
+// etmez: sunucu onu çözmenin ya da ters aramanın kanıtından (`proof`) ve saklı adresten
+// belirler.
+type AddressSource string
 
 // AddressSuggestion Bir adres önerisi. `candidateId` oturum içinde geçerlidir ve çözme operasyonuna
 // verilir. Sağlayıcının biçimlendirdiği metin önbelleğe alınmaz ve kalıcılaşmaz
@@ -1612,9 +1682,11 @@ type ReplaceCompanyGalleryRequest struct {
 	Items []CompanyGalleryItemInput `json:"items"`
 }
 
-// ResolvedAddress Bir önerinin bizim bileşenlerimize çözülmüş hâli. İstemci bunu olduğu gibi
-// `POST /v1/me/addresses`'e verebilir. Sağlayıcının biçimlendirdiği metin ve ham
-// yanıtı dönmez (MED-008).
+// ResolvedAddress Bir önerinin ya da harita konumunun bizim bileşenlerimize çözülmüş hâli. `districtId`
+// doluysa istemci bunu `proof` ve koordinatla birlikte `POST /v1/me/addresses`'e
+// verebilir; `null` ise kullanıcı önce ilçeyi seçer. Sağlayıcının biçimlendirdiği metin
+// ve ham yanıtı dönmez (MED-008). Koordinat çözmede sağlayıcının konumu, ters aramada
+// çağıranın kendi pinidir; ikisi de sahibine tam verilir.
 type ResolvedAddress struct {
 	// BuildingNumber Bina numarası.
 	//
@@ -1626,10 +1698,12 @@ type ResolvedAddress struct {
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d01
 	CityID openapi_types.UUID `json:"cityId"`
 
-	// DistrictID İlçenin referans kimliği.
+	// DistrictID İlçenin referans kimliği; sağlayıcının ilçesi referans verisindeki bir ilçeye
+	// eşleşmezse `null` (kullanıcı ilçeyi listeden seçer, ADR-0039).
+	//
 	//
 	// Examples: 0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d02
-	DistrictID openapi_types.UUID `json:"districtId"`
+	DistrictID *openapi_types.UUID `json:"districtId"`
 
 	// Latitude Enlem; sağlayıcı vermediyse `null`.
 	//
@@ -1651,10 +1725,31 @@ type ResolvedAddress struct {
 	// Examples: 34710
 	PostalCode *string `json:"postalCode"`
 
+	// Proof Bu çözmenin kanıtı: kaynak, yer kimliği, il ve konumlayan bileşenler, koordinat ve
+	// çağıran üzerinde sunucunun imzası; arama oturumu kadar (15 dakika) geçerlidir.
+	// İstemci adresi kaydederken olduğu gibi geri gönderir (ADR-0039 Karar 10).
+	//
+	//
+	// Examples: eyJ2IjoxfQ.c2lnbmF0dXJl
+	Proof string `json:"proof"`
+
 	// ProviderPlaceID Sağlayıcının yer kimliği.
 	//
 	// Examples: ChIJAbCdEfGhIjKlMnOpQrStUv
 	ProviderPlaceID *string `json:"providerPlaceId"`
+
+	// SiteName Site adı (sağlayıcının `premise` bileşeni).
+	//
+	// Examples: Moda Konutları
+	SiteName *string `json:"siteName"`
+
+	// Source Adres bileşenlerinin ve koordinatın kaynağı (ADR-0039 Karar 10). `MANUAL` kullanıcının
+	// kendi girişidir, koordinatı da kendi pinidir. `AUTOCOMPLETE` bir öneri çözmesinden
+	// gelir, bileşenleri ve koordinatı sağlayıcınındır. `REVERSE_GEOCODE` ters aramadan gelir,
+	// bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. İstemci kaynağı beyan
+	// etmez: sunucu onu çözmenin ya da ters aramanın kanıtından (`proof`) ve saklı adresten
+	// belirler.
+	Source AddressSource `json:"source"`
 
 	// Thoroughfare Cadde ya da sokak.
 	//
@@ -13860,7 +13955,8 @@ type CreateMyAddressResponseObject interface {
 }
 
 type CreateMyAddress201ResponseHeaders struct {
-	Location *string
+	IdempotentReplayed *string
+	Location           *string
 }
 
 type CreateMyAddress201JSONResponse struct {
@@ -13875,6 +13971,9 @@ func (response CreateMyAddress201JSONResponse) VisitCreateMyAddressResponse(w ht
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.IdempotentReplayed != nil {
+		w.Header().Set("Idempotent-Replayed", fmt.Sprint(*response.Headers.IdempotentReplayed))
+	}
 	if response.Headers.Location != nil {
 		w.Header().Set("Location", fmt.Sprint(*response.Headers.Location))
 	}

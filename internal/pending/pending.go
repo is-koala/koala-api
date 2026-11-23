@@ -42,7 +42,6 @@ func Operations() []string {
 		"DELETE /v1/companies/{companyId}/follow",
 		"DELETE /v1/companies/{companyId}/images/{imageId}",
 		"DELETE /v1/companies/{companyId}/logo",
-		"DELETE /v1/me/addresses/{addressId}",
 		"GET /v1/admin/companies",
 		"GET /v1/admin/companies/{companyId}",
 		"GET /v1/admin/identity-verifications",
@@ -56,9 +55,6 @@ func Operations() []string {
 		"GET /v1/companies/{companyId}/contacts",
 		"GET /v1/companies/{companyId}/images",
 		"GET /v1/contact-invitations/{invitationId}",
-		"GET /v1/me/address-search-sessions/{sessionId}/suggestions",
-		"GET /v1/me/addresses",
-		"GET /v1/me/addresses/{addressId}",
 		"GET /v1/me/followed-companies",
 		"GET /v1/me/identity-documents",
 		"GET /v1/users/{userId}",
@@ -73,15 +69,10 @@ func Operations() []string {
 		"POST /v1/contact-invitations/{invitationId}/accept",
 		"POST /v1/contact-invitations/{invitationId}/decline",
 		"POST /v1/contact-invitations/{invitationId}/revoke",
-		"POST /v1/me/address-lookups/reverse",
-		"POST /v1/me/address-search-sessions",
-		"POST /v1/me/address-search-sessions/{sessionId}/candidates/{candidateId}/resolve",
-		"POST /v1/me/addresses",
 		"POST /v1/me/identity-documents",
 		"PUT /v1/companies/{companyId}/follow",
 		"PUT /v1/companies/{companyId}/images",
 		"PUT /v1/companies/{companyId}/logo",
-		"PUT /v1/me/addresses/{addressId}",
 	}
 }
 
@@ -118,18 +109,8 @@ func (Server) CreateCompany(context.Context, apiv1.CreateCompanyRequestObject) (
 	return nil, notImplemented()
 }
 
-// CreateMyAddress answers POST /v1/me/addresses with 501 until its handler lands.
-func (Server) CreateMyAddress(context.Context, apiv1.CreateMyAddressRequestObject) (apiv1.CreateMyAddressResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // DeclineCompanyInvitation answers POST /v1/contact-invitations/{invitationId}/decline with 501 until its handler lands.
 func (Server) DeclineCompanyInvitation(context.Context, apiv1.DeclineCompanyInvitationRequestObject) (apiv1.DeclineCompanyInvitationResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// DeleteMyAddress answers DELETE /v1/me/addresses/{addressId} with 501 until its handler lands.
-func (Server) DeleteMyAddress(context.Context, apiv1.DeleteMyAddressRequestObject) (apiv1.DeleteMyAddressResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -163,11 +144,6 @@ func (Server) GetIdentityReviewDocument(context.Context, apiv1.GetIdentityReview
 	return nil, notImplemented()
 }
 
-// GetMyAddress answers GET /v1/me/addresses/{addressId} with 501 until its handler lands.
-func (Server) GetMyAddress(context.Context, apiv1.GetMyAddressRequestObject) (apiv1.GetMyAddressResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // GetMyIdentityReview answers GET /v1/me/identity-documents with 501 until its handler lands.
 func (Server) GetMyIdentityReview(context.Context, apiv1.GetMyIdentityReviewRequestObject) (apiv1.GetMyIdentityReviewResponseObject, error) {
 	return nil, notImplemented()
@@ -185,11 +161,6 @@ func (Server) GetUserForStaff(context.Context, apiv1.GetUserForStaffRequestObjec
 
 // InviteCompanyContact answers POST /v1/companies/{companyId}/contact-invitations with 501 until its handler lands.
 func (Server) InviteCompanyContact(context.Context, apiv1.InviteCompanyContactRequestObject) (apiv1.InviteCompanyContactResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ListAddressSuggestions answers GET /v1/me/address-search-sessions/{sessionId}/suggestions with 501 until its handler lands.
-func (Server) ListAddressSuggestions(context.Context, apiv1.ListAddressSuggestionsRequestObject) (apiv1.ListAddressSuggestionsResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -220,11 +191,6 @@ func (Server) ListIdentityRevealsForStaff(context.Context, apiv1.ListIdentityRev
 
 // ListIdentityReviews answers GET /v1/admin/identity-verifications with 501 until its handler lands.
 func (Server) ListIdentityReviews(context.Context, apiv1.ListIdentityReviewsRequestObject) (apiv1.ListIdentityReviewsResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ListMyAddresses answers GET /v1/me/addresses with 501 until its handler lands.
-func (Server) ListMyAddresses(context.Context, apiv1.ListMyAddressesRequestObject) (apiv1.ListMyAddressesResponseObject, error) {
 	return nil, notImplemented()
 }
 
@@ -268,21 +234,6 @@ func (Server) ReplaceCompanyGallery(context.Context, apiv1.ReplaceCompanyGallery
 	return nil, notImplemented()
 }
 
-// ReplaceMyAddress answers PUT /v1/me/addresses/{addressId} with 501 until its handler lands.
-func (Server) ReplaceMyAddress(context.Context, apiv1.ReplaceMyAddressRequestObject) (apiv1.ReplaceMyAddressResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ResolveAddressCandidate answers POST /v1/me/address-search-sessions/{sessionId}/candidates/{candidateId}/resolve with 501 until its handler lands.
-func (Server) ResolveAddressCandidate(context.Context, apiv1.ResolveAddressCandidateRequestObject) (apiv1.ResolveAddressCandidateResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// ReverseLookupAddress answers POST /v1/me/address-lookups/reverse with 501 until its handler lands.
-func (Server) ReverseLookupAddress(context.Context, apiv1.ReverseLookupAddressRequestObject) (apiv1.ReverseLookupAddressResponseObject, error) {
-	return nil, notImplemented()
-}
-
 // RevokeCompanyInvitation answers POST /v1/contact-invitations/{invitationId}/revoke with 501 until its handler lands.
 func (Server) RevokeCompanyInvitation(context.Context, apiv1.RevokeCompanyInvitationRequestObject) (apiv1.RevokeCompanyInvitationResponseObject, error) {
 	return nil, notImplemented()
@@ -290,11 +241,6 @@ func (Server) RevokeCompanyInvitation(context.Context, apiv1.RevokeCompanyInvita
 
 // SetCompanyLogo answers PUT /v1/companies/{companyId}/logo with 501 until its handler lands.
 func (Server) SetCompanyLogo(context.Context, apiv1.SetCompanyLogoRequestObject) (apiv1.SetCompanyLogoResponseObject, error) {
-	return nil, notImplemented()
-}
-
-// StartAddressSearchSession answers POST /v1/me/address-search-sessions with 501 until its handler lands.
-func (Server) StartAddressSearchSession(context.Context, apiv1.StartAddressSearchSessionRequestObject) (apiv1.StartAddressSearchSessionResponseObject, error) {
 	return nil, notImplemented()
 }
 

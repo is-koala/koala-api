@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/is-koala/koala-api/internal/platform/appversion"
 	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
 )
@@ -93,7 +95,39 @@ const (
 	// version> entries, for the one release that means it; an entry for
 	// another data version is ignored with a warning (ADR-0037).
 	VarReferenceAllowRetire = "KOALA_REFERENCE_ALLOW_RETIRE"
+	// The address search's map provider (ADR-0039). The key is built from
+	// Prefix: a variable name, not a credential.
+	VarMapsAPIKey = Prefix + "GOOGLE_MAPS_API_KEY"
+	// VarMapsDriver picks the provider: MapsDriverGoogle (the default) or
+	// MapsDriverFake, canned answers that call nothing, refused in
+	// production.
+	VarMapsDriver = "KOALA_GOOGLE_MAPS_DRIVER"
+	// VarServiceAreaCities lists the reference ids of the cities the
+	// address search serves, comma-separated; DefaultServiceAreaCities when
+	// unset (ADR-0039 Karar 3).
+	VarServiceAreaCities = "KOALA_SERVICE_AREA_CITIES"
+	// The address lookup budget (ADR-0039 Karar 7): billed units per user
+	// a day, per client address an hour, and the service's daily cap.
+	VarAddressLookupsPerUserDay = "KOALA_ADDRESS_LOOKUPS_PER_USER_DAY"
+	VarAddressLookupsPerIPHour  = "KOALA_ADDRESS_LOOKUPS_PER_IP_HOUR"
+	VarAddressLookupsPerDay     = "KOALA_ADDRESS_LOOKUPS_PER_DAY"
 )
+
+// The map providers (VarMapsDriver).
+const (
+	MapsDriverGoogle = "google"
+	// MapsDriverFake answers from a small canned set of Turkish places and
+	// calls nothing: for local, test and a staging without a key.
+	// production refuses it.
+	MapsDriverFake = "fake"
+)
+
+// DefaultServiceAreaCities is the service area when VarServiceAreaCities
+// is unset: İstanbul's reference id (db/referencedata/cities.csv), where
+// Koala works today (Java's IstanbulServiceArea; ADR-0039 Karar 3). It is
+// configuration, not code: widening the area is adding ids to the
+// variable and restarting.
+const DefaultServiceAreaCities = "e3eecc83-7fa1-4405-bc61-04dd36656ebd"
 
 // The text message senders (VarSMSDriver).
 const (
@@ -118,6 +152,8 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarSMSAPIKey, VarSMSAPIHash, VarSMSSender, VarSMSPerHour, VarSMSDriver,
 	VarVerificationMailsPerHour, VarVerificationStartsPerIPHour,
 	VarReferenceAllowRetire,
+	VarMapsAPIKey, VarMapsDriver, VarServiceAreaCities,
+	VarAddressLookupsPerUserDay, VarAddressLookupsPerIPHour, VarAddressLookupsPerDay,
 }
 
 // Variables returns every KOALA_* variable Load understands, in the
@@ -215,6 +251,10 @@ type Config struct {
 	// Verification holds the bounds of the e-mail and phone verification
 	// that are not the text message account's (ADR-0033).
 	Verification Verification
+	// Maps is the address search's map provider, its service area and its
+	// lookup budget (ADR-0039). Serve requires the key in staging and
+	// production unless the fake driver is on (ServeMapsErrors).
+	Maps Maps
 	// ReferenceAllowRetire is VarReferenceAllowRetire as given, shape-checked
 	// here (<table>:<rows>@<version>, comma-separated); migrate up hands it
 	// to the reference sync, which knows the tables. Empty: the limit holds.
@@ -229,6 +269,30 @@ type Verification struct {
 	// StartsPerIP is the hourly budget of verification starts from one
 	// client address (an IPv6 /64).
 	StartsPerIP int
+}
+
+// Maps is the validated map provider configuration. The key is a Secret.
+// A zero bound is unset: the address module uses its default.
+type Maps struct {
+	// Driver is MapsDriverGoogle or MapsDriverFake; Load sets the default.
+	Driver string
+	APIKey Secret
+	// ServiceAreaCities are the configured cities, shape-checked here and
+	// checked against the reference data when serve wires the module; nil
+	// when unset (ServiceArea gives the default).
+	ServiceAreaCities []uuid.UUID
+	LookupsPerUserDay int
+	LookupsPerIPHour  int
+	LookupsPerDay     int
+}
+
+// ServiceArea is the configured cities, or DefaultServiceAreaCities.
+func (m Maps) ServiceArea() []uuid.UUID {
+	if len(m.ServiceAreaCities) > 0 {
+		return slices.Clone(m.ServiceAreaCities)
+	}
+	ids, _ := parseCityList(DefaultServiceAreaCities) // a constant this package's test parses
+	return ids
 }
 
 // SMS is the validated text message configuration. The credentials are
@@ -429,6 +493,7 @@ func Load(environ []string) (Config, error) {
 	errs = append(errs, loadObjectStore(vars, &cfg)...)
 	errs = append(errs, loadMail(vars, &cfg)...)
 	errs = append(errs, loadSMS(vars, &cfg)...)
+	errs = append(errs, loadMaps(vars, &cfg)...)
 	if v, ok := vars[VarReferenceAllowRetire]; ok {
 		v = strings.TrimSpace(v)
 		if !allowRetire.MatchString(v) {
@@ -1083,4 +1148,104 @@ func (c Config) ServeMailErrors() error {
 	}
 	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
 	return errors.Join(errs...)
+}
+
+// loadMaps reads the map provider variables (ADR-0039). A value is only
+// shape-checked here: the service area's ids are checked against the
+// reference data when serve wires the address module, and ServeMapsErrors
+// decides whether serve may start without a key.
+func loadMaps(vars map[string]string, cfg *Config) []error {
+	var errs []error
+	cfg.Maps.Driver = MapsDriverGoogle
+	if v, ok := vars[VarMapsDriver]; ok {
+		switch d := strings.TrimSpace(v); d {
+		case MapsDriverGoogle:
+		case MapsDriverFake:
+			if cfg.Env == EnvProduction {
+				errs = append(errs, fmt.Errorf("%s: %w: %s answers canned places and is refused in production", VarMapsDriver, errInvalidValue, MapsDriverFake))
+			}
+			cfg.Maps.Driver = d
+		default:
+			errs = append(errs, fmt.Errorf("%s: %w: want %s or %s", VarMapsDriver, errInvalidValue, MapsDriverGoogle, MapsDriverFake))
+		}
+	}
+	if v, ok := vars[VarMapsAPIKey]; ok {
+		cfg.Maps.APIKey = Secret(strings.TrimSpace(v))
+	}
+	if v, ok := vars[VarServiceAreaCities]; ok {
+		ids, err := parseCityList(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", VarServiceAreaCities, err))
+		} else {
+			cfg.Maps.ServiceAreaCities = ids
+		}
+	}
+	for name, limit := range map[string]struct {
+		dst *int
+		max int
+	}{
+		VarAddressLookupsPerUserDay: {&cfg.Maps.LookupsPerUserDay, maxAddressLookups},
+		VarAddressLookupsPerIPHour:  {&cfg.Maps.LookupsPerIPHour, maxAddressLookups},
+		VarAddressLookupsPerDay:     {&cfg.Maps.LookupsPerDay, maxAddressLookups},
+	} {
+		v, ok := vars[name]
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil || n < 1 || n > limit.max {
+			errs = append(errs, fmt.Errorf("%s: %w: want 1-%d", name, errInvalidValue, limit.max))
+		} else {
+			*limit.dst = n
+		}
+	}
+	slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
+	return errs
+}
+
+// maxAddressLookups bounds the lookup budgets: a larger value is no
+// budget.
+const maxAddressLookups = 1_000_000
+
+// maxServiceAreaCities bounds the service area: Türkiye has 81.
+const maxServiceAreaCities = 81
+
+// parseCityList parses comma-separated city ids, at least one, without
+// repeats.
+func parseCityList(v string) ([]uuid.UUID, error) {
+	var ids []uuid.UUID
+	for _, part := range strings.Split(v, ",") {
+		id, err := uuid.Parse(strings.TrimSpace(part))
+		if err != nil {
+			return nil, fmt.Errorf("%w: want comma-separated reference city ids", errInvalidValue)
+		}
+		if slices.Contains(ids, id) {
+			return nil, fmt.Errorf("%w: a city is listed twice", errInvalidValue)
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) > maxServiceAreaCities {
+		return nil, fmt.Errorf("%w: at most %d cities", errInvalidValue, maxServiceAreaCities)
+	}
+	return ids, nil
+}
+
+// ServeMapsErrors reports what serve needs of the map provider (ADR-0039),
+// fail closed like ServeSMSErrors: staging and production need the key,
+// because without it every address search answers 502 and nothing else
+// would report it. local and test may run without one: the search then
+// answers ADDRESS_PROVIDER_UNAVAILABLE and the start logs why. The fake
+// driver (local, test and staging only; Load refuses it in production)
+// needs no key.
+func (c Config) ServeMapsErrors() error {
+	if c.Maps.Driver == MapsDriverFake {
+		if c.Env == EnvProduction {
+			return fmt.Errorf("%s: %s is refused in production", VarMapsDriver, MapsDriverFake)
+		}
+		return nil
+	}
+	if c.Maps.APIKey == "" && (c.Env == EnvStaging || c.Env == EnvProduction) {
+		return fmt.Errorf("%s: required by serve in %s (or %s=%s outside production)", VarMapsAPIKey, c.Env, VarMapsDriver, MapsDriverFake)
+	}
+	return nil
 }

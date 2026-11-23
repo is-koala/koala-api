@@ -112,3 +112,31 @@ groups:
         for: 0m
         labels: { severity: warning, owner: backend }
         annotations: { summary: "Bir tüketici medyaya media.Bind çağırmadan bağlandı; süpürme bağladı, tüketicide hata var (ADR-0035)" }
+      # The address lookup budget's daily cap (ADR-0039 Karar 7): the
+      # Google bill's bound. Near it, before legitimate users fall back to
+      # entering addresses by hand; reached, when they do.
+      - alert: KoalaAddressLookupCapNear
+        expr: sum(increase(koala_address_lookups_total{outcome="reserved"}[24h])) > 0.8 * max(koala_address_lookup_cap)
+        for: 15m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Adres arama birimleri günlük tavanın %80'ini geçti; dağıtık bir doldurma olabilir (ADR-0039)" }
+      - alert: KoalaAddressLookupCapReached
+        expr: increase(koala_address_lookups_total{outcome="capped"}[15m]) > 0
+        for: 1m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Adres arama günlük tavanı doldu; arama herkese 429 dönüyor, adresler elle giriliyor (ADR-0039)" }
+      # Every autocomplete request is billed with the Essentials field
+      # mask: suggestion pumping shows as volume before the cap. A third of
+      # the default daily cap in an hour is far above what users type.
+      - alert: KoalaAddressAutocompleteVolumeHigh
+        expr: sum(increase(koala_address_provider_calls_total{call="autocomplete"}[1h])) > 1000
+        for: 5m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Son bir saatte 1000'den fazla adres önerisi isteği Google'a gitti; öneri pompalama olabilir (ADR-0039)" }
+      # The provider refuses or fails: a revoked key, a spent Google
+      # quota or an outage.
+      - alert: KoalaAddressProviderFailing
+        expr: sum(increase(koala_address_provider_calls_total{outcome=~"quota|denied|upstream|transport|unreadable"}[15m])) > 5
+        for: 5m
+        labels: { severity: warning, owner: backend }
+        annotations: { summary: "Google Maps çağrıları başarısız (kota, anahtar ya da kesinti); adres araması 502 dönüyor (ADR-0039)" }

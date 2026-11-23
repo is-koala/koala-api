@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/api"
+	"github.com/is-koala/koala-api/internal/address"
 	"github.com/is-koala/koala-api/internal/apiv1"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/media"
@@ -243,7 +244,7 @@ func TestBindErrorIsALoggedServerError(t *testing.T) {
 func TestPlatformCodesAreInTheContract(t *testing.T) {
 	t.Parallel()
 
-	for _, c := range slices.Concat(httpx.PlatformCodes(), idempotency.Codes(), softdelete.Codes(), realtime.Codes(), authn.Codes(), staff.Codes(), pending.Codes(), media.Codes(), users.Codes(), reference.Codes()) {
+	for _, c := range slices.Concat(httpx.PlatformCodes(), idempotency.Codes(), softdelete.Codes(), realtime.Codes(), authn.Codes(), staff.Codes(), pending.Codes(), media.Codes(), users.Codes(), reference.Codes(), address.Codes()) {
 		if !apiv1.ErrorCode(c).Valid() {
 			t.Errorf("code %s is not in api/components/problem.yaml ErrorCode", c)
 		}

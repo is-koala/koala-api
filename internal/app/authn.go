@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/is-koala/koala-api/internal/address"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/integrations/iletimerkezi"
 	"github.com/is-koala/koala-api/internal/integrations/smtp"
@@ -52,6 +53,11 @@ type modules struct {
 	usersHTTP *usersHandlers
 	// The reference lists of /v1/reference (ADR-0037).
 	referenceHTTP *reference.HTTP
+	// The caller's addresses and the address search (ADR-0039): the
+	// service is the profile's primary address link too.
+	address      *address.Service
+	addressHTTP  *address.HTTP
+	addressPurge *addressPurgeWorker
 }
 
 // wireModules builds the modules on database, their metrics on reg.
@@ -110,7 +116,11 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 	if err != nil {
 		return modules{}, err
 	}
-	usersHTTP, err := wireUsers(database, verifications, mediaService, clk)
+	addressService, addressHTTP, err := wireAddress(ctx, cfg, database, clk, logger, reg, pepper)
+	if err != nil {
+		return modules{}, err
+	}
+	usersHTTP, err := wireUsers(database, verifications, mediaService, addressService, clk)
 	if err != nil {
 		return modules{}, err
 	}
@@ -132,6 +142,9 @@ func wireModules(ctx context.Context, cfg config.Config, database *db.DB, clk cl
 		mediaHTTP:        mediaHTTP,
 		usersHTTP:        usersHTTP,
 		referenceHTTP:    referenceHTTP,
+		address:          addressService,
+		addressHTTP:      addressHTTP,
+		addressPurge:     &addressPurgeWorker{service: addressService, logger: logger},
 	}, nil
 }
 

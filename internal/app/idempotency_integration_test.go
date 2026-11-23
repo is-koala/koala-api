@@ -157,6 +157,28 @@ func idempotentFixtures() map[string]func(t *testing.T, a *authApp) idempotentFi
 				},
 			}
 		},
+		// The create writes the address and, the user's first, the
+		// profile's primary link in one transaction with the stored answer
+		// (ADR-0039).
+		"createMyAddress": func(t *testing.T, a *authApp) idempotentFixture {
+			t.Helper()
+			const email = "adres-anahtar@example.com"
+			return idempotentFixture{
+				path: "/v1/me/addresses", bearer: a.addSignedIn(t, email), body: addressBody(kadikoyDistrict, "Moda Caddesi"),
+				// The address row; a view has no xmin, so the base table is
+				// read as koala_maint.
+				businessXmin: func(t *testing.T) string {
+					t.Helper()
+					var xmin string
+					err := a.maint.Pool().QueryRow(t.Context(),
+						"SELECT ad.xmin::text FROM addresses ad JOIN users u ON u.id = ad.user_id WHERE u.email = $1", email).Scan(&xmin)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return xmin
+				},
+			}
+		},
 		// The start writes the media row and the budget ledger's row in
 		// one transaction with the stored answer (ADR-0035).
 		"startMediaUpload": func(t *testing.T, a *authApp) idempotentFixture {

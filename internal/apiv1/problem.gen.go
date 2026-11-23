@@ -5,8 +5,11 @@ package apiv1
 
 // Defines values for ErrorCode.
 const (
+	ErrorCodeADDRESSLIMITREACHED                 ErrorCode = "ADDRESS_LIMIT_REACHED"
+	ErrorCodeADDRESSLOOKUPLIMITREACHED           ErrorCode = "ADDRESS_LOOKUP_LIMIT_REACHED"
 	ErrorCodeADDRESSNOTFOUND                     ErrorCode = "ADDRESS_NOT_FOUND"
 	ErrorCodeADDRESSOUTSIDESERVICEAREA           ErrorCode = "ADDRESS_OUTSIDE_SERVICE_AREA"
+	ErrorCodeADDRESSPROOFINVALID                 ErrorCode = "ADDRESS_PROOF_INVALID"
 	ErrorCodeADDRESSPROVIDERUNAVAILABLE          ErrorCode = "ADDRESS_PROVIDER_UNAVAILABLE"
 	ErrorCodeADDRESSSEARCHSESSIONNOTFOUND        ErrorCode = "ADDRESS_SEARCH_SESSION_NOT_FOUND"
 	ErrorCodeAPPVERSIONUNSUPPORTED               ErrorCode = "APP_VERSION_UNSUPPORTED"
@@ -118,9 +121,15 @@ const (
 // Valid indicates whether the value is a known member of the ErrorCode enum.
 func (e ErrorCode) Valid() bool {
 	switch e {
+	case ErrorCodeADDRESSLIMITREACHED:
+		return true
+	case ErrorCodeADDRESSLOOKUPLIMITREACHED:
+		return true
 	case ErrorCodeADDRESSNOTFOUND:
 		return true
 	case ErrorCodeADDRESSOUTSIDESERVICEAREA:
+		return true
+	case ErrorCodeADDRESSPROOFINVALID:
 		return true
 	case ErrorCodeADDRESSPROVIDERUNAVAILABLE:
 		return true
@@ -548,10 +557,19 @@ func (e ProblemFieldIn) Valid() bool {
 //   - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
 //   - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
 //     bir kullanıcının; üçü ayırt edilemez (MED-010).
-//   - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
+//   - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor, kotası dolu ya
+//     da yapılandırılmamış; istemci adresi elle girer (ADR-0039).
 //   - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
-//   - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
-//     adrese eşleşmiyor.
+//   - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): konum ya da seçilen öneri hizmet alanındaki bir
+//     ile düşmüyor, ya da hiçbir adrese eşleşmiyor.
+//   - `ADDRESS_LIMIT_REACHED` (409): kullanıcının adres sayısı üst sınırda (ADR-0039).
+//   - `ADDRESS_PROOF_INVALID` (400): adresin sağlayıcı kanıtı geçersiz, süresi dolmuş, başka
+//     bir çağıranın ya da adresle tutmuyor; ya da kanıtsız bir yer kimliği gönderildi
+//     (ADR-0039 Karar 10).
+//   - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): adres arama bütçesi doldu: çağıranın günlük
+//     bütçesi, istemci adresinin saatlik bütçesi, hizmetin günlük tavanı ya da arama
+//     oturumunun öneri sınırı. `Retry-After` taşır; hangisinin dolduğunu söylemez
+//     (ADR-0039).
 //   - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
 //     edilemez.
 //   - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
@@ -757,10 +775,19 @@ type Problem struct {
 	// - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
 	// - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
 	//   bir kullanıcının; üçü ayırt edilemez (MED-010).
-	// - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
+	// - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor, kotası dolu ya
+	//   da yapılandırılmamış; istemci adresi elle girer (ADR-0039).
 	// - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
-	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
-	//   adrese eşleşmiyor.
+	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): konum ya da seçilen öneri hizmet alanındaki bir
+	//   ile düşmüyor, ya da hiçbir adrese eşleşmiyor.
+	// - `ADDRESS_LIMIT_REACHED` (409): kullanıcının adres sayısı üst sınırda (ADR-0039).
+	// - `ADDRESS_PROOF_INVALID` (400): adresin sağlayıcı kanıtı geçersiz, süresi dolmuş, başka
+	//   bir çağıranın ya da adresle tutmuyor; ya da kanıtsız bir yer kimliği gönderildi
+	//   (ADR-0039 Karar 10).
+	// - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): adres arama bütçesi doldu: çağıranın günlük
+	//   bütçesi, istemci adresinin saatlik bütçesi, hizmetin günlük tavanı ya da arama
+	//   oturumunun öneri sınırı. `Retry-After` taşır; hangisinin dolduğunu söylemez
+	//   (ADR-0039).
 	// - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
 	//   edilemez.
 	// - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.
@@ -997,10 +1024,19 @@ type ProblemField struct {
 	// - `ADDRESS_NOT_FOUND` (404): adres yok ya da çağıranın değil; ikisi ayırt edilemez.
 	// - `ADDRESS_SEARCH_SESSION_NOT_FOUND` (404): arama oturumu yok, süresi dolmuş ya da başka
 	//   bir kullanıcının; üçü ayırt edilemez (MED-010).
-	// - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor.
+	// - `ADDRESS_PROVIDER_UNAVAILABLE` (502): adres sağlayıcısı yanıt vermiyor, kotası dolu ya
+	//   da yapılandırılmamış; istemci adresi elle girer (ADR-0039).
 	// - `REFERENCE_ITEM_NOT_FOUND` (404): referans verisinde böyle bir satır yok.
-	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): harita konumu hizmet alanının dışında ya da
-	//   adrese eşleşmiyor.
+	// - `ADDRESS_OUTSIDE_SERVICE_AREA` (400): konum ya da seçilen öneri hizmet alanındaki bir
+	//   ile düşmüyor, ya da hiçbir adrese eşleşmiyor.
+	// - `ADDRESS_LIMIT_REACHED` (409): kullanıcının adres sayısı üst sınırda (ADR-0039).
+	// - `ADDRESS_PROOF_INVALID` (400): adresin sağlayıcı kanıtı geçersiz, süresi dolmuş, başka
+	//   bir çağıranın ya da adresle tutmuyor; ya da kanıtsız bir yer kimliği gönderildi
+	//   (ADR-0039 Karar 10).
+	// - `ADDRESS_LOOKUP_LIMIT_REACHED` (429): adres arama bütçesi doldu: çağıranın günlük
+	//   bütçesi, istemci adresinin saatlik bütçesi, hizmetin günlük tavanı ya da arama
+	//   oturumunun öneri sınırı. `Retry-After` taşır; hangisinin dolduğunu söylemez
+	//   (ADR-0039).
 	// - `EDUCATION_NOT_FOUND` (404): eğitim kaydı yok ya da çağıranın değil; ikisi ayırt
 	//   edilemez.
 	// - `EDUCATION_PERIOD_INVALID` (400): bitiş yılı başlangıç yılından küçük.

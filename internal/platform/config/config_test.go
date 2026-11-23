@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/is-koala/koala-api/internal/platform/appversion"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
@@ -32,6 +34,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 		ShutdownTimeout:    config.DefaultShutdownTimeout,
 		MetricsAddr:        config.DefaultMetricsAddr,
 		SMS:                config.SMS{Driver: config.SMSDriverIletiMerkezi},
+		Maps:               config.Maps{Driver: config.MapsDriverGoogle},
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %+v, want %+v", cfg, want)
@@ -97,6 +100,7 @@ func TestLoadReadsEveryVariable(t *testing.T) {
 		RealtimeOrigins:    "https://iskoala.com",
 		LoginPepper:        config.Secret(pepper),
 		SMS:                config.SMS{Driver: config.SMSDriverIletiMerkezi},
+		Maps:               config.Maps{Driver: config.MapsDriverGoogle},
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("Load() = %+v, want %+v", cfg, want)
@@ -965,5 +969,112 @@ func TestLoadReadsTheReferenceAllowRetire(t *testing.T) {
 		if _, err := config.Load([]string{"KOALA_ENV=test", config.VarReferenceAllowRetire + "=" + v}); err == nil {
 			t.Errorf("%s=%q was accepted", config.VarReferenceAllowRetire, v)
 		}
+	}
+}
+
+// The map provider's variables (ADR-0039): the key never prints, the
+// service area is a list of ids, the budgets are bounded.
+func TestLoadReadsTheMapsSettings(t *testing.T) {
+	t.Parallel()
+
+	const istanbul, ankara = "e3eecc83-7fa1-4405-bc61-04dd36656ebd", "453a1765-7a7f-4f30-b6e7-7922b5eb9883"
+	cfg, err := config.Load([]string{
+		"KOALA_ENV=production",
+		config.VarMapsAPIKey + "=test-maps-key-secret",
+		config.VarServiceAreaCities + "=" + istanbul + " , " + ankara,
+		config.VarAddressLookupsPerUserDay + "=50",
+		config.VarAddressLookupsPerIPHour + "=30",
+		config.VarAddressLookupsPerDay + "=900",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := config.Maps{
+		Driver: config.MapsDriverGoogle, APIKey: "test-maps-key-secret",
+		ServiceAreaCities: []uuid.UUID{uuid.MustParse(istanbul), uuid.MustParse(ankara)},
+		LookupsPerUserDay: 50, LookupsPerIPHour: 30, LookupsPerDay: 900,
+	}
+	if !reflect.DeepEqual(cfg.Maps, want) {
+		t.Errorf("Maps = %+v, want %+v", cfg.Maps, want)
+	}
+	if got := cfg.Maps.ServiceArea(); !reflect.DeepEqual(got, want.ServiceAreaCities) {
+		t.Errorf("ServiceArea() = %v, want the configured cities", got)
+	}
+	if s := fmt.Sprintf("%v %+v", cfg.Maps, cfg); strings.Contains(s, "test-maps-key-secret") {
+		t.Errorf("the maps key prints: %s", s)
+	}
+}
+
+// Unset, the service area is the default's one city, which parses.
+func TestServiceAreaDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load([]string{"KOALA_ENV=test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Maps.ServiceArea(); len(got) != 1 || got[0] != uuid.MustParse(config.DefaultServiceAreaCities) {
+		t.Errorf("ServiceArea() = %v, want the default %s", got, config.DefaultServiceAreaCities)
+	}
+}
+
+func TestLoadRejectsBadMapsValues(t *testing.T) {
+	t.Parallel()
+
+	for name, v := range map[string]string{
+		"area not an id":     config.VarServiceAreaCities + "=istanbul",
+		"area repeated":      config.VarServiceAreaCities + "=" + config.DefaultServiceAreaCities + "," + config.DefaultServiceAreaCities,
+		"area empty":         config.VarServiceAreaCities + "=",
+		"user budget zero":   config.VarAddressLookupsPerUserDay + "=0",
+		"ip budget text":     config.VarAddressLookupsPerIPHour + "=many",
+		"cap over":           config.VarAddressLookupsPerDay + "=1000001",
+		"driver unknown":     config.VarMapsDriver + "=here",
+		"fake in production": config.VarMapsDriver + "=" + config.MapsDriverFake,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := config.Load([]string{"KOALA_ENV=production", v}); err == nil {
+				t.Errorf("Load(%s) = nil error, want one", v)
+			}
+		})
+	}
+}
+
+// TestServeMapsErrors: staging and production need the key unless the
+// fake driver is on, which production refuses; local and test start
+// without one (the search answers 502).
+func TestServeMapsErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		env    config.Env
+		driver string
+		key    config.Secret
+		want   string // "" for no error
+	}{
+		{"local without key", config.EnvLocal, config.MapsDriverGoogle, "", ""},
+		{"test without key", config.EnvTest, config.MapsDriverGoogle, "", ""},
+		{"staging without key", config.EnvStaging, config.MapsDriverGoogle, "", config.VarMapsAPIKey + ": required by serve in staging"},
+		{"production without key", config.EnvProduction, config.MapsDriverGoogle, "", config.VarMapsAPIKey + ": required by serve in production"},
+		{"production with key", config.EnvProduction, config.MapsDriverGoogle, "k", ""},
+		{"staging fake", config.EnvStaging, config.MapsDriverFake, "", ""},
+		{"production fake", config.EnvProduction, config.MapsDriverFake, "", config.VarMapsDriver + ": fake is refused in production"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := config.Config{Env: tt.env, Maps: config.Maps{Driver: tt.driver, APIKey: tt.key}}
+			err := cfg.ServeMapsErrors()
+			if tt.want == "" {
+				if err != nil {
+					t.Errorf("ServeMapsErrors() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("ServeMapsErrors() = %v, want it to mention %q", err, tt.want)
+			}
+		})
 	}
 }

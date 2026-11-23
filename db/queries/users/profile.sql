@@ -3,7 +3,8 @@
 -- is the verified number; a number being verified is not on the row yet
 -- (USR-014).
 SELECT id, email, phone, status, first_name, last_name, birth_date, gender, job_title, about, qualifications,
-       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at
+       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at,
+       address_id
 FROM active_users
 WHERE id = $1;
 
@@ -13,7 +14,8 @@ WHERE id = $1;
 -- write holds, and a verification the patch starts finds the row locked
 -- by its own transaction, the order every start takes (ADR-0033 Karar 5).
 SELECT id, email, phone, status, first_name, last_name, birth_date, gender, job_title, about, qualifications,
-       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at
+       interests, profile_picture_id, cv_id, employer, email_verified, phone_verified, identity_verified, created_at,
+       address_id
 FROM active_users
 WHERE id = $1
 FOR UPDATE;

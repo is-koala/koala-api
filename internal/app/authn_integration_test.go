@@ -20,6 +20,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/api"
+	"github.com/is-koala/koala-api/internal/address"
 	"github.com/is-koala/koala-api/internal/authn"
 	"github.com/is-koala/koala-api/internal/authn/authndb"
 	"github.com/is-koala/koala-api/internal/platform/clock"
@@ -29,6 +30,7 @@ import (
 	"github.com/is-koala/koala-api/internal/platform/fakes"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
 	"github.com/is-koala/koala-api/internal/platform/log"
+	"github.com/is-koala/koala-api/internal/platform/tokenkeys"
 	"github.com/is-koala/koala-api/internal/realtime"
 )
 
@@ -60,6 +62,21 @@ type authApp struct {
 
 func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 	t.Helper()
+	return newAuthAppWith(t, groups, config.Maps{Driver: config.MapsDriverFake})
+}
+
+// newAuthAppWith is newAuthApp with the map provider's configuration: the
+// driver, the service area and the lookup budget (ADR-0039).
+func newAuthAppWith(t *testing.T, groups map[string]httpx.GroupLimits, maps config.Maps) *authApp {
+	t.Helper()
+	return newAuthAppOn(t, groups, maps, nil)
+}
+
+// newAuthAppOn is newAuthAppWith whose address module calls the map
+// provider p when it is not nil (a googlemaps client on the wire fake, say)
+// instead of the one maps names.
+func newAuthAppOn(t *testing.T, groups map[string]httpx.GroupLimits, maps config.Maps, p address.Provider) *authApp {
+	t.Helper()
 	d := dbtest.New(t)
 	database := d.Open(t, db.RoleApp)
 	clk := clock.NewFake(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC))
@@ -69,8 +86,15 @@ func newAuthApp(t *testing.T, groups map[string]httpx.GroupLimits) *authApp {
 		Endpoint: s3.Endpoint(), Region: "eu-central-1", Bucket: testBucket,
 		AccessKeyID: "app-test-access-key", SecretKey: "app-test-secret", PathStyle: true,
 		PublicBaseURL: testPublicBaseURL,
-	}}
+	}, Maps: maps}
 	mods := testModulesWith(t, cfg, database, clk)
+	if p != nil {
+		svc, h, err := wireAddressWith(cfg, database, clk, logger, prometheus.NewRegistry(), tokenkeys.GeneratePepper(), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		mods.address, mods.addressHTTP = svc, h
+	}
 	reg := prometheus.NewRegistry()
 	router, err := newRouter(context.Background(), cfg, logger,
 		httpx.NewHealth(logger), reg, groups, mods)

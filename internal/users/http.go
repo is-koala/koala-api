@@ -139,16 +139,16 @@ func (h *HTTP) DeleteMyEducation(ctx context.Context, req apiv1.DeleteMyEducatio
 // profile is the caller's own view of the profile (USR-027): the phone
 // masked like a verification's target, the identity number fully blanked.
 // The profile picture and the CV are the bound media's ids (ADR-0036
-// Karar 10). The links of later modules answer null or an empty list until
-// they land (Karar 5): primary address, IBAN (Faz 6) and company
-// memberships.
+// Karar 10), the primary address its id (ADR-0039 Karar 5). The links of
+// later modules answer null or an empty list until they land (ADR-0036
+// Karar 5): IBAN (Faz 6) and company memberships.
 func profile(pr Profile) apiv1.UserProfile {
 	out := apiv1.UserProfile{
 		ID: pr.ID, Email: pr.Email, FirstName: pr.FirstName, LastName: pr.LastName,
 		JobTitle: pr.JobTitle, About: pr.About, Qualifications: pr.Qualifications, Interests: pr.Interests,
 		Employer: pr.Employer, EmailVerified: pr.EmailVerified, PhoneVerified: pr.PhoneVerified,
 		IdentityVerified: pr.IdentityVerified, MaskedIdentityNumber: pr.MaskedIdentityNumber(),
-		ProfilePictureID: pr.ProfilePicture, CvID: pr.CV,
+		ProfilePictureID: pr.ProfilePicture, CvID: pr.CV, AddressID: pr.Address,
 		Companies: []apiv1.CompanyMembership{}, CreatedAt: jsontime.From(pr.CreatedAt),
 	}
 	if pr.Phone != nil {

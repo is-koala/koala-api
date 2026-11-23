@@ -939,7 +939,7 @@ paths:
       operationId: updateMyProfile
       x-error-codes:
         [USER_FIELD_IMMUTABLE, PASSWORD_MISMATCH, VERIFICATION_RESEND_TOO_SOON, MEDIA_NOT_FOUND,
-        MEDIA_NOT_READY, SOFT_DELETE_RESTRICTED]
+        MEDIA_NOT_READY, SOFT_DELETE_RESTRICTED, ADDRESS_NOT_FOUND]
       tags: [users]
       summary: Çağıranın profilini kısmen günceller.
       description: |
@@ -965,10 +965,12 @@ paths:
         alana uymayan medya (`PROFILE_PICTURE`, `CV`) üyeyi adlandıran `REQUEST_INVALID`
         alır. Bağlanan medya süpürülmez; yerine yenisi bağlanan ya da `null` ile kaldırılan
         eski medya aynı transaction'da silinir ve nesneleri silinmek üzere kuyruğa girer
-        (ADR-0035 Karar 8, ADR-0036). Birincil adres bağı adres modülüyle gelir; o güne
-        kadar `addressId`'ye kimlik göndermek `501 NOT_IMPLEMENTED` alır, `null` bir şey
-        değiştirmez. `SOFT_DELETE_RESTRICTED` eski medyaya başka bir aktif kaydın hâlâ
-        bağlı olduğunu söyler; bugün profil dışında medya tüketicisi yoktur.
+        (ADR-0035 Karar 8, ADR-0036). `SOFT_DELETE_RESTRICTED` eski medyaya başka bir aktif
+        kaydın hâlâ bağlı olduğunu söyler; bugün profil dışında medya tüketicisi yoktur.
+
+        `addressId` çağıranın adreslerinden birini birincil yapar; başkasının ya da olmayan
+        adres `ADDRESS_NOT_FOUND` alır, `null` birincil adresi kaldırır (adres silinmez).
+        Birincil adres değişikliği profil senkronu niyetini yazar (ADR-0039).
       x-authz-exempt: |
         Çağıran yalnız kendi profilini günceller; kimlik oturumdan gelir, seçilecek nesne yoktur.
       x-body-limit: 16384
@@ -2535,16 +2537,16 @@ paths:
   /v1/me/addresses:
     get:
       operationId: listMyAddresses
-      x-error-codes: []
+      x-error-codes: [CURSOR_INVALID]
       tags: [address]
       summary: Çağıranın adreslerini listeler.
-      description: Adresin sahibi çağırandır; başkasının adresi hiçbir biçimde görünmez.
+      description: |
+        Adresin sahibi çağırandır; başkasının adresi hiçbir biçimde görünmez. Adresler yeniden
+        eskiye sıralıdır; bir kullanıcının en çok on adresi olur (ADR-0039). Bozuk cursor
+        `CURSOR_INVALID` alır.
       x-authz-exempt: |
         Liste çağıranın kendi adresleriyle sınırlıdır; seçilecek başka bir nesne yoktur.
       x-resource: addresses
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - $ref: "./components/pagination.yaml#/components/parameters/Limit"
         - $ref: "./components/pagination.yaml#/components/parameters/Cursor"
@@ -2565,7 +2567,7 @@ paths:
           $ref: "#/components/responses/InternalError"
     post:
       operationId: createMyAddress
-      x-error-codes: [REFERENCE_ITEM_NOT_FOUND]
+      x-error-codes: [REFERENCE_ITEM_NOT_FOUND, ADDRESS_LIMIT_REACHED, ADDRESS_PROOF_INVALID]
       tags: [address]
       summary: Çağırana yeni bir adres ekler.
       description: |
@@ -2573,12 +2575,21 @@ paths:
         koordinatları ve sağlayıcının yer kimliğini saklar; sağlayıcının biçimlendirdiği
         metin ve ham yanıtı saklanmaz (MED-008). Koordinat tam hassasiyetle saklanır,
         yuvarlama yanıtı üreten projeksiyonda yapılır (MED-009).
+
+        İlçe ilin ilçesi olmalıdır; olmayan, emekliye ayrılmış ya da başka ilin ilçesi
+        `REFERENCE_ITEM_NOT_FOUND` alır. Elle girilen adreste hizmet alanı kısıtı yoktur:
+        kullanıcının kendi adresi hizmet alanından bağımsızdır (ADR-0039). Bir kullanıcının en
+        çok on adresi olur (`ADDRESS_LIMIT_REACHED`). Birincil adresi olmayan kullanıcının
+        eklediği adres birincil olur (profilin `addressId`'si).
+
+        Sağlayıcıdan gelen bir adres, çözmenin ya da ters aramanın verdiği `proof` ile
+        gönderilir; sunucu kaynağı ve yer kimliğini yalnız geçerli bir kanıtla kabul eder.
+        Kanıt geçersizse, süresi dolmuşsa, başka bir çağıranınsa, ili ya da konumlayan
+        bileşenleri (ilçe, cadde, bina no) tutmuyorsa, ya da kanıtsız bir `providerPlaceId`
+        gelirse `ADDRESS_PROOF_INVALID` (ADR-0039 Karar 10).
       x-authz-exempt: |
         Adres çağıranın kendi kaydıdır; henüz var olmayan nesne yetkilendirilemez.
       x-body-limit: 8192
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - $ref: "./components/headers.yaml#/components/parameters/IdempotencyKey"
       requestBody:
@@ -2597,6 +2608,8 @@ paths:
               schema:
                 type: string
                 examples: ["/v1/me/addresses/0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6a10"]
+            Idempotent-Replayed:
+              $ref: "./components/headers.yaml#/components/headers/IdempotentReplayed"
           content:
             application/json:
               schema:
@@ -2638,9 +2651,6 @@ paths:
       x-authz-exempt: |
         Arama çağıranın kendi adresleriyle sınırlıdır; başkasınınki yok sayılır.
       x-resource: addresses
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "200":
           description: Adres.
@@ -2660,19 +2670,23 @@ paths:
           $ref: "#/components/responses/InternalError"
     put:
       operationId: replaceMyAddress
-      x-error-codes: [ADDRESS_NOT_FOUND, REFERENCE_ITEM_NOT_FOUND]
+      x-error-codes: [ADDRESS_NOT_FOUND, REFERENCE_ITEM_NOT_FOUND, ADDRESS_PROOF_INVALID]
       tags: [address]
       summary: Çağıranın bir adresini tümden değiştirir.
       description: |
         Adres bileşenleri birbirine bağlı olduğu için kısmi güncelleme yoktur: istemci
         adresin tamamını gönderir (stil rehberi §3). Başkasına ait adres var olmayandan
-        ayırt edilemez.
+        ayırt edilemez; başkasının adresi için referans denetimi hiç koşmaz. Adresin
+        referansları emekliye ayrıldıysa aynı referansı yeniden göndermek kabul edilir.
+
+        Kaynak geriye düşmez: kanıtsız bir değiştirmede konumlayan bileşenler (il, ilçe, cadde,
+        bina no) değişmediyse saklı kaynak ve yer kimliği kalır, koordinat değişmediyse
+        koordinatın kaynağı kalır. Kat, daire gibi alanları düzeltmek kaynağa dokunmaz.
+        Konumlayan bir bileşeni değiştirmek adresi `MANUAL` yapar; pini taşımak koordinatı
+        `USER_PIN` yapar. Kanıt kuralları eklemedekiyle aynıdır (ADR-0039 Karar 10).
       x-authz-exempt: |
         Değiştirme çağıranın kendi adresleriyle sınırlıdır; başkasınınki yok sayılır.
       x-body-limit: 8192
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       requestBody:
         description: Adresin tamamı.
         required: true
@@ -2708,12 +2722,11 @@ paths:
       summary: Çağıranın bir adresini siler.
       description: |
         Bir şirkete ya da ilana bağlı adres silinemez (`SOFT_DELETE_RESTRICTED`).
-        Başkasına ait adres var olmayandan ayırt edilemez.
+        Başkasına ait adres var olmayandan ayırt edilemez. Birincil adres silinirse profilin
+        `addressId`'si aynı işlemde `null` olur; başka bir adres kendiliğinden birincil
+        olmaz (ADR-0039).
       x-authz-exempt: |
         Silme çağıranın kendi adresleriyle sınırlıdır; başkasınınki yok sayılır.
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       responses:
         "204":
           description: Adres silindi.
@@ -2733,21 +2746,26 @@ paths:
   /v1/me/address-search-sessions:
     post:
       operationId: startAddressSearchSession
-      x-error-codes: [ADDRESS_PROVIDER_UNAVAILABLE]
+      x-error-codes: [ADDRESS_PROVIDER_UNAVAILABLE, ADDRESS_LOOKUP_LIMIT_REACHED]
       tags: [address]
       summary: Sağlayıcıya karşı bir adres arama oturumu açar.
       description: |
         Oturum çağırana bağlıdır ve on beş dakika yaşar; oturum kimliğini ele geçiren başka
         bir kullanıcı onu kullanamaz (MED-010). Oturum, sağlayıcıya yapılan çağrıların
-        oturum belirtecini (session token) taşır ve sorgu başına ücretlendirmeyi tek bir
-        aramada toplar.
+        oturum belirtecini (session token) taşır. Oturum bir çözmeyle biter.
+
+        Açılış adres arama bütçesinden bir birim harcar. Çağıranın günlük bütçesi, istemci
+        adresinin saatlik bütçesi ya da hizmetin günlük tavanı doluysa
+        `ADDRESS_LOOKUP_LIMIT_REACHED` ve `Retry-After` döner; sağlayıcı yapılandırılmamışsa
+        `ADDRESS_PROVIDER_UNAVAILABLE` (ADR-0039). İstemci her iki durumda adresi elle
+        girebilir.
       x-authz-exempt: |
         Oturum çağıranın kendisine açılır; henüz var olmayan nesne yetkilendirilemez.
       x-body-limit: 2048
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
-      x-no-idempotency-key: Oturum kısa ömürlüdür ve yan etkisi yoktur; tekrar eden istek yalnız yeni bir oturum açar.
+      x-no-idempotency-key: >-
+        Tekrar eden istek yeni bir oturum açar ve bütçeden bir birim daha harcar; yanıtı kaybolan
+        oturum kimseye görünmez ve on beş dakikada süresi dolar. İstemci yanıtı alamazsa yeni bir
+        oturum açar.
       responses:
         "201":
           description: Arama oturumu.
@@ -2783,20 +2801,24 @@ paths:
           format: uuid
     get:
       operationId: listAddressSuggestions
-      x-error-codes: [ADDRESS_SEARCH_SESSION_NOT_FOUND, ADDRESS_PROVIDER_UNAVAILABLE]
+      x-error-codes: [ADDRESS_SEARCH_SESSION_NOT_FOUND, ADDRESS_PROVIDER_UNAVAILABLE, ADDRESS_LOOKUP_LIMIT_REACHED]
       tags: [address]
       summary: Arama oturumunda adres önerilerini döndürür.
       description: |
         Öneriler sağlayıcıdan gelir. Saklanan tek şey yer kimliğidir; sağlayıcının
-        biçimlendirdiği metin önbelleğe alınmaz ve kalıcılaşmaz (MED-008). Başkasına ait ve
-        süresi dolmuş oturum var olmayanla aynı yanıtı alır (MED-010). Sağlayıcı
-        erişilemezse `502` döner.
+        biçimlendirdiği metin önbelleğe alınmaz ve kalıcılaşmaz (MED-008). Başkasına ait,
+        süresi dolmuş ve çözmeyle bitmiş oturum var olmayanla aynı yanıtı alır (MED-010).
+        Sağlayıcı erişilemezse `502` döner. Öneriler oturumun hizmet alanıyla sınırlıdır.
+
+        Kırpıldıktan sonra üç karakterden kısa sorgu sağlayıcıya gitmez, birim harcamaz ve boş
+        liste alır. Sağlayıcıya giden her öneri isteği bütçeden bir birim harcar (sağlayıcı
+        bunları tek tek faturalar); bütçe ya da tavan doluysa `ADDRESS_LOOKUP_LIMIT_REACHED`
+        ve `Retry-After`. Bir oturum en çok on iki öneri isteği yapar; on üçüncü istek oturumu
+        bitirir ve `404 ADDRESS_SEARCH_SESSION_NOT_FOUND` alır (ADR-0039). `404` alan istemci
+        (oturum bitti, sınırına ulaştı ya da süresi doldu) yeni bir oturum açar.
       x-authz-exempt: |
         Arama çağıranın kendi oturumuyla sınırlıdır; başkasınınki yok sayılır.
       x-resource: address_search_sessions
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
       parameters:
         - name: query
           in: query
@@ -2846,7 +2868,9 @@ paths:
           maxLength: 512
     post:
       operationId: resolveAddressCandidate
-      x-error-codes: [ADDRESS_SEARCH_SESSION_NOT_FOUND, ADDRESS_PROVIDER_UNAVAILABLE]
+      x-error-codes:
+        [ADDRESS_SEARCH_SESSION_NOT_FOUND, ADDRESS_PROVIDER_UNAVAILABLE, ADDRESS_OUTSIDE_SERVICE_AREA,
+        ADDRESS_LOOKUP_LIMIT_REACHED]
       tags: [address]
       summary: Bir öneriyi adres bileşenlerine çözer.
       description: |
@@ -2854,12 +2878,18 @@ paths:
         satırlar, posta kodu, koordinat ve yer kimliği. Sağlayıcının biçimlendirdiği metin
         ve ham yanıtı döndürülmez ve saklanmaz (MED-008). Çözülen değer bir adres kaydı
         oluşturmaz; istemci onu `POST /v1/me/addresses`'e verir.
+
+        Çözme oturumu bitirir ve adres arama bütçesinden bir birim harcar
+        (`ADDRESS_LOOKUP_LIMIT_REACHED`; sağlayıcı hatası `ADDRESS_PROVIDER_UNAVAILABLE`, o
+        zaman oturum açık kalır; ADR-0039). Öneri hizmet alanındaki bir ile düşmüyorsa
+        `ADDRESS_OUTSIDE_SERVICE_AREA`. Sağlayıcının ilçesi referans verisindeki bir ilçeye
+        eşleşmezse `districtId` `null` döner ve kullanıcı ilçeyi listeden seçer.
       x-authz-exempt: |
         Çözme çağıranın kendi oturumuyla sınırlıdır; başkasınınki yok sayılır.
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
-      x-no-idempotency-key: Çözme salt okunurdur ve hiçbir kayıt yazmaz; tekrar güvenlidir.
+      x-no-idempotency-key: >-
+        Çözme bir kayıt oluşturmaz, ama oturumu bitirir ve bir birim harcar: yanıtı kaybolan
+        istemcinin tekrarı `404 ADDRESS_SEARCH_SESSION_NOT_FOUND` alır ve yeni bir oturumla
+        yeniden arar. Anahtar bir yanıtı geri verse de bitmiş oturumu açmazdı.
       responses:
         "200":
           description: Çözülen adres bileşenleri.
@@ -3951,7 +3981,7 @@ paths:
   /v1/me/address-lookups/reverse:
     post:
       operationId: reverseLookupAddress
-      x-error-codes: [ADDRESS_OUTSIDE_SERVICE_AREA, ADDRESS_PROVIDER_UNAVAILABLE]
+      x-error-codes: [ADDRESS_OUTSIDE_SERVICE_AREA, ADDRESS_PROVIDER_UNAVAILABLE, ADDRESS_LOOKUP_LIMIT_REACHED]
       tags: [address]
       summary: Harita konumunu adres bileşenlerine çevirir.
       description: |
@@ -3960,13 +3990,20 @@ paths:
         yalnız yer kimliği ve bizim bileşenlerimiz alınır; biçimlendirilmiş metin ve ham
         yanıt saklanmaz (MED-008). Çözülen değer bir adres kaydı oluşturmaz; istemci onu
         `POST /v1/me/addresses`'e verir.
+
+        Sağlayıcıya yalnız koordinat gider; çağıranın kimliği gitmez. Hizmet alanının bilinen
+        sınırları dışındaki nokta sağlayıcıya hiç gitmez ve birim harcamaz. Dönen koordinat
+        sağlayıcının değil çağıranın seçtiği noktadır. Çevirme adres arama bütçesinden bir
+        birim harcar (`ADDRESS_LOOKUP_LIMIT_REACHED`; sağlayıcı hatası
+        `ADDRESS_PROVIDER_UNAVAILABLE`; ADR-0039). Sağlayıcının ilçesi eşleşmezse `districtId`
+        `null` döner.
       x-authz-exempt: |
         Arama çağıranın kendisi için yapılır; yetkilendirilecek bir nesne yoktur.
       x-body-limit: 2048
-      x-not-implemented: |
-        Faz 2'nin sözleşmesi donduruldu; handler sonraki PR'da gelir (ADR-0029 §1).
-        Bugün 501 NOT_IMPLEMENTED döner.
-      x-no-idempotency-key: Çözme salt okunurdur ve hiçbir kayıt yazmaz; tekrar güvenlidir.
+      x-no-idempotency-key: >-
+        Çevirme bir kayıt oluşturmaz; tekrar aynı noktayı yeniden çevirir ve bir birim daha
+        harcar. Yanıtı kaybolan istemci yeniden sorar; harcanan birim kullanıcının bütçesini
+        tüketmekten öte bir yan etki bırakmaz.
       requestBody:
         description: Haritadan seçilen konum.
         required: true
@@ -5988,6 +6025,16 @@ components:
           maxLength: 120
           description: Bina adı.
           examples: [Moda Apartmanı]
+        siteName:
+          type: string
+          maxLength: 120
+          description: Site adı.
+          examples: [Moda Konutları]
+        block:
+          type: string
+          maxLength: 30
+          description: Blok.
+          examples: [B]
         floor:
           type: string
           maxLength: 20
@@ -6001,7 +6048,8 @@ components:
         postalCode:
           type: string
           maxLength: 5
-          description: Posta kodu.
+          pattern: "^[0-9]{5}$"
+          description: Posta kodu; beş rakam.
           examples: ["34710"]
         additionalDirections:
           type: string
@@ -6012,9 +6060,18 @@ components:
           type: string
           maxLength: 255
           description: |
-            Sağlayıcının yer kimliği. Saklanan tek sağlayıcı verisidir; kalıcı değil,
-            yenilenebilir bir işaretçi olarak tutulur (MED-008).
+            Sağlayıcının yer kimliği. Kalıcı değil, yenilenebilir bir işaretçi olarak tutulur
+            (MED-008).
           examples: [ChIJAbCdEfGhIjKlMnOpQrStUv]
+        proof:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          description: |
+            Çözmenin ya da ters aramanın verdiği kanıt (`ResolvedAddress.proof`). Adresin
+            sağlayıcıdan geldiğini sunucuya bu kanıtlar; kaynak beyan edilmez (ADR-0039
+            Karar 10).
+          examples: [eyJ2IjoxfQ.c2lnbmF0dXJl]
         coordinates:
           $ref: "#/components/schemas/CoordinatesInput"
 
@@ -6024,8 +6081,9 @@ components:
         Bir adres kaydı. Koordinatın görünen hassasiyeti çağırana göre değişir (MED-009).
         Görünen adres metni sağlayıcıdan değil, kendi bileşenlerimizden üretilir (MED-008).
       required:
-        [id, city, district, neighborhood, thoroughfare, buildingNumber, buildingName, floor,
-        unitNumber, postalCode, additionalDirections, displayLine, coordinates, createdAt]
+        [id, city, district, neighborhood, thoroughfare, buildingNumber, buildingName, siteName,
+        block, floor, unitNumber, postalCode, additionalDirections, displayLine, coordinates,
+        source, providerPlaceId, createdAt]
       properties:
         id:
           type: string
@@ -6054,6 +6112,14 @@ components:
           type: [string, "null"]
           description: Bina adı.
           examples: [Moda Apartmanı]
+        siteName:
+          type: [string, "null"]
+          description: Site adı.
+          examples: [Moda Konutları]
+        block:
+          type: [string, "null"]
+          description: Blok.
+          examples: [B]
         floor:
           type: [string, "null"]
           description: Kat.
@@ -6074,6 +6140,12 @@ components:
           type: string
           description: Kendi bileşenlerimizden üretilen görünen adres metni.
           examples: ["Moda Caddesi 12/7, Caferağa, Kadıköy, İstanbul"]
+        source:
+          $ref: "#/components/schemas/AddressSource"
+        providerPlaceId:
+          type: [string, "null"]
+          description: Sağlayıcının yer kimliği; sağlayıcıdan gelmemiş adreste `null`.
+          examples: [ChIJAbCdEfGhIjKlMnOpQrStUv]
         coordinates:
           oneOf:
             - $ref: "#/components/schemas/Coordinates"
@@ -6099,12 +6171,14 @@ components:
     ResolvedAddress:
       type: object
       description: |
-        Bir önerinin bizim bileşenlerimize çözülmüş hâli. İstemci bunu olduğu gibi
-        `POST /v1/me/addresses`'e verebilir. Sağlayıcının biçimlendirdiği metin ve ham
-        yanıtı dönmez (MED-008).
+        Bir önerinin ya da harita konumunun bizim bileşenlerimize çözülmüş hâli. `districtId`
+        doluysa istemci bunu `proof` ve koordinatla birlikte `POST /v1/me/addresses`'e
+        verebilir; `null` ise kullanıcı önce ilçeyi seçer. Sağlayıcının biçimlendirdiği metin
+        ve ham yanıtı dönmez (MED-008). Koordinat çözmede sağlayıcının konumu, ters aramada
+        çağıranın kendi pinidir; ikisi de sahibine tam verilir.
       required:
-        [cityId, districtId, neighborhood, thoroughfare, buildingNumber, postalCode,
-        providerPlaceId, latitude, longitude]
+        [cityId, districtId, neighborhood, thoroughfare, buildingNumber, siteName, postalCode,
+        providerPlaceId, latitude, longitude, source, proof]
       properties:
         cityId:
           type: string
@@ -6112,9 +6186,11 @@ components:
           description: Şehrin referans kimliği.
           examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d01]
         districtId:
-          type: string
+          type: [string, "null"]
           format: uuid
-          description: İlçenin referans kimliği.
+          description: |
+            İlçenin referans kimliği; sağlayıcının ilçesi referans verisindeki bir ilçeye
+            eşleşmezse `null` (kullanıcı ilçeyi listeden seçer, ADR-0039).
           examples: [0192f3c4-7b1a-7cc0-9a51-3f2b8e4d6d02]
         neighborhood:
           type: [string, "null"]
@@ -6128,6 +6204,10 @@ components:
           type: [string, "null"]
           description: Bina numarası.
           examples: ["12"]
+        siteName:
+          type: [string, "null"]
+          description: Site adı (sağlayıcının `premise` bileşeni).
+          examples: [Moda Konutları]
         postalCode:
           type: [string, "null"]
           description: Posta kodu.
@@ -6136,6 +6216,8 @@ components:
           type: [string, "null"]
           description: Sağlayıcının yer kimliği.
           examples: [ChIJAbCdEfGhIjKlMnOpQrStUv]
+        source:
+          $ref: "#/components/schemas/AddressSource"
         latitude:
           type: [number, "null"]
           format: double
@@ -6150,6 +6232,24 @@ components:
           maximum: 180
           description: Boylam; sağlayıcı vermediyse `null`.
           examples: [29.0254]
+        proof:
+          type: string
+          description: |
+            Bu çözmenin kanıtı: kaynak, yer kimliği, il ve konumlayan bileşenler, koordinat ve
+            çağıran üzerinde sunucunun imzası; arama oturumu kadar (15 dakika) geçerlidir.
+            İstemci adresi kaydederken olduğu gibi geri gönderir (ADR-0039 Karar 10).
+          examples: [eyJ2IjoxfQ.c2lnbmF0dXJl]
+
+    AddressSource:
+      type: string
+      description: |
+        Adres bileşenlerinin ve koordinatın kaynağı (ADR-0039 Karar 10). `MANUAL` kullanıcının
+        kendi girişidir, koordinatı da kendi pinidir. `AUTOCOMPLETE` bir öneri çözmesinden
+        gelir, bileşenleri ve koordinatı sağlayıcınındır. `REVERSE_GEOCODE` ters aramadan gelir,
+        bileşenleri sağlayıcının, koordinatı kullanıcının pinidir. İstemci kaynağı beyan
+        etmez: sunucu onu çözmenin ya da ters aramanın kanıtından (`proof`) ve saklı adresten
+        belirler.
+      enum: [MANUAL, AUTOCOMPLETE, REVERSE_GEOCODE]
 
     AddressSearchSession:
       type: object

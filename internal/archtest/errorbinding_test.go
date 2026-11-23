@@ -1022,6 +1022,11 @@ func (tr *errorTrace) resolveName(sc *scope, name string) callee {
 			// A literal in this body, or a callback whose arguments the
 			// callers' walks visit.
 			return callee{skip: true, sig: t}
+		case t.ext:
+			// A value an outside function returned (the cancel of
+			// context.WithTimeout): code outside the module builds no
+			// module code, so its call is not followed and is no gap.
+			return callee{skip: true, sig: t}
 		case !returnsError(tr.m.underlying(t)):
 			return callee{skip: true, sig: t}
 		}
@@ -1935,6 +1940,8 @@ func (h *HTTP) GetBlind(ctx context.Context, _ apiv1.GetBlindRequestObject) (any
 	f := h.passer.Pass
 	_ = f()
 	_ = run(f)
+	_, stop := context.WithCancel(ctx)
+	stop()
 	return nil, nil
 }
 
@@ -2087,8 +2094,11 @@ func TestErrorTraceOnADemoModule(t *testing.T) {
 	// interface method value passed on, DEMO_GENERIC only through the
 	// instantiated generic function passed on, DEMO_INDEXED only through
 	// the indexed access of a known element type. An indexed callee of
-	// functions returning nothing is let past; everything else it meets is
-	// red, each for its own reason.
+	// functions returning nothing is let past, and so is the call of a
+	// local value an outside function returned (stop, the cancel of
+	// context.WithCancel: without the rule the list below has one more "a
+	// call of a local function value"); everything else it meets is red,
+	// each for its own reason.
 	sites, unres, _ = m.trace(handlers["GetBlind"][0])
 	got = nil
 	for _, s := range sites {

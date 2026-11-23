@@ -86,9 +86,12 @@ type Profile struct {
 	// (ADR-0036 Karar 10).
 	ProfilePicture *uuid.UUID
 	CV             *uuid.UUID
-	Employer       bool
-	EmailVerified  bool
-	PhoneVerified  bool
+	// Address is the primary address (ADR-0039 Karar 5); the address
+	// module is the link's one writer.
+	Address       *uuid.UUID
+	Employer      bool
+	EmailVerified bool
+	PhoneVerified bool
 	// IdentityVerified freezes the name and the birth date (USR-024).
 	IdentityVerified bool
 	CreatedAt        time.Time
@@ -131,7 +134,7 @@ type Patch struct {
 	CurrentPassword string
 
 	// The links to the media module (ADR-0036 Karar 10) and to the
-	// address module, which has not landed (Karar 5).
+	// address module (ADR-0039 Karar 5).
 	ProfilePicture Field[uuid.UUID]
 	CV             Field[uuid.UUID]
 	Address        Field[uuid.UUID]
@@ -139,10 +142,6 @@ type Patch struct {
 
 // contactChange reports whether the patch sends an address or a number.
 func (p Patch) contactChange() bool { return p.Email != nil || p.PhoneNumber != nil }
-
-// linksAddress reports whether the patch links an address: a member sent
-// with an id. Clearing it (null) links nothing.
-func (p Patch) linksAddress() bool { return p.Address.Value != nil }
 
 // mediaLink is one media member of the profile: its kind and the body
 // member that names it.
@@ -196,10 +195,13 @@ func (p Patch) apply(cur Profile) (Profile, error) {
 	next.Interests = text(p.Interests, cur.Interests)
 	next.ProfilePicture = link(p.ProfilePicture, cur.ProfilePicture)
 	next.CV = link(p.CV, cur.CV)
+	next.Address = link(p.Address, cur.Address)
 	return next, nil
 }
 
-// fieldsChanged reports whether the stored profile fields differ.
+// fieldsChanged reports whether the stored profile fields differ. The
+// primary address is not among them: the address module writes the link
+// and its sync intent itself (addressLinks.LinkPrimary, ADR-0039 Karar 5).
 func fieldsChanged(a, b Profile) bool {
 	return a.FirstName != b.FirstName || a.LastName != b.LastName || !sameDate(a.BirthDate, b.BirthDate) ||
 		!sameText(a.Gender, b.Gender) || !sameText(a.JobTitle, b.JobTitle) || !sameText(a.About, b.About) ||

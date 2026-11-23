@@ -128,6 +128,9 @@ func workerConfig(mods modules, logger *slog.Logger) (jobs.Config, error) {
 	if err := river.AddWorkerSafely(workers, mods.idempotencyPurge); err != nil {
 		return jobs.Config{}, fmt.Errorf("workers: %w", err)
 	}
+	if err := river.AddWorkerSafely(workers, mods.addressPurge); err != nil {
+		return jobs.Config{}, fmt.Errorf("workers: %w", err)
+	}
 	if err := mods.accounts.AddWorkers(workers); err != nil {
 		return jobs.Config{}, fmt.Errorf("workers: %w", err)
 	}
@@ -153,6 +156,11 @@ func workerConfig(mods modules, logger *slog.Logger) (jobs.Config, error) {
 			river.NewPeriodicJob(river.PeriodicInterval(mediaSweepInterval),
 				func() (river.JobArgs, *river.InsertOpts) { return media.SweepArgs{}, nil },
 				&river.PeriodicJobOpts{ID: "media_sweep", RunOnStart: true}),
+			// Expired address search sessions and the lookup ledger
+			// (ADR-0039).
+			river.NewPeriodicJob(river.PeriodicInterval(addressPurgeInterval),
+				func() (river.JobArgs, *river.InsertOpts) { return addressPurgeArgs{}, nil },
+				&river.PeriodicJobOpts{ID: "address_purge", RunOnStart: true}),
 		},
 	}, nil
 }

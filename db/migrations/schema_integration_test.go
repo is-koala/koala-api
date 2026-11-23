@@ -291,6 +291,15 @@ func TestRoleGrants(t *testing.T) {
 			// profile changes, marked published by the dispatcher; never
 			// deleted by the application yet.
 			"user_profile_sync_intents": {"SELECT", "INSERT", "UPDATE"},
+			// Address search sessions (0049, ADR-0039): M2, opened,
+			// counted, ended and purged by the application.
+			"address_search_sessions": dml,
+			// The address lookup budget's ledger (0049, ADR-0039):
+			// appended, counted and purged, never updated.
+			"address_lookups": {"SELECT", "INSERT", "DELETE"},
+			// The service area's bounds (0049, ADR-0039): a cache the
+			// application looks up, claims, refreshes and purges.
+			"address_area_bounds": dml,
 		}
 		maint := map[string][]string{
 			"deletions":        {"SELECT"}, // plus UPDATE of the restore columns only, below
