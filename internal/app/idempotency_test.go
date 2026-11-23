@@ -16,6 +16,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/is-koala/koala-api/api"
+	"github.com/is-koala/koala-api/internal/address"
+	"github.com/is-koala/koala-api/internal/platform/apperr"
 	"github.com/is-koala/koala-api/internal/platform/clock"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/httpx"
@@ -51,8 +53,10 @@ func keyedOperations(t *testing.T, spec *openapi3.T) map[string]idempotency.Oper
 //     422, frozen or not: an operation bound once its handler lands would
 //     otherwise answer a status its contract does not list;
 //   - every bound operation's success declares Idempotent-Replayed;
-//   - an operation without the key neither declares 422 (the status is
-//     the store's alone) nor lists the store's codes.
+//   - an operation without the key never lists the store's codes, and
+//     declares 422 only when it lists a code of a domain rule whose status
+//     is 422 (unprocessableCodes; ADR-0039 Karar 2 narrows ADR-0034's
+//     "422 is the store's alone"): a 422 without such a code is red.
 func TestIdempotentOperationsDeclareTheirRefusals(t *testing.T) {
 	t.Parallel()
 
@@ -71,15 +75,21 @@ func TestIdempotentOperationsDeclareTheirRefusals(t *testing.T) {
 			k, isKeyed := keyed[op.OperationID]
 			if !isKeyed {
 				plain++
-				if op.Responses.Value(strconv.Itoa(http.StatusUnprocessableEntity)) != nil {
-					t.Errorf("%s %s (%s) takes no Idempotency-Key but declares 422, the store's status", method, path, op.OperationID)
-				}
+				domain422 := false
 				if codes, ok := op.Extensions["x-error-codes"].([]any); ok {
 					for _, c := range codes {
-						if s, ok := c.(string); ok && storeCodes[s] {
+						s, ok := c.(string)
+						if ok && storeCodes[s] {
 							t.Errorf("%s takes no Idempotency-Key but lists %s, a code of the store", op.OperationID, s)
 						}
+						if ok && slices.Contains(unprocessableCodes(), apperr.Code(s)) {
+							domain422 = true
+						}
 					}
+				}
+				if op.Responses.Value(strconv.Itoa(http.StatusUnprocessableEntity)) != nil && !domain422 {
+					t.Errorf("%s %s (%s) takes no Idempotency-Key but declares 422, the store's status, without a code of its own",
+						method, path, op.OperationID)
 				}
 				continue
 			}
@@ -167,4 +177,13 @@ func TestIdempotentOperationsAreBounded(t *testing.T) {
 			t.Errorf("%s takes an Idempotency-Key but is a Stream route, outside httpx.Timeout", id)
 		}
 	}
+}
+
+// unprocessableCodes are the codes of a domain rule whose status is 422
+// (KindUnprocessable): the request is well formed and breaks a rule of
+// the domain (ADR-0039 Karar 2). An operation without the Idempotency-Key
+// may declare 422 only for one of them; the store's 422 keeps its own
+// codes.
+func unprocessableCodes() []apperr.Code {
+	return []apperr.Code{address.CodeOutsideServiceArea}
 }

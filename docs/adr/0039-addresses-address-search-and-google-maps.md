@@ -258,8 +258,9 @@ Dokuz operasyonun `x-not-implemented` işareti kalktı, iskele metotları silind
 3. **ADR-0029 Karar 8'in "Adres arama oturumu … ömrü 15 dakika"** → değişmedi; oturumun çözmeyle bitmesi ve aday kimliğinin biçimi eklendi (Karar 6).
 4. **`ADDRESS_OUTSIDE_SERVICE_AREA`'nın 400'ü** (ADR-0029'un donmuş sözleşmesi) → 422 (Karar 2).
 5. **`test/scenarios/contract_test.go`'nun `boundAhead`'indeki MED satırları** → alanın son donmuş operasyonu indi; MED P0'ları artık doğrudan bağlı.
+6. **ADR-0034'ün "422 yalnız deponundur" kuralı** (`TestIdempotentOperationsDeclareTheirRefusals`'ın anahtarsız operasyon dalı) → daraltıldı: anahtar almayan bir operasyon 422'yi yalnız `x-error-codes`'unda durumu 422 olan bir alan kuralı kodu listeliyorsa beyan eder (`unprocessableCodes`: bugün yalnız `ADDRESS_OUTSIDE_SERVICE_AREA`); deponun kodlarını listelemesi hâlâ kırmızıdır, gerekçesiz bir 422 de. Gerekçe Karar 2: istek biçimce doğru, alan kuralına aykırı; 400 biçim hatasıdır (ADR-0007).
 
-ADR-0013, ADR-0014, ADR-0021, ADR-0026, ADR-0029, ADR-0033, ADR-0035 ve ADR-0036'nın kararları başka yerde değişmiyor.
+ADR-0013, ADR-0014, ADR-0021, ADR-0026, ADR-0029, ADR-0033, ADR-0034, ADR-0035 ve ADR-0036'nın kararları başka yerde değişmiyor.
 
 ## Sonuçlar
 
