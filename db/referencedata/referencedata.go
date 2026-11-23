@@ -164,7 +164,7 @@ const maxName = 200
 var (
 	countryCode = regexp.MustCompile(`^[A-Z]{2}$`)
 	// programCode is an ÖSYM program code, the table's CHECK.
-	programCode = regexp.MustCompile(`^[0-9]{9}$`)
+	programCode = regexp.MustCompile(`^\d{9}$`)
 )
 
 // Load reads and validates the embedded files.
