@@ -76,6 +76,7 @@ without its first code, the ledger only grows.
 
 import csv
 import importlib.util
+import io
 import json
 import os
 import re
@@ -92,9 +93,9 @@ UNIT_TYPE_ASSOCIATE = 47
 CODE = re.compile(r"^[0-9]{9}$")
 
 LEDGER = "id_ledger.csv"
-LEDGER_HEADER = ["key", "id", "parent", "name", "version", "origin"]
+LEDGER_HEADER = ["key", "id", "parent", "name", "version", "origin", "decision"]
 DECISIONS = "id_decisions.csv"
-DECISIONS_HEADER = ["key", "decision", "note"]
+DECISIONS_HEADER = ["key", "version", "decision", "ledger_parent", "ledger_name", "source_parent", "source_name", "note"]
 UNIVERSITIES = "yok_universities.csv"
 UNIVERSITIES_HEADER = ["yok_id", "yok_name", "university_id", "basis"]
 UNITS = "yok_units.csv"
@@ -146,12 +147,10 @@ def tr_upper(s):
 
 
 def same_name(a, b):
-    """Two names say the same: compared without case, circumflex and extra
-    white space ("Yapay Zeka" and "Yapay Zekâ")."""
-    def norm(s):
-        s = tr_lower(clean.spaces(s))
-        return s.translate(str.maketrans("âîû", "aiu"))
-    return norm(a) == norm(b)
+    """Two names say the same: compared without case and extra white space
+    only. A circumflex counts ("kar" and "kâr" are two words), so a name
+    that gains or loses one stops the run until it is decided."""
+    return tr_lower(clean.spaces(a)) == tr_lower(clean.spaces(b))
 
 
 def title_word(word, first):
@@ -239,63 +238,139 @@ def source_records(path):
     return years.pop(), records
 
 
+def csv_line(values):
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator="").writerow(values)
+    return buf.getvalue()
+
+
 class Ledger:
-    """The id ledger: rows are appended, never changed or removed."""
+    """The id ledger: rows are appended, never changed or removed.
+
+    A row's origin is "minted" (the id was made for the key), "matched"
+    (the key was bound to a row that existed, or a dropped id came back)
+    or "dropped" (the id left the files; the key still names it). Its
+    decision is the tools/id_decisions.csv decision that added it, if any.
+
+    A decision holds the state it was made for: the data version, the
+    ledger's parent and name of the key, and the source's parent (its
+    source key: "yok:unit:<id>", "yok:university:<id>", or empty) and name.
+    It is applied only in that version and only to exactly that state;
+    a decision of another version, one that matches nothing, or one that
+    does not meet the state it names stops the run. Its row in the ledger
+    is the record of it, so the file holds the current version's decisions
+    only and is emptied with the next VERSION."""
 
     def __init__(self, path, decisions_path, version):
         self.path = path
         self.version = version
         self.rows = read_table(path, LEDGER_HEADER, missing_ok=True)
         self.before = len(self.rows)
-        self.latest = {}
+        self.latest, self.previous = {}, {}
         for r in self.rows:
             if int(r["version"]) > version:
                 raise Stop(f"{path}: {r['key']} was added in version {r['version']}, after VERSION {version}")
+            if r["key"] in self.latest:
+                self.previous[r["key"]] = self.latest[r["key"]]
             self.latest[r["key"]] = r
         self.decisions = {}
         for d in read_table(decisions_path, DECISIONS_HEADER, missing_ok=True):
             if d["decision"] not in ("same", "new"):
                 raise Stop(f"{decisions_path}: {d['key']}: decision {d['decision']!r}, want same or new")
-            self.decisions[d["key"]] = d["decision"]
+            if d["version"] != str(version):
+                raise Stop(f"{decisions_path}: {d['key']} was decided for version {d['version']}, VERSION is {version}; "
+                           "the ledger holds the decisions of earlier versions, so empty the file")
+            if d["key"] in self.decisions:
+                raise Stop(f"{decisions_path}: {d['key']} decided twice")
+            self.decisions[d["key"]] = d
         self.used = set()
+        self.applied = {}  # key -> decision, for the rows this run appends
         self.conflicts = []
 
     def minted(self):
         return {r["id"] for r in self.rows if r["origin"] == "minted"}
 
-    def lookup(self, key, parent, name):
+    def lookup(self, key, parent, name, source_parent):
         """The id the ledger gives key under parent and name; None for a key
-        to be given one (unseen, or decided "new"). A conflict without a
-        decision is collected and stops the run."""
-        r = self.latest.get(key)
+        to be given one (unseen, or decided "new"). source_parent is the
+        source key of the parent, as a decision names it. A conflict or a
+        decision that does not fit is collected and stops the run."""
+        r, d = self.latest.get(key), self.decisions.get(key)
+        state = [key, str(self.version), "<same|new>", r["parent"] if r else "", r["name"] if r else "", source_parent, name]
         if r is None:
+            if d is not None:
+                self.conflicts.append(f"{key}: decided, but the ledger does not have it")
             return None
         if r["parent"] == parent and same_name(r["name"], name):
+            if d is not None:
+                before = self.previous.get(key)
+                done = (r["version"] == str(self.version) and r["decision"] == d["decision"] and before is not None
+                        and (d["ledger_parent"], d["ledger_name"]) == (before["parent"], before["name"])
+                        and (d["source_parent"], d["source_name"]) == (source_parent, name))
+                if not done:
+                    self.conflicts.append(f"{key}: decided, but there is nothing to decide (the ledger has "
+                                          f"{r['name']!r} under {r['parent'] or '-'}, as the source)")
+                    return None
+                self.used.add(key)
             return r["id"]
-        decision = self.decisions.get(key)
         what = "moved" if r["parent"] != parent else "renamed"
-        if decision is None:
+        if d is None:
             self.conflicts.append(
-                f"{key} is {what}: the ledger has {r['name']!r} under {r['parent'] or '-'} ({r['id']}), "
-                f"the source {name!r} under {parent or '-'}; decide it in {DECISIONS} (same or new)")
+                f"{key} is {what}: the ledger has {r['name']!r} under {r['parent'] or '-'} ({r['id']}), the source "
+                f"{name!r} under {source_parent or '-'}; decide it in {DECISIONS}:\n    {csv_line(state + [''])}")
+            return None
+        if (d["ledger_parent"], d["ledger_name"], d["source_parent"], d["source_name"]) != (
+                r["parent"], r["name"], source_parent, name):
+            self.conflicts.append(
+                f"{key}: the decision does not meet the state it names; the state is:\n    {csv_line(state + [''])}")
             return None
         self.used.add(key)
-        if decision == "new":
+        self.applied[key] = d["decision"]
+        if d["decision"] == "new":
             return None
         if r["parent"] != parent:
             self.conflicts.append(f"{key}: decided same, but it moved; a moved row is a new row, decide new")
             return None
         return r["id"]
 
+    def check_new(self, key, id_):
+        """A key decided "new" must not end up with its old id."""
+        r = self.latest.get(key)
+        if self.applied.get(key) == "new" and r is not None and r["id"] == id_:
+            self.conflicts.append(f"{key}: decided new, but its program keeps {id_} through another code")
+
     def record(self, key, id_, parent, name, origin):
         """Append a row unless the latest one already says this."""
         r = self.latest.get(key)
-        if r is not None and r["id"] == id_ and r["parent"] == parent and same_name(r["name"], name):
+        if (r is not None and r["origin"] != "dropped" and r["id"] == id_ and r["parent"] == parent
+                and same_name(r["name"], name)):
             return False
-        row = {"key": key, "id": id_, "parent": parent, "name": name, "version": str(self.version), "origin": origin}
+        if r is not None and r["origin"] == "dropped" and r["id"] == id_:
+            origin = "matched"  # a dropped id back in the files
+        row = {"key": key, "id": id_, "parent": parent, "name": name, "version": str(self.version),
+               "origin": origin, "decision": self.applied.get(key, "")}
         self.rows.append(row)
+        if r is not None:
+            self.previous[key] = r
         self.latest[key] = row
         return True
+
+    def drop(self, ids, prefix):
+        """Record that ids left the files: every key of prefix whose latest
+        row names one gets a "dropped" row."""
+        n = 0
+        for key, r in sorted(self.latest.items()):
+            if key.startswith(prefix) and r["id"] in ids and r["origin"] != "dropped":
+                row = dict(r, version=str(self.version), origin="dropped", decision="")
+                self.rows.append(row)
+                self.previous[key] = r
+                self.latest[key] = row
+                n += 1
+        return n
+
+    def unused_decisions(self):
+        for key in sorted(set(self.decisions) - self.used):
+            self.conflicts.append(f"{key}: decided, but the source does not list it")
 
     def stop_on_conflicts(self):
         if self.conflicts:
@@ -319,10 +394,10 @@ def run(src, root, tools, out=print):
     yok_names = {str(r["universiteId"]): r["universiteAdi"] for r in records}
     university_of = {}
     pending = []
-    added_universities = matched_universities = 0
+    added_universities = 0
     for yid in sorted(yok_names, key=int):
         key, name = f"yok:university:{yid}", university_name(yok_names[yid])
-        uid = ledger.lookup(key, "", name)
+        uid = ledger.lookup(key, "", name, "")
         origin = "matched"
         if uid is None:
             entry = table.get(yid)
@@ -341,6 +416,8 @@ def run(src, root, tools, out=print):
                     continue
         university_of[yid] = uid
         pending.append((key, uid, "", name, origin))
+    for p in pending:
+        ledger.check_new(p[0], p[1])
     ledger.stop_on_conflicts()
     minted = ledger.minted() | {p[1] for p in pending if p[4] == "minted"}
     for key, uid, parent, name, origin in pending:
@@ -354,7 +431,6 @@ def run(src, root, tools, out=print):
             added_universities += 1
         elif uid in minted:
             universities[uid]["name"] = name
-        matched_universities += origin == "matched"
         ledger.record(key, uid, parent, name, origin)
     report.append(("universities: in the source", len(university_of)))
     report.append(("universities: new rows (changed)", added_universities))
@@ -362,8 +438,9 @@ def run(src, root, tools, out=print):
     # Units, grouped by (university, title-cased name).
     unit_table = {r["yok_id"]: r for r in read_table(os.path.join(tools, UNITS), UNITS_HEADER)}
     faculties = {r["id"]: r for r in data["faculties"]}
-    units = {}
+    units, unit_university = {}, {}
     for r in records:
+        unit_university[str(r["fymkId"])] = str(r["universiteId"])
         fid = str(r["fymkId"])
         key = (university_of[str(r["universiteId"])], r["fymkAdi"])
         if units.setdefault(fid, key) != key:
@@ -377,7 +454,7 @@ def run(src, root, tools, out=print):
     for (uid, name), fids in sorted(groups.items()):
         fids.sort(key=int)
         merged_units += len(fids) - 1
-        known = {ledger.lookup(f"yok:unit:{f}", uid, name) for f in fids} - {None}
+        known = {ledger.lookup(f"yok:unit:{f}", uid, name, f"yok:university:{unit_university[f]}") for f in fids} - {None}
         if len(known) > 1:
             ledger.conflicts.append(f"units {fids} are one faculty but the ledger gives them {sorted(known)}")
             continue
@@ -409,6 +486,9 @@ def run(src, root, tools, out=print):
     minted |= {p[1] for p in pending if p[4] == "minted"}
     added_faculties = 0
     for key, fac, uid, name, origin in pending:
+        ledger.check_new(key, fac)
+    ledger.stop_on_conflicts()
+    for key, fac, uid, name, origin in pending:
         if fac not in faculties:
             if fac not in minted:
                 raise Stop(f"{key}: {fac} is not a row of faculties.csv")
@@ -432,14 +512,15 @@ def run(src, root, tools, out=print):
     programs = {}
     for r in records:
         plain = clean.without_quota(r["birimAdi"])
-        programs.setdefault((faculty_of[str(r["fymkId"])], plain), []).append(str(r["kilavuzKodu"]))
+        programs.setdefault((faculty_of[str(r["fymkId"])], plain), []).append((str(r["kilavuzKodu"]), str(r["fymkId"])))
     wanted, wanted_codes, pending = {}, {}, []
     told_apart = by_name_count = 0
-    for (fac, plain), codes in sorted(programs.items()):
-        codes.sort(key=int)
+    for (fac, plain), coded in sorted(programs.items()):
+        coded.sort(key=lambda c: int(c[0]))
+        codes = [c for c, _ in coded]
         name = associate_name(plain, bachelor_names.get(fac, set()))
         told_apart += name != plain
-        known = {ledger.lookup(f"osym:{c}", fac, name) for c in codes} - {None}
+        known = {ledger.lookup(f"osym:{c}", fac, name, f"yok:unit:{u}") for c, u in coded} - {None}
         if len(known) > 1:
             ledger.conflicts.append(f"program {name!r} under {fac}: its codes {codes} name {sorted(known)} in the ledger")
             continue
@@ -463,6 +544,10 @@ def run(src, root, tools, out=print):
     ledger.stop_on_conflicts()
     added_departments = sum(1 for i in wanted if i not in departments)
     renamed = sum(1 for i, d in wanted.items() if i in departments and departments[i]["name"] != d["name"])
+    for p in pending:
+        ledger.check_new(p[0], p[1])
+    ledger.unused_decisions()
+    ledger.stop_on_conflicts()
     for p in pending:
         ledger.record(*p)
 
@@ -500,10 +585,9 @@ def run(src, root, tools, out=print):
     data["universities"] = [u for u in data["universities"] if u["id"] not in empty_universities]
     report.append(("units with a minted id and no program, dropped (changed)", len(empty_units)))
     report.append(("universities with a minted id and no unit, dropped (changed)", len(empty_universities)))
+    report.append(("id ledger: keys of dropped units and universities, marked (changed)",
+                   ledger.drop(empty_units, "yok:unit:") + ledger.drop(empty_universities, "yok:university:")))
     report.append(("id ledger: rows appended (changed)", len(ledger.rows) - ledger.before))
-    unused = sorted(set(ledger.decisions) - ledger.used)
-    if unused:
-        out(f"{DECISIONS}: decisions the run did not need (already in the ledger?): {unused}")
 
     for t in clean.HEADERS:
         clean.write(root, t, data[t])
@@ -518,7 +602,9 @@ def run(src, root, tools, out=print):
 
 
 def self_test():
-    """The ledger's rules on made-up data, in a temporary directory."""
+    """The ledger's rules on made-up data, in a temporary directory. Each
+    step names what it shows; a step that should stop must stop on its own
+    message and write nothing."""
     java_uni, java_fac = "11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"
 
     def record(code, unit, unit_name, program):
@@ -549,74 +635,130 @@ def self_test():
         write_table(os.path.join(tools, UNITS), UNITS_HEADER, [])
         src = os.path.join(tmp, "source.json")
 
-        def step(version, recs, decisions=(), stops=None):
+        def ledger():
+            return read_table(os.path.join(tools, LEDGER), LEDGER_HEADER, missing_ok=True)
+
+        def latest(key):
+            return [r for r in ledger() if r["key"] == key][-1]
+
+        def decide(version, key, decision, source_parent, source_name, state=None):
+            """A decision for the ledger's current state of key, or for
+            state (parent, name) when given."""
+            r = latest(key)
+            parent, name = state or (r["parent"], r["name"])
+            return {"key": key, "version": str(version), "decision": decision, "ledger_parent": parent,
+                    "ledger_name": name, "source_parent": source_parent, "source_name": source_name,
+                    "note": "self-test"}
+
+        def files():
+            out = {}
+            for n in sorted(os.listdir(root)):
+                with open(os.path.join(root, n), "rb") as f:
+                    out[n] = f.read()
+            return out
+
+        def step(what, version, recs, decisions=(), stops=None):
             with open(os.path.join(root, "VERSION"), "w", encoding="utf-8") as f:
                 f.write(f"{version}\n")
             with open(src, "w", encoding="utf-8") as f:
                 json.dump({"content": recs, "totalElements": len(recs), "last": True}, f, ensure_ascii=False)
-            write_table(os.path.join(tools, DECISIONS), DECISIONS_HEADER,
-                        [{"key": k, "decision": d, "note": "self-test"} for k, d in decisions])
-            ledger_before = read_table(os.path.join(tools, LEDGER), LEDGER_HEADER, missing_ok=True)
-            files_before = {n: open(os.path.join(root, n), "rb").read() for n in os.listdir(root)}
+            write_table(os.path.join(tools, DECISIONS), DECISIONS_HEADER, list(decisions))
+            ledger_before, files_before = ledger(), files()
             try:
                 run(src, root, tools, out=lambda *_: None)
             except Stop as e:
                 if stops is None or stops not in str(e):
-                    raise AssertionError(f"version {version}: stopped: {e}") from e
-                after = {n: open(os.path.join(root, n), "rb").read() for n in os.listdir(root)}
-                assert after == files_before, "a stopped run wrote the files"
-                assert read_table(os.path.join(tools, LEDGER), LEDGER_HEADER, missing_ok=True) == ledger_before
+                    raise AssertionError(f"{what}: stopped: {e}") from e
+                assert files() == files_before, f"{what}: a stopped run wrote the files"
+                assert ledger() == ledger_before, f"{what}: a stopped run wrote the ledger"
+                print(f"  ok  {what}: stops ({stops})")
                 return None
             if stops is not None:
-                raise AssertionError(f"version {version}: ran, want a stop on {stops!r}")
-            ledger = read_table(os.path.join(tools, LEDGER), LEDGER_HEADER)
-            assert ledger[:len(ledger_before)] == ledger_before, "the ledger was rewritten, not appended to"
+                raise AssertionError(f"{what}: ran, want a stop on {stops!r}")
+            after = ledger()
+            assert after[:len(ledger_before)] == ledger_before, f"{what}: the ledger was rewritten, not appended to"
+            print(f"  ok  {what}")
             return {d["name"]: d["id"] for d in clean.read(root, "departments") if d["degree"] == ASSOCIATE}
 
-        # The first run: two programs (the Burslu variant merged), ids not
-        # derived from the codes, the Java university matched.
-        first = step(2, base)
+        first = step("v2: first run, the Burslu variant merged, ids not derived", 2, base)
         assert sorted(first) == ["Anestezi", "Aşçılık"], first
-        for i in first.values():
-            assert uuid.UUID(i).version == 7, i
-        ledger = read_table(os.path.join(tools, LEDGER), LEDGER_HEADER)
-        assert [r["key"] for r in ledger] == [
-            "yok:university:1", "yok:unit:10", "osym:100000001", "osym:100000002", "osym:100000003"], ledger
-        assert ledger[0]["id"] == java_uni and ledger[0]["origin"] == "matched"
-        # Idempotent: the same source writes the same files, appends nothing.
-        files = {n: open(os.path.join(root, n), "rb").read() for n in os.listdir(root)}
-        assert step(2, base) == first
-        assert files == {n: open(os.path.join(root, n), "rb").read() for n in os.listdir(root)}
-        assert len(read_table(os.path.join(tools, LEDGER), LEDGER_HEADER)) == 5
+        assert all(uuid.UUID(i).version == 7 for i in first.values()), first
+        assert [r["key"] for r in ledger()] == [
+            "yok:university:1", "yok:unit:10", "osym:100000001", "osym:100000002", "osym:100000003"], ledger()
+        assert ledger()[0]["id"] == java_uni and ledger()[0]["origin"] == "matched"
+        snapshot = files()
+        assert step("v2: a second run changes nothing", 2, base) == first
+        assert files() == snapshot and len(ledger()) == 5
 
-        # The plain variant closes; "Burslu" carries the program's id.
-        assert step(3, base[1:]) == first
+        assert step("v3: the plain variant closes, Burslu keeps the id", 3, base[1:]) == first
 
-        # ÖSYM gives 100000003 to another program: the run stops.
         reused = base[1:2] + [record(100000003, *myo, "Bilgisayar Programcılığı")]
-        step(4, reused, stops="osym:100000003 is renamed")
-        # Decided "new": a new id; Aşçılık leaves the files.
-        decided = step(4, reused, decisions=[("osym:100000003", "new")])
+        step("v4: ÖSYM reuses 100000003", 4, reused, stops="osym:100000003 is renamed")
+        unit10 = latest("yok:unit:10")["id"]
+        step("v4: a decision for another state", 4, reused,
+             [decide(4, "osym:100000003", "new", "yok:unit:10", "Bilgisayar Programcılığı", (unit10, "Aşçılık Programı"))],
+             stops="does not meet the state")
+        step("v4: a decision of another version", 4, reused,
+             [decide(3, "osym:100000003", "new", "yok:unit:10", "Bilgisayar Programcılığı")],
+             stops="decided for version 3")
+        decision = decide(4, "osym:100000003", "new", "yok:unit:10", "Bilgisayar Programcılığı")
+        decided = step("v4: decided new", 4, reused, [decision])
         assert decided["Anestezi"] == first["Anestezi"]
         assert decided["Bilgisayar Programcılığı"] not in first.values() and "Aşçılık" not in decided, decided
+        assert latest("osym:100000003")["decision"] == "new"
+        assert step("v4: the same decision again changes nothing", 4, reused, [decision]) == decided
+        step("v5: the v4 decision left in the file", 5, reused, [decision], stops="decided for version 4")
+        step("v5: a decision with nothing to decide", 5, reused,
+             [decide(5, "osym:100000002", "same", "yok:unit:10", "Anestezi")], stops="nothing to decide")
 
-        # The code moves to another unit: the run stops, "same" cannot keep
-        # a moved program, "new" gives it a new id.
-        moved = [record(100000002, *other, "Anestezi"), reused[1]]
-        step(5, moved, stops="osym:100000002 is moved")
-        step(5, moved, decisions=[("osym:100000002", "same")], stops="decided same, but it moved")
-        after_move = step(5, moved, decisions=[("osym:100000002", "new")])
+        # The stale decision of the review: a "same" kept in the file must
+        # not let the code's next program take the id.
+        renamed = [base[1], record(100000003, *myo, "Bilgisayar Programcılığı Teknikerliği")]
+        kept = step("v5: decided same, a rename", 5, renamed,
+                    [decide(5, "osym:100000003", "same", "yok:unit:10", "Bilgisayar Programcılığı Teknikerliği")])
+        assert kept["Bilgisayar Programcılığı Teknikerliği"] == decided["Bilgisayar Programcılığı"], kept
+        stale = [base[1], record(100000003, *myo, "Aşçılık")]
+        step("v6: the v5 same left in the file, ÖSYM reuses the code", 6, stale,
+             [decide(5, "osym:100000003", "same", "yok:unit:10", "Bilgisayar Programcılığı Teknikerliği")],
+             stops="decided for version 5")
+        step("v6: the same rewritten for v6 but for the v5 state", 6, stale,
+             [decide(6, "osym:100000003", "same", "yok:unit:10", "Bilgisayar Programcılığı Teknikerliği",
+                     (unit10, "Bilgisayar Programcılığı"))], stops="does not meet the state")
+        step("v6: no decision", 6, stale, stops="osym:100000003 is renamed")
+
+        # A circumflex counts: "Aşçılık" and "Âşçılık" are two names; case
+        # and white space do not count.
+        assert step("v6: case and white space only", 6,
+                    [base[1], record(100000003, *myo, "BİLGİSAYAR  PROGRAMCILIĞI TEKNİKERLİĞİ")]) is not None
+        step("v6: a circumflex", 6, [base[1], record(100000003, *myo, "Bilgisayar Programcılığı Teknikerlîği")],
+             stops="osym:100000003 is renamed")
+
+        # Two codes of one program naming two ids: a "same" that merges two
+        # programs stops instead of picking one of them.
+        merge = [record(100000002, *myo, "Anestezi"), record(100000003, *myo, "Anestezi (Burslu)")]
+        step("v7: codes of one program name two ids", 7, merge,
+             [decide(7, "osym:100000003", "same", "yok:unit:10", "Anestezi")], stops="in the ledger")
+
+        # The code moves to another unit: "same" cannot keep it, "new" can.
+        moved = [record(100000002, *other, "Anestezi"), renamed[1]]
+        step("v7: moved", 7, moved, stops="osym:100000002 is moved")
+        step("v7: decided same for a move", 7, moved,
+             [decide(7, "osym:100000002", "same", "yok:unit:11", "Anestezi")], stops="decided same, but it moved")
+        after_move = step("v7: decided new for a move", 7, moved,
+                          [decide(7, "osym:100000002", "new", "yok:unit:11", "Anestezi")])
         assert after_move["Anestezi"] != first["Anestezi"], after_move
+        unit11 = latest("yok:unit:11")
+        assert unit11["origin"] == "minted"
 
-        # A rename decided "same" keeps the id and takes the new name.
-        renamed = [record(100000002, *other, "Anestezi Teknikerliği"), reused[1]]
-        step(6, renamed, stops="osym:100000002 is renamed")
-        kept = step(6, renamed, decisions=[("osym:100000002", "same")])
-        assert kept["Anestezi Teknikerliği"] == after_move["Anestezi"], kept
-        # The decision is in the ledger now: the next run needs none.
-        assert step(6, renamed) == kept
-        # A name that differs only in case and circumflex is the same name.
-        assert step(6, [record(100000002, *other, "ANESTEZİ TEKNİKERLİĞİ"), reused[1]]) is not None
+        # Unit 11 closes: it leaves the files and the ledger says so; it
+        # comes back under its id.
+        closed = step("v8: unit 11 closes", 8, [renamed[1]])
+        faculty_ids = {f["id"] for f in clean.read(root, "faculties")}
+        assert unit11["id"] not in faculty_ids and "Anestezi" not in closed
+        assert latest("yok:unit:11")["origin"] == "dropped" and latest("yok:unit:11")["id"] == unit11["id"]
+        back = step("v9: unit 11 comes back", 9, moved)
+        assert unit11["id"] in {f["id"] for f in clean.read(root, "faculties")}
+        assert latest("yok:unit:11")["origin"] == "matched" and back["Anestezi"] == after_move["Anestezi"], back
     print("self-test: ok")
 
 

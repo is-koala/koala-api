@@ -72,28 +72,43 @@ Birimler de aynı ilkeyle eşleşir. Önlisans programı olan MYO dışı dokuz 
 
 ### 6. Kimlik defteri: yalnız eklenir, kimlik dış koddan türemez
 
-`tools/id_ledger.csv` (karar koordinasyonun, 23.11.2026). YÖK'ten gelen her kaynak anahtarı için bir satır tutar: anahtar, kimlik, ebeveyn, ad, satırı ekleyen veri sürümü ve köken. Anahtarlar `yok:university:<universiteId>`, `yok:unit:<fymkId>` ve `osym:<kod>` biçimindedir. Köken iki değer alır: `minted` (kimlik bu anahtar için üretildi) ve `matched` (anahtar var olan bir satıra bağlandı: Java'nın 189 üniversitesi, 7 birimi). Bir anahtarın birden çok satırı olabilir; **anahtarın son satırı** bugünkü anlamıdır.
+`tools/id_ledger.csv` (karar koordinasyonun, 23.11.2026). YÖK'ten gelen her kaynak anahtarı için bir satır tutar: anahtar, kimlik, ebeveyn, ad, satırı ekleyen veri sürümü, köken ve karar (`key,id,parent,name,version,origin,decision`). Anahtarlar `yok:university:<universiteId>`, `yok:unit:<fymkId>` ve `osym:<kod>` biçimindedir. Köken üç değer alır:
+- `minted`: kimlik bu anahtar için üretildi;
+- `matched`: anahtar var olan bir satıra bağlandı (Java'nın 189 üniversitesi, 7 birimi) ya da düşmüş bir kimlik dosyaya geri döndü;
+- `dropped`: kimlik dosyadan çıktı.
+
+Bir anahtarın birden çok satırı olabilir; **anahtarın son satırı** bugünkü anlamıdır. Bir anahtarın ilk satırından sonraki her satır üç şeyden biridir: bir karar (`decision` kolonu `same` ya da `new`), bir düşme ya da düşmüş kimliğin geri dönüşü. Kararsız başka bir değişiklik `TestIDLedger`'da kırmızıdır.
 
 - **Yeni kimlik bir UUIDv7'dir** (ADR-0012 Karar 5) ve dış bir koddan türemez. Python'un `uuid.uuid7`'si 3.14'ündür; betik kendi üreticisini taşır (RFC 9562 §5.7).
-- **Defterdeki anahtar defterdeki kimliği alır**, yeter ki aynı ebeveynin altında ve aynı adla gelsin. Adlar büyük-küçük harf, şapka (â, î, û) ve fazla boşluk gözetilmeden karşılaştırılır ("Yapay Zeka" = "Yapay Zekâ").
+- **Defterdeki anahtar defterdeki kimliği alır**, yeter ki aynı ebeveynin altında ve aynı adla gelsin. Adlar yalnız büyük-küçük harf ve fazla boşluk gözetilmeden karşılaştırılır. **Şapka sayılır** ("kar" ile "kâr" iki ayrı sözcüktür): şapka kazanan ya da yitiren bir ad betiği durdurur ve karar ister (tutucu taraf, koordinasyonun tercihi). Bunun bedeli, YÖK'ün yalnız yazımı değiştirdiği bir adda da (ör. "Yapay Zeka" → "Yapay Zekâ") bir `same` kararı gerekmesidir.
 - **Bir programın kodlarından herhangi biri defterdeyse program o kimliği taşır.** İlk görüldüğü kod kapanan program kimliğini korur. Bir programın kodları defterde iki ayrı kimliği gösterirse betik durur.
-- **Yeniden kullanılan ya da taşınan kodda betik durur.** Defterdeki bir anahtar başka bir adla ya da başka bir ebeveynin altında gelirse `from_yok.py` hiçbir şey yazmadan durur ve anahtarları adlandırır. Karar `tools/id_decisions.csv`'ye yazılır (`key,decision,note`):
+- **Yeniden kullanılan ya da taşınan kodda betik durur.** Defterdeki bir anahtar başka bir adla ya da başka bir ebeveynin altında gelirse `from_yok.py` hiçbir şey yazmadan durur. Mesaj anahtarları adlandırır ve her biri için doldurulacak karar satırını basar. Karar `tools/id_decisions.csv`'ye yazılır:
   - `same`: aynı program, yeni adıyla, aynı ebeveynde. Kimliği korur.
   - `new`: başka bir program, yeni kimlik.
 
-  Başka ebeveyne geçmiş bir anahtar `same` olamaz (taşınan satır yeni satırdır, ADR-0037 Karar 3); betik bunu da durdurur. Karar deftere yeni bir satır olarak geçer: sonraki koşunun karar vermesi gerekmez, karar dosyası boşaltılabilir.
+  Başka ebeveyne geçmiş bir anahtar `same` olamaz (taşınan satır yeni satırdır, ADR-0037 Karar 3); betik bunu da durdurur. Karar, kararın verildiği durumla birlikte deftere bir satır olarak geçer.
+- **Karar verildiği durumu taşır** (doğrulamanın bulduğu bayat karar açığına karşı). Dosyanın kolonları `key,version,decision,ledger_parent,ledger_name,source_parent,source_name,note`'tur:
+  - `version`: kararın verildiği veri sürümü;
+  - `ledger_parent`, `ledger_name`: defterin o anahtar için gösterdiği ebeveyn kimliği ve ad;
+  - `source_parent`, `source_name`: kaynağın verdiği ebeveyn (kaynak anahtarıyla, ör. `yok:unit:11`; yeni bir birimin kimliği koşudan önce bilinmez) ve ad.
+
+  Betik bir kararı yalnız **şu anki `VERSION`'da** ve yalnız defterin ve kaynağın durumunu **birebir** tutuyorsa uygular. Başka bir sürümün kararı, tuttuğu durumu bulamayan bir karar ve karar verilecek bir şey yokken duran bir karar betiği durdurur. Böylece sürüm 5'te verilip dosyada unutulmuş bir `same`, sürüm 6'da ÖSYM'nin aynı kodu başka bir programa vermesini sessizce geçiremez. Kararın kaydı defterdeki satırdır; dosya yalnız güncel sürümün kararlarını tutar (`TestIDDecisions`) ve sonraki `VERSION`'la boşaltılır. Bir koda `new` denip program kimliğini başka bir kodu üzerinden yine eski kimlikle alırsa betik durur.
+- **Dosyadan çıkan birim ve üniversite deftere yazılır.** Programı kalmayan bir birim (MYO kapanmaları yaygındır) ya da birimi kalmayan bir üniversite dosyadan çıkar ve anahtarları bir `dropped` satırı alır. `TestIDLedger` her birim ve üniversite anahtarının ya dosyada olmasını ya da defterde düşmüş görünmesini ister; düşmüş görünüp dosyada duran kimlik de kırmızıdır. Birim geri gelirse aynı kimliği alır ve bir `matched` satırı yazılır. Düşmeyi yazmak, denetimi gevşetmekten kalıcıdır: defter neyin neden dosyada olmadığını kendisi söyler.
 - **Defterde olmayan anahtar** için sıra şöyledir:
   - üniversite yalnız `tools/yok_universities.csv` ile eşleşir (Karar 4);
   - birim önce `tools/yok_units.csv` ile, sonra aynı üniversitede aynı adla eşleşir;
   - program aynı birimde aynı ad ve dereceyle eşleşir (README'nin yıllık güncelleme adım 1'i);
   - hiçbiri tutmazsa yeni kimlik alır.
-- **Defter yalnız eklenir.** `TestIDLedgerIsAppendOnly`, `publishedLedger()`'daki her yayımlanmış sürüm için defterin ilk satırlarının özetini tutar. Yayımlanmış bir satırı değiştiren ya da silen ve `VERSION`'ı artırmadan satır ekleyen PR kırmızıdır. `TestIDLedger` dosyaları deftere bağlar: her kodun son satırı kendi bölümünü kendi fakültesinin altında gösterir; her `minted` kimlik UUIDv7'dir.
+- **Defter yalnız eklenir.** `TestIDLedgerIsAppendOnly`, `publishedLedger()`'daki her yayımlanmış sürüm için defterin ilk satırlarının özetini tutar. Yayımlanmış bir satırı değiştiren ya da silen ve `VERSION`'ı artırmadan satır ekleyen PR kırmızıdır. `TestIDLedger` dosyaları deftere bağlar: her kodun son satırı kendi bölümünü kendi fakültesinin altında gösterir; her `minted` kimlik UUIDv7'dir; bir anahtarın geçmişi yalnız kararla, düşmeyle ya da geri dönüşle değişir. `TestIDDecisions` karar dosyasını deftere bağlar: dosyadaki her karar, bu sürümün aynı anahtar ve kararla yazılmış bir defter satırıdır ve kararın adlandırdığı durum o satırın öncesi ve kendisidir; bu sürümün kararla yazılmış her satırının karşısında dosyada bir karar vardır.
 - **Betiğin kendi testi:** `from_yok.py --self-test` uydurma veriyle geçici bir dizinde koşar ve şunları dener:
   - ilk görüldüğü kodu kapanan program kimliğini korur;
   - yeniden kullanılan kod ve başka birime taşınan kod betiği durdurur, duran koşu hiçbir şey yazmaz;
   - `new` yeni kimlik verir; `same` adı değişeni korur, taşınanı korumaz;
-  - karar deftere geçer;
-  - ikinci koşu hiçbir şey değiştirmez;
+  - karar deftere geçer, aynı kararla ikinci koşu hiçbir şey değiştirmez;
+  - **bayat karar:** önceki sürümün dosyada kalan kararı (doğrulamanın senaryosu: sürüm 5'te `same`, sürüm 6'da kod başka programa gider), başka bir durum için verilmiş karar ve karar verilecek bir şey yokken duran karar betiği durdurur;
+  - **iki kimlik:** kodları defterde iki ayrı kimliği gösteren program betiği durdurur;
+  - **şapka** betiği durdurur, büyük-küçük harf ve boşluk durdurmaz;
+  - **birimin çıkışı:** programı kalmayan birim dosyadan çıkar, defterde `dropped` görünür, geri gelince aynı kimliği alır;
   - defter yalnız büyür.
 
   CI Python betiklerini koşmuyordu. Verify job'unda `python3` vardır (`make generate` `pairs.py`'yi onunla koşar); bu yüzden `TestFromYokSelfTest` öz testi bir Go birim testi olarak koşturur.
@@ -193,7 +208,9 @@ Down bir geliştirme aracıdır (`koala migrate` onu prod'da reddeder).
 | Sürüm 2'nin özeti; sürüm 1'inki aynı | `published()` | `referencedata.TestVersionNamesTheData` |
 | Defter yalnız eklenir: yayımlanmış satırlar bayt bayt aynı, `VERSION`'sız yeni satır yok, satırlar sürüm sırasında | `tools/id_ledger.csv`, `publishedLedger()` | `referencedata.TestIDLedgerIsAppendOnly` |
 | Her önlisans programının kodu var; her kodun son defter satırı kendi bölümünü kendi fakültesinde gösterir; `minted` kimlik UUIDv7'dir; her kod bir önlisans programınındır; varyantlar birleşti | dosyalar, defter | `referencedata.TestIDLedger` |
-| Yeniden kullanılan ve taşınan kod betiği durdurur, duran koşu yazmaz; `new`/`same`; kanonik kodu düşen program kimliğini korur; idempotent; defter yalnız büyür | `from_yok.py` | `from_yok.py --self-test`, `referencedata.TestFromYokSelfTest` |
+| Yeniden kullanılan ve taşınan kod betiği durdurur, duran koşu yazmaz; `new`/`same`; bayat, başka duruma ait ve gereksiz karar durur; iki kimlik durur; şapka durur; birimin çıkışı ve geri dönüşü; kanonik kodu düşen program kimliğini korur; idempotent; defter yalnız büyür | `from_yok.py` (`Ledger.lookup`, `check_new`, `drop`) | `from_yok.py --self-test`, `referencedata.TestFromYokSelfTest` |
+| Anahtarın geçmişi yalnız kararla, düşmeyle ya da geri dönüşle değişir; düşmüş birim ve üniversite dosyada yok, ötekiler var | defter | `referencedata.TestIDLedger` |
+| Karar dosyasında yalnız güncel sürümün kararları; her karar bu sürümün bir defter satırı ve adlandırdığı durumu tutar; kararla yazılmış her satırın kararı dosyada | `tools/id_decisions.csv` | `referencedata.TestIDDecisions` |
 | Tanıklar: THK Ankara Havacılık MYO / Uçak Teknolojisi (iki kod), Gülhane SMYO / Tıbbi Görüntüleme Teknikleri (Ankara) (kontenjan ekleri birleşti, yerleşke kaldı), İzmir Konak MYO (üniversite satırı), Atatürk Açıköğretim (iki derece, "(Önlisans)") | dosyalar | `referencedata.TestAssociateWitnesses` |
 | Kontenjan eki yok, ebeveyn altında tek ad (iki derece birlikte) | dosyalar | `referencedata.TestCleanupHolds` (değişmeden, önlisansı da tarar) |
 | Derece `ASSOCIATE`/`BACHELOR`, yalnız bölümde; kod 9 hane, tekil, bölümü dosyada; adda Zl, Zp ve Co yok | `Validate`, `checkName` | `referencedata.TestValidate` (her kural ayrı vaka) |
@@ -215,6 +232,7 @@ Down bir geliştirme aracıdır (`koala migrate` onu prod'da reddeder).
 
 **Denenmedi:**
 - Testlerin hiçbiri bu Mac'te koşturulmadı (CLAUDE.md); kanıt CI'dadır. Yalnız `from_yok.py --self-test` yerelde Python 3.14 ve 3.9 ile koştu.
+- `TestIDDecisions`'ın karar satırlı yolu gerçek veride boştur (2026'da karar yok); o yolu öz test dener, Go testi bugün yalnız başlığı ve boşluğu bağlar.
 - Kuralları tek tek silip testin kırmızıya döndüğü denenmedi; tablo testin neyi bağladığını yazar.
 - `koala reference sync --dry-run` yerelde koşturulmadı (veritabanı yok). Karar 8'in tablosu `from_yok.py`'nin raporundan gelir; `TestSyncFromVersionOne` ve `TestMigrationGivesVersionOneItsDegree` aynı sayıları CI'da bağlar.
 - `TestFromYokSelfTest` verify job'unda `python3`'ün bulunmasına dayanır; bulunmazsa kırmızıdır, atlanmaz.

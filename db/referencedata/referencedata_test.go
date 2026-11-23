@@ -74,12 +74,13 @@ func TestDatasetCounts(t *testing.T) {
 // ledgerRow is a row of tools/id_ledger.csv, the append-only id ledger of
 // tools/from_yok.py (ADR-0038 Karar 6).
 type ledgerRow struct {
-	key     string
-	id      uuid.UUID
-	parent  string
-	name    string
-	version int
-	origin  string
+	key      string
+	id       uuid.UUID
+	parent   string
+	name     string
+	version  int
+	origin   string
+	decision string
 }
 
 var ledgerKey = regexp.MustCompile(`^(yok:university:\d+|yok:unit:\d+|osym:\d{9})$`)
@@ -96,7 +97,7 @@ func readLedger(t *testing.T) ([]ledgerRow, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) == 0 || !slices.Equal(records[0], []string{"key", "id", "parent", "name", "version", "origin"}) {
+	if len(records) == 0 || !slices.Equal(records[0], []string{"key", "id", "parent", "name", "version", "origin", "decision"}) {
 		t.Fatalf("id_ledger.csv: header %v", records[:min(1, len(records))])
 	}
 	rows := make([]ledgerRow, 0, len(records)-1)
@@ -109,7 +110,7 @@ func readLedger(t *testing.T) ([]ledgerRow, []byte) {
 		if err != nil {
 			t.Fatalf("id_ledger.csv %v: %v", rec, err)
 		}
-		rows = append(rows, ledgerRow{key: rec[0], id: id, parent: rec[2], name: rec[3], version: v, origin: rec[5]})
+		rows = append(rows, ledgerRow{key: rec[0], id: id, parent: rec[2], name: rec[3], version: v, origin: rec[5], decision: rec[6]})
 	}
 	return rows, raw
 }
@@ -126,7 +127,7 @@ func publishedLedger() map[int]struct {
 		rows int
 		sum  string
 	}{
-		2: {10438, "82b6edfffb93766e6c09b2987def6cd14141131f9c6dd392ab2ab10bec85fbcf"},
+		2: {10438, "3116e0cb8aa8543a7d46c7f301d29b5de395c7156ec9a08b5f85933c512f618a"},
 	}
 }
 
@@ -170,10 +171,14 @@ func TestIDLedgerIsAppendOnly(t *testing.T) {
 
 // TestIDLedger binds the files to the ledger (ADR-0038 Karar 6): every key
 // is well formed; a minted id is a UUIDv7, never derived from an outside
-// code; every associate degree program has a code and every code's latest
-// ledger row names its department under its faculty, so the next year's
-// list finds the program by any of its codes, and losing the one it was
-// first seen under loses nothing.
+// code; a key's history changes only through a decision (same: the id and
+// parent stay; new: another id), a drop or a return after one; every
+// associate degree program has a code and every code's latest ledger row
+// names its department under its faculty, so the next year's list finds the
+// program by any of its codes, and losing the one it was first seen under
+// loses nothing; a unit or university key names a row of the files unless
+// its latest row says the id was dropped, and then the files do not have
+// it.
 func TestIDLedger(t *testing.T) {
 	t.Parallel()
 
@@ -181,11 +186,36 @@ func TestIDLedger(t *testing.T) {
 	rows, _ := readLedger(t)
 	latest := map[string]ledgerRow{}
 	for _, r := range rows {
-		if !ledgerKey.MatchString(r.key) || (r.origin != "minted" && r.origin != "matched") || r.version < 1 || r.version > d.Version {
+		if !ledgerKey.MatchString(r.key) || !slices.Contains([]string{"minted", "matched", "dropped"}, r.origin) ||
+			!slices.Contains([]string{"", "same", "new"}, r.decision) || r.version < 1 || r.version > d.Version {
 			t.Errorf("ledger row %+v: malformed", r)
 		}
 		if r.origin == "minted" && r.id.Version() != 7 {
 			t.Errorf("ledger row %s: a minted id %s is not a UUIDv7", r.key, r.id)
+		}
+		prev, seen := latest[r.key]
+		switch {
+		case !seen && (r.decision != "" || r.origin == "dropped"):
+			t.Errorf("ledger row %+v: a key's first row is neither decided nor dropped", r)
+		case !seen:
+		case r.origin == "dropped":
+			if r.decision != "" || r.id != prev.id || r.parent != prev.parent || r.name != prev.name || prev.origin == "dropped" {
+				t.Errorf("ledger row %+v: a drop repeats the key's row, %+v", r, prev)
+			}
+		case prev.origin == "dropped" && r.decision == "":
+			if r.id != prev.id || r.origin != "matched" {
+				t.Errorf("ledger row %+v: a dropped id comes back as it was, %+v", r, prev)
+			}
+		case r.decision == "same":
+			if r.id != prev.id || r.parent != prev.parent {
+				t.Errorf("ledger row %+v: decided same, but the id or the parent changed from %+v", r, prev)
+			}
+		case r.decision == "new":
+			if r.id == prev.id {
+				t.Errorf("ledger row %+v: decided new, but the id stayed", r)
+			}
+		default:
+			t.Errorf("ledger row %+v: changes %+v without a decision", r, prev)
 		}
 		latest[r.key] = r
 	}
@@ -228,11 +258,87 @@ func TestIDLedger(t *testing.T) {
 		faculties[f.ID] = f.Parent
 	}
 	for key, r := range latest {
+		_, isFaculty := faculties[r.id]
 		switch {
-		case strings.HasPrefix(key, "yok:university:") && !universities[r.id]:
+		case strings.HasPrefix(key, "yok:university:") && r.origin == "dropped" && universities[r.id]:
+			t.Errorf("%s: %s is dropped in the ledger but a university of the files", key, r.id)
+		case strings.HasPrefix(key, "yok:university:") && r.origin != "dropped" && !universities[r.id]:
 			t.Errorf("%s: %s is not a university of the files", key, r.id)
-		case strings.HasPrefix(key, "yok:unit:") && faculties[r.id].String() != r.parent:
+		case strings.HasPrefix(key, "yok:unit:") && r.origin == "dropped" && isFaculty:
+			t.Errorf("%s: %s is dropped in the ledger but a faculty of the files", key, r.id)
+		case strings.HasPrefix(key, "yok:unit:") && r.origin != "dropped" && faculties[r.id].String() != r.parent:
 			t.Errorf("%s: %s is not a faculty of %s in the files", key, r.id, r.parent)
+		}
+	}
+}
+
+// TestIDDecisions binds tools/id_decisions.csv to the ledger (ADR-0038
+// Karar 6): the file holds the current version's decisions only (the
+// ledger keeps the earlier ones), and each decision is a ledger row of
+// this version with the same key and decision, made for the state it
+// names: the key's row before it has the decision's ledger parent and
+// name, the row has its source name, and its parent is the id of the
+// decision's source parent. Every decided row of this version has its
+// decision in the file.
+func TestIDDecisions(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	rows, _ := readLedger(t)
+	raw, err := os.ReadFile(filepath.Join("tools", "id_decisions.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := csv.NewReader(bytes.NewReader(raw)).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"key", "version", "decision", "ledger_parent", "ledger_name", "source_parent", "source_name", "note"}
+	if len(records) == 0 || !slices.Equal(records[0], want) {
+		t.Fatalf("id_decisions.csv: header %v, want %v", records[:min(1, len(records))], want)
+	}
+	latest := map[string]ledgerRow{}
+	type decided struct {
+		row, before ledgerRow
+		parentIDs   map[string]uuid.UUID // source keys' ids when the row was added
+	}
+	byKey := map[string]decided{}
+	for _, r := range rows {
+		if r.decision != "" && r.version == d.Version {
+			ids := map[string]uuid.UUID{}
+			for k, l := range latest {
+				ids[k] = l.id
+			}
+			byKey[r.key] = decided{row: r, before: latest[r.key], parentIDs: ids}
+		}
+		latest[r.key] = r
+	}
+	listed := map[string]bool{}
+	for _, rec := range records[1:] {
+		key, version, decision := rec[0], rec[1], rec[2]
+		listed[key] = true
+		if version != strconv.Itoa(d.Version) {
+			t.Errorf("decision %v: version %s, VERSION %d; the file holds the current version's decisions only", rec, version, d.Version)
+			continue
+		}
+		x, ok := byKey[key]
+		if !ok || x.row.decision != decision {
+			t.Errorf("decision %v: no ledger row of version %d with that decision", rec, d.Version)
+			continue
+		}
+		// The ledger records a run's universities, then its units, then its
+		// codes: a decided key's source parent has its row by then.
+		sourceParent := x.row.parent
+		if rec[5] != "" {
+			sourceParent = x.parentIDs[rec[5]].String()
+		}
+		if rec[3] != x.before.parent || rec[4] != x.before.name || rec[6] != x.row.name || sourceParent != x.row.parent {
+			t.Errorf("decision %v: made for another state than the ledger's: before %+v, row %+v", rec, x.before, x.row)
+		}
+	}
+	for key, x := range byKey {
+		if !listed[key] {
+			t.Errorf("ledger row %+v: decided in version %d, but id_decisions.csv does not have it", x.row, d.Version)
 		}
 	}
 }
