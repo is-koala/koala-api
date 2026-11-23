@@ -2,13 +2,16 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path"
+	"strconv"
 	"text/tabwriter"
 	"time"
 
 	"github.com/is-koala/koala-api/db/migrations"
+	"github.com/is-koala/koala-api/db/referencedata"
 	"github.com/is-koala/koala-api/internal/platform/config"
 	"github.com/is-koala/koala-api/internal/platform/db"
 	"github.com/is-koala/koala-api/internal/platform/log"
@@ -85,15 +88,26 @@ func runMigrate(ctx context.Context, args []string, sio IO) int {
 		logger.InfoContext(ctx, "migrations up to date", slog.Int("applied", len(res)))
 		// The reference data is part of the schema's state: every up
 		// brings it in line with the files of this binary (ADR-0037).
-		summary, err := syncReference(ctx, cfg.OwnerDatabaseURL.Reveal(), logger, false)
+		allow, err := referencedata.ParseAllowRetire(cfg.ReferenceAllowRetire)
 		if err != nil {
+			logger.ErrorContext(ctx, "migrate failed", slog.String("error", config.VarReferenceAllowRetire+": "+err.Error()))
+			return ExitError
+		}
+		synced, err := syncReference(ctx, cfg.OwnerDatabaseURL.Reveal(), logger, referencedata.Options{AllowRetire: allow}, false)
+		if err != nil {
+			if limit := (*referencedata.RetireLimitError)(nil); errors.As(err, &limit) {
+				logger.ErrorContext(ctx, "migrate failed: the reference sync would retire too many rows",
+					slog.String("table", limit.Table), slog.Int("retire", limit.Retire), slog.Int("limit", limit.Limit),
+					slog.String("allow_with", config.VarReferenceAllowRetire+"="+limit.Table+":"+strconv.Itoa(limit.Retire)))
+				return ExitError
+			}
 			logger.ErrorContext(ctx, "migrate failed", slog.Any("error", err))
 			return ExitError
 		}
-		for _, c := range summary {
+		for _, c := range synced.Tables {
 			logger.InfoContext(ctx, "reference data synced", slog.String("table", c.Table),
-				slog.Int64("inserted", c.Inserted), slog.Int64("updated", c.Updated),
-				slog.Int64("retired", c.Retired), slog.Int64("unchanged", c.Unchanged))
+				slog.Int("inserted", len(c.Inserted)), slog.Int("updated", len(c.Updated)),
+				slog.Int("retired", len(c.Retired)), slog.Int("unchanged", c.Unchanged))
 		}
 	case "down":
 		res, err := migrator.Down(ctx)

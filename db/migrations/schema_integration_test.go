@@ -282,6 +282,8 @@ func TestRoleGrants(t *testing.T) {
 			"countries":    {"SELECT"},
 			"cities":       {"SELECT"},
 			"districts":    {"SELECT"},
+			// The lists' ETag (0047, ADR-0037).
+			"reference_data_version": {"SELECT"},
 			// The profile sync outbox (0046, ADR-0036): written by the
 			// profile changes, marked published by the dispatcher; never
 			// deleted by the application yet.

@@ -1,6 +1,10 @@
 package referencedata
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -8,16 +12,23 @@ import (
 	"github.com/google/uuid"
 )
 
-// TestDatasetCounts binds the embedded files to their row counts
-// (README.md): a file cut short, a lost line or a file that stopped being
-// embedded is red here, before any database is involved.
-func TestDatasetCounts(t *testing.T) {
-	t.Parallel()
-
+func load(t *testing.T) *Dataset {
+	t.Helper()
 	d, err := Load()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return d
+}
+
+// TestDatasetCounts binds the embedded files to their row counts after the
+// cleanup (README.md): a file cut short, a lost line, a cleanup undone or
+// a file that stopped being embedded is red here, before any database is
+// involved.
+func TestDatasetCounts(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
 	for _, tc := range []struct {
 		table string
 		rows  []Row
@@ -25,14 +36,17 @@ func TestDatasetCounts(t *testing.T) {
 	}{
 		{"countries", d.Countries, 1},
 		{"cities", d.Cities, 81},
-		{"districts", d.Districts, 995},
-		{"universities", d.Universities, 223},
-		{"faculties", d.Faculties, 2326},
-		{"departments", d.Departments, 11250},
+		{"districts", d.Districts, 972},
+		{"universities", d.Universities, 224},
+		{"faculties", d.Faculties, 2047},
+		{"departments", d.Departments, 7571},
 	} {
 		if len(tc.rows) != tc.want {
 			t.Errorf("%s: %d rows, want %d", tc.table, len(tc.rows), tc.want)
 		}
+	}
+	if d.Version != 1 {
+		t.Errorf("Version = %d, want 1", d.Version)
 	}
 	if got, want := Tables(), []string{"countries", "cities", "districts", "universities", "faculties", "departments"}; !slices.Equal(got, want) {
 		t.Errorf("Tables() = %v, want %v (parents first)", got, want)
@@ -44,10 +58,7 @@ func TestDatasetCounts(t *testing.T) {
 func TestDatasetKeepsJavaIDs(t *testing.T) {
 	t.Parallel()
 
-	d, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := load(t)
 	for _, tc := range []struct {
 		rows   []Row
 		id     string
@@ -60,6 +71,9 @@ func TestDatasetKeepsJavaIDs(t *testing.T) {
 		{d.Universities, "a1c346d6-2872-4194-9b98-3f0ea5b838ec", "", "ADIYAMAN ÜNİVERSİTESİ"},
 		{d.Faculties, "a8004de5-6f16-41ea-9841-42ed646684cf", "b8cf7211-a21b-4e1f-ad1a-7bacdd914fc3", "İnsan ve Toplum Bilimleri Fakültesi"},
 		{d.Departments, "97d43fdf-0a52-4f95-9dab-8d5adbf2d37f", "a8004de5-6f16-41ea-9841-42ed646684cf", "Psikoloji (İngilizce)"},
+		// İYTE: listed as a faculty of İzmir Katip Çelebi, a university of
+		// its own under the same id (the cleanup, rule 4).
+		{d.Universities, "f458e88f-1201-4231-b4f7-7ede110e9c05", "", "İZMİR YÜKSEK TEKNOLOJİ ENSTİTÜSÜ"},
 	} {
 		i := slices.IndexFunc(tc.rows, func(r Row) bool { return r.ID == uuid.MustParse(tc.id) })
 		if i < 0 {
@@ -79,34 +93,86 @@ func TestDatasetKeepsJavaIDs(t *testing.T) {
 	}
 }
 
-// TestDuplicateNamesAreAllowed records the source as it is: 5 faculties
-// and 17 departments share their name with a sibling, and the files keep
-// them (no unique name; ADR-0037). A validation rule that refused them
-// would refuse the whole snapshot.
-func TestDuplicateNamesAreAllowed(t *testing.T) {
+// TestCleanupHolds binds the cleanup of tools/clean.py to the files
+// (ADR-0037 Karar 4a): a file written back from Java's snapshot without
+// it is red here, rule by rule.
+func TestCleanupHolds(t *testing.T) {
 	t.Parallel()
 
-	d, err := Load()
-	if err != nil {
-		t.Fatal(err)
+	d := load(t)
+	all := slices.Concat(d.Countries, d.Cities, d.Districts, d.Universities, d.Faculties, d.Departments)
+
+	// 1. White space.
+	for _, r := range all {
+		if strings.Contains(r.Name, "  ") || strings.ContainsRune(r.Name, '\u00a0') {
+			t.Errorf("%s %q: double space or NBSP", r.ID, r.Name)
+		}
 	}
-	dups := func(rows []Row) int {
+	// 2. No MERKEZ in a metropolitan province; the 51 others keep theirs.
+	metropolitan := map[string]bool{}
+	for _, c := range []string{
+		"ADANA", "ANKARA", "ANTALYA", "AYDIN", "BALIKESİR", "BURSA", "DENİZLİ", "DİYARBAKIR", "ERZURUM",
+		"ESKİŞEHİR", "GAZİANTEP", "HATAY", "İSTANBUL", "İZMİR", "KAHRAMANMARAŞ", "KAYSERİ", "KOCAELİ", "KONYA",
+		"MALATYA", "MANİSA", "MARDİN", "MERSİN", "MUĞLA", "ORDU", "SAKARYA", "SAMSUN", "ŞANLIURFA", "TEKİRDAĞ",
+		"TRABZON", "VAN",
+	} {
+		metropolitan[c] = true
+	}
+	cityName := map[uuid.UUID]string{}
+	cities := map[string]bool{}
+	for _, c := range d.Cities {
+		cityName[c.ID] = c.Name
+		cities[c.Name] = true
+	}
+	found := 0
+	for name := range metropolitan {
+		if cities[name] {
+			found++
+		}
+	}
+	if found != 30 {
+		t.Errorf("%d of the 30 metropolitan provinces are cities", found)
+	}
+	merkez := 0
+	for _, r := range d.Districts {
+		if r.Name == "MERKEZ" {
+			merkez++
+			if metropolitan[cityName[r.Parent]] {
+				t.Errorf("MERKEZ %s in the metropolitan province %s", r.ID, cityName[r.Parent])
+			}
+		}
+	}
+	if merkez != 51 {
+		t.Errorf("%d MERKEZ districts, want one per non-metropolitan province (51)", merkez)
+	}
+	// 3 and 4. YÖK's note and İYTE are no faculties.
+	for _, id := range []string{
+		"9c91f25a-d029-452b-8008-768f117bb9e4", "339d2654-b490-4863-8963-35f4b27980e8", "f458e88f-1201-4231-b4f7-7ede110e9c05",
+	} {
+		if slices.ContainsFunc(d.Faculties, func(r Row) bool { return r.ID == uuid.MustParse(id) }) {
+			t.Errorf("faculty %s is listed", id)
+		}
+	}
+	// 5 to 7. One row per (parent, name), and no quota or fee suffix.
+	quota := regexp.MustCompile(`\((Burslu|%\d+ İndirimli|Ücretli|İÖ|KKTC Uyruklu|M\.T\.O\.K\.|Erkek|Kız|Milli Savunma Bakanlığı Adına|İçişleri Bakanlığı Adına)\)`)
+	for _, rows := range [][]Row{d.Faculties, d.Departments} {
 		seen := map[[2]string]bool{}
-		n := 0
 		for _, r := range rows {
 			k := [2]string{r.Parent.String(), r.Name}
 			if seen[k] {
-				n++
+				t.Errorf("%s %q: a sibling has the same name", r.ID, r.Name)
 			}
 			seen[k] = true
+			if quota.MatchString(r.Name) {
+				t.Errorf("%s %q: a quota or fee suffix", r.ID, r.Name)
+			}
 		}
-		return n
 	}
-	if got := dups(d.Faculties); got != 5 {
-		t.Errorf("faculties: %d duplicate names under one university, want 5", got)
-	}
-	if got := dups(d.Departments); got != 17 {
-		t.Errorf("departments: %d duplicate names under one faculty, want 17", got)
+	// What the cleanup keeps as programs of their own.
+	for _, keep := range []string{"(İngilizce)", "(Uzaktan Öğretim)", "(Açıköğretim)", "(UOLP-"} {
+		if !slices.ContainsFunc(d.Departments, func(r Row) bool { return strings.Contains(r.Name, keep) }) {
+			t.Errorf("no department carries %s; the cleanup keeps it as a program", keep)
+		}
 	}
 }
 
@@ -115,6 +181,7 @@ func small() *Dataset {
 	country, city := uuid.New(), uuid.New()
 	university, faculty := uuid.New(), uuid.New()
 	return &Dataset{
+		Version:      1,
 		Countries:    []Row{{ID: country, Code: "TR", Name: "TÜRKİYE"}},
 		Cities:       []Row{{ID: city, Parent: country, Name: "ADANA"}},
 		Districts:    []Row{{ID: uuid.New(), Parent: city, Name: "SEYHAN"}},
@@ -136,6 +203,7 @@ func TestValidate(t *testing.T) {
 		mutate func(*Dataset)
 		want   string
 	}{
+		"no version":           {func(d *Dataset) { d.Version = 0 }, "positive version"},
 		"no id":                {func(d *Dataset) { d.Districts[0].ID = uuid.Nil }, "without an id"},
 		"listed twice":         {func(d *Dataset) { d.Departments = append(d.Departments, d.Departments[0]) }, "listed twice"},
 		"orphan":               {func(d *Dataset) { d.Departments[0].Parent = uuid.New() }, "is not a row of faculties"},
@@ -146,10 +214,15 @@ func TestValidate(t *testing.T) {
 		"name of 200":          {func(d *Dataset) { d.Faculties[0].Name = strings.Repeat("ş", 200) }, ""},
 		"surrounding space":    {func(d *Dataset) { d.Cities[0].Name = "ADANA " }, "surrounding space"},
 		"control character":    {func(d *Dataset) { d.Cities[0].Name = "ADA\tNA" }, "control character"},
+		"zero width space":     {func(d *Dataset) { d.Cities[0].Name = "ADA\u200bNA" }, "invisible format character"},
+		"right-to-left":        {func(d *Dataset) { d.Faculties[0].Name = "Fen \u202eFakültesi" }, "invisible format character"},
+		"byte order mark":      {func(d *Dataset) { d.Departments[0].Name = "\ufeffFizik" }, "invisible format character"},
+		"NBSP inside":          {func(d *Dataset) { d.Cities[0].Name = "ADA\u00a0NA" }, ""},
 		"not UTF-8":            {func(d *Dataset) { d.Cities[0].Name = "AD\xffNA" }, "not UTF-8"},
 		"bad code":             {func(d *Dataset) { d.Countries[0].Code = "tr" }, "not ISO 3166-1 alpha-2"},
 		"code twice":           {func(d *Dataset) { d.Countries = append(d.Countries, Row{ID: uuid.New(), Code: "TR", Name: "X"}) }, "code TR listed twice"},
 		"code outside country": {func(d *Dataset) { d.Cities[0].Code = "TR" }, "cities has no code"},
+		"header only leaf":     {func(d *Dataset) { d.Departments = nil }, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -202,5 +275,102 @@ func TestParse(t *testing.T) {
 				t.Fatalf("parse() = %v, want an error with %q", err, tc.want)
 			}
 		})
+	}
+	// A header and nothing else is a valid file: it lists no row. Sync's
+	// retirement limit, not Validate, stops it (TestSyncStopsAtTheRetireLimit).
+	rows, err := parse(faculties, []byte("id,university_id,name\n"))
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("header only: %v, %v", rows, err)
+	}
+}
+
+// TestParseVersion reads VERSION: one positive integer.
+func TestParseVersion(t *testing.T) {
+	t.Parallel()
+
+	for raw, want := range map[string]int{"1\n": 1, "12": 12, "2147483647\n": 2147483647} {
+		if got, err := parseVersion([]byte(raw)); err != nil || got != want {
+			t.Errorf("parseVersion(%q) = %d, %v; want %d", raw, got, err, want)
+		}
+	}
+	for _, raw := range []string{"", "0\n", "-1\n", "1.0\n", "v1\n", "1\n\n", "2147483648\n"} {
+		if _, err := parseVersion([]byte(raw)); err == nil {
+			t.Errorf("parseVersion(%q) succeeded", raw)
+		}
+	}
+}
+
+// TestParseAllowRetire reads --allow-retire and its variable.
+func TestParseAllowRetire(t *testing.T) {
+	t.Parallel()
+
+	got, err := ParseAllowRetire("departments:120, faculties:0")
+	if err != nil || len(got) != 2 || got["departments"] != 120 || got["faculties"] != 0 {
+		t.Fatalf("ParseAllowRetire = %v, %v", got, err)
+	}
+	if got, err := ParseAllowRetire(""); err != nil || len(got) != 0 {
+		t.Fatalf("empty: %v, %v", got, err)
+	}
+	for _, s := range []string{"departments", "departments:-1", "departments:x", "users:3", "departments:1,departments:2", ","} {
+		if _, err := ParseAllowRetire(s); err == nil {
+			t.Errorf("ParseAllowRetire(%q) succeeded", s)
+		}
+	}
+}
+
+// TestRetireLimit is 5 % of the rows in use, at least 10.
+func TestRetireLimit(t *testing.T) {
+	t.Parallel()
+
+	for active, want := range map[int]int{0: 10, 81: 10, 199: 10, 220: 11, 972: 48, 7571: 378} {
+		if got := RetireLimit(active); got != want {
+			t.Errorf("RetireLimit(%d) = %d, want %d", active, got, want)
+		}
+	}
+}
+
+// published maps every data version to the checksum of its files. A
+// published version is never rewritten: a change of the files without a
+// new VERSION changes the checksum of a version that databases already
+// hold, and is red here. A new version appends its line; the old lines
+// stay, so a rewritten one shows in review.
+func published() map[int]string {
+	return map[int]string{
+		1: "d46c474bb5b1aa8709469480419441c7f57f1d09fd7011a635e45329a615466b",
+	}
+}
+
+// TestVersionNamesTheData binds VERSION to the files: the current files'
+// checksum is the one published for the current version, and VERSION is
+// the newest published version.
+func TestVersionNamesTheData(t *testing.T) {
+	t.Parallel()
+
+	d := load(t)
+	entries, err := FS.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := sha256.New()
+	for _, e := range entries { // ReadDir sorts by name
+		if !strings.HasSuffix(e.Name(), ".csv") {
+			continue
+		}
+		data, err := FS.ReadFile(e.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.Write([]byte(e.Name()))
+		h.Write([]byte{0})
+		h.Write(data)
+		h.Write([]byte{0})
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	versions := published()
+	if want, ok := versions[d.Version]; !ok || got != want {
+		t.Errorf("version %d: the files' checksum is %s, published %q; a change of the files needs a new VERSION and a new line in published()", d.Version, got, want)
+	}
+	if newest := slices.Max(slices.Collect(maps.Keys(versions))); newest != d.Version {
+		t.Errorf("VERSION is %d, the newest published version %d", d.Version, newest)
 	}
 }

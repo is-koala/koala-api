@@ -197,8 +197,7 @@ func New(t *testing.T) DB {
 	conn := connectAdmin(ctx, t)
 	defer closeConn(ctx, conn)
 
-	fsys := migrationFS(t)
-	name := templateName(fsys, referenceFS())
+	fsys, name := templateOf(t)
 	for range cloneAttempts {
 		withLock(ctx, t, conn, false, func() {
 			prepare(ctx, t, conn)
@@ -393,21 +392,33 @@ func templateName(fsys, reference fstest.MapFS) string {
 	return templatePrefix + hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// referenceFS copies the embedded reference files, as templateName hashes
-// them.
+// templateOf returns the migrations New applies and the name of the
+// template it clones: everything that shapes the template, hashed.
+func templateOf(t *testing.T) (fstest.MapFS, string) {
+	t.Helper()
+	fsys := migrationFS(t)
+	return fsys, templateName(fsys, referenceFS())
+}
+
+// referenceFS copies what the reference sync writes from: the data files
+// and VERSION (referencedata.FS) and the sync's own Go files
+// (referencedata.SourceFS), so a change of the sync's logic rebuilds the
+// template too.
 func referenceFS() fstest.MapFS {
 	out := fstest.MapFS{}
-	entries, err := fs.ReadDir(referencedata.FS, ".")
-	if err != nil {
-		// The files are embedded at build time; reading them cannot fail.
-		panic("dbtest: embedded reference data: " + err.Error())
-	}
-	for _, e := range entries {
-		data, err := fs.ReadFile(referencedata.FS, e.Name())
+	for prefix, src := range map[string]fs.FS{"reference/": referencedata.FS, "reference/src/": referencedata.SourceFS} {
+		entries, err := fs.ReadDir(src, ".")
 		if err != nil {
+			// The files are embedded at build time; reading them cannot fail.
 			panic("dbtest: embedded reference data: " + err.Error())
 		}
-		out["reference/"+e.Name()] = &fstest.MapFile{Data: data}
+		for _, e := range entries {
+			data, err := fs.ReadFile(src, e.Name())
+			if err != nil {
+				panic("dbtest: embedded reference data: " + err.Error())
+			}
+			out[prefix+e.Name()] = &fstest.MapFile{Data: data}
+		}
 	}
 	return out
 }
@@ -494,7 +505,7 @@ func syncReference(ctx context.Context, ownerURL string) error {
 	}
 	defer owner.Close()
 	err = owner.InTx(ctx, func(ctx context.Context, q db.Querier) error {
-		if _, err := referencedata.Sync(ctx, q, data); err != nil {
+		if _, err := referencedata.Sync(ctx, q, data, referencedata.Options{}); err != nil {
 			return fmt.Errorf("sync reference data: %w", err)
 		}
 		return nil

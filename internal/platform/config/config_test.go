@@ -943,3 +943,23 @@ func TestLoadReadsTheVerificationBounds(t *testing.T) {
 		t.Errorf("Load(verification bounds) = %+v, %v", cfg.Verification, err)
 	}
 }
+
+// TestLoadReadsTheReferenceAllowRetire: the exception to the reference
+// sync's retirement limit is read as given and refused when it is not
+// <table>:<rows> pairs (ADR-0037); the sync checks the table names.
+func TestLoadReadsTheReferenceAllowRetire(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load([]string{"KOALA_ENV=test", config.VarReferenceAllowRetire + "=departments:120, faculties:3"})
+	if err != nil || cfg.ReferenceAllowRetire != "departments:120, faculties:3" {
+		t.Fatalf("Load() = %q, %v", cfg.ReferenceAllowRetire, err)
+	}
+	if cfg, err := config.Load([]string{"KOALA_ENV=test"}); err != nil || cfg.ReferenceAllowRetire != "" {
+		t.Fatalf("unset: %q, %v", cfg.ReferenceAllowRetire, err)
+	}
+	for _, v := range []string{"", "departments", "departments:", "departments:-1", "departments:x", "Departments:1", "departments:1;faculties:2", "departments:1234567890"} {
+		if _, err := config.Load([]string{"KOALA_ENV=test", config.VarReferenceAllowRetire + "=" + v}); err == nil {
+			t.Errorf("%s=%q was accepted", config.VarReferenceAllowRetire, v)
+		}
+	}
+}

@@ -88,10 +88,10 @@ func TestMigrateCommand(t *testing.T) {
 	if riverTables() == 0 {
 		t.Fatal("no River tables after up")
 	}
-	if dep, dis := referenceRows(); dep != 11250 || dis != 995 {
-		t.Fatalf("after up: %d departments, %d districts; want 11250 and 995\n%s", dep, dis, out)
+	if dep, dis := referenceRows(); dep != 7571 || dis != 972 {
+		t.Fatalf("after up: %d departments, %d districts; want 7571 and 972\n%s", dep, dis, out)
 	}
-	if !strings.Contains(out, `"msg":"reference data synced"`) || !strings.Contains(out, `"inserted":11250`) {
+	if !strings.Contains(out, `"msg":"reference data synced"`) || !strings.Contains(out, `"inserted":7571`) {
 		t.Errorf("up logged no reference summary:\n%s", out)
 	}
 	out = migrate("up", ExitOK) // nothing pending: still success, nothing to sync
@@ -110,8 +110,8 @@ func TestMigrateCommand(t *testing.T) {
 
 	migrate("up", ExitOK)
 	wantStatus(total)
-	if dep, dis := referenceRows(); dep != 11250 || dis != 995 {
-		t.Fatalf("after down and up: %d departments, %d districts; want 11250 and 995", dep, dis)
+	if dep, dis := referenceRows(); dep != 7571 || dis != 972 {
+		t.Fatalf("after down and up: %d departments, %d districts; want 7571 and 972", dep, dis)
 	}
 }
 
@@ -162,6 +162,8 @@ func TestOwnerCommandsRefuseSuperuser(t *testing.T) {
 	}{
 		{[]string{"migrate", "status"}, "KOALA_OWNER_DATABASE_URL=" + super.URL},
 		{[]string{"maint", "reindex"}, "KOALA_OWNER_DATABASE_URL=" + super.URL},
+		{[]string{"reference", "sync"}, "KOALA_OWNER_DATABASE_URL=" + super.URL},
+		{[]string{"reference", "sync", "--dry-run"}, "KOALA_OWNER_DATABASE_URL=" + super.URL},
 		{[]string{"bootstrap"}, "KOALA_BOOTSTRAP_DATABASE_URL=" + super.URLFor("postgres")},
 	}
 	for _, tt := range tests {

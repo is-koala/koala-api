@@ -13,6 +13,11 @@
 -- up` brings the tables in line with after the migrations (insert the
 -- new, update the changed, retire the dropped; ADR-0037).
 --
+-- reference_data_version: the version of db/referencedata the tables were
+-- last brought in line with (db/referencedata/VERSION). A sync with an
+-- older version writes nothing, so a rolled-back release does not take the
+-- data back; the lists derive their ETag from it. One row.
+--
 -- turkish: an ICU collation for the reference names. The lists are
 -- ordered by name and the names are Turkish: under the byte order Ç, Ğ,
 -- İ, Ö, Ş and Ü sort after Z, and under the root collation Ş sorts with
@@ -60,13 +65,24 @@ CREATE TABLE districts (
 
 CREATE INDEX districts_city_idx ON districts (city_id);
 
+CREATE TABLE reference_data_version (
+    singleton boolean PRIMARY KEY DEFAULT true,
+    version integer NOT NULL,
+    synced_at timestamptz NOT NULL,
+    CONSTRAINT reference_data_version_singleton_check CHECK (singleton),
+    CONSTRAINT reference_data_version_version_check CHECK (version >= 1)
+);
+
 -- Reference data: read-only for the application; its rows come from
 -- db/referencedata through `koala migrate up` as koala_owner (ADR-0037).
 GRANT SELECT ON countries TO koala_app;
 GRANT SELECT ON cities TO koala_app;
 GRANT SELECT ON districts TO koala_app;
+-- The lists' ETag.
+GRANT SELECT ON reference_data_version TO koala_app;
 
 -- +goose Down
+DROP TABLE reference_data_version;
 DROP TABLE districts;
 DROP TABLE cities;
 DROP TABLE countries;

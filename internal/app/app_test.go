@@ -51,6 +51,8 @@ func TestRunUsage(t *testing.T) {
 		{"reference unknown command", []string{"reference", "load"}, ExitUsage},
 		{"reference unknown flag", []string{"reference", "sync", "--force"}, ExitUsage},
 		{"reference help", []string{"reference", "help"}, ExitOK},
+		{"reference allow-retire of another table", []string{"reference", "sync", "--allow-retire=users:1"}, ExitUsage},
+		{"reference allow-retire without rows", []string{"reference", "sync", "--allow-retire=departments"}, ExitUsage},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

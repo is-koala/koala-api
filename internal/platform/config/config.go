@@ -15,6 +15,7 @@ import (
 	"net/mail"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -87,6 +88,10 @@ const (
 	// VarVerificationStartsPerIPHour overrides the per-client-address
 	// hourly budget of verification starts (ADR-0033).
 	VarVerificationStartsPerIPHour = "KOALA_VERIFICATION_STARTS_PER_IP_HOUR"
+	// VarReferenceAllowRetire lets `koala migrate up` retire more reference
+	// rows than the sync's limit: comma-separated <table>:<rows> pairs, set
+	// for the one release that means it (ADR-0037).
+	VarReferenceAllowRetire = "KOALA_REFERENCE_ALLOW_RETIRE"
 )
 
 // The text message senders (VarSMSDriver).
@@ -111,6 +116,7 @@ var known = []string{ //nolint:gochecknoglobals // read-only registry of names
 	VarRegistrationMailsPerHour, VarRegistrationStartsPerIPHour,
 	VarSMSAPIKey, VarSMSAPIHash, VarSMSSender, VarSMSPerHour, VarSMSDriver,
 	VarVerificationMailsPerHour, VarVerificationStartsPerIPHour,
+	VarReferenceAllowRetire,
 }
 
 // Variables returns every KOALA_* variable Load understands, in the
@@ -208,6 +214,10 @@ type Config struct {
 	// Verification holds the bounds of the e-mail and phone verification
 	// that are not the text message account's (ADR-0033).
 	Verification Verification
+	// ReferenceAllowRetire is VarReferenceAllowRetire as given, shape-checked
+	// here (<table>:<rows>, comma-separated); migrate up hands it to the
+	// reference sync, which knows the tables. Empty: the limit holds.
+	ReferenceAllowRetire string
 }
 
 // Verification is the validated verification configuration. A zero field
@@ -418,6 +428,13 @@ func Load(environ []string) (Config, error) {
 	errs = append(errs, loadObjectStore(vars, &cfg)...)
 	errs = append(errs, loadMail(vars, &cfg)...)
 	errs = append(errs, loadSMS(vars, &cfg)...)
+	if v, ok := vars[VarReferenceAllowRetire]; ok {
+		v = strings.TrimSpace(v)
+		if !allowRetire.MatchString(v) {
+			errs = append(errs, fmt.Errorf("%s: %w: want <table>:<rows>, comma-separated", VarReferenceAllowRetire, errInvalidValue))
+		}
+		cfg.ReferenceAllowRetire = v
+	}
 
 	if len(errs) > 0 {
 		slices.SortFunc(errs, func(a, b error) int { return strings.Compare(a.Error(), b.Error()) })
@@ -427,6 +444,9 @@ func Load(environ []string) (Config, error) {
 }
 
 var errInvalidValue = errors.New("invalid value")
+
+// allowRetire is the shape of VarReferenceAllowRetire.
+var allowRetire = regexp.MustCompile(`^[a-z_]+:[0-9]{1,9}( *, *[a-z_]+:[0-9]{1,9})*$`)
 
 // loadEdge reads the variables of the HTTP edge: the client version gate,
 // the trusted proxies and the metrics listener (ADR-0021).

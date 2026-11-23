@@ -289,6 +289,13 @@ tables:
       addresses name. Read-only for the application; rows come from
       db/referencedata through koala migrate up and are retired with
       retired_at, never deleted (ADR-0037).
+  reference_data_version:
+    class: M6
+    reason: >-
+      One row: the version of db/referencedata the reference tables were
+      last brought in line with (ADR-0037). Written by the sync as
+      koala_owner, read by the reference lists for their ETag; a setting,
+      not data.
   educations:
     class: soft_delete
     pii: true
